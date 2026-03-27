@@ -1,3 +1,35 @@
+-- DailyStats aggregate row stability:
+-- keep the schema-owned series key in sync without relying on a standalone migration file.
+ALTER TABLE "DailyStats" ADD COLUMN IF NOT EXISTS "seriesKey" TEXT;
+
+UPDATE "DailyStats"
+SET "seriesKey" = CASE
+  WHEN "strategy" IS NULL THEN 'ALL'
+  ELSE "strategy"::text
+END
+WHERE "seriesKey" IS NULL;
+
+WITH ranked_daily_stats AS (
+  SELECT
+    ctid,
+    ROW_NUMBER() OVER (
+      PARTITION BY "date", "mode", "configProfile", "seriesKey"
+      ORDER BY "createdAt" DESC, "id" DESC
+    ) AS rn
+  FROM "DailyStats"
+)
+DELETE FROM "DailyStats"
+WHERE ctid IN (
+  SELECT ctid
+  FROM ranked_daily_stats
+  WHERE rn > 1
+);
+
+ALTER TABLE "DailyStats" ALTER COLUMN "seriesKey" SET NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS "DailyStats_date_seriesKey_mode_configProfile_key"
+  ON "DailyStats" ("date", "seriesKey", "mode", "configProfile");
+
 -- Dashboard Overview: current bot state + today's performance
 -- Use with mode filter: WHERE mode = 'LIVE' or mode = 'DRY_RUN'
 CREATE OR REPLACE VIEW v_dashboard_overview AS
