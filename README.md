@@ -2,14 +2,14 @@
 
 Solana memecoin trading bot with a TypeScript backend, a Next.js dashboard, PostgreSQL, and Redis.
 
-This repository is a workspace. The actual application lives in `trading_bot/`. The root also contains Codex and Claude agent configuration used for development in this repo.
+This repository is a workspace. The actual application lives in `trading_bot/`. The root also contains Codex agent configuration used for development in this repo.
 
 ## What is here
 
 - `trading_bot/src/`: backend, strategies, services, API routes, and workers
-- `trading_bot/prisma/`: Prisma schema, migrations, seed, and SQL views
+- `trading_bot/prisma/`: Prisma schema, seed, and SQL views
 - `trading_bot/dashboard/`: Next.js dashboard
-- `.codex/`, `.claude/`, `.agents/`: local agent and workflow configuration
+- `.codex/`, `.agents/`: local agent and workflow configuration
 
 ## Quick start
 
@@ -62,7 +62,7 @@ From `trading_bot/`:
 ```bash
 npm run typecheck
 npm run build
-npm run db:migrate
+npm run db:push
 npm run db:seed
 npm run db:studio
 ```
@@ -79,3 +79,6 @@ npm run lint
 - `LIVE` mode sends real trades. Treat it accordingly.
 - The current capital and risk defaults are tuned for a small account, around `$200`, with a maximum of `5` open positions.
 - Internal audit notes live in `trading_bot/docs/`.
+- Prisma changes are schema-and-views only here: update `trading_bot/prisma/schema.prisma` and `trading_bot/prisma/views/create_views.sql`, and do not create migration files.
+- Control-plane write actions are authenticated through the dashboard proxy; keep any new pause/resume/manual/profile mutations on that same protected path.
+- Analytics and dashboard filters must stay parameter-consistent: query keys, URL params, and backend filters should all vary together for `days`, `mode`, `configProfile`, and `tradeSource` when relevant.

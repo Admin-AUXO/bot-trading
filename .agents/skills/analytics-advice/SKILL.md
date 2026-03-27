@@ -12,6 +12,8 @@ Use this skill for metrics and performance interpretation.
 - Prefer repeatable metrics over anecdotes.
 - Highlight sample-size limits and data quality caveats.
 - Frame recommendations as testable hypotheses.
+- Check that historical metrics come from immutable records or snapshots rather than mutable runtime singleton state.
+- Verify sign conventions, aggregate-row keys, and filter propagation before trusting reported expectancy or date-range slices.
 
 ## Preferred Inputs
 - Trade outcomes, daily stats, regime snapshots, and strategy comparisons.

@@ -12,6 +12,7 @@ Use this skill to explore the repo before proposing changes.
 - Prefer symbol-aware navigation over broad file dumping.
 - Identify the smallest set of files that matter.
 - Report concrete evidence with file paths and symbol names.
+- Follow auth boundaries, proxy rewrites, query-param flow, and worker bootstrap paths end to end when those are part of the failure mode.
 
 ## Preferred Tools
 - `serena` for semantic symbol lookup and code relationships.

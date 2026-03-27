@@ -10,6 +10,11 @@ This file applies to work inside `trading_bot/` and is more specific than the re
 - Preserve existing circuit breaker, retry, and rate-limit patterns around external APIs.
 - Avoid unnecessary code comments.
 - Prefer minimal, reversible changes over large refactors.
+- Do not create Prisma migration files. Keep schema changes in `prisma/schema.prisma` and DB rollout SQL in `prisma/views/create_views.sql`.
+- Control-plane writes must stay behind bearer auth. If a route mutates runtime behavior, positions, or profiles, assume auth is required unless a narrower rule is documented.
+- Manual control paths must obey the same capital, reserve, and sizing checks as automated entry paths. Never validate overrides against only the default size.
+- Workers must reuse the supported Prisma initialization path from `src/db/client.ts`; do not construct ad-hoc Prisma clients for background jobs.
+- Historical stats must be derived from immutable trade/snapshot history. Do not write past rows from current singleton runtime state.
 
 ## Safety-Critical Areas
 
@@ -18,7 +23,7 @@ Be especially careful in:
 - `src/core/`: trade execution, exits, position tracking, risk, regime behavior
 - `src/strategies/`: entry logic, skip logic, sizing, exit rules
 - `src/services/`: exchange and data-provider integrations
-- `prisma/`: schema, migrations, SQL views
+- `prisma/`: schema, SQL views, seed
 
 If a change can affect live trading behavior, validate the actual execution path and not just the immediate function.
 
@@ -32,7 +37,7 @@ If a change can affect live trading behavior, validate the actual execution path
 - `src/db/`: Prisma client access
 - `src/utils/`: logger, rate limiter, circuit breaker, shared infra
 - `dashboard/`: Next.js UI
-- `prisma/`: schema, migrations, views, seed
+- `prisma/`: schema, views, seed
 
 ## Commands
 
@@ -42,7 +47,7 @@ From `trading_bot/`:
 npm run dev
 npm run build
 npm run typecheck
-npm run db:migrate
+npm run db:push
 npm run db:studio
 ```
 
@@ -73,3 +78,4 @@ Do not mark work complete until:
 - The changed area has been verified with the relevant command or behavior check
 - Error handling still surfaces failures clearly
 - No new hardcoded secrets, unsafe defaults, or silent fallbacks were introduced
+- Dashboard filters and analytics requests stay mode-aware and parameter-consistent end to end when the changed area touches UI data flow

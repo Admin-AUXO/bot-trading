@@ -12,6 +12,7 @@ Use this skill for strategy changes.
 - Make strategy logic explainable from signal to exit.
 - Validate interactions with risk limits, regime rules, and execution paths.
 - Avoid changes that rely on hidden assumptions or unverified data quality.
+- Ensure manual entry or override paths obey the same reserve, sizing, and capital checks as automated entries.
 
 ## Review Order
 - Entry conditions.

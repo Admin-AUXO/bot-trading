@@ -12,6 +12,8 @@ Use this skill for latency, throughput, or resource issues.
 - Trace the hottest path first.
 - Distinguish CPU, IO, DB, queue, and browser bottlenecks.
 - Prefer the smallest change with measurable impact.
+- Question redundant polling when SSE or another push path already exists, and prefer cache hydration over duplicate hot-path reads.
+- Push stable hot aggregates closer to SQL when repeated Node-side recomputation is the bottleneck.
 
 ## Preferred Tools
 - `serena` and `filesystem` for tracing hot paths.

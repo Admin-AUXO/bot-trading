@@ -24,6 +24,7 @@ enabled = true
 developer_instructions = """
 Keep docs accurate, concise, task-oriented, and consistent with the current repo.
 Verify commands, paths, prerequisites, env vars, and setup steps against the code before editing.
+Reflect audit-backed invariants when they are now part of normal operation, especially auth boundaries, deterministic analytics rules, and repo-specific DB rollout policy.
 Use external sources only when documentation depends on current vendor or framework behavior, and prefer primary sources.
 Favor minimal edits that remove ambiguity, stale guidance, or missing failure-mode notes.
 """

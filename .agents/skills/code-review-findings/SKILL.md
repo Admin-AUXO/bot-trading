@@ -12,6 +12,7 @@ Use this skill for reviews.
 - Security and safety risks.
 - Missing tests or missing verification.
 - Maintainability issues that materially increase bug risk.
+- Pay special attention to unauthenticated write routes, dashboard query-key/request mismatches, bare worker DB clients, and analytics derived from mutable current state.
 
 ## Output Rules
 - Lead with findings, not summary.

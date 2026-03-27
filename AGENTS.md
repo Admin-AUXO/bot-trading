@@ -23,7 +23,7 @@ Trading constraints:
 Almost all code changes belong under `trading_bot/`.
 
 - `trading_bot/src/`: backend, services, workers, API, strategies
-- `trading_bot/prisma/`: Prisma schema, migrations, SQL views
+- `trading_bot/prisma/`: Prisma schema, SQL views, seed
 - `trading_bot/dashboard/`: Next.js dashboard
 
 If a task does not clearly require root-level files, avoid touching files outside `trading_bot/`.
@@ -35,6 +35,11 @@ If a task does not clearly require root-level files, avoid touching files outsid
 - Fix root causes, not surface symptoms.
 - If a change touches live-trading behavior, optimize for safety and correctness over speed.
 - If scope expands beyond the original task, explicitly say why before continuing.
+- Do not create Prisma migration files. Keep DB shape changes in `trading_bot/prisma/schema.prisma` and operational SQL in `trading_bot/prisma/views/create_views.sql`.
+- Treat control-plane write routes as authenticated surfaces by default. Read-only routes may be public; mutating routes must make the boundary explicit.
+- Keep dashboard proxy auth centralized. Do not rely on per-endpoint token hacks when a whole control subtree needs the same bearer token.
+- Keep analytics deterministic. Historical recomputes must derive from immutable records or persisted snapshots, not mutable singleton state.
+- Keep frontend query keys, URL params, and backend filters aligned. If the key varies by `days`, `mode`, `configProfile`, or `tradeSource`, the request must vary too.
 
 ## Main References
 
@@ -58,7 +63,7 @@ Prefer the MCPs that are actually configured for this repository's Codex agents 
 - `filesystem`: direct repo reads, targeted file inspection, and config lookup
 - `desktop_commander`: broader local-ops MCP for process execution, richer search, session interaction, and file operations beyond simple repo reads
 - `serena`: semantic code navigation, symbol tracing, callsite discovery, and impact analysis
-- `postgres`: read-first database inspection, query tracing, schema/view validation, and migration risk checks
+- `postgres`: read-first database inspection, query tracing, schema/view validation, and DB safety checks
 - `context7`: primary-source library and framework documentation lookup
 - `sequential_thinking`: complex debugging, architecture decisions, and multi-step reasoning that needs explicit backtracking
 - `chrome_devtools` and `browsermcp`: dashboard verification, browser interaction, rendering checks, and external-doc pages that need real navigation
@@ -84,3 +89,4 @@ Before finishing:
 - Run the relevant checks for the area changed
 - Make sure no unused imports, dead code, or placeholder fixes remain
 - Verify behavior, not just syntax
+- For dashboard work, prove the actual build path is green and confirm any search-param client hooks sit behind the required Suspense boundary.
