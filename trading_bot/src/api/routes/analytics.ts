@@ -2,11 +2,15 @@ import { Router } from "express";
 import { db } from "../../db/client.js";
 import { cacheMiddleware } from "../middleware/cache.js";
 
+function parseDays(value: unknown, fallback: number, max: number): number {
+  return Math.min(Number(value) || fallback, max);
+}
+
 export function analyticsRouter() {
   const router = Router();
 
   router.get("/daily", cacheMiddleware(30_000), async (req, res) => {
-    const days = Math.min(Number(req.query.days) || 30, 90);
+    const days = parseDays(req.query.days, 30, 90);
     const mode = req.query.mode as string | undefined;
     const profile = req.query.profile as string | undefined;
     const since = new Date();
@@ -35,8 +39,10 @@ export function analyticsRouter() {
   });
 
   router.get("/strategy", cacheMiddleware(30_000), async (req, res) => {
-    const days = Number(req.query.days) || 30;
+    const days = parseDays(req.query.days, 30, 90);
     const mode = req.query.mode as string | undefined;
+    const profile = req.query.profile as string | undefined;
+    const tradeSource = req.query.tradeSource as string | undefined;
     const since = new Date();
     since.setDate(since.getDate() - days);
 
@@ -46,6 +52,8 @@ export function analyticsRouter() {
       executedAt: { gte: since },
     };
     if (mode) where.mode = mode;
+    if (profile) where.configProfile = profile;
+    if (tradeSource) where.tradeSource = tradeSource;
 
     const trades = await db.trade.findMany({
       where,
@@ -84,9 +92,11 @@ export function analyticsRouter() {
 
   router.get("/capital-curve", cacheMiddleware(60_000), async (req, res) => {
     const mode = req.query.mode as string | undefined;
+    const profile = req.query.profile as string | undefined;
 
     const where: Record<string, unknown> = { strategy: null };
     if (mode) where.mode = mode;
+    if (profile) where.configProfile = profile;
 
     const stats = await db.dailyStats.findMany({
       where,
@@ -125,7 +135,9 @@ export function analyticsRouter() {
   });
 
   router.get("/would-have-won", cacheMiddleware(60_000), async (req, res) => {
-    const days = Math.min(Number(req.query.days) || 7, 30);
+    const days = parseDays(req.query.days, 7, 30);
+    const mode = req.query.mode as string | undefined;
+    const profile = req.query.profile as string | undefined;
     const since = new Date();
     since.setDate(since.getDate() - days);
 
@@ -134,6 +146,8 @@ export function analyticsRouter() {
         passed: false,
         detectedAt: { gte: since },
         wouldHaveWon: { not: null },
+        ...(mode ? { mode: mode as "LIVE" | "DRY_RUN" } : {}),
+        ...(profile ? { configProfile: profile } : {}),
       },
       orderBy: { detectedAt: "desc" },
       take: 100,
@@ -191,7 +205,7 @@ export function analyticsRouter() {
   });
 
   router.get("/graduation-stats", cacheMiddleware(30_000), async (req, res) => {
-    const days = Math.min(Number(req.query.days) || 30, 90);
+    const days = parseDays(req.query.days, 30, 90);
     const since = new Date();
     since.setDate(since.getDate() - days);
 
@@ -215,8 +229,10 @@ export function analyticsRouter() {
   });
 
   router.get("/pnl-distribution", cacheMiddleware(30_000), async (req, res) => {
-    const days = Math.min(Number(req.query.days) || 30, 90);
+    const days = parseDays(req.query.days, 30, 90);
     const mode = req.query.mode as string | undefined;
+    const profile = req.query.profile as string | undefined;
+    const tradeSource = req.query.tradeSource as string | undefined;
     const since = new Date();
     since.setDate(since.getDate() - days);
 
@@ -225,6 +241,8 @@ export function analyticsRouter() {
       executedAt: { gte: since },
     };
     if (mode) where.mode = mode;
+    if (profile) where.configProfile = profile;
+    if (tradeSource) where.tradeSource = tradeSource;
 
     const sells = await db.trade.findMany({
       where,

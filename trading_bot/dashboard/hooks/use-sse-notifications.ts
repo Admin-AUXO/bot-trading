@@ -57,7 +57,9 @@ export function useSSENotifications() {
             capitalLevel,
             dailyLossPercent: dailyPct,
           };
-        } catch {
+        } catch (error) {
+          // Ignore malformed SSE payloads and keep the connection alive.
+          void error;
         }
       },
       () => {

@@ -27,6 +27,7 @@ export function createApiServer(deps: {
   regimeDetector: unknown;
   configProfileManager: unknown;
   tradeExecutor?: unknown;
+  dbClient?: typeof db;
 }) {
   const app = express();
   app.use(cors({
@@ -43,11 +44,22 @@ export function createApiServer(deps: {
   const controlLimiter = rateLimit({ windowMs: 60_000, max: 20, standardHeaders: true, legacyHeaders: false });
 
   app.use("/api/overview", overviewRouter(deps));
-  app.use("/api/positions", positionsRouter({ tradeExecutor: deps.tradeExecutor, positionTracker: deps.positionTracker }));
+  app.use("/api/positions", positionsRouter({
+    tradeExecutor: deps.tradeExecutor,
+    positionTracker: deps.positionTracker,
+    dbClient: deps.dbClient,
+  }));
   app.use("/api/trades", tradesRouter());
   app.use("/api/analytics", analyticsRouter());
-  app.use("/api/control", controlLimiter, requireBearerToken, controlRouter({ riskManager: deps.riskManager, tradeExecutor: deps.tradeExecutor }));
-  app.use("/api/profiles", profilesRouter(deps));
+  app.use("/api/control", controlLimiter, controlRouter({
+    riskManager: deps.riskManager,
+    tradeExecutor: deps.tradeExecutor,
+    dbClient: deps.dbClient,
+  }));
+  app.use("/api/profiles", profilesRouter({
+    configProfileManager: deps.configProfileManager,
+    dbClient: deps.dbClient,
+  }));
 
   app.get("/api/health", (_req, res) => {
     res.json({

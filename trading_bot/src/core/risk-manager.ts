@@ -148,7 +148,7 @@ export class RiskManager extends EventEmitter {
     else this.pendingByStrategy.set(strategy, current - 1);
   }
 
-  canOpenPosition(strategy: Strategy): { allowed: boolean; reason?: string } {
+  canOpenPosition(strategy: Strategy, requestedAmountSol?: number): { allowed: boolean; reason?: string } {
     if (this.pauseReason) {
       return { allowed: false, reason: this.pauseReason };
     }
@@ -178,7 +178,7 @@ export class RiskManager extends EventEmitter {
       return { allowed: false, reason: `max ${stratConfig.maxPositions} ${strategy} positions reached` };
     }
 
-    const size = this.getPositionSize(strategy);
+    const size = requestedAmountSol ?? this.getPositionSize(strategy);
     if (this.walletBalance < size + config.capital.gasReserve) {
       return { allowed: false, reason: "insufficient balance (gas reserve protected)" };
     }

@@ -1,15 +1,109 @@
-model = "gpt-5.4"
 approval_policy = "never"
+experimental_windows_sandbox = false
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+project_doc_fallback_filenames = ["AGENTS.md"]
+project_root_markers = [
+    ".git",
+]
 sandbox_mode = "danger-full-access"
 web_search = "cached"
-experimental_windows_sandbox = false
-model_reasoning_effort = "medium"
-project_doc_fallback_filenames = ["AGENTS.md"]
-project_root_markers = [".git", "package.json"]
 
 [agents]
-max_threads = 8
 max_depth = 2
+max_threads = 8
+
+[mcp_servers.browsermcp]
+args = ["-y", "@browsermcp/mcp"]
+command = "npx"
+required = false
+startup_timeout_ms = 20000
+tool_timeout_sec = 90
+
+[mcp_servers.chrome_devtools]
+args = [
+    "-y",
+    "chrome-devtools-mcp@latest",
+]
+command = "npx"
+required = false
+startup_timeout_ms = 20000
+tool_timeout_sec = 90
+
+[mcp_servers.context7]
+required = false
+startup_timeout_ms = 20000
+url = "https://mcp.context7.com/mcp"
+
+[mcp_servers.context7.env_http_headers]
+CONTEXT7_API_KEY = "ctx7sk-2a57610c-16c7-4d54-a318-a3ba67eb05a0"
+
+[mcp_servers.desktop_commander]
+args = [
+    "-y",
+    "@wonderwhy-er/desktop-commander@latest",
+    "--no-onboarding",
+]
+command = "npx"
+required = false
+startup_timeout_ms = 30000
+tool_timeout_sec = 120
+
+[mcp_servers.fetch]
+args = ["mcp-server-fetch"]
+command = "uvx"
+required = false
+startup_timeout_ms = 20000
+
+[mcp_servers.filesystem]
+args = [
+    "-y",
+    "@modelcontextprotocol/server-filesystem",
+    "/Users/rukaiyahyusuf/Documents/Trading/bot-trading",
+]
+command = "npx"
+cwd = "/Users/rukaiyahyusuf/Documents/Trading/bot-trading"
+required = false
+
+[mcp_servers.memory]
+args = [
+    "-y",
+    "@modelcontextprotocol/server-memory",
+]
+command = "npx"
+required = false
+startup_timeout_ms = 20000
+
+[mcp_servers.postgres]
+args = [
+    "-y",
+    "@modelcontextprotocol/server-postgres",
+    "postgresql://botuser:botpass@localhost:5432/trading_bot",
+]
+command = "npx"
+enabled = true
+required = false
+startup_timeout_ms = 20000
+
+[mcp_servers.sequential_thinking]
+args = [
+    "-y",
+    "@modelcontextprotocol/server-sequential-thinking",
+]
+command = "npx"
+required = false
+startup_timeout_ms = 20000
+
+[mcp_servers.serena]
+required = false
+startup_timeout_ms = 30000
+url = "http://127.0.0.1:9121/mcp"
+
+[mcp_servers.time]
+args = ["mcp-server-time"]
+command = "uvx"
+required = false
+startup_timeout_ms = 20000
 
 [profiles.deep]
 model_reasoning_effort = "high"
@@ -18,75 +112,9 @@ model_reasoning_effort = "high"
 model = "gpt-5.4"
 model_reasoning_effort = "high"
 
-[mcp_servers.context7]
-url = "https://mcp.context7.com/mcp"
-required = false
-startup_timeout_ms = 20000
-env_http_headers = { CONTEXT7_API_KEY = "ctx7sk-2a57610c-16c7-4d54-a318-a3ba67eb05a0" }
+[shell_environment_policy]
+inherit = "core"
 
-[mcp_servers.chrome_devtools]
-command = "C:\\Program Files\\nodejs\\npx.cmd"
-args = ["-y", "chrome-devtools-mcp@latest"]
-required = false
-startup_timeout_ms = 20000
-tool_timeout_sec = 90
-
-[mcp_servers.browsermcp]
-command = "C:\\Program Files\\nodejs\\npx.cmd"
-args = ["@browsermcp/mcp"]
-required = false
-startup_timeout_ms = 20000
-tool_timeout_sec = 90
-
-[mcp_servers.filesystem]
-command = "C:\\Program Files\\nodejs\\npx.cmd"
-args = ["-y", "@modelcontextprotocol/server-filesystem", "A:\\Trading Setup\\bot-trading"]
-required = false
-cwd = "A:\\Trading Setup\\bot-trading"
-
-[mcp_servers.fetch]
-command = "C:\\Users\\ajay9\\.local\\bin\\uvx.exe"
-args = ["mcp-server-fetch"]
-required = false
-startup_timeout_ms = 20000
-
-[mcp_servers.memory]
-command = "C:\\Program Files\\nodejs\\npx.cmd"
-args = ["-y", "@modelcontextprotocol/server-memory"]
-required = false
-startup_timeout_ms = 20000
-
-[mcp_servers.sequential_thinking]
-command = "C:\\Program Files\\nodejs\\npx.cmd"
-args = ["-y", "@modelcontextprotocol/server-sequential-thinking"]
-required = false
-startup_timeout_ms = 20000
-
-[mcp_servers.time]
-command = "C:\\Users\\ajay9\\.local\\bin\\uvx.exe"
-args = ["mcp-server-time"]
-required = false
-startup_timeout_ms = 20000
-
-[mcp_servers.desktop_commander]
-command = "C:\\Program Files\\nodejs\\npx.cmd"
-args = ["-y", "@wonderwhy-er/desktop-commander@latest", "--no-onboarding"]
-required = false
-startup_timeout_ms = 30000
-tool_timeout_sec = 120
-
-[mcp_servers.serena]
-# Shared Serena instance for all agents in this workspace.
-# Start it once with:
-#   C:\Users\ajay9\.local\bin\uvx.exe --from git+https://github.com/oraios/serena serena start-mcp-server --transport streamable-http --port 9121 --context ide-assistant --project "A:\Trading Setup\bot-trading"
-url = "http://127.0.0.1:9121/mcp"
-required = false
-startup_timeout_ms = 30000
-
-[mcp_servers.postgres]
-command = "C:\\WINDOWS\\system32\\cmd.exe"
-args = ["/c", "C:\\Program Files\\nodejs\\npx.cmd", "-y", "@modelcontextprotocol/server-postgres", "%POSTGRES_MCP_URL%"]
-required = false
-enabled = false
-startup_timeout_ms = 20000
-env_vars = ["POSTGRES_MCP_URL"]
+[shell_environment_policy.set]
+CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = "80"
+MAX_THINKING_TOKENS = "10000"

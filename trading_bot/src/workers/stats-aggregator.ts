@@ -1,8 +1,11 @@
 import { parentPort } from "node:worker_threads";
-import { PrismaClient } from "@prisma/client";
-import type { BotState, Strategy, TradeMode } from "@prisma/client";
+import type { MarketRegime, Strategy, TradeMode } from "@prisma/client";
+import { config } from "../config/index.js";
+import { createPrismaClient } from "../db/client.js";
 
-const db = new PrismaClient();
+const db = createPrismaClient();
+export const TOTAL_SERIES_KEY = "ALL" as const;
+const DAY_MS = 86_400_000;
 
 interface StatsTask {
   date?: string;
@@ -13,18 +16,39 @@ interface StatsResult {
   date: string;
 }
 
+export function resolveSeriesKey(strategy: Strategy | null): string {
+  return strategy ?? TOTAL_SERIES_KEY;
+}
+
+export function carryForwardCapital(
+  previousCapitalEnd: number | null,
+  netPnlUsd: number,
+  fallbackCapitalUsd: number = config.capital.startingUsd,
+): { capitalStart: number; capitalEnd: number } {
+  const capitalStart = previousCapitalEnd ?? fallbackCapitalUsd;
+  return {
+    capitalStart,
+    capitalEnd: capitalStart + netPnlUsd,
+  };
+}
+
+export function chooseHistoricalRegime(
+  snapshots: Array<{ regime: MarketRegime; snappedAt: Date }>,
+  fallback: MarketRegime = "NORMAL",
+): MarketRegime {
+  if (snapshots.length === 0) return fallback;
+  return [...snapshots].sort((a, b) => b.snappedAt.getTime() - a.snappedAt.getTime())[0].regime;
+}
+
 async function aggregateDailyStats(date: Date): Promise<void> {
   const dateStr = date.toISOString().slice(0, 10);
   const dayStart = new Date(dateStr);
-  const dayEnd = new Date(dayStart.getTime() + 86_400_000);
+  const dayEnd = new Date(dayStart.getTime() + DAY_MS);
 
   const strategies = ["S1_COPY", "S2_GRADUATION", "S3_MOMENTUM"] as const;
   const modes = ["LIVE", "DRY_RUN"] as const;
 
-  const [profiles, botState] = await Promise.all([
-    db.configProfile.findMany({ select: { name: true } }),
-    db.botState.findUnique({ where: { id: "singleton" } }),
-  ]);
+  const profiles = await db.configProfile.findMany({ select: { name: true } });
   const profileNames = profiles.map((p) => p.name);
 
   const slices: Array<{
@@ -33,13 +57,20 @@ async function aggregateDailyStats(date: Date): Promise<void> {
     strategy: Strategy | null;
     mode: TradeMode;
     configProfile: string;
-    botState: BotState | null;
+    seriesKey: string;
   }> = [];
 
   for (const mode of modes) {
     for (const profileName of profileNames) {
       for (const strategy of [...strategies, null]) {
-        slices.push({ dayStart, dayEnd, strategy, mode, configProfile: profileName, botState });
+        slices.push({
+          dayStart,
+          dayEnd,
+          strategy,
+          mode,
+          configProfile: profileName,
+          seriesKey: resolveSeriesKey(strategy),
+        });
       }
     }
   }
@@ -55,9 +86,9 @@ async function aggregateForSlice(params: {
   strategy: Strategy | null;
   mode: TradeMode;
   configProfile: string;
-  botState: BotState | null;
+  seriesKey: string;
 }): Promise<void> {
-  const { dayStart, dayEnd, strategy, mode, configProfile, botState } = params;
+  const { dayStart, dayEnd, strategy, mode, configProfile, seriesKey } = params;
 
   const tradeWhere: Record<string, unknown> = {
     side: "SELL",
@@ -82,22 +113,37 @@ async function aggregateForSlice(params: {
   };
   if (strategy) positionWhere.strategy = strategy;
 
-  const [sells, buys, closedPositions] = await Promise.all([
+  const [sells, buys, closedPositions, previousStats, snapshots] = await Promise.all([
     db.trade.findMany({ where: tradeWhere, select: { pnlUsd: true, gasFee: true, jitoTip: true, trancheNumber: true } }),
     db.trade.findMany({ where: buyWhere, select: { gasFee: true, jitoTip: true } }),
     db.position.findMany({ where: positionWhere, select: { openedAt: true, closedAt: true } }),
+    db.dailyStats.findFirst({
+      where: {
+        date: { lt: dayStart },
+        mode,
+        configProfile,
+        seriesKey,
+      },
+      orderBy: { date: "desc" },
+      select: { capitalEnd: true },
+    }),
+    db.regimeSnapshot.findMany({
+      where: { snappedAt: { lt: dayEnd } },
+      orderBy: { snappedAt: "desc" },
+      take: 5,
+      select: { regime: true, snappedAt: true },
+    }),
   ]);
 
   const wins = sells.filter((t) => Number(t.pnlUsd ?? 0) > 0);
   const losses = sells.filter((t) => Number(t.pnlUsd ?? 0) <= 0);
   const totalTrades = sells.length + buys.length;
 
-  if (totalTrades === 0) return;
-
   const grossPnl = sells.reduce((s, t) => s + Number(t.pnlUsd ?? 0), 0);
   const allTrades = [...sells, ...buys];
   const totalGas = allTrades.reduce((s, t) => s + Number(t.gasFee), 0);
   const totalTips = allTrades.reduce((s, t) => s + Number(t.jitoTip), 0);
+  const netPnl = grossPnl - totalGas - totalTips;
 
   const avgWinUsd = wins.length > 0 ? wins.reduce((s, t) => s + Number(t.pnlUsd ?? 0), 0) / wins.length : 0;
   const avgLossUsd = losses.length > 0 ? losses.reduce((s, t) => s + Math.abs(Number(t.pnlUsd ?? 0)), 0) / losses.length : 0;
@@ -123,13 +169,18 @@ async function aggregateForSlice(params: {
   const trancheT2Pct = sellCount > 0 ? sells.filter((t) => t.trancheNumber === 2).length / sellCount : 0;
   const trancheT3Pct = sellCount > 0 ? sells.filter((t) => t.trancheNumber === 3).length / sellCount : 0;
 
+  const { capitalStart, capitalEnd } = carryForwardCapital(
+    previousStats ? Number(previousStats.capitalEnd) : null,
+    netPnl,
+  );
+
   const data = {
     tradesTotal: totalTrades,
     tradesWon: wins.length,
     tradesLost: losses.length,
     winRate,
     grossPnlUsd: grossPnl,
-    netPnlUsd: grossPnl - totalGas - totalTips,
+    netPnlUsd: netPnl,
     totalGasFees: totalGas,
     totalJitoTips: totalTips,
     avgWinUsd,
@@ -140,15 +191,16 @@ async function aggregateForSlice(params: {
     trancheT1Pct,
     trancheT2Pct,
     trancheT3Pct,
-    capitalEnd: Number(botState?.capitalUsd ?? 200),
-    regime: botState?.regime ?? "NORMAL",
+    capitalStart,
+    capitalEnd,
+    regime: chooseHistoricalRegime(snapshots),
   };
 
   await db.dailyStats.upsert({
     where: {
-      date_strategy_mode_configProfile: {
+      date_seriesKey_mode_configProfile: {
         date: dayStart,
-        strategy: (strategy ?? "ALL") as Strategy,
+        seriesKey,
         mode,
         configProfile,
       },
@@ -156,17 +208,17 @@ async function aggregateForSlice(params: {
     update: data,
     create: {
       date: dayStart,
-      strategy: strategy ?? null,
+      strategy,
+      seriesKey,
       mode,
       configProfile,
-      capitalStart: Number(botState?.capitalUsd ?? 200),
       ...data,
     },
   });
 }
 
 async function aggregateApiUsage(date: Date): Promise<void> {
-  const dayEnd = new Date(date.getTime() + 86_400_000);
+  const dayEnd = new Date(date.getTime() + DAY_MS);
 
   for (const service of ["HELIUS", "BIRDEYE"] as const) {
     const calls = await db.apiCall.aggregate({
@@ -213,7 +265,7 @@ parentPort?.on("message", async (task: StatsTask) => {
   try {
     const date = task.date ? new Date(task.date) : new Date();
     await aggregateDailyStats(date);
-    parentPort?.postMessage({ result: { success: true, date: date.toISOString().slice(0, 10) } });
+    parentPort?.postMessage({ result: { success: true, date: date.toISOString().slice(0, 10) } satisfies StatsResult });
   } catch (err) {
     parentPort?.postMessage({ error: (err as Error).message });
   }

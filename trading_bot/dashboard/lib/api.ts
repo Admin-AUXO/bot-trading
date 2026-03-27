@@ -77,15 +77,17 @@ export async function fetchSignals(strategy?: string) {
   return api.get("api/trades/signals" + params).json<Signal[]>();
 }
 
-export async function fetchDailyStats(days: number = 30, mode?: string) {
+export async function fetchDailyStats(days: number = 30, mode?: string, profile?: string) {
   const params = new URLSearchParams({ days: String(days) });
   if (mode) params.set("mode", mode);
+  if (profile) params.set("profile", profile);
   return api.get("api/analytics/daily?" + params).json<DailyStat[]>();
 }
 
-export async function fetchStrategyAnalytics(mode?: string) {
-  const params = mode ? `?mode=${mode}` : "";
-  return api.get("api/analytics/strategy" + params).json<StrategyPerformance[]>();
+export async function fetchStrategyAnalytics(days: number = 30, mode?: string) {
+  const params = new URLSearchParams({ days: String(days) });
+  if (mode) params.set("mode", mode);
+  return api.get("api/analytics/strategy?" + params).json<StrategyPerformance[]>();
 }
 
 export async function fetchCapitalCurve(mode?: string) {
@@ -415,7 +417,10 @@ export function createSSEConnection(onMessage: (data: unknown) => void, onError?
     try {
       const data = JSON.parse(event.data);
       onMessage(data);
-    } catch {}
+    } catch (error) {
+      // Ignore malformed SSE payloads and let the next event recover the stream.
+      void error;
+    }
   };
   es.onerror = () => {
     onError?.();

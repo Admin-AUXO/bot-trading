@@ -31,6 +31,7 @@ interface ScoringResult {
 
 export class CopyTradeStrategy extends EventEmitter {
   private eliteWallets: string[] = [];
+  private wsMessageHandler: ((data: unknown) => void) | null = null;
   private processingTokens: Set<string> = new Set();
   private scoringPool: WorkerPool<ScoringTask, ScoringResult | null> | null = null;
 
@@ -48,17 +49,30 @@ export class CopyTradeStrategy extends EventEmitter {
 
   async start(): Promise<void> {
     await this.loadEliteWallets();
-    this.helius.connectWebSocket((data) => this.handleWebhookEvent(data));
+    this.wsMessageHandler = (data) => {
+      void this.handleWebhookEvent(data);
+    };
+    this.helius.connectWebSocket(this.wsMessageHandler);
 
+    await this.subscribeToEliteWallets(this.eliteWallets);
+
+    log.info({ wallets: this.eliteWallets.length }, "S1 copy trade started");
+  }
+
+  private async subscribeToEliteWallets(wallets: string[]): Promise<void> {
     await Promise.all(
-      this.eliteWallets.map((wallet) =>
+      wallets.map((wallet) =>
         this.helius.subscribeToAccount(wallet).catch((err) => {
           log.warn({ wallet, err }, "wallet subscription failed");
         }),
       ),
     );
+  }
 
-    log.info({ wallets: this.eliteWallets.length }, "S1 copy trade started");
+  private async refreshEliteSubscriptions(): Promise<void> {
+    if (!this.wsMessageHandler) return;
+    this.helius.connectWebSocket(this.wsMessageHandler);
+    await this.subscribeToEliteWallets(this.eliteWallets);
   }
 
   private async loadEliteWallets(): Promise<void> {
@@ -344,13 +358,40 @@ export class CopyTradeStrategy extends EventEmitter {
 
     scores.sort((a, b) => b.score - a.score);
 
-    await db.walletScore.updateMany({
-      where: { isElite: true },
-      data: { isElite: false },
+    const previousElites = [...this.eliteWallets];
+    const topWallets = scores.slice(0, cfg.walletCount);
+    const nextEliteWallets = topWallets.map((w) => w.address);
+
+    await db.$transaction(async (tx) => {
+      await tx.walletScore.updateMany({
+        where: { isElite: true },
+        data: { isElite: false },
+      });
+
+      for (const walletAddress of nextEliteWallets) {
+        const latest = await tx.walletScore.findFirst({
+          where: { walletAddress },
+          orderBy: { scoredAt: "desc" },
+          select: { id: true },
+        });
+        if (latest) {
+          await tx.walletScore.update({
+            where: { id: latest.id },
+            data: { isElite: true },
+          });
+        }
+      }
     });
 
-    const topWallets = scores.slice(0, cfg.walletCount);
-    this.eliteWallets = topWallets.map((w) => w.address);
+    this.eliteWallets = nextEliteWallets;
+
+    const eliteSetChanged =
+      previousElites.length !== nextEliteWallets.length ||
+      previousElites.some((wallet, idx) => wallet !== nextEliteWallets[idx]);
+
+    if (eliteSetChanged) {
+      await this.refreshEliteSubscriptions();
+    }
 
     log.info({ eliteWallets: this.eliteWallets, scored: scores.length }, "wallet scoring complete");
   }

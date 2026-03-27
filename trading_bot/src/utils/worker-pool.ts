@@ -13,12 +13,27 @@ interface WorkerEntry {
   busy: boolean;
 }
 
+export function createFailureLatch(): { claim: () => boolean; reset: () => void } {
+  let claimed = false;
+  return {
+    claim(): boolean {
+      if (claimed) return false;
+      claimed = true;
+      return true;
+    },
+    reset(): void {
+      claimed = false;
+    },
+  };
+}
+
 export class WorkerPool<T, R> {
   private workers: WorkerEntry[] = [];
   private queue: Array<{ data: T; pending: PendingTask<R> }> = [];
   private nextWorker = 0;
   private terminated = false;
   private respawnAttempts: Map<number, number> = new Map();
+  private failureLatches: Map<number, ReturnType<typeof createFailureLatch>> = new Map();
 
   constructor(
     private scriptPath: string,
@@ -37,21 +52,30 @@ export class WorkerPool<T, R> {
     });
 
     const entry: WorkerEntry = { worker, busy: false };
+    const failureLatch = createFailureLatch();
+    this.failureLatches.set(index, failureLatch);
+
+    const handleFailure = (kind: "error" | "exit", details: Error | number): void => {
+      if (this.terminated || !failureLatch.claim()) return;
+      entry.busy = false;
+      if (kind === "error") {
+        log.error({ err: details, workerId: index }, "worker error — respawning");
+      } else {
+        log.warn({ workerId: index, code: details }, "worker exited unexpectedly — respawning");
+      }
+      this.respawnWithBackoff(index);
+    };
 
     worker.on("error", (err) => {
-      log.error({ err, workerId: index }, "worker error — respawning");
-      entry.busy = false;
-      if (!this.terminated) {
-        this.respawnWithBackoff(index);
-      }
+      handleFailure("error", err as Error);
     });
 
     worker.on("exit", (code) => {
-      if (code !== 0 && !this.terminated) {
-        log.warn({ workerId: index, code }, "worker exited unexpectedly — respawning");
-        this.respawnWithBackoff(index);
+      if (code !== 0) {
+        handleFailure("exit", code);
       } else {
         this.respawnAttempts.delete(index);
+        failureLatch.reset();
       }
     });
 
@@ -170,6 +194,7 @@ export class WorkerPool<T, R> {
       pending.reject(new Error("worker pool terminated"));
     }
     this.queue = [];
+    this.failureLatches.clear();
     await Promise.all(this.workers.map((w) => w.worker.terminate()));
     log.info("worker pool terminated");
   }

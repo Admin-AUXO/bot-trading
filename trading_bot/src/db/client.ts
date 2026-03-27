@@ -4,7 +4,7 @@ import { config } from "../config/index.js";
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
 
-function createClient(): PrismaClient {
+export function createPrismaClient(): PrismaClient {
   const adapter = new PrismaPg({ connectionString: config.db.url, idleTimeoutMillis: 300_000 });
   return new PrismaClient({
     adapter,
@@ -12,6 +12,6 @@ function createClient(): PrismaClient {
   });
 }
 
-export const db = globalForPrisma.prisma ?? createClient();
+export const db = globalForPrisma.prisma ?? createPrismaClient();
 
 if (config.env !== "production") globalForPrisma.prisma = db;

@@ -2,22 +2,24 @@ import { Router } from "express";
 import { PublicKey } from "@solana/web3.js";
 import { db } from "../../db/client.js";
 import { cacheMiddleware } from "../middleware/cache.js";
+import { requireBearerToken } from "../middleware/auth.js";
 import type { RiskManager } from "../../core/risk-manager.js";
 import type { TradeExecutor } from "../../core/trade-executor.js";
 import type { Strategy } from "../../utils/types.js";
 
-export function controlRouter(deps: { riskManager: unknown; tradeExecutor?: unknown }) {
+export function controlRouter(deps: { riskManager: unknown; tradeExecutor?: unknown; dbClient?: typeof db }) {
   const router = Router();
   const riskManager = deps.riskManager as RiskManager;
   const tradeExecutor = deps.tradeExecutor as TradeExecutor | undefined;
+  const database = deps.dbClient ?? db;
 
-  router.post("/pause", async (_req, res) => {
+  router.post("/pause", requireBearerToken, async (_req, res) => {
     riskManager.pause("manual pause");
     await riskManager.saveState();
     res.json({ status: "paused" });
   });
 
-  router.post("/resume", async (_req, res) => {
+  router.post("/resume", requireBearerToken, async (_req, res) => {
     if (!riskManager.resume()) {
       return res.status(409).json({ error: "bot is not manually paused" });
     }
@@ -26,7 +28,7 @@ export function controlRouter(deps: { riskManager: unknown; tradeExecutor?: unkn
   });
 
   router.get("/state", cacheMiddleware(10_000), async (_req, res) => {
-    const state = await db.botState.findUnique({ where: { id: "singleton" } });
+    const state = await database.botState.findUnique({ where: { id: "singleton" } });
     if (!state) return res.status(404).json({ error: "bot state not found" });
     res.json({
       ...state,
@@ -40,16 +42,16 @@ export function controlRouter(deps: { riskManager: unknown; tradeExecutor?: unkn
     });
   });
 
-  router.post("/reset-daily", async (_req, res) => {
+  router.post("/reset-daily", requireBearerToken, async (_req, res) => {
     riskManager.checkDailyReset();
     await riskManager.saveState();
     res.json({ status: "daily counters reset" });
   });
 
   router.get("/heartbeat", cacheMiddleware(5_000), async (_req, res) => {
-    const state = await db.botState.findUnique({ where: { id: "singleton" } });
-    const lastTrade = await db.trade.findFirst({ orderBy: { executedAt: "desc" }, select: { executedAt: true } });
-    const lastSignal = await db.signal.findFirst({ orderBy: { detectedAt: "desc" }, select: { detectedAt: true } });
+    const state = await database.botState.findUnique({ where: { id: "singleton" } });
+    const lastTrade = await database.trade.findFirst({ orderBy: { executedAt: "desc" }, select: { executedAt: true } });
+    const lastSignal = await database.signal.findFirst({ orderBy: { detectedAt: "desc" }, select: { detectedAt: true } });
 
     res.json({
       isRunning: state?.isRunning ?? false,
@@ -61,7 +63,7 @@ export function controlRouter(deps: { riskManager: unknown; tradeExecutor?: unkn
   });
 
   router.get("/config", cacheMiddleware(30_000), async (_req, res) => {
-    const state = await db.botState.findUnique({ where: { id: "singleton" } });
+    const state = await database.botState.findUnique({ where: { id: "singleton" } });
     res.json({
       strategies: {
         S1_COPY: {
@@ -93,7 +95,7 @@ export function controlRouter(deps: { riskManager: unknown; tradeExecutor?: unkn
     });
   });
 
-  router.post("/manual-entry", async (req, res) => {
+  router.post("/manual-entry", requireBearerToken, async (req, res) => {
     if (!tradeExecutor) {
       return res.status(503).json({ error: "manual entry not available" });
     }
@@ -125,7 +127,11 @@ export function controlRouter(deps: { riskManager: unknown; tradeExecutor?: unkn
 
     const snapshot = riskManager.getSnapshot();
     const size = amountSol ?? riskManager.getPositionSize(strategy);
-    const check = riskManager.canOpenPosition(strategy);
+    if (!Number.isFinite(size) || size <= 0) {
+      return res.status(400).json({ error: "amountSol must be a positive number" });
+    }
+
+    const check = riskManager.canOpenPosition(strategy, size);
     if (!check.allowed) {
       return res.status(409).json({ error: check.reason ?? "bot is paused" });
     }

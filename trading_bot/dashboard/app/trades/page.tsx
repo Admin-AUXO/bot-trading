@@ -5,7 +5,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { fetchTrades, fetchSignalsPaginated } from "@/lib/api";
 import { useDashboardStore } from "@/lib/store";
-import { formatUsd, formatPercent, formatSol, pnlClass, strategyLabel, strategyColor, timeAgo, exitReasonLabel, exportCsv } from "@/lib/utils";
+import { formatUsd, formatSol, pnlClass, strategyLabel, strategyColor, timeAgo, exitReasonLabel, exportCsv } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { Tabs } from "@/components/ui/tabs";

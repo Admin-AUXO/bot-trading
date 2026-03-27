@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { motion } from "motion/react";
 import { fetchOverview, fetchApiUsage, fetchPositions, fetchDailyStats, fetchHeartbeat, getErrorMessage } from "@/lib/api";
 import { useDashboardStore } from "@/lib/store";
-import { formatUsd, formatPercent, formatNumber, formatSol, pnlClass, strategyLabel, strategyColor, regimeBadge, timeAgo } from "@/lib/utils";
+import { formatUsd, formatPercent, formatNumber, formatSol, pnlClass, strategyLabel, strategyColor, regimeBadge } from "@/lib/utils";
 import { PnlChart } from "@/components/charts/pnl-chart";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { StatCardSkeleton, ChartSkeleton } from "@/components/ui/skeleton";

@@ -9,10 +9,11 @@ import {
   fetchStrategyConfig, fetchHeartbeat, fetchPositions,
 } from "@/lib/api";
 import type { ConfigProfile } from "@/lib/api";
-import { formatUsd, formatNumber, formatSol, timeAgo } from "@/lib/utils";
+import { useDashboardStore } from "@/lib/store";
+import { formatUsd, formatNumber, timeAgo } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import {
-  Settings, Power, Database, Shield, Wallet, Layers, Plus, Trash2,
+  Power, Database, Shield, Wallet, Layers, Plus, Trash2,
   ToggleLeft, ToggleRight, Heart, AlertTriangle, Cpu, Activity,
   Target, TrendingDown, CircleCheck, XCircle, Clock,
 } from "lucide-react";
@@ -44,10 +45,11 @@ const STRATEGY_BORDER: Record<string, string> = {
 
 export default function SettingsPage() {
   const queryClient = useQueryClient();
+  const { mode } = useDashboardStore();
 
   const { data: overview } = useQuery({
-    queryKey: ["overview"],
-    queryFn: () => fetchOverview(),
+    queryKey: ["overview", mode],
+    queryFn: () => fetchOverview(mode),
     refetchInterval: 10_000,
     staleTime: 5_000,
   });
@@ -79,20 +81,20 @@ export default function SettingsPage() {
   });
 
   const { data: openPositions } = useQuery({
-    queryKey: ["positions"],
-    queryFn: () => fetchPositions(),
+    queryKey: ["positions", mode],
+    queryFn: () => fetchPositions(mode),
     refetchInterval: 10_000,
     staleTime: 5_000,
   });
 
   const pauseMutation = useMutation({
     mutationFn: pauseBot,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["overview"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["overview", mode] }),
   });
 
   const resumeMutation = useMutation({
     mutationFn: resumeBot,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["overview"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["overview", mode] }),
   });
 
   const criticalAlerts: string[] = [];

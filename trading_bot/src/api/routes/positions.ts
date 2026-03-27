@@ -2,15 +2,17 @@ import { Router } from "express";
 import { db } from "../../db/client.js";
 import { createChildLogger } from "../../utils/logger.js";
 import { cacheMiddleware } from "../middleware/cache.js";
+import { requireBearerToken } from "../middleware/auth.js";
 import type { TradeExecutor } from "../../core/trade-executor.js";
 import type { PositionTracker } from "../../core/position-tracker.js";
 
 const log = createChildLogger("positions");
 
-export function positionsRouter(deps?: { tradeExecutor?: unknown; positionTracker?: unknown }) {
+export function positionsRouter(deps?: { tradeExecutor?: unknown; positionTracker?: unknown; dbClient?: typeof db }) {
   const router = Router();
   const tradeExecutor = deps?.tradeExecutor as TradeExecutor | undefined;
   const positionTracker = deps?.positionTracker as PositionTracker | undefined;
+  const database = deps?.dbClient ?? db;
 
   router.get("/", cacheMiddleware(5_000), async (req, res) => {
     const mode = req.query.mode as string | undefined;
@@ -21,7 +23,7 @@ export function positionsRouter(deps?: { tradeExecutor?: unknown; positionTracke
     };
     if (mode) where.mode = mode;
 
-    const positions = await db.position.findMany({
+    const positions = await database.position.findMany({
       where,
       orderBy: { openedAt: "desc" },
       include: includeTrades ? { trades: { orderBy: { executedAt: "desc" }, take: 5 } } : undefined,
@@ -57,13 +59,13 @@ export function positionsRouter(deps?: { tradeExecutor?: unknown; positionTracke
     if (profile) where.configProfile = profile;
 
     const [positions, total] = await Promise.all([
-      db.position.findMany({
+      database.position.findMany({
         where,
         orderBy: { closedAt: "desc" },
         skip: (page - 1) * limit,
         take: limit,
       }),
-      db.position.count({ where }),
+      database.position.count({ where }),
     ]);
 
     res.json({
@@ -81,12 +83,13 @@ export function positionsRouter(deps?: { tradeExecutor?: unknown; positionTracke
     });
   });
 
-  router.post("/:id/manual-exit", async (req, res) => {
+  router.post("/:id/manual-exit", requireBearerToken, async (req, res) => {
     if (!tradeExecutor || !positionTracker) {
       return res.status(503).json({ error: "manual exit not available" });
     }
 
-    const position = positionTracker.getById(req.params.id);
+    const positionId = String(req.params.id);
+    const position = positionTracker.getById(positionId);
     if (!position) {
       return res.status(404).json({ error: "position not found or already closed" });
     }
@@ -94,7 +97,7 @@ export function positionsRouter(deps?: { tradeExecutor?: unknown; positionTracke
     const trancheNumber = position.exit1Done ? (position.exit2Done ? 3 : 2) : 1;
 
     const result = await tradeExecutor.executeSell({
-      positionId: position.id,
+      positionId,
       tokenAddress: position.tokenAddress,
       tokenSymbol: position.tokenSymbol,
       strategy: position.strategy,

@@ -1,23 +1,25 @@
 import { Router } from "express";
 import { db } from "../../db/client.js";
 import { cacheMiddleware } from "../middleware/cache.js";
+import { requireBearerToken } from "../middleware/auth.js";
 import type { ConfigProfileManager } from "../../core/config-profile.js";
 
 type Trade = Awaited<ReturnType<typeof db.trade.findMany>>[number];
 type Position = Awaited<ReturnType<typeof db.position.findMany>>[number];
 
-export function profilesRouter(deps: { configProfileManager: unknown }) {
+export function profilesRouter(deps: { configProfileManager: unknown; dbClient?: typeof db }) {
   const router = Router();
   const manager = deps.configProfileManager as ConfigProfileManager;
+  const database = deps.dbClient ?? db;
 
   router.get("/", async (_req, res) => {
-    const profiles = await db.configProfile.findMany({
+    const profiles = await database.configProfile.findMany({
       orderBy: { createdAt: "desc" },
     });
     res.json(profiles);
   });
 
-  router.post("/", async (req, res) => {
+  router.post("/", requireBearerToken, async (req, res) => {
     const { name, description, mode, settings } = req.body;
     if (!name || !settings) {
       return res.status(400).json({ error: "name and settings required" });
@@ -31,24 +33,27 @@ export function profilesRouter(deps: { configProfileManager: unknown }) {
     res.json({ status: "created", name });
   });
 
-  router.put("/:name", async (req, res) => {
+  router.put("/:name", requireBearerToken, async (req, res) => {
     const { settings } = req.body;
     if (!settings) return res.status(400).json({ error: "settings required" });
-    await manager.updateProfile(req.params.name, settings);
+    const profileName = String(req.params.name);
+    await manager.updateProfile(profileName, settings);
     res.json({ status: "updated" });
   });
 
-  router.post("/:name/toggle", async (req, res) => {
+  router.post("/:name/toggle", requireBearerToken, async (req, res) => {
     const { active } = req.body;
-    await manager.toggleProfile(req.params.name, active ?? false);
+    const profileName = String(req.params.name);
+    await manager.toggleProfile(profileName, active ?? false);
     res.json({ status: active ? "activated" : "deactivated" });
   });
 
-  router.delete("/:name", async (req, res) => {
-    if (req.params.name === "default") {
+  router.delete("/:name", requireBearerToken, async (req, res) => {
+    const profileName = String(req.params.name);
+    if (profileName === "default") {
       return res.status(400).json({ error: "cannot delete default profile" });
     }
-    await manager.deleteProfile(req.params.name);
+    await manager.deleteProfile(profileName);
     res.json({ status: "deleted" });
   });
 
@@ -57,12 +62,12 @@ export function profilesRouter(deps: { configProfileManager: unknown }) {
     const mode = (req.query.mode as string) ?? "DRY_RUN";
 
     const [trades, positions] = await Promise.all([
-      db.trade.findMany({
+      database.trade.findMany({
         where: { configProfile: profile, mode: mode as "LIVE" | "DRY_RUN" },
         orderBy: { executedAt: "desc" },
         take: 50,
       }),
-      db.position.findMany({
+      database.position.findMany({
         where: { configProfile: profile, mode: mode as "LIVE" | "DRY_RUN" },
         orderBy: { openedAt: "desc" },
         take: 20,

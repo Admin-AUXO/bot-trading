@@ -20,7 +20,6 @@ async function proxy(
 ): Promise<Response> {
   const { path } = await params;
   const target = new URL(`/api/${path.join("/")}${request.nextUrl.search}`, BACKEND);
-  const isStream = path.join("/") === "stream";
 
   if (!backendAvailable && Date.now() - lastFailAt < BACKEND_RETRY_MS) {
     return Response.json({ error: "Backend unavailable" }, { status: 503 });
@@ -32,7 +31,8 @@ async function proxy(
   headers.delete("connection");
   headers.delete("transfer-encoding");
   headers.delete("accept-encoding");
-  if (isStream && CONTROL_SECRET) {
+
+  if (CONTROL_SECRET) {
     headers.set("authorization", `Bearer ${CONTROL_SECRET}`);
   }
 

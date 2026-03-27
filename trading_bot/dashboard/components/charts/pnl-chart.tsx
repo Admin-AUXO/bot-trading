@@ -6,7 +6,6 @@ import { fetchDailyStats, fetchOverview } from "@/lib/api";
 import { useDashboardStore } from "@/lib/store";
 import { chartColors } from "@/lib/chart-colors";
 import {
-  BarChart,
   Bar,
   XAxis,
   YAxis,

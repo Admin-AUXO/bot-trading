@@ -199,6 +199,7 @@ model DailyStats {
   mode            TradeMode @default(LIVE)
   configProfile   String   @default("default")
   date            DateTime @db.Date
+  seriesKey       String
   strategy        Strategy?
   tradesTotal     Int      @default(0)
   tradesWon       Int      @default(0)
@@ -224,6 +225,7 @@ model DailyStats {
   createdAt       DateTime @default(now())
 
   @@unique([date, strategy, mode, configProfile])
+  @@unique([date, seriesKey, mode, configProfile])
   @@index([date])
   @@index([mode])
 }
