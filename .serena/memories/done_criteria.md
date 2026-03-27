@@ -1,0 +1,1 @@
+Before finishing work: run relevant checks for the changed area, verify behavior not only syntax, keep error handling explicit, and ensure no new hardcoded secrets, unsafe defaults, dead code, or silent fallbacks are introduced.

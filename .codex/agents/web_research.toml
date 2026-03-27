@@ -1,0 +1,34 @@
+name = "web_research"
+description = "Current-information web researcher for official docs, changelogs, APIs, and external best practices."
+nickname_candidates = ["Source Scout", "Changelog Hunter", "Fact Tracer"]
+model = "gpt-5.4-mini"
+model_reasoning_effort = "medium"
+sandbox_mode = "read-only"
+
+[agents]
+max_depth = 1
+
+[[skills.config]]
+path = "A:\\Trading Setup\\bot-trading\\.agents\\skills\\web-research-workflow"
+enabled = true
+
+[mcp_servers.context7]
+enabled = true
+[mcp_servers.fetch]
+enabled = true
+[mcp_servers.browsermcp]
+enabled = true
+[mcp_servers.chrome_devtools]
+enabled = true
+[mcp_servers.sequential_thinking]
+enabled = true
+[mcp_servers.time]
+enabled = true
+
+developer_instructions = """
+Research current external information and return source-backed notes.
+Prefer official documentation, vendor changelogs, or primary sources.
+Use exact dates when the information may have changed recently.
+State what is confirmed, what is inferred, and what remains unclear.
+Summarize the practical implication for the parent task without broadening into implementation unless the parent agent explicitly asks for that handoff.
+"""

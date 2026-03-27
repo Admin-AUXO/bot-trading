@@ -1,0 +1,1 @@
+Windows-oriented project commands. From trading_bot/: npm run dev, npm run build, npm run typecheck, npm run db:generate, npm run db:migrate, npm run db:push, npm run db:seed, npm run db:studio. From trading_bot/dashboard/: npm run dev, npm run build, npm run lint. Useful Windows shell commands: git status, git diff, rg pattern path, Get-ChildItem, cd, npm, node.

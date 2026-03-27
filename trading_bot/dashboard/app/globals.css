@@ -1,0 +1,184 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg-primary: #0a0a0f;
+  --color-bg-secondary: #12121a;
+  --color-bg-card: #16161f;
+  --color-bg-hover: #1c1c28;
+  --color-bg-border: #242433;
+  --color-accent-green: #A3E635;
+  --color-accent-red: #ef4444;
+  --color-accent-blue: #3b82f6;
+  --color-accent-yellow: #eab308;
+  --color-accent-purple: #a855f7;
+  --color-accent-cyan: #06b6d4;
+  --color-text-primary: #e4e4e7;
+  --color-text-secondary: #a1a1aa;
+  --color-text-muted: #71717a;
+  --font-mono: "JetBrains Mono", "Fira Code", monospace;
+}
+
+@variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  .dark body {
+    @apply bg-bg-primary text-text-primary font-mono antialiased;
+  }
+
+  .light body {
+    @apply bg-gray-50 text-gray-900 font-mono antialiased;
+  }
+
+  body {
+    @apply bg-bg-primary text-text-primary font-mono antialiased;
+    background-image: radial-gradient(ellipse 80% 50% at 50% -20%, rgba(163, 230, 53, 0.04) 0%, transparent 60%);
+  }
+
+  * {
+    @apply border-bg-border;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-bg-primary;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-bg-border rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-text-muted;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-bg-card/80 border border-white/[0.06] rounded-xl p-4 backdrop-blur-sm;
+  }
+
+  .card-glow {
+    box-shadow: 0 0 0 1px rgba(163, 230, 53, 0.08), 0 4px 24px rgba(0, 0, 0, 0.4);
+  }
+
+  .card-hover {
+    @apply transition-all duration-200;
+  }
+
+  .card-hover:hover {
+    @apply border-white/[0.12] bg-bg-card/90;
+    box-shadow: 0 0 0 1px rgba(163, 230, 53, 0.12), 0 8px 32px rgba(0, 0, 0, 0.5);
+  }
+
+  .stat-value {
+    @apply text-2xl font-bold tracking-tight;
+  }
+
+  .stat-label {
+    @apply text-xs text-text-muted uppercase tracking-wider;
+  }
+
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-medium;
+  }
+
+  .badge-green {
+    @apply bg-accent-green/15 text-accent-green;
+  }
+
+  .badge-red {
+    @apply bg-accent-red/15 text-accent-red;
+  }
+
+  .badge-blue {
+    @apply bg-accent-blue/15 text-accent-blue;
+  }
+
+  .badge-yellow {
+    @apply bg-accent-yellow/15 text-accent-yellow;
+  }
+
+  .badge-purple {
+    @apply bg-accent-purple/15 text-accent-purple;
+  }
+
+  .badge-cyan {
+    @apply bg-accent-cyan/15 text-accent-cyan;
+  }
+
+  .pnl-positive {
+    @apply text-accent-green;
+  }
+
+  .pnl-negative {
+    @apply text-accent-red;
+  }
+
+  .pnl-neutral {
+    @apply text-text-muted;
+  }
+
+  .btn-primary {
+    @apply px-4 py-2 bg-accent-green text-black rounded-lg text-sm font-medium hover:bg-accent-green/80 transition-colors;
+  }
+
+  .btn-danger {
+    @apply px-4 py-2 bg-accent-red text-white rounded-lg text-sm font-medium hover:bg-accent-red/80 transition-colors;
+  }
+
+  .btn-ghost {
+    @apply px-4 py-2 text-text-secondary rounded-lg text-sm font-medium hover:bg-bg-hover transition-colors;
+  }
+
+  .table-header {
+    @apply text-xs text-text-muted uppercase tracking-wider px-3 py-2 text-left;
+  }
+
+  .table-cell {
+    @apply px-3 py-2.5 text-sm;
+  }
+
+  .table-row {
+    @apply border-b border-bg-border hover:bg-bg-hover/50 transition-colors cursor-default;
+  }
+
+  .page-section-title {
+    @apply text-xs font-semibold text-text-muted uppercase tracking-widest mb-4 flex items-center gap-2;
+  }
+
+  .tab-bar {
+    @apply flex gap-1 p-1 bg-bg-secondary rounded-xl border border-bg-border;
+  }
+
+  .input-base {
+    @apply w-full bg-bg-primary border border-bg-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-green/50 focus:ring-1 focus:ring-accent-green/20 transition-colors;
+  }
+
+  .table-sticky-header th {
+    @apply sticky top-0 bg-bg-card/95 backdrop-blur-sm z-10;
+  }
+
+  .sim-badge {
+    @apply text-xs italic text-text-muted/60 bg-bg-hover px-1.5 py-0.5 rounded;
+  }
+
+  .date-range-btn {
+    @apply px-2 py-1 text-xs rounded transition-colors;
+  }
+
+  .date-range-btn-active {
+    @apply bg-accent-green/20 text-accent-green;
+  }
+
+  .date-range-btn-inactive {
+    @apply text-text-muted hover:text-text-secondary hover:bg-bg-hover;
+  }
+}
