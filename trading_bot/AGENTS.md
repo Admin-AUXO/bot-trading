@@ -21,6 +21,11 @@ This file applies to work inside `trading_bot/` and is more specific than the re
 - Dashboard control auth stays centralized in `dashboard/app/api/[...path]/route.ts` and `dashboard/app/api/operator-session/route.ts`. New mutating dashboard actions should use that same boundary.
 - Reuse `dashboard/lib/dashboard-query-options.ts` and `dashboard/hooks/use-dashboard-shell.ts` when changing dashboard data flow so query keys, request params, shared shell state, and layout chrome stay aligned.
 - Keep active runtime scope separate from analysis filters. Chrome and control surfaces reflect the live runtime lane; `dashboard/hooks/use-dashboard-filters.ts` owns cross-lane inspection for positions, trades, analytics, and quota drill-downs.
+- Dashboard views that mix lane-scoped, mode/profile-scoped, and global feeds must label that scope explicitly. Do not let a filtered page header imply every card obeys the same filters.
+- Dashboard capacity UI must keep runtime portfolio slot truth separate from filtered subsets. Filtered row counts are not capacity.
+- Quota UI must derive blockers from provider quota state, not from generic operator pause reasons with a convenient new label.
+- When rolling up per-strategy percentages such as manual share, weight by the underlying trade counts instead of averaging the pre-aggregated ratios.
+- Profile activation UI should surface tracked result context when the API already exposes it.
 - Keep dashboard light/dark styling on semantic variables in `dashboard/app/globals.css` and `dashboard/lib/chart-colors.ts`; do not add page-local hard-coded chart or surface colors.
 - Manual control paths must obey the same capital, reserve, and sizing checks as automated entry paths. Never validate overrides against only the default size.
 - Workers must reuse the supported Prisma initialization path from `backend/src/db/client.ts`; do not construct ad-hoc Prisma clients for background jobs.

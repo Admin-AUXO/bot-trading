@@ -4,12 +4,12 @@ This dashboard is the operator surface for the trading bot. It is a Next.js 16 A
 
 ## Page Map
 
-- `/`: overview of capital, exposure, regime, budget drift, and urgent positions
-- `/positions`: open risk, close history, skipped-capacity review, and manual entry/exit controls
-- `/trades`: trade tape plus signal pass/reject flow
-- `/analytics`: expectancy, capital curve, execution quality, distribution, reject leakage, regime history, and wallet activity
-- `/quota`: provider runway, daily burn history, monthly trajectory, and endpoint concentration
-- `/settings`: bot controls, operator session, strategy config, risk limits, current quota pressure, pause reasons, wallet reconciliation, and config profiles
+- `/`: overview of capital, exposure, regime, quota pressure, lane-day performance, and the next forced exit
+- `/positions`: open risk, close history, runtime portfolio capacity versus filtered subsets, skipped-capacity review with block reasons, and manual entry/exit controls
+- `/trades`: trade tape plus signal pass/reject flow with reject reasons and filter evidence
+- `/analytics`: expectancy, capital curve, execution quality, weighted manual share, distribution, reject leakage, regime history, wallet activity, and explicit scope badges for every section
+- `/quota`: provider runway, daily burn history, monthly trajectory, quota-driven blockers, and endpoint concentration
+- `/settings`: bot controls, operator session, strategy config, risk limits, current quota pressure, pause reasons, wallet reconciliation, and config profiles with recent results context
 
 Page titles and descriptions live in `lib/page-meta.ts`. Keep those descriptions aligned with what the page actually answers.
 
@@ -30,12 +30,19 @@ Rules:
 
 - If a filter varies by `days`, `mode`, `profile`, or `tradeSource`, the query key, request params, and backend route must all vary by the same fields.
 - If operator state can contain multiple blockers, surface `pauseReasons` instead of collapsing everything to one string too early.
+- If a page mixes runtime-scope, lane-scoped, mode/profile-scoped, or global feeds, label that scope in the UI. A filtered header does not grant every card filtered semantics.
 - Do not add new header/footer/sidebar queries for overview, positions, heartbeat, or operator session when `use-dashboard-shell.ts` already exposes them.
 - `/api/overview` and `/api/control/*` are runtime-scope contracts. Do not pretend the user can ask them for arbitrary `mode/profile` lanes.
+- `/api/overview` day counters are lane-scoped runtime truth. Reuse the backend lane-summary contract instead of recomputing those numbers ad hoc per page.
 - Connection state is derived from heartbeat plus available shell data. Do not reintroduce a manual `connected` flag in client state.
 - Keep compact metrics on `components/ui/summary-tile.tsx` unless a page has a stronger reason to diverge.
 - `/api/overview/api-usage?days=N` is a compound contract now: current snapshots, persisted daily rows, monthly aggregates, and top endpoint spenders. Do not assume the old `{ daily, monthly }` shape.
+- Capacity widgets on `/positions` must distinguish actual portfolio slots from filtered rows. Filtered `positions.length` is not bot-wide availability.
+- Rejected or skipped signal surfaces should carry `rejectReason` plus attached `filterResults` when the backend provides them; timestamps alone are not an explanation.
+- Aggregate ratios from already-aggregated strategy rows must be weighted by the underlying counts. `manualShare` is weighted by `buyCount + sellCount`.
 - Service totals on `/quota` are global provider budgets. Only the endpoint table should be narrowed by analysis lane metadata, and only when that metadata exists.
+- Quota blockers come from quota snapshot pause metadata or hard-limit state. Generic operator `pauseReasons` are broader and should not be relabeled as provider blockers.
+- Profile lists should fetch and show tracked result context when activation decisions benefit from historical performance.
 - `/api/analytics/execution-quality` summarizes entry/exit slippage, fees, latency, and copy lag by strategy. Keep types in `lib/api.ts` aligned before using it in UI code.
 
 ## Control And Auth
@@ -115,6 +122,10 @@ Browser verification should confirm:
 - header, sidebar, and footer agree on mode, operator state, and connection state
 - selected analysis filters are reflected in the actual requests where the backend supports them
 - overview and control surfaces stay pinned to the active runtime scope even when analytics filters diverge
-- quota page shows global service totals plus lane-focused endpoint concentration without assuming stale response shapes
-- settings surfaces current provider budget, pause reasons, and any top-endpoint usage widgets without assuming stale response shapes
+- overview headline surfaces the next forced exit without drifting off the active lane
+- positions keep runtime capacity separate from filtered rows and show block reasons or filter evidence where available
+- trades render reject reasons plus filter evidence for rejected signals
+- analytics scope badges match the actual query/filter support for each card, and weighted rollups still read correctly
+- quota page shows global service totals, lane-focused endpoint concentration, and quota-specific blockers without assuming stale response shapes
+- settings surfaces current provider budget, pause reasons, top-endpoint usage widgets, and per-profile result context without assuming stale response shapes
 - search-param hooks remain behind the required Suspense boundaries
