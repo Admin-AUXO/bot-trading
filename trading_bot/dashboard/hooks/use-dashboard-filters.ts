@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { createContext, createElement, useContext, useEffect, useMemo, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { TradeSource } from "@/lib/api";
 import { profilesQueryOptions } from "@/lib/dashboard-query-options";
@@ -12,7 +12,7 @@ import {
 } from "@/lib/store";
 import { useDashboardShell } from "@/hooks/use-dashboard-shell";
 
-export function useDashboardFilters() {
+function useDashboardFiltersValue() {
   const {
     selectedMode,
     setSelectedMode,
@@ -60,6 +60,9 @@ export function useDashboardFilters() {
     activeScope,
     effectiveMode,
     effectiveProfile,
+    isAnalysisOnActiveRuntime: activeScope != null
+      && effectiveMode === activeScope.mode
+      && effectiveProfile === activeScope.configProfile,
     profileOptions,
     profilesLoading: profilesQuery.isLoading,
     selectedMode,
@@ -77,4 +80,21 @@ export function useDashboardFilters() {
     isUsingActiveMode: selectedMode === ACTIVE_MODE_FILTER,
     isUsingActiveProfile: selectedProfile === ACTIVE_PROFILE_FILTER,
   };
+}
+
+type DashboardFiltersValue = ReturnType<typeof useDashboardFiltersValue>;
+
+const DashboardFiltersContext = createContext<DashboardFiltersValue | null>(null);
+
+export function DashboardFiltersProvider({ children }: { children: ReactNode }) {
+  const value = useDashboardFiltersValue();
+  return createElement(DashboardFiltersContext.Provider, { value }, children);
+}
+
+export function useDashboardFilters() {
+  const context = useContext(DashboardFiltersContext);
+  if (!context) {
+    throw new Error("useDashboardFilters must be used within DashboardFiltersProvider");
+  }
+  return context;
 }

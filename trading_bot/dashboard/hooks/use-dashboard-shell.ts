@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { createContext, createElement, useContext, useMemo, type ReactNode } from "react";
 import { useQueries } from "@tanstack/react-query";
 import {
   apiUsageQueryOptions,
@@ -10,7 +10,6 @@ import {
   positionsQueryOptions,
   strategyConfigQueryOptions,
 } from "@/lib/dashboard-query-options";
-import { useDashboardStore } from "@/lib/store";
 import type { BudgetSnapshot, Position, StrategyConfigResponse } from "@/lib/api";
 
 const FALLBACK_STOP_LOSS: Record<string, number> = {
@@ -56,8 +55,7 @@ function rankQuotaSnapshots(snapshots: BudgetSnapshot[] | null | undefined) {
   return [...snapshots].sort((left, right) => rank[right.quotaStatus] - rank[left.quotaStatus])[0] ?? null;
 }
 
-export function useDashboardShell() {
-  const { selectedStrategy } = useDashboardStore();
+function useDashboardShellValue() {
   const [
     overviewQuery,
     positionsQuery,
@@ -77,14 +75,6 @@ export function useDashboardShell() {
   });
 
   const allPositions = useMemo(() => positionsQuery.data ?? [], [positionsQuery.data]);
-  const filteredPositions = useMemo(
-    () => (
-      selectedStrategy
-        ? allPositions.filter((position) => position.strategy === selectedStrategy)
-        : allPositions
-    ),
-    [allPositions, selectedStrategy],
-  );
 
   const connectionState: "online" | "degraded" | "offline" = heartbeatQuery.isError
     ? (overviewQuery.data || positionsQuery.data ? "degraded" : "offline")
@@ -142,9 +132,17 @@ export function useDashboardShell() {
     apiUsageQuery.dataUpdatedAt,
   );
 
+  const isLoadingShell = !overviewQuery.data && [
+    overviewQuery,
+    positionsQuery,
+    heartbeatQuery,
+    operatorSessionQuery,
+    strategyConfigQuery,
+    apiUsageQuery,
+  ].some((query) => query.isLoading);
+
   return {
     activeScope,
-    selectedStrategy,
     overview: overviewQuery.data,
     heartbeat: heartbeatQuery.data,
     operatorSession: operatorSessionQuery.data,
@@ -153,16 +151,28 @@ export function useDashboardShell() {
     worstQuota,
     pauseReasons,
     allPositions,
-    filteredPositions,
     connectionState,
     operatorAccess,
     lastUpdatedAt,
     maxOpenPositions,
-    isLoadingShell:
-      overviewQuery.isLoading &&
-      positionsQuery.isLoading &&
-      heartbeatQuery.isLoading &&
-      operatorSessionQuery.isLoading,
+    isLoadingShell,
     ...metrics,
   };
+}
+
+type DashboardShellValue = ReturnType<typeof useDashboardShellValue>;
+
+const DashboardShellContext = createContext<DashboardShellValue | null>(null);
+
+export function DashboardShellProvider({ children }: { children: ReactNode }) {
+  const value = useDashboardShellValue();
+  return createElement(DashboardShellContext.Provider, { value }, children);
+}
+
+export function useDashboardShell() {
+  const context = useContext(DashboardShellContext);
+  if (!context) {
+    throw new Error("useDashboardShell must be used within DashboardShellProvider");
+  }
+  return context;
 }

@@ -63,7 +63,6 @@ export function Header() {
     openPnlUsd,
     openSlots,
     allPositions,
-    filteredPositions,
     deployedCapitalUsd,
     lastUpdatedAt,
     maxOpenPositions,
@@ -81,6 +80,14 @@ export function Header() {
     effectiveProfile,
     selectedTradeSource === ALL_TRADE_SOURCE_FILTER ? "all sources" : selectedTradeSource.toLowerCase(),
   ].join(" · ");
+  const selectedStrategyRuntimeCount = selectedStrategy
+    ? allPositions.filter((position) => position.strategy === selectedStrategy).length
+    : null;
+  const analysisDiffersFromRuntime = activeScope != null && (
+    effectiveMode !== activeScope.mode
+    || effectiveProfile !== activeScope.configProfile
+    || selectedTradeSource !== ALL_TRADE_SOURCE_FILTER
+  );
 
   return (
     <header className="sticky top-0 z-40 border-b border-bg-border/80 bg-bg-secondary/85 backdrop-blur-xl">
@@ -118,9 +125,12 @@ export function Header() {
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-text-muted">
               <span>Updated {updatedLabel}</span>
               <span>{allPositions.length} open positions</span>
-              <span>{filteredPositions.length} in focus</span>
+              {selectedStrategy && selectedStrategyRuntimeCount != null ? (
+                <span>{selectedStrategyRuntimeCount} runtime {strategyLabel(selectedStrategy)} positions</span>
+              ) : null}
               <span>{openSlots}/{maxOpenPositions} slots open</span>
               <span>Analysis {analysisSummary}</span>
+              {analysisDiffersFromRuntime ? <span>Runtime metrics stay on the active lane</span> : null}
               {heartbeat?.lastTradeAt ? <span>Last trade {timeAgo(heartbeat.lastTradeAt)}</span> : null}
               {heartbeat?.lastSignalAt ? <span>Last signal {timeAgo(heartbeat.lastSignalAt)}</span> : null}
             </div>

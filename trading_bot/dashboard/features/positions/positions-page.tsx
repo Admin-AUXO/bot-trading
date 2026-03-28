@@ -77,9 +77,17 @@ export default function PositionsPage() {
   const [exitingId, setExitingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirmExit, setConfirmExit] = useState<{ id: string; symbol: string } | null>(null);
-  const { effectiveMode, effectiveProfile, resolvedTradeSource, selectedStrategy } = useDashboardFilters();
+  const {
+    activeScope,
+    effectiveMode,
+    effectiveProfile,
+    resolvedTradeSource,
+    selectedStrategy,
+    isAnalysisOnActiveRuntime,
+  } = useDashboardFilters();
   const queryClient = useQueryClient();
   const {
+    activeScope: runtimeScope,
     strategyConfig,
     maxOpenPositions,
     allPositions: portfolioPositions,
@@ -104,22 +112,41 @@ export default function PositionsPage() {
 
   const controlsLocked = operatorSessionQuery.data?.configured !== false && !operatorSessionQuery.data?.authenticated;
   const controlsUnavailable = operatorSessionQuery.data?.configured === false;
+  const manualControlsHint = controlsUnavailable
+    ? "Dashboard operator secret is not configured."
+    : controlsLocked
+      ? "Unlock operator access in Settings."
+      : runtimeScope
+        ? `Manual controls only execute on the active runtime lane (${runtimeScope.mode}/${runtimeScope.configProfile}).`
+        : "Manual controls are unavailable until the runtime scope is known.";
+  const manualControlsReady = !controlsLocked && !controlsUnavailable && isAnalysisOnActiveRuntime;
+
+  const invalidateDashboardAfterManualAction = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.overview }),
+      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.heartbeat }),
+      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.positions() }),
+      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.positions(effectiveMode, effectiveProfile, resolvedTradeSource) }),
+      queryClient.invalidateQueries({ queryKey: ["position-history"] }),
+      queryClient.invalidateQueries({ queryKey: ["trades"] }),
+      queryClient.invalidateQueries({ queryKey: ["skipped-signals"] }),
+      queryClient.invalidateQueries({ queryKey: ["signals-paginated"] }),
+      queryClient.invalidateQueries({ queryKey: ["daily-stats"] }),
+      queryClient.invalidateQueries({ queryKey: ["strategy-analytics"] }),
+      queryClient.invalidateQueries({ queryKey: ["execution-quality"] }),
+      queryClient.invalidateQueries({ queryKey: ["pnl-distribution"] }),
+      queryClient.invalidateQueries({ queryKey: ["api-usage"] }),
+    ]);
+  };
 
   const entryMutation = useMutation({
     mutationFn: manualEntry,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.positions(effectiveMode, effectiveProfile, resolvedTradeSource) });
-      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.skippedSignals(skippedPage, selectedStrategy, effectiveMode, effectiveProfile) });
-      queryClient.invalidateQueries({ queryKey: ["position-history"] });
-    },
+    onSuccess: invalidateDashboardAfterManualAction,
   });
 
   const exitMutation = useMutation({
     mutationFn: (positionId: string) => manualExit(positionId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.positions(effectiveMode, effectiveProfile, resolvedTradeSource) });
-      queryClient.invalidateQueries({ queryKey: ["position-history"] });
-    },
+    onSuccess: invalidateDashboardAfterManualAction,
   });
 
   const filteredPositions = selectedStrategy
@@ -175,6 +202,7 @@ export default function PositionsPage() {
           <div className="mt-1 text-sm text-text-secondary">
             {effectiveMode === "LIVE" ? "Live" : "Simulation"} analysis · {effectiveProfile} · {selectedStrategy ? strategyLabel(selectedStrategy) : "All strategies"}
             {resolvedTradeSource ? ` · ${resolvedTradeSource.toLowerCase()} only` : ""}
+            {!isAnalysisOnActiveRuntime && activeScope ? ` · manual actions stay on ${activeScope.mode}/${activeScope.configProfile}` : ""}
           </div>
         </div>
 
@@ -202,12 +230,10 @@ export default function PositionsPage() {
         </div>
       </div>
 
-      {(controlsLocked || controlsUnavailable) ? (
+      {!manualControlsReady ? (
         <div className="flex items-center gap-2 rounded-xl border border-accent-yellow/20 bg-accent-yellow/8 px-3 py-2 text-xs text-accent-yellow">
           <ShieldAlert className="h-3.5 w-3.5" />
-          {controlsUnavailable
-            ? "Manual controls unavailable until a dashboard operator secret is configured."
-            : "Manual controls are locked. Unlock operator access in Settings to act from this page."}
+          {manualControlsHint}
         </div>
       ) : null}
 
@@ -343,14 +369,8 @@ export default function PositionsPage() {
                                     ? "shadow-[0_0_12px_rgba(239,68,68,0.35)]"
                                     : "hover:shadow-[0_0_12px_rgba(239,68,68,0.35)]",
                                 )}
-                                disabled={controlsLocked || controlsUnavailable || (exitMutation.isPending && exitingId === position.id)}
-                                title={
-                                  controlsUnavailable
-                                    ? "Dashboard operator secret is not configured"
-                                    : controlsLocked
-                                      ? "Unlock operator access in Settings"
-                                      : "Exit position"
-                                }
+                                disabled={!manualControlsReady || (exitMutation.isPending && exitingId === position.id)}
+                                title={manualControlsReady ? "Exit position" : manualControlsHint}
                                 onClick={() => setConfirmExit({ id: position.id, symbol: position.tokenSymbol })}
                                 whileTap={{ scale: 0.95 }}
                               >
@@ -517,9 +537,17 @@ export default function PositionsPage() {
             />
             <SummaryTile
               label="Manual Entry"
-              value={controlsLocked || controlsUnavailable ? "Locked" : "Ready"}
-              sub="Enter directly from this queue"
-              tone={controlsLocked || controlsUnavailable ? "warning" : "positive"}
+              value={
+                controlsUnavailable
+                  ? "Unavailable"
+                  : controlsLocked
+                    ? "Locked"
+                    : manualControlsReady
+                      ? "Ready"
+                      : "Runtime only"
+              }
+              sub={manualControlsReady ? "Enter from the active runtime queue" : manualControlsHint}
+              tone={manualControlsReady ? "positive" : "warning"}
             />
             <SummaryTile
               label="Action Errors"
@@ -591,15 +619,13 @@ export default function PositionsPage() {
                           <td className="table-cell">
                             <button
                               className="btn-ghost text-xs text-accent-green disabled:opacity-40"
-                              disabled={controlsLocked || controlsUnavailable || (entryMutation.isPending && enteringId === signal.id)}
-                              title={
-                                controlsUnavailable
-                                  ? "Dashboard operator secret is not configured"
-                                  : controlsLocked
-                                    ? "Unlock operator access in Settings"
-                                    : "Enter position"
-                              }
+                              disabled={!manualControlsReady || (entryMutation.isPending && enteringId === signal.id)}
+                              title={manualControlsReady ? "Enter position" : manualControlsHint}
                               onClick={async () => {
+                                if (!manualControlsReady) {
+                                  setActionError(manualControlsHint);
+                                  return;
+                                }
                                 setEnteringId(signal.id);
                                 setActionError(null);
 
@@ -659,6 +685,11 @@ export default function PositionsPage() {
         danger
         onConfirm={async () => {
           if (!confirmExit) return;
+          if (!manualControlsReady) {
+            setActionError(manualControlsHint);
+            setConfirmExit(null);
+            return;
+          }
 
           setExitingId(confirmExit.id);
           setActionError(null);

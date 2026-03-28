@@ -23,6 +23,8 @@ Use these files as the dashboard data contract:
   Aggregates overview, positions, heartbeat, and operator session into one shared shell model for header, sidebar, footer, and shell-level banners.
 - `hooks/use-dashboard-filters.ts`
   Separates active runtime scope from page-level analysis filters so layout chrome can stay truthful while analytics can inspect other lanes.
+- `app/providers.tsx`
+  Installs the shared shell/filter providers so chrome and pages consume one query-backed dashboard state graph instead of rebuilding it component by component.
 - `lib/api.ts`
   Owns the request shapes returned from the backend proxy. If a backend route response changes, update the types here first.
 
@@ -33,6 +35,7 @@ Rules:
 - If a page mixes runtime-scope, lane-scoped, mode/profile-scoped, or global feeds, label that scope in the UI. A filtered header does not grant every card filtered semantics.
 - Do not add new header/footer/sidebar queries for overview, positions, heartbeat, or operator session when `use-dashboard-shell.ts` already exposes them.
 - `/api/overview` and `/api/control/*` are runtime-scope contracts. Do not pretend the user can ask them for arbitrary `mode/profile` lanes.
+- Manual entry and exit are runtime-lane actions. If the operator is inspecting another `mode/profile` lane, keep the read path available but disable the write path explicitly.
 - `/api/control/config` is the runtime truth for settings cards: it now exposes configured base size, current effective size after regime/capital adjustments, and the structured exit plan for each strategy. Do not hard-code those thresholds in the client.
 - `/api/overview` day counters are lane-scoped runtime truth. Reuse the backend lane-summary contract instead of recomputing those numbers ad hoc per page.
 - Connection state is derived from heartbeat plus available shell data. Do not reintroduce a manual `connected` flag in client state.
@@ -123,6 +126,7 @@ Browser verification should confirm:
 - header, sidebar, and footer agree on mode, operator state, and connection state
 - selected analysis filters are reflected in the actual requests where the backend supports them
 - overview and control surfaces stay pinned to the active runtime scope even when analytics filters diverge
+- manual entry and exit stay disabled whenever the inspected `mode/profile` lane is not the active runtime lane
 - overview headline surfaces the next forced exit without drifting off the active lane
 - positions keep runtime capacity separate from filtered rows and show block reasons or filter evidence where available
 - trades render reject reasons plus filter evidence for rejected signals
