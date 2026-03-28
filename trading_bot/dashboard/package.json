@@ -11,9 +11,7 @@
   "dependencies": {
     "@tailwindcss/postcss": "^4.2.2",
     "@tanstack/react-query": "^5.0.0",
-    "@tanstack/react-table": "^8.0.0",
     "autoprefixer": "^10.4.27",
-    "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",
     "ky": "^1.0.0",
     "lucide-react": "^1.7.0",

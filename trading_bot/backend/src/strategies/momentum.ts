@@ -204,12 +204,12 @@ export class MomentumStrategy extends EventEmitter {
       return;
     }
 
-    if (tradeData.uniqueWallet5m < this.cfg.minHolders / 2) {
+    if (tradeData.uniqueWallet5m < this.cfg.minHolders * this.cfg.tranche2MinHolderRatio) {
       log.info({ token: tokenSymbol, uniqueWallet5m: tradeData.uniqueWallet5m }, "tranche 2 skipped — participation too thin");
       return;
     }
 
-    if (volumeRetention < 0.8) {
+    if (volumeRetention < this.cfg.tranche2MinVolumeRetention) {
       log.info({ token: tokenSymbol, volumeRetention }, "tranche 2 skipped — momentum faded");
       return;
     }
@@ -275,8 +275,8 @@ export class MomentumStrategy extends EventEmitter {
     }
 
     const securityCheck = runSecurityChecks(security, [], {
-      maxTop10HolderPercent: 40,
-      maxSingleHolderPercent: 25,
+      maxTop10HolderPercent: this.cfg.maxTop10HolderPercent,
+      maxSingleHolderPercent: this.cfg.maxSingleHolderPercent,
     });
     Object.assign(filters, securityCheck.filterResults);
     if (!securityCheck.pass) {

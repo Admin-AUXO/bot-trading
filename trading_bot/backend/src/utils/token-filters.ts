@@ -1,24 +1,5 @@
 import type { TokenSecurity, TokenHolder, TradeData, JsonValue } from "./types.js";
 
-export interface TokenFilterRules {
-  maxTop10HolderPercent: number;
-  maxSingleHolderPercent: number;
-  minUniqueBuyers5m?: number;
-  minBuySellRatio?: number;
-  minLiquidity?: number;
-  maxMarketCap?: number;
-  minBuyPressure?: number;
-}
-
-export interface TokenFilterParams {
-  security: TokenSecurity | null;
-  holders: TokenHolder[];
-  tradeData?: TradeData | null;
-  liquidity?: number;
-  marketCap?: number;
-  buyPercent?: number;
-}
-
 export interface FilterResult {
   pass: boolean;
   reason?: string;

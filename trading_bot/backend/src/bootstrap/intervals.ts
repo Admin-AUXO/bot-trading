@@ -27,7 +27,11 @@ export function registerRuntimeIntervals(deps: {
     try {
       const solPrice = await deps.jupiter.getSolPriceUsd();
       if (solPrice) deps.regimeDetector.updateSolPrice(solPrice);
-      const trending = await deps.birdeye.getTokenTrending({ purpose: "REGIME", essential: false, batchSize: 10 });
+      const trending = await deps.birdeye.getTokenTrending({
+        purpose: "REGIME",
+        essential: false,
+        batchSize: config.regime.trendingSampleSize,
+      });
       deps.regimeDetector.updateTrendingCount(trending.length);
     } catch (err) {
       log.error({ err }, "regime update failed");
@@ -70,7 +74,7 @@ export function registerRuntimeIntervals(deps: {
       } catch (err) {
         log.error({ err }, "wallet reconcile failed");
       }
-    }, 60_000));
+    }, config.main.walletReconcileIntervalMs));
   }
 
   handles.push(setInterval(async () => {

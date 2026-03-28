@@ -53,7 +53,12 @@ export function createApiServer(deps: {
   app.use(pinoHttp({ logger }));
   app.use(express.json());
 
-  const controlLimiter = rateLimit({ windowMs: 60_000, max: 20, standardHeaders: true, legacyHeaders: false });
+  const controlLimiter = rateLimit({
+    windowMs: config.api.controlRateLimitWindowMs,
+    max: config.api.controlRateLimitMax,
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
 
   app.use("/api/overview", overviewRouter(deps));
   app.use("/api/positions", positionsRouter({
@@ -153,7 +158,7 @@ export function createApiServer(deps: {
     void send();
     const interval = setInterval(() => {
       void send();
-    }, 5000);
+    }, config.api.streamIntervalMs);
 
     req.on("close", () => {
       clearInterval(interval);

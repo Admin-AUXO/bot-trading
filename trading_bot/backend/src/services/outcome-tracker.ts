@@ -3,7 +3,6 @@ import { config } from "../config/index.js";
 import { createChildLogger } from "../utils/logger.js";
 import type { ApiBudgetManager } from "../core/api-budget-manager.js";
 import type { BirdeyeService } from "./birdeye.js";
-import type { JupiterService } from "./jupiter.js";
 
 const log = createChildLogger("outcome-tracker");
 
@@ -33,7 +32,6 @@ export class OutcomeTracker {
 
   constructor(
     private birdeye: BirdeyeService,
-    private jupiter: JupiterService,
     private budgetManager?: ApiBudgetManager,
   ) {}
 

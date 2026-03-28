@@ -444,12 +444,6 @@ export async function fetchTrades(
   return api.get(withParams("api/trades", params)).json<TradesResponse>();
 }
 
-export async function fetchSignals(strategy?: string) {
-  const params = new URLSearchParams();
-  if (strategy) params.set("strategy", strategy);
-  return api.get(withParams("api/trades/signals", params)).json<Signal[]>();
-}
-
 export async function fetchSignalsPaginated(
   page: number = 1,
   strategy?: string,
@@ -554,10 +548,6 @@ export async function createProfile(data: { name: string; description: string; m
   return api.post("api/profiles", { json: data }).json();
 }
 
-export async function updateProfile(name: string, settings: Record<string, unknown>) {
-  return api.put(`api/profiles/${name}`, { json: { settings } }).json();
-}
-
 export async function toggleProfile(name: string, active: boolean) {
   return api.post(`api/profiles/${name}/toggle`, { json: { active } }).json();
 }
@@ -648,9 +638,4 @@ export function createSSEConnection(onMessage: (data: unknown) => void, onError?
     onError?.();
   };
   return es;
-}
-
-export function getErrorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return "Unknown error";
 }

@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { config } from "../config/index.js";
 import { db } from "../db/client.js";
 import type { ExecutionScope } from "../utils/types.js";
 
@@ -11,7 +12,7 @@ export interface LaneTodaySummary {
   todayLosses: number;
 }
 
-const SUMMARY_TTL_MS = 5_000;
+const SUMMARY_TTL_MS = config.api.laneSummaryTtlMs;
 const summaryCache = new Map<string, { expiresAt: number; value: LaneTodaySummary }>();
 const DAY_MS = 86_400_000;
 

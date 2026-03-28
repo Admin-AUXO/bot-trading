@@ -43,7 +43,11 @@ export class HeliusService {
       config.circuitBreaker.heliusRpc.cooldownMs,
       config.circuitBreaker.heliusRpc.halfOpenMax,
     );
-    this.rateLimiter = new RateLimiter("helius-global", 30, 60_000);
+    this.rateLimiter = new RateLimiter(
+      "helius-global",
+      config.helius.rateLimitRps,
+      config.helius.rateLimitWindowMs,
+    );
   }
 
   async getPriorityFeeEstimate(meta?: ApiRequestMeta): Promise<number> {
@@ -52,7 +56,7 @@ export class HeliusService {
       return await this.circuitBreaker.execute(async () => {
         const res = await this.rpc("getPriorityFeeEstimate", [
           { accountKeys: [], options: { recommended: true } },
-        ], 1, meta);
+        ], config.apiBudgets.helius.credits.default, meta);
         return (res as { priorityFeeEstimate: number })?.priorityFeeEstimate ?? config.api.heliusPriorityFeeFallback;
       });
     } catch (err) {
@@ -65,7 +69,7 @@ export class HeliusService {
     await this.rateLimiter.waitForSlot();
     const result = await this.rpc("getLatestBlockhash", [
       { commitment: "confirmed" },
-    ], 1, meta) as { value: { blockhash: string; lastValidBlockHeight: number } };
+    ], config.apiBudgets.helius.credits.default, meta) as { value: { blockhash: string; lastValidBlockHeight: number } };
     return result.value;
   }
 
@@ -75,7 +79,7 @@ export class HeliusService {
       const result = await this.rpc("simulateTransaction", [
         tx,
         { encoding: "base64", commitment: "confirmed", replaceRecentBlockhash: true, sigVerify: false },
-      ], 1, meta) as { value: { err: unknown; unitsConsumed?: number } };
+      ], config.apiBudgets.helius.credits.default, meta) as { value: { err: unknown; unitsConsumed?: number } };
 
       return {
         success: !result.value.err,
@@ -100,9 +104,9 @@ export class HeliusService {
           {
             encoding: "base64",
             skipPreflight: opts?.skipPreflight ?? true,
-            maxRetries: opts?.maxRetries ?? 3,
+            maxRetries: opts?.maxRetries ?? config.api.heliusMaxRetries,
           },
-        ], 1, meta);
+        ], config.apiBudgets.helius.credits.default, meta);
         return res as string;
       });
     } catch (err) {
@@ -120,9 +124,9 @@ export class HeliusService {
           {
             encoding: "base64",
             skipPreflight: true,
-            maxRetries: 0,
+            maxRetries: config.api.heliusFastMaxRetries,
           },
-        ], 1, meta);
+        ], config.apiBudgets.helius.credits.default, meta);
         return res as string;
       });
     } catch (err) {
@@ -133,9 +137,9 @@ export class HeliusService {
 
   async confirmTransaction(
     signature: string,
-    blockhashInfo?: { blockhash: string; lastValidBlockHeight: number },
-    timeoutMs: number = config.api.heliusConfirmTimeoutMs,
+    _blockhashInfo?: { blockhash: string; lastValidBlockHeight: number },
     meta?: ApiRequestMeta,
+    timeoutMs: number = config.api.heliusConfirmTimeoutMs,
   ): Promise<boolean> {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       return this.confirmViaSubscription(signature, timeoutMs);
@@ -179,7 +183,7 @@ export class HeliusService {
   private async confirmViaPolling(signature: string, timeoutMs: number, meta?: ApiRequestMeta): Promise<boolean> {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
-      const result = await this.rpc("getSignatureStatuses", [[signature]], 1, meta) as {
+      const result = await this.rpc("getSignatureStatuses", [[signature]], config.apiBudgets.helius.credits.default, meta) as {
         value: Array<{ confirmationStatus: string } | null>;
       };
       const status = result?.value?.[0];
@@ -191,15 +195,23 @@ export class HeliusService {
     return false;
   }
 
-  async getSignaturesForAddress(address: string, limit: number = 100, meta?: ApiRequestMeta): Promise<unknown[]> {
+  async getSignaturesForAddress(
+    address: string,
+    limit: number = config.helius.txHistoryDefaultLimit,
+    meta?: ApiRequestMeta,
+  ): Promise<unknown[]> {
     await this.rateLimiter.waitForSlot();
     const result = await this.rpc("getSignaturesForAddress", [
       address, { limit },
-    ], 1, meta) as unknown[];
+    ], config.apiBudgets.helius.credits.default, meta) as unknown[];
     return result ?? [];
   }
 
-  async getSignaturesForAddressIncremental(address: string, limit: number = 100, meta?: ApiRequestMeta): Promise<unknown[]> {
+  async getSignaturesForAddressIncremental(
+    address: string,
+    limit: number = config.helius.txHistoryDefaultLimit,
+    meta?: ApiRequestMeta,
+  ): Promise<unknown[]> {
     await this.rateLimiter.waitForSlot();
     const lastSlot = this.lastSlotByAddress.get(address);
     const params: Record<string, unknown> = { limit };
@@ -209,7 +221,7 @@ export class HeliusService {
 
     const result = await this.rpc("getSignaturesForAddress", [
       address, params,
-    ], 1, meta) as Array<Record<string, unknown>>;
+    ], config.apiBudgets.helius.credits.default, meta) as Array<Record<string, unknown>>;
 
     if (result?.length > 0) {
       const maxSlot = Math.max(...result.map((r) => (r.slot as number) ?? 0));
@@ -229,10 +241,10 @@ export class HeliusService {
     try {
       return this.dedupedFetch(`txs:${address}`, () =>
         this.circuitBreaker.execute(async () => {
-          const reservation = await this.budgetManager.reserve("HELIUS", 100, meta);
+          const reservation = await this.budgetManager.reserve("HELIUS", config.apiBudgets.helius.credits.getTransactionsForAddress, meta);
           const startedAt = Date.now();
           const sdkOpts: Record<string, unknown> = {
-            limit: opts?.limit ?? 100,
+            limit: opts?.limit ?? config.helius.txHistoryDefaultLimit,
           };
           if (opts?.tokenAccounts) {
             sdkOpts.filters = { tokenAccounts: opts.tokenAccounts };
@@ -240,10 +252,21 @@ export class HeliusService {
 
           try {
             const result = await this.helius.getTransactionsForAddress([address, sdkOpts]);
-            reservation.commit({ endpoint: "getTransactionsForAddress", credits: 100, statusCode: 200, latencyMs: Date.now() - startedAt });
+            reservation.commit({
+              endpoint: "getTransactionsForAddress",
+              credits: config.apiBudgets.helius.credits.getTransactionsForAddress,
+              statusCode: 200,
+              latencyMs: Date.now() - startedAt,
+            });
             return (result as unknown as unknown[]) ?? [];
           } catch (err) {
-            reservation.commit({ endpoint: "getTransactionsForAddress", credits: 100, statusCode: 0, latencyMs: Date.now() - startedAt, success: false });
+            reservation.commit({
+              endpoint: "getTransactionsForAddress",
+              credits: config.apiBudgets.helius.credits.getTransactionsForAddress,
+              statusCode: 0,
+              latencyMs: Date.now() - startedAt,
+              success: false,
+            });
             throw err;
           }
         }),
@@ -257,8 +280,12 @@ export class HeliusService {
   async getAssetsByOwner(owner: string, meta?: ApiRequestMeta): Promise<unknown[]> {
     await this.rateLimiter.waitForSlot();
     const result = await this.rpc("getAssetsByOwner", [
-      { ownerAddress: owner, page: 1, limit: 100 },
-    ], 10, meta) as { items: unknown[] };
+      {
+        ownerAddress: owner,
+        page: config.helius.assetsByOwnerPage,
+        limit: config.helius.assetsByOwnerLimit,
+      },
+    ], config.apiBudgets.helius.credits.getAssetsByOwner, meta) as { items: unknown[] };
     return result?.items ?? [];
   }
 
@@ -268,7 +295,7 @@ export class HeliusService {
       const result = await this.rpc("getBalance", [
         address,
         { commitment: "confirmed" },
-      ], 1, meta) as { value: number };
+      ], config.apiBudgets.helius.credits.default, meta) as { value: number };
       return ((result?.value ?? 0) as number) / 1e9;
     } catch (err) {
       log.warn({ err, address }, "getWalletBalanceSol failed");
@@ -282,17 +309,30 @@ export class HeliusService {
 
     try {
       return await this.circuitBreaker.execute(async () => {
-        const reservation = await this.budgetManager.reserve("HELIUS", 10, { ...meta, batchSize: assetIds.length });
+        const reservation = await this.budgetManager.reserve("HELIUS", config.apiBudgets.helius.credits.getAssetBatch, { ...meta, batchSize: assetIds.length });
         const startedAt = Date.now();
         try {
           const result = await this.helius.getAssetBatch({
             ids: assetIds,
             options: { showFungible: true },
           });
-          reservation.commit({ endpoint: "getAssetBatch", credits: 10, statusCode: 200, latencyMs: Date.now() - startedAt, batchSize: assetIds.length });
+          reservation.commit({
+            endpoint: "getAssetBatch",
+            credits: config.apiBudgets.helius.credits.getAssetBatch,
+            statusCode: 200,
+            latencyMs: Date.now() - startedAt,
+            batchSize: assetIds.length,
+          });
           return (result as unknown[]) ?? [];
         } catch (err) {
-          reservation.commit({ endpoint: "getAssetBatch", credits: 10, statusCode: 0, latencyMs: Date.now() - startedAt, success: false, batchSize: assetIds.length });
+          reservation.commit({
+            endpoint: "getAssetBatch",
+            credits: config.apiBudgets.helius.credits.getAssetBatch,
+            statusCode: 0,
+            latencyMs: Date.now() - startedAt,
+            success: false,
+            batchSize: assetIds.length,
+          });
           throw err;
         }
       });
@@ -304,7 +344,7 @@ export class HeliusService {
 
   async parseTransaction(txSignature: string, meta?: ApiRequestMeta): Promise<unknown> {
     await this.rateLimiter.waitForSlot();
-    const reservation = await this.budgetManager.reserve("HELIUS", 100, meta);
+    const reservation = await this.budgetManager.reserve("HELIUS", config.apiBudgets.helius.credits.parseTransaction, meta);
     const startedAt = Date.now();
     try {
       const parsed = await this.circuitBreaker.execute(async () => {
@@ -323,10 +363,21 @@ export class HeliusService {
         const data = (await res.json()) as unknown[];
         return data?.[0] ?? null;
       });
-      reservation.commit({ endpoint: "parseTransaction", credits: 100, statusCode: 200, latencyMs: Date.now() - startedAt });
+      reservation.commit({
+        endpoint: "parseTransaction",
+        credits: config.apiBudgets.helius.credits.parseTransaction,
+        statusCode: 200,
+        latencyMs: Date.now() - startedAt,
+      });
       return parsed;
     } catch (err) {
-      reservation.commit({ endpoint: "parseTransaction", credits: 100, statusCode: 0, latencyMs: Date.now() - startedAt, success: false });
+      reservation.commit({
+        endpoint: "parseTransaction",
+        credits: config.apiBudgets.helius.credits.parseTransaction,
+        statusCode: 0,
+        latencyMs: Date.now() - startedAt,
+        success: false,
+      });
       log.warn({ err, txSignature }, "parseTransaction failed");
       return null;
     }
@@ -334,7 +385,7 @@ export class HeliusService {
 
   async getWalletFundingSource(address: string, meta?: ApiRequestMeta): Promise<unknown> {
     await this.rateLimiter.waitForSlot();
-    const reservation = await this.budgetManager.reserve("HELIUS", 100, meta);
+    const reservation = await this.budgetManager.reserve("HELIUS", config.apiBudgets.helius.credits.walletFundingSource, meta);
     const startedAt = Date.now();
     try {
       const result = await this.circuitBreaker.execute(async () => {
@@ -350,10 +401,21 @@ export class HeliusService {
         const data = (await res.json()) as unknown;
         return data;
       });
-      reservation.commit({ endpoint: "walletFundingSource", credits: 100, statusCode: 200, latencyMs: Date.now() - startedAt });
+      reservation.commit({
+        endpoint: "walletFundingSource",
+        credits: config.apiBudgets.helius.credits.walletFundingSource,
+        statusCode: 200,
+        latencyMs: Date.now() - startedAt,
+      });
       return result;
     } catch (err) {
-      reservation.commit({ endpoint: "walletFundingSource", credits: 100, statusCode: 0, latencyMs: Date.now() - startedAt, success: false });
+      reservation.commit({
+        endpoint: "walletFundingSource",
+        credits: config.apiBudgets.helius.credits.walletFundingSource,
+        statusCode: 0,
+        latencyMs: Date.now() - startedAt,
+        success: false,
+      });
       log.warn({ err, address }, "getWalletFundingSource failed");
       return null;
     }
@@ -365,7 +427,7 @@ export class HeliusService {
       const result = await this.rpc("getTransaction", [
         signature,
         { commitment: "confirmed", encoding: "jsonParsed", maxSupportedTransactionVersion: 0 },
-      ], 1, meta) as Record<string, unknown> | null;
+      ], config.apiBudgets.helius.credits.default, meta) as Record<string, unknown> | null;
       return result;
     } catch (err) {
       log.warn({ err, signature }, "getTransaction failed");
@@ -434,13 +496,13 @@ export class HeliusService {
       this.lastPong = Date.now();
       this.accountSubscriptions.clear();
       this.heartbeatInterval = setInterval(() => {
-        if (Date.now() - this.lastPong > 35_000) {
+        if (Date.now() - this.lastPong > config.helius.websocket.pongTimeoutMs) {
           log.warn("WebSocket pong timeout — reconnecting");
           this.reconnect();
           return;
         }
         this.ws?.ping();
-      }, 30_000);
+      }, config.helius.websocket.heartbeatIntervalMs);
       for (const address of this.subscribedAccounts) {
         this.subscribeToAccount(address).catch(() => {});
       }
@@ -509,11 +571,18 @@ export class HeliusService {
         clearInterval(this.heartbeatInterval);
         this.heartbeatInterval = null;
       }
-      if (this.reconnectAttempts < 10) {
-        const delay = backoffWithJitter(this.reconnectAttempts, 3000, 60_000);
+      if (this.reconnectAttempts < config.helius.websocket.reconnectMaxAttempts) {
+        const delay = backoffWithJitter(
+          this.reconnectAttempts,
+          config.helius.websocket.reconnectBackoffBaseMs,
+          config.helius.websocket.reconnectBackoffMaxMs,
+        );
         this.reconnectAttempts++;
-        if (this.reconnectAttempts === 3) {
-          log.warn({ attempts: 3 }, "3 consecutive WebSocket reconnects — check Helius status");
+        if (this.reconnectAttempts === config.helius.websocket.reconnectWarnThreshold) {
+          log.warn(
+            { attempts: config.helius.websocket.reconnectWarnThreshold },
+            `${config.helius.websocket.reconnectWarnThreshold} consecutive WebSocket reconnects — check Helius status`,
+          );
         }
         setTimeout(() => {
           if (this.wsMessageHandler) this.connectWebSocket(this.wsMessageHandler);
@@ -523,7 +592,7 @@ export class HeliusService {
         this.reconnectAttempts = 0;
         setTimeout(() => {
           if (this.wsMessageHandler) this.connectWebSocket(this.wsMessageHandler);
-        }, 300_000);
+        }, config.helius.websocket.longRecoveryDelayMs);
       }
     });
 
@@ -539,7 +608,7 @@ export class HeliusService {
       const timeout = setTimeout(() => {
         this.subscriptions.delete(id);
         reject(new Error(`subscription timeout: ${method}`));
-      }, 5000);
+      }, config.helius.websocket.subscriptionTimeoutMs);
       this.subscriptions.set(id, (result) => {
         clearTimeout(timeout);
         resolve(result as number);
@@ -606,7 +675,12 @@ export class HeliusService {
     return this.circuitBreaker.getState();
   }
 
-  private async rpc(method: string, params: unknown[], credits: number = 1, meta?: ApiRequestMeta): Promise<unknown> {
+  private async rpc(
+    method: string,
+    params: unknown[],
+    credits: number = config.apiBudgets.helius.credits.default,
+    meta?: ApiRequestMeta,
+  ): Promise<unknown> {
     const reservation = await this.budgetManager.reserve("HELIUS", credits, meta);
     const startedAt = Date.now();
     try {
@@ -647,7 +721,7 @@ export class HeliusService {
   private updateSlot(address: string, slot: number): void {
     this.lastSlotByAddress.delete(address);
     this.lastSlotByAddress.set(address, slot);
-    if (this.lastSlotByAddress.size > 1000) {
+    if (this.lastSlotByAddress.size > config.helius.websocket.lastSlotCacheSize) {
       this.lastSlotByAddress.delete(this.lastSlotByAddress.keys().next().value!);
     }
   }
@@ -670,7 +744,7 @@ export class HeliusService {
     return p;
   }
 
-  private async waitForWebSocketOpen(timeoutMs: number = 5_000): Promise<void> {
+  private async waitForWebSocketOpen(timeoutMs: number = config.helius.websocket.waitForOpenTimeoutMs): Promise<void> {
     if (this.ws?.readyState === WebSocket.OPEN) return;
     if (!this.ws) {
       throw new Error("websocket not connected");

@@ -82,7 +82,7 @@ export async function startTradingBot(): Promise<void> {
     : new DryRunExecutor(positionTracker, riskManager, jupiter, scope);
 
   const exitMonitor = new ExitMonitor(positionTracker, executor, jupiter, birdeye);
-  const outcomeTracker = new OutcomeTracker(birdeye, jupiter, apiBudgetManager);
+  const outcomeTracker = new OutcomeTracker(birdeye, apiBudgetManager);
   const marketTickRecorder = new MarketTickRecorder(jupiter, birdeye, regimeDetector, apiBudgetManager);
 
   const s1 = new CopyTradeStrategy(riskManager, positionTracker, executor, exitMonitor, regimeDetector, helius, birdeye, {

@@ -23,9 +23,9 @@ function serializeUsageRow(row: {
   nonEssentialCredits: number;
   cachedCalls: number;
   totalCalls: number;
-  avgCreditsPerCall: number;
-  softLimitPct: number;
-  hardLimitPct: number;
+  avgCreditsPerCall: unknown;
+  softLimitPct: unknown;
+  hardLimitPct: unknown;
   quotaStatus: string;
   quotaSource: string;
   providerCycleStart: Date | null;
@@ -103,8 +103,9 @@ export function overviewRouter(deps: { riskManager: unknown; regimeDetector: unk
     const today = new Date().toISOString().slice(0, 10);
     const since = new Date();
     since.setDate(since.getDate() - Math.max(0, days - 1));
-    const usage = apiBudgetManager
-      ? apiBudgetManager.getSnapshots()
+    const currentUsage = apiBudgetManager?.getSnapshots() ?? null;
+    const persistedUsage = currentUsage
+      ? null
       : await database.apiUsageDaily.findMany({
           where: { date: new Date(today) },
         });
@@ -144,8 +145,8 @@ export function overviewRouter(deps: { riskManager: unknown; regimeDetector: unk
     ]);
 
     res.json({
-      current: apiBudgetManager?.getSnapshots() ?? null,
-      daily: apiBudgetManager?.getSnapshots() ?? usage.map((row) => serializeUsageRow(row)),
+      current: currentUsage,
+      daily: currentUsage ?? persistedUsage?.map((row) => serializeUsageRow(row)) ?? [],
       monthly: monthlyUsage.map((entry) => ({
         service: entry.service,
         totalCredits: Number(entry._sum.totalCredits ?? 0),

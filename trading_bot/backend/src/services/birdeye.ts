@@ -110,7 +110,7 @@ export class BirdeyeService {
     }
   }
 
-  private async throttledRequest<T>(fn: () => Promise<T>, maxRetries: number = 3): Promise<T> {
+  private async throttledRequest<T>(fn: () => Promise<T>, maxRetries: number = config.birdeye.maxRetries): Promise<T> {
     const minInterval = 1000 / config.birdeye.rateLimit;
     const now = Date.now();
     const wait = Math.max(0, minInterval - (now - this.lastRequestTime));

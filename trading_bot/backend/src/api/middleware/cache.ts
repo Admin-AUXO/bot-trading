@@ -1,7 +1,8 @@
 import { LRUCache } from "lru-cache";
 import type { Request, Response, NextFunction } from "express";
+import { config } from "../../config/index.js";
 
-const store = new LRUCache<string, { body: unknown; ts: number }>({ max: 200 });
+const store = new LRUCache<string, { body: unknown; ts: number }>({ max: config.api.responseCacheMaxEntries });
 
 export function cacheMiddleware(ttlMs: number, keyFn?: (req: Request) => string) {
   return (req: Request, res: Response, next: NextFunction): void => {

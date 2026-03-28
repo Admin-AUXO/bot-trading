@@ -89,7 +89,7 @@ export class CopyTradeStrategy extends EventEmitter {
     const recent = await db.walletScore.findMany({
       where: { isElite: true },
       orderBy: { scoredAt: "desc" },
-      take: this.cfg.walletCount * 10,
+      take: this.cfg.walletCount * this.cfg.eliteWalletLoadMultiplier,
       select: { walletAddress: true },
     });
 
@@ -117,7 +117,7 @@ export class CopyTradeStrategy extends EventEmitter {
 
   private trackRecentSignature(signature: string): void {
     this.recentWalletSignatures.add(signature);
-    if (this.recentWalletSignatures.size <= 2_000) return;
+    if (this.recentWalletSignatures.size <= this.cfg.recentSignatureCacheSize) return;
     const oldest = this.recentWalletSignatures.values().next().value;
     if (oldest) this.recentWalletSignatures.delete(oldest);
   }
@@ -146,8 +146,8 @@ export class CopyTradeStrategy extends EventEmitter {
   private async processWalletActivity(walletAddress: string, detectedAt: number): Promise<void> {
     const signatures = await this.helius.getSignaturesForAddressIncremental(
       walletAddress,
-      5,
-      this.apiMeta("WALLET_DISCOVERY"),
+      this.cfg.walletActivityFetchLimit,
+      this.apiMeta("WALLET_DISCOVERY", false, this.cfg.walletActivityFetchLimit),
     );
     if (!signatures.length) return;
 
@@ -350,7 +350,7 @@ export class CopyTradeStrategy extends EventEmitter {
       filters.washTradingRatio = tradeData.volume5m > 0
         ? tradeData.uniqueWallet5m / (tradeData.volume5m / 1000)
         : 0;
-      if ((filters.washTradingRatio as number) < 0.1) {
+      if ((filters.washTradingRatio as number) < this.cfg.washTradingThreshold) {
         return { passed: false, tokenAddress, tokenSymbol: overview.symbol, rejectReason: "wash trading detected", filterResults: filters };
       }
     }
@@ -504,7 +504,7 @@ export class CopyTradeStrategy extends EventEmitter {
     const [existing, observedWallets, discoveredTopTraders] = await Promise.all([
       db.walletScore.findMany({
         orderBy: { compositeScore: "desc" },
-        take: this.cfg.scoringPoolSize * 10,
+        take: this.cfg.scoringPoolSize * this.cfg.candidatePoolMultiplier,
         select: { walletAddress: true },
       }),
       db.walletActivity.findMany({
@@ -535,11 +535,11 @@ export class CopyTradeStrategy extends EventEmitter {
     const tokenAddresses = trending
       .map((entry) => this.extractBase58((entry as Record<string, unknown>)["address"]))
       .filter((address): address is string => !!address)
-      .slice(0, 6);
+      .slice(0, this.cfg.topTraderSeedCount);
 
     if (tokenAddresses.length === 0) return [];
 
-    const limit = pLimit(3);
+    const limit = pLimit(this.cfg.topTraderConcurrency);
     const topTraderLists = await Promise.all(
       tokenAddresses.map((address) => limit(() => this.birdeye.getTopTraders(address, this.apiMeta("WALLET_DISCOVERY")))),
     );

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { PublicKey } from "@solana/web3.js";
+import { config } from "../../config/index.js";
 import { db } from "../../db/client.js";
 import { cacheMiddleware } from "../middleware/cache.js";
 import { requireBearerToken } from "../middleware/auth.js";
@@ -12,6 +13,34 @@ type StrategyConfigs = {
   S2_GRADUATION: { maxPositions: number; positionSizeSol: number; stopLossPercent: number; maxSlippageBps: number; timeStopMinutes: number; timeLimitMinutes: number };
   S3_MOMENTUM: { maxPositions: number; positionSizeSol: number; stopLossPercent: number; maxSlippageBps: number; timeStopMinutes: number; timeLimitMinutes: number };
 };
+
+function getDefaultStrategyConfigs(): StrategyConfigs {
+  return {
+    S1_COPY: {
+      maxPositions: config.strategies.s1.maxPositions,
+      positionSizeSol: config.strategies.s1.positionSizeSol,
+      stopLossPercent: config.strategies.s1.stopLossPercent,
+      maxSlippageBps: config.strategies.s1.maxSlippageBps,
+      timeStopMinutes: config.strategies.s1.timeStopMinutes,
+    },
+    S2_GRADUATION: {
+      maxPositions: config.strategies.s2.maxPositions,
+      positionSizeSol: config.strategies.s2.positionSizeSol,
+      stopLossPercent: config.strategies.s2.stopLossPercent,
+      maxSlippageBps: config.strategies.s2.maxSlippageBps,
+      timeStopMinutes: config.strategies.s2.timeStopMinutes,
+      timeLimitMinutes: config.strategies.s2.timeLimitMinutes,
+    },
+    S3_MOMENTUM: {
+      maxPositions: config.strategies.s3.maxPositions,
+      positionSizeSol: config.strategies.s3.positionSizeSol,
+      stopLossPercent: config.strategies.s3.stopLossPercent,
+      maxSlippageBps: config.strategies.s3.maxSlippageBps,
+      timeStopMinutes: config.strategies.s3.timeStopMinutes,
+      timeLimitMinutes: config.strategies.s3.timeLimitMinutes,
+    },
+  };
+}
 
 export function controlRouter(deps: {
   riskManager: unknown;
@@ -43,7 +72,7 @@ export function controlRouter(deps: {
     res.json({ status: "running" });
   });
 
-  router.get("/state", cacheMiddleware(10_000), async (_req, res) => {
+  router.get("/state", cacheMiddleware(config.api.stateCacheTtlMs), async (_req, res) => {
     const state = await database.botState.findUnique({ where: { id: "singleton" } });
     const snapshot = riskManager.getSnapshot();
     const scope = snapshotScope();
@@ -72,7 +101,7 @@ export function controlRouter(deps: {
     res.json({ status: "daily counters reset" });
   });
 
-  router.get("/heartbeat", cacheMiddleware(5_000), async (_req, res) => {
+  router.get("/heartbeat", cacheMiddleware(config.api.heartbeatCacheTtlMs), async (_req, res) => {
     const scope = snapshotScope();
     const laneWhere = { mode: scope.mode, configProfile: scope.configProfile };
     const snapshot = riskManager.getSnapshot();
@@ -91,14 +120,10 @@ export function controlRouter(deps: {
     });
   });
 
-  router.get("/config", cacheMiddleware(30_000), async (_req, res) => {
+  router.get("/config", cacheMiddleware(config.api.controlConfigCacheTtlMs), async (_req, res) => {
     const snapshot = riskManager.getSnapshot();
     const scope = snapshotScope();
-    const configs = strategyConfigs ?? {
-      S1_COPY: { maxPositions: 2, positionSizeSol: 0.2, stopLossPercent: 20, maxSlippageBps: 500, timeStopMinutes: 120 },
-      S2_GRADUATION: { maxPositions: 2, positionSizeSol: 0.2, stopLossPercent: 25, maxSlippageBps: 1000, timeStopMinutes: 15, timeLimitMinutes: 120 },
-      S3_MOMENTUM: { maxPositions: 3, positionSizeSol: 0.1, stopLossPercent: 10, maxSlippageBps: 500, timeStopMinutes: 5, timeLimitMinutes: 30 },
-    };
+    const configs = strategyConfigs ?? getDefaultStrategyConfigs();
     res.json({
       scope,
       strategies: {
@@ -130,8 +155,8 @@ export function controlRouter(deps: {
         dailyLossLimit: snapshot.dailyLossLimit,
         weeklyLossLimit: snapshot.weeklyLossLimit,
         walletBalance: snapshot.walletBalance,
-        maxOpenPositions: deps.capitalConfig?.maxOpenPositions ?? 5,
-        gasReserve: deps.capitalConfig?.gasReserve ?? 0.1,
+        maxOpenPositions: deps.capitalConfig?.maxOpenPositions ?? config.capital.maxOpenPositions,
+        gasReserve: deps.capitalConfig?.gasReserve ?? config.capital.gasReserve,
         capitalLevel: snapshot.capitalLevel,
         pauseReason: snapshot.pauseReason,
         pauseReasons: snapshot.pauseReasons,
@@ -185,7 +210,7 @@ export function controlRouter(deps: {
       tokenAddress,
       tokenSymbol,
       amountSol: size,
-      maxSlippageBps: strategyConfigs?.[strategy]?.maxSlippageBps ?? 500,
+      maxSlippageBps: (strategyConfigs ?? getDefaultStrategyConfigs())[strategy].maxSlippageBps,
       regime: snapshot.regime,
       tradeSource: "MANUAL",
     });

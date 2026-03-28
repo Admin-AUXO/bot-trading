@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { TradeMode, TradeSource } from "@/lib/api";
+import type { TradeSource } from "@/lib/api";
 import { profilesQueryOptions } from "@/lib/dashboard-query-options";
 import {
   ACTIVE_MODE_FILTER,
@@ -77,11 +77,4 @@ export function useDashboardFilters() {
     isUsingActiveMode: selectedMode === ACTIVE_MODE_FILTER,
     isUsingActiveProfile: selectedProfile === ACTIVE_PROFILE_FILTER,
   };
-}
-
-export function resolveFilterMode(
-  selectedMode: typeof ACTIVE_MODE_FILTER | TradeMode,
-  activeMode?: TradeMode,
-): TradeMode {
-  return selectedMode === ACTIVE_MODE_FILTER ? activeMode ?? "LIVE" : selectedMode;
 }

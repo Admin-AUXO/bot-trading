@@ -1,4 +1,5 @@
 import { db } from "../db/client.js";
+import { config } from "../config/index.js";
 import { createChildLogger } from "./logger.js";
 import type { ApiCallPurpose, ApiService, Strategy, TradeMode } from "@prisma/client";
 
@@ -25,7 +26,7 @@ export class ApiCallBuffer {
   private buffer: ApiCallData[] = [];
   private flushHandle: ReturnType<typeof setInterval>;
 
-  constructor(flushIntervalMs: number = 5_000) {
+  constructor(flushIntervalMs: number = config.api.apiCallBufferFlushIntervalMs) {
     this.flushHandle = setInterval(() => this.flush(), flushIntervalMs);
   }
 

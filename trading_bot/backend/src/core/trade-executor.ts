@@ -117,7 +117,7 @@ export class TradeExecutor implements ITradeExecutor {
 
       if (!txSig) return { success: false, error: "tx submission failed" };
 
-      const confirmed = await this.helius.confirmTransaction(txSig, blockhashInfo, undefined, executionMeta);
+      const confirmed = await this.helius.confirmTransaction(txSig, undefined, executionMeta);
       if (!confirmed) return { success: false, error: "tx confirmation failed" };
 
       const entryLatencyMs = Date.now() - entryStart;
@@ -257,7 +257,7 @@ export class TradeExecutor implements ITradeExecutor {
     const txSig = await this.helius.sendTransaction(swapTx, undefined, executionMeta);
     if (!txSig) return { success: false, error: "sell tx submission failed" };
 
-    const confirmed = await this.helius.confirmTransaction(txSig, blockhashInfo, undefined, executionMeta);
+    const confirmed = await this.helius.confirmTransaction(txSig, undefined, executionMeta);
     if (!confirmed) return { success: false, error: "sell tx confirmation failed" };
 
     const solReceived = quote.outputAmountUi;

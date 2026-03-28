@@ -36,6 +36,7 @@ export const config = {
 
   db: {
     url: env.DATABASE_URL,
+    idleTimeoutMs: 300_000,
   },
 
   redis: {
@@ -47,12 +48,30 @@ export const config = {
     rpcUrl: env.HELIUS_RPC_URL,
     wsUrl: env.HELIUS_WS_URL,
     webhookSecret: env.HELIUS_WEBHOOK_SECRET,
+    rateLimitRps: 30,
+    rateLimitWindowMs: 60_000,
+    txHistoryDefaultLimit: 100,
+    assetsByOwnerPage: 1,
+    assetsByOwnerLimit: 100,
+    websocket: {
+      heartbeatIntervalMs: 30_000,
+      pongTimeoutMs: 35_000,
+      reconnectMaxAttempts: 10,
+      reconnectWarnThreshold: 3,
+      reconnectBackoffBaseMs: 3_000,
+      reconnectBackoffMaxMs: 60_000,
+      longRecoveryDelayMs: 300_000,
+      subscriptionTimeoutMs: 5_000,
+      waitForOpenTimeoutMs: 5_000,
+      lastSlotCacheSize: 1_000,
+    },
   },
 
   birdeye: {
     apiKey: env.BIRDEYE_API_KEY,
     baseUrl: "https://public-api.birdeye.so",
     rateLimit: 15,
+    maxRetries: 3,
   },
 
   solana: {
@@ -96,6 +115,13 @@ export const config = {
       maxSlippageBps: 500,
       walletCount: 5,
       scoringPoolSize: 500,
+      washTradingThreshold: 0.1,
+      recentSignatureCacheSize: 2_000,
+      walletActivityFetchLimit: 5,
+      eliteWalletLoadMultiplier: 10,
+      candidatePoolMultiplier: 10,
+      topTraderSeedCount: 6,
+      topTraderConcurrency: 3,
     },
     s2: {
       name: "S2_GRADUATION" as const,
@@ -123,6 +149,15 @@ export const config = {
       scanIntervalMs: 20_000,
       nearGradPercent: 70,
       graduationPendingExpiryMs: 600_000,
+      memeListLimit: 10,
+      justGraduatedLookbackSeconds: 300,
+      fallbackScanIntervalMs: 300_000,
+      fallbackListingsBatchSize: 20,
+      fallbackScanConcurrency: 3,
+      tokenSignatureLimit: 200,
+      creatorSignatureLimit: 100,
+      serialDeployLookbackSeconds: 604_800,
+      serialDeployMultiplier: 10,
     },
     s3: {
       name: "S3_MOMENTUM" as const,
@@ -149,6 +184,10 @@ export const config = {
       maxSlippageBps: 500,
       scanIntervalMs: 20_000,
       maxCandidatesPerScan: 5,
+      tranche2MinHolderRatio: 0.5,
+      tranche2MinVolumeRetention: 0.8,
+      maxTop10HolderPercent: 40,
+      maxSingleHolderPercent: 25,
     },
   },
 
@@ -166,7 +205,17 @@ export const config = {
     reservePct: 0.2,
     syncIntervalMs: 3_600_000,
     persistIntervalMs: 60_000,
-    helius: { monthly: 10_000_000 },
+    helius: {
+      monthly: 10_000_000,
+      credits: {
+        default: 1,
+        getTransactionsForAddress: 100,
+        getAssetsByOwner: 10,
+        getAssetBatch: 10,
+        parseTransaction: 100,
+        walletFundingSource: 100,
+      },
+    },
     birdeye: { monthly: 1_500_000, rps: 15 },
   },
 
@@ -181,6 +230,7 @@ export const config = {
     evalIntervalMs: 60_000,
     fiveMinWindowMs: 300_000,
     fiveMinToleranceMs: 10_000,
+    trendingSampleSize: 10,
   },
 
   exitMonitor: {
@@ -231,6 +281,7 @@ export const config = {
     dailyResetCheckIntervalMs: 60_000,
     riskSaveIntervalMs: 30_000,
     weeklyPeriodMs: 604_800_000,
+    walletReconcileIntervalMs: 60_000,
   },
 
   marketTick: {
@@ -246,6 +297,15 @@ export const config = {
   } as const,
 
   api: {
+    stateCacheTtlMs: 10_000,
+    heartbeatCacheTtlMs: 5_000,
+    controlConfigCacheTtlMs: 30_000,
+    laneSummaryTtlMs: 5_000,
+    responseCacheMaxEntries: 200,
+    controlRateLimitWindowMs: 60_000,
+    controlRateLimitMax: 20,
+    streamIntervalMs: 5_000,
+    apiCallBufferFlushIntervalMs: 5_000,
     birdeyeCacheTtlMs: 30_000,
     birdeyeTimeoutMs: 10_000,
     birdeyeWalletRpmLimit: 30,
@@ -257,6 +317,7 @@ export const config = {
     heliusConfirmPollMs: 2_000,
     heliusPriorityFeeFallback: 10_000,
     heliusMaxRetries: 3,
+    heliusFastMaxRetries: 0,
     controlSecret: env.CONTROL_API_SECRET,
   },
 } as const;

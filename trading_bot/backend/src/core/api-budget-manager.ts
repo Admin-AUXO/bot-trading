@@ -1,4 +1,4 @@
-import type { ApiCallPurpose, ApiService, QuotaSource, QuotaStatus, Strategy, TradeMode } from "@prisma/client";
+import type { ApiService, QuotaSource, QuotaStatus, Strategy, TradeMode } from "@prisma/client";
 import { db } from "../db/client.js";
 import { config } from "../config/index.js";
 import { ApiCallBuffer } from "../utils/api-call-buffer.js";

@@ -55,7 +55,7 @@ export class GraduationStrategy extends EventEmitter {
       void this.runFallbackScan().catch((err) => {
         log.error({ err }, "graduation fallback scan failed");
       });
-    }, 300_000);
+    }, this.cfg.fallbackScanIntervalMs);
     void this.runMemeListScan().catch((err) => {
       log.error({ err }, "initial graduation scan failed");
     });
@@ -83,13 +83,13 @@ export class GraduationStrategy extends EventEmitter {
       this.birdeye.getMemeTokenList({
         graduated: false,
         minProgressPercent: this.cfg.nearGradPercent,
-        limit: 10,
-      }, this.apiMeta("ENTRY_SCAN", false, 10)),
+        limit: this.cfg.memeListLimit,
+      }, this.apiMeta("ENTRY_SCAN", false, this.cfg.memeListLimit)),
       this.birdeye.getMemeTokenList({
         graduated: true,
-        minGraduatedTime: Math.floor(Date.now() / 1000) - 300,
-        limit: 10,
-      }, this.apiMeta("ENTRY_SCAN", false, 10)),
+        minGraduatedTime: Math.floor(Date.now() / 1000) - this.cfg.justGraduatedLookbackSeconds,
+        limit: this.cfg.memeListLimit,
+      }, this.apiMeta("ENTRY_SCAN", false, this.cfg.memeListLimit)),
     ]);
 
     const candidates = [...nearGrad, ...justGrad];
@@ -112,8 +112,8 @@ export class GraduationStrategy extends EventEmitter {
     if (this.fallbackInFlight) return;
     this.fallbackInFlight = true;
     try {
-      const listings = await this.birdeye.getNewListings(this.apiMeta("ENTRY_SCAN", false, 20));
-      const limit = pLimit(3);
+      const listings = await this.birdeye.getNewListings(this.apiMeta("ENTRY_SCAN", false, this.cfg.fallbackListingsBatchSize));
+      const limit = pLimit(this.cfg.fallbackScanConcurrency);
       const candidates = (listings as Array<Record<string, unknown>>)
         .map((listing) => (typeof listing.address === "string" ? listing.address : ""))
         .filter((address) =>
@@ -281,8 +281,16 @@ export class GraduationStrategy extends EventEmitter {
       this.birdeye.getTokenHolders(token.address, 1, this.apiMeta("ENTRY_SCAN", false, 1)),
       this.birdeye.getTokenOverview(token.address, this.apiMeta("ENTRY_SCAN")),
       this.birdeye.getTradeData(token.address, this.apiMeta("ENTRY_SCAN")),
-      this.helius.getSignaturesForAddress(token.address, 200, this.apiMeta("ENTRY_SCAN", false, 200)),
-      this.helius.getSignaturesForAddress(token.creator, 100, this.apiMeta("ENTRY_SCAN", false, 100)),
+      this.helius.getSignaturesForAddress(
+        token.address,
+        this.cfg.tokenSignatureLimit,
+        this.apiMeta("ENTRY_SCAN", false, this.cfg.tokenSignatureLimit),
+      ),
+      this.helius.getSignaturesForAddress(
+        token.creator,
+        this.cfg.creatorSignatureLimit,
+        this.apiMeta("ENTRY_SCAN", false, this.cfg.creatorSignatureLimit),
+      ),
     ]);
 
     const securityCheck = runSecurityChecks(security, holders, {
@@ -302,10 +310,10 @@ export class GraduationStrategy extends EventEmitter {
     const recentCreatorTxs = creatorSigs.filter((s: unknown) => {
       const sig = s as Record<string, unknown>;
       const blockTime = sig.blockTime as number;
-      return blockTime && blockTime > Date.now() / 1000 - 604_800;
+      return blockTime && blockTime > Date.now() / 1000 - this.cfg.serialDeployLookbackSeconds;
     });
 
-    if (recentCreatorTxs.length > this.cfg.maxSerialDeploys7d * 10) {
+    if (recentCreatorTxs.length > this.cfg.maxSerialDeploys7d * this.cfg.serialDeployMultiplier) {
       return { passed: false, tokenAddress: token.address, tokenSymbol: token.symbol, rejectReason: "serial deployer", filterResults: filters };
     }
 
