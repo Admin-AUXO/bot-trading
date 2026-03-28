@@ -46,7 +46,7 @@ const EMPTY_MONTHLY: ApiUsageResponse["monthly"] = [];
 const EMPTY_ENDPOINTS: ApiUsageResponse["topEndpoints"] = [];
 
 export function QuotaPageClient() {
-  const { activeScope, pauseReasons, worstQuota } = useDashboardShell();
+  const { activeScope, worstQuota } = useDashboardShell();
   const { effectiveMode, effectiveProfile } = useDashboardFilters();
   const [dateRange, setDateRange] = useQueryState(
     "dateRange",
@@ -59,6 +59,17 @@ export function QuotaPageClient() {
   const history = apiUsageQuery.data?.history ?? EMPTY_HISTORY;
   const monthly = apiUsageQuery.data?.monthly ?? EMPTY_MONTHLY;
   const topEndpoints = apiUsageQuery.data?.topEndpoints ?? EMPTY_ENDPOINTS;
+  const quotaBlockers = useMemo(() => {
+    return Array.from(new Set(
+      current.flatMap((entry) => {
+        if (entry.pauseReason) return [entry.pauseReason];
+        if (entry.quotaStatus === "PAUSED" || entry.quotaStatus === "HARD_LIMIT") {
+          return [`${entry.service} ${entry.quotaStatus.toLowerCase().replace("_", " ")}`];
+        }
+        return [];
+      }),
+    ));
+  }, [current]);
 
   const services = useMemo<ApiService[]>(() => {
     const values = new Set<ApiService>();
@@ -190,10 +201,10 @@ export function QuotaPageClient() {
         />
         <SummaryTile
           label="Active Blockers"
-          value={String(pauseReasons.length)}
-          sub={pauseReasons.length > 0 ? pauseReasons[0] : "No quota-driven pauses"}
+          value={String(quotaBlockers.length)}
+          sub={quotaBlockers.length > 0 ? quotaBlockers[0] : "No quota-driven pauses"}
           icon={<Activity className="h-3.5 w-3.5 text-accent-red" />}
-          tone={pauseReasons.length > 0 ? "danger" : "positive"}
+          tone={quotaBlockers.length > 0 ? "danger" : "positive"}
         />
         <SummaryTile
           label="Next Reset"

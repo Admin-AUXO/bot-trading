@@ -130,8 +130,15 @@ export function AnalyticsPageClient() {
       null,
     );
     const topStrategy = [...strategies].sort((left, right) => right.totalPnlUsd - left.totalPnlUsd)[0] ?? null;
-    const aggregateManualShare = executionQuality.length > 0
-      ? executionQuality.reduce((sum, row) => sum + row.manualShare, 0) / executionQuality.length
+    const totalExecutionTrades = executionQuality.reduce(
+      (sum, row) => sum + row.buyCount + row.sellCount,
+      0,
+    );
+    const aggregateManualShare = totalExecutionTrades > 0
+      ? executionQuality.reduce(
+        (sum, row) => sum + row.manualShare * (row.buyCount + row.sellCount),
+        0,
+      ) / totalExecutionTrades
       : 0;
 
     return {
@@ -184,6 +191,7 @@ export function AnalyticsPageClient() {
             {" · "}analysis {effectiveMode}/{effectiveProfile}
             {resolvedTradeSource ? ` · ${resolvedTradeSource.toLowerCase()} trades` : " · all trade sources"}
             {" · "}{dateRange} lookback
+            {" · "}scope badges below tell you what is filtered and what is global
           </div>
         </div>
 
@@ -255,6 +263,7 @@ export function AnalyticsPageClient() {
             <div className="mb-4 flex items-center gap-2">
               <TrendingUp className="h-4 w-4 text-accent-green" />
               <span className="stat-label">Capital Curve</span>
+              <ScopeBadge label="Mode/profile scoped" />
               <span className="text-[11px] text-text-muted">{dateRange} window, filtered to the current analysis lane.</span>
             </div>
             <CapitalCurveChart days={days} mode={effectiveMode} profile={effectiveProfile} />
@@ -264,13 +273,14 @@ export function AnalyticsPageClient() {
 
       <motion.div variants={motionItem}>
         <ErrorBoundary>
-          <div className="mb-3 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <BarChart3 className="h-4 w-4 text-accent-purple" />
-              <span className="stat-label">Strategy Performance</span>
-            </div>
-            {summary.topStrategy ? (
-              <span className={`text-xs font-medium ${strategyColor(summary.topStrategy.strategy)}`}>
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <BarChart3 className="h-4 w-4 text-accent-purple" />
+                <span className="stat-label">Strategy Performance</span>
+                <ScopeBadge label={resolvedTradeSource ? "Lane scoped" : "Mode/profile scoped"} />
+              </div>
+              {summary.topStrategy ? (
+                <span className={`text-xs font-medium ${strategyColor(summary.topStrategy.strategy)}`}>
                 Best contributor: {strategyLabel(summary.topStrategy.strategy)}
               </span>
             ) : null}
@@ -350,6 +360,7 @@ export function AnalyticsPageClient() {
           <div className="mb-3 flex items-center gap-2">
             <Clock3 className="h-4 w-4 text-accent-yellow" />
             <span className="stat-label">Execution Quality</span>
+            <ScopeBadge label={resolvedTradeSource ? "Lane scoped" : "Mode/profile scoped"} />
           </div>
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -407,6 +418,7 @@ export function AnalyticsPageClient() {
               <div className="mb-4 flex items-center gap-2">
                 <BarChart3 className="h-4 w-4 text-accent-cyan" />
                 <span className="stat-label">P&amp;L Distribution</span>
+                <ScopeBadge label={resolvedTradeSource ? "Lane scoped" : "Mode/profile scoped"} />
               </div>
               <ResponsiveContainer width="100%" height={220}>
                 <ScatterChart margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
@@ -456,6 +468,7 @@ export function AnalyticsPageClient() {
               <div className="mb-4 flex items-center gap-2">
                 <Eye className="h-4 w-4 text-accent-yellow" />
                 <span className="stat-label">Missed Opportunities</span>
+                <ScopeBadge label="Mode/profile scoped" />
               </div>
 
               <div className="grid grid-cols-3 gap-3">
@@ -513,9 +526,10 @@ export function AnalyticsPageClient() {
               <div className="mb-4 flex items-center gap-2">
                 <GraduationCap className="h-4 w-4 text-accent-purple" />
                 <span className="stat-label">Graduation Events</span>
+                <ScopeBadge label="Global feed" tone="global" />
               </div>
               <div className="mb-3 text-sm text-text-secondary">
-                {graduationStats.totalEvents} events observed across the selected window.
+                {graduationStats.totalEvents} events observed across the selected window, independent of mode/profile filters.
               </div>
               <div className="space-y-3">
                 {Object.entries(graduationStats.byPlatform).map(([platform, stats]) => (
@@ -543,6 +557,7 @@ export function AnalyticsPageClient() {
                 <div className="flex items-center gap-2">
                   <Wallet className="h-4 w-4 text-accent-blue" />
                   <span className="stat-label">Copy-Trade Wallet Activity</span>
+                  <ScopeBadge label="Global feed" tone="global" />
                 </div>
                 <span className="text-[11px] text-text-muted">Platform-wide feed</span>
               </div>
@@ -582,10 +597,11 @@ export function AnalyticsPageClient() {
       <motion.div variants={motionItem}>
         <ErrorBoundary>
           <div className="card">
-            <div className="mb-4 flex items-center gap-2">
-              <Shield className="h-4 w-4 text-accent-yellow" />
-              <span className="stat-label">Regime History</span>
-            </div>
+              <div className="mb-4 flex items-center gap-2">
+                <Shield className="h-4 w-4 text-accent-yellow" />
+                <span className="stat-label">Regime History</span>
+                <ScopeBadge label="Global feed" tone="global" />
+              </div>
             {regimeHistory.length ? (
               <div className="space-y-3">
                 <div className="flex h-8 overflow-hidden rounded-lg">
@@ -633,6 +649,26 @@ function MetricRow({
       <span className="text-text-muted">{label}</span>
       <span className={`font-medium tabular-nums ${valueClass ?? "text-text-primary"}`}>{value}</span>
     </div>
+  );
+}
+
+function ScopeBadge({
+  label,
+  tone = "filtered",
+}: {
+  label: string;
+  tone?: "filtered" | "global";
+}) {
+  return (
+    <span
+      className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+        tone === "global"
+          ? "bg-accent-blue/10 text-accent-blue"
+          : "bg-bg-hover text-text-muted"
+      }`}
+    >
+      {label}
+    </span>
   );
 }
 

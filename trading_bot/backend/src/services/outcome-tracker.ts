@@ -28,6 +28,8 @@ interface PendingOutcome {
 
 export class OutcomeTracker {
   private intervalHandle?: ReturnType<typeof setInterval>;
+  private backfillInFlight = false;
+  private wouldHaveWonInFlight = false;
 
   constructor(
     private birdeye: BirdeyeService,
@@ -45,6 +47,8 @@ export class OutcomeTracker {
   }
 
   private async runBackfill(): Promise<void> {
+    if (this.backfillInFlight) return;
+    this.backfillInFlight = true;
     try {
       if (this.budgetManager && !this.budgetManager.shouldRunNonEssential("BIRDEYE")) return;
       await Promise.allSettled([
@@ -55,6 +59,8 @@ export class OutcomeTracker {
       ]);
     } catch (err) {
       log.error({ err }, "backfill cycle failed");
+    } finally {
+      this.backfillInFlight = false;
     }
   }
 
@@ -232,37 +238,43 @@ export class OutcomeTracker {
   }
 
   async backfillWouldHaveWon(): Promise<void> {
-    const pending = await db.signal.findMany({
-      where: {
-        passed: false,
-        wouldHaveWon: null,
-        priceAfter1h: { not: null },
-        priceAtSignal: { not: null },
-      },
-      select: { id: true, strategy: true, priceAtSignal: true, priceAfter1h: true },
-      take: BATCH_SIZE * 5,
-    });
+    if (this.wouldHaveWonInFlight) return;
+    this.wouldHaveWonInFlight = true;
+    try {
+      const pending = await db.signal.findMany({
+        where: {
+          passed: false,
+          wouldHaveWon: null,
+          priceAfter1h: { not: null },
+          priceAtSignal: { not: null },
+        },
+        select: { id: true, strategy: true, priceAtSignal: true, priceAfter1h: true },
+        take: BATCH_SIZE * 5,
+      });
 
-    const updates = [];
-    for (const signal of pending) {
-      const entryPrice = Number(signal.priceAtSignal);
-      const priceAfter = Number(signal.priceAfter1h);
-      if (entryPrice <= 0) continue;
+      const updates = [];
+      for (const signal of pending) {
+        const entryPrice = Number(signal.priceAtSignal);
+        const priceAfter = Number(signal.priceAfter1h);
+        if (entryPrice <= 0) continue;
 
-      const pnlPercent = ((priceAfter - entryPrice) / entryPrice) * 100;
+        const pnlPercent = ((priceAfter - entryPrice) / entryPrice) * 100;
 
-      const winThreshold = config.outcomeTracker.wouldHaveWonPct[signal.strategy] ?? config.outcomeTracker.wouldHaveWonPct["S3_MOMENTUM"];
+        const winThreshold = config.outcomeTracker.wouldHaveWonPct[signal.strategy] ?? config.outcomeTracker.wouldHaveWonPct["S3_MOMENTUM"];
 
-      updates.push(db.signal.update({
-        where: { id: signal.id },
-        data: { wouldHaveWon: pnlPercent >= winThreshold },
-      }));
-    }
+        updates.push(db.signal.update({
+          where: { id: signal.id },
+          data: { wouldHaveWon: pnlPercent >= winThreshold },
+        }));
+      }
 
-    if (updates.length > 0) await db.$transaction(updates);
+      if (updates.length > 0) await db.$transaction(updates);
 
-    if (pending.length > 0) {
-      log.info({ count: pending.length }, "backfilled wouldHaveWon");
+      if (pending.length > 0) {
+        log.info({ count: pending.length }, "backfilled wouldHaveWon");
+      }
+    } finally {
+      this.wouldHaveWonInFlight = false;
     }
   }
 }

@@ -1,13 +1,13 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   pauseBot, resumeBot,
   createProfile, toggleProfile, deleteProfile,
-  reconcileWallet, unlockOperatorSession, clearOperatorSession,
+  fetchProfileResults, reconcileWallet, unlockOperatorSession, clearOperatorSession,
 } from "@/lib/api";
 import type { ConfigProfile, TradeMode } from "@/lib/api";
 import { dashboardQueryKeys, profilesQueryOptions } from "@/lib/dashboard-query-options";
@@ -822,6 +822,16 @@ function ProfilesSection({
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
   const [newMode, setNewMode] = useState<TradeMode>("DRY_RUN");
+  const profileResultsQueries = useQueries({
+    queries: profiles.map((profile) => ({
+      queryKey: ["profile-results", profile.name, profile.mode],
+      queryFn: () => fetchProfileResults(profile.name, profile.mode),
+      staleTime: 30_000,
+    })),
+  });
+  const profileResultsById = new Map(
+    profiles.map((profile, index) => [profile.id, profileResultsQueries[index]]),
+  );
 
   const createMut = useMutation({
     mutationFn: (data: { name: string; description: string; mode: TradeMode; settings: Record<string, unknown> }) =>
@@ -930,58 +940,80 @@ function ProfilesSection({
               initial={{ opacity: 0, x: -8 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 8 }}
-              className="flex items-center justify-between py-2.5 px-3 rounded-lg border border-bg-border bg-bg-hover/30 hover:bg-bg-hover/60 transition-colors"
+              className="flex items-start justify-between gap-3 py-2.5 px-3 rounded-lg border border-bg-border bg-bg-hover/30 hover:bg-bg-hover/60 transition-colors"
             >
-              <div className="flex items-center gap-2.5 min-w-0">
-                {p.isActive
-                  ? <CircleCheck className="w-3.5 h-3.5 text-accent-green flex-shrink-0" />
-                  : <XCircle className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />
-                }
-                <div className="min-w-0">
-                  <div className="text-sm font-medium flex items-center gap-1.5">
-                    <span className="truncate">{p.name}</span>
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 ${
-                      p.mode === "LIVE"
-                        ? "bg-accent-green/20 text-accent-green"
-                        : "bg-accent-yellow/20 text-accent-yellow"
-                    }`}>
-                      {p.mode}
-                    </span>
-                  </div>
-                  {p.description && (
-                    <div className="text-xs text-text-muted truncate">{p.description}</div>
-                  )}
-                  <div className="text-[10px] text-text-muted">
-                    Updated {timeAgo(p.updatedAt)}
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center gap-1 flex-shrink-0">
-                <button
-                  onClick={() => toggleMut.mutate({ name: p.name, active: !p.isActive })}
-                  disabled={controlsLocked || controlsUnavailable}
-                  className="btn-ghost p-1.5"
-                  title={p.isActive ? "Deactivate" : "Activate"}
-                >
-                  {p.isActive
-                    ? <ToggleRight className="w-4 h-4 text-accent-green" />
-                    : <ToggleLeft className="w-4 h-4 text-text-muted" />
-                  }
-                </button>
-                {p.name !== "default" && (
-                  <button
-                    onClick={() => toast.promise(
-                      deleteMut.mutateAsync(p.name),
-                      { loading: "Deleting…", success: "Profile deleted", error: "Failed to delete profile" },
-                    )}
-                    disabled={controlsLocked || controlsUnavailable}
-                    className="btn-ghost p-1.5 text-accent-red/60 hover:text-accent-red"
-                    title="Delete"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
+              {(() => {
+                const resultsQuery = profileResultsById.get(p.id);
+                const results = resultsQuery?.data;
+                return (
+                  <>
+                    <div className="flex items-start gap-2.5 min-w-0">
+                      {p.isActive
+                        ? <CircleCheck className="w-3.5 h-3.5 text-accent-green flex-shrink-0 mt-0.5" />
+                        : <XCircle className="w-3.5 h-3.5 text-text-muted flex-shrink-0 mt-0.5" />
+                      }
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium flex items-center gap-1.5">
+                          <span className="truncate">{p.name}</span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 ${
+                            p.mode === "LIVE"
+                              ? "bg-accent-green/20 text-accent-green"
+                              : "bg-accent-yellow/20 text-accent-yellow"
+                          }`}>
+                            {p.mode}
+                          </span>
+                        </div>
+                        {p.description && (
+                          <div className="text-xs text-text-muted truncate">{p.description}</div>
+                        )}
+                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-text-muted">
+                          <span>Updated {timeAgo(p.updatedAt)}</span>
+                          {resultsQuery?.isLoading ? (
+                            <span>Loading results…</span>
+                          ) : results ? (
+                            <>
+                              <span>{results.totalTrades} trades</span>
+                              <span>{results.totalExits} exits</span>
+                              <span>{(results.winRate * 100).toFixed(0)}% win</span>
+                              <span className={results.totalPnlUsd >= 0 ? "text-accent-green" : "text-accent-red"}>
+                                {formatUsd(results.totalPnlUsd)}
+                              </span>
+                            </>
+                          ) : (
+                            <span>No tracked results yet</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button
+                        onClick={() => toggleMut.mutate({ name: p.name, active: !p.isActive })}
+                        disabled={controlsLocked || controlsUnavailable}
+                        className="btn-ghost p-1.5"
+                        title={p.isActive ? "Deactivate" : "Activate"}
+                      >
+                        {p.isActive
+                          ? <ToggleRight className="w-4 h-4 text-accent-green" />
+                          : <ToggleLeft className="w-4 h-4 text-text-muted" />
+                        }
+                      </button>
+                      {p.name !== "default" && (
+                        <button
+                          onClick={() => toast.promise(
+                            deleteMut.mutateAsync(p.name),
+                            { loading: "Deleting…", success: "Profile deleted", error: "Failed to delete profile" },
+                          )}
+                          disabled={controlsLocked || controlsUnavailable}
+                          className="btn-ghost p-1.5 text-accent-red/60 hover:text-accent-red"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
             </motion.div>
           ))}
         </AnimatePresence>

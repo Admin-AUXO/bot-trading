@@ -371,8 +371,19 @@ function TradesPageContent({
                                 {signal.passed ? "PASS" : "REJECT"}
                               </span>
                             </td>
-                            <td className="table-cell max-w-[240px] truncate text-xs text-text-muted" title={signal.rejectReason ?? ""}>
-                              {signal.rejectReason ?? "—"}
+                            <td className="table-cell max-w-[260px] text-xs text-text-muted">
+                              <div className="truncate" title={signal.rejectReason ?? ""}>
+                                {signal.rejectReason ?? "—"}
+                              </div>
+                              {!signal.passed ? (
+                                <div className="truncate text-[10px]" title={summarizeFilterResults(signal.filterResults)}>
+                                  {summarizeFilterResults(signal.filterResults) || "No filter evidence attached"}
+                                </div>
+                              ) : (
+                                <div className="truncate text-[10px]" title={signal.source}>
+                                  {signal.source}
+                                </div>
+                              )}
                             </td>
                           </motion.tr>
                         ))}
@@ -411,4 +422,36 @@ function TradesPageContent({
 function formatWinRate(wins: number, exits: number) {
   if (exits === 0) return "—";
   return `${((wins / exits) * 100).toFixed(0)}%`;
+}
+
+function summarizeFilterResults(filterResults: Record<string, unknown>) {
+  return Object.entries(filterResults)
+    .filter(([, value]) =>
+      typeof value === "number"
+      || typeof value === "boolean"
+      || typeof value === "string",
+    )
+    .slice(0, 3)
+    .map(([key, value]) => `${humanizeFilterKey(key)} ${formatFilterValue(value)}`)
+    .join(" · ");
+}
+
+function humanizeFilterKey(key: string) {
+  return key
+    .replace(/([A-Z])/g, " $1")
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function formatFilterValue(value: unknown) {
+  if (typeof value === "number") {
+    return Number.isInteger(value) ? String(value) : value.toFixed(2);
+  }
+
+  if (typeof value === "boolean") {
+    return value ? "pass" : "fail";
+  }
+
+  return String(value);
 }

@@ -1,5 +1,5 @@
 import { parentPort } from "node:worker_threads";
-import type { ApiService, MarketRegime, Strategy, TradeMode } from "@prisma/client";
+import { Prisma, type ApiCallPurpose, type Strategy, type TradeMode } from "@prisma/client";
 import { config } from "../config/index.js";
 import { createPrismaClient } from "../db/client.js";
 
@@ -15,6 +15,86 @@ interface StatsResult {
   success: boolean;
   date: string;
 }
+
+interface SellAggregateRow {
+  sell_count: number;
+  wins_count: number;
+  losses_count: number;
+  gross_pnl: unknown;
+  sell_gas: unknown;
+  sell_tips: unknown;
+  gross_wins: unknown;
+  gross_losses: unknown;
+  avg_win: unknown;
+  avg_loss: unknown;
+  tranche1_count: number;
+  tranche2_count: number;
+  tranche3_count: number;
+}
+
+interface BuyAggregateRow {
+  buy_count: number;
+  buy_gas: unknown;
+  buy_tips: unknown;
+}
+
+interface HoldAggregateRow {
+  avg_hold_minutes: unknown;
+}
+
+interface DailyApiUsageRow {
+  total_calls: number;
+  total_credits: number;
+  essential_calls: number;
+  essential_credits: number;
+  cached_calls: number;
+  avg_latency_ms: unknown;
+  error_count: number;
+  monthly_credits_used: number;
+  peak_rps: number;
+}
+
+interface EndpointAggregateRow {
+  endpoint: string;
+  strategy: Strategy | null;
+  mode: TradeMode | null;
+  config_profile: string | null;
+  purpose: ApiCallPurpose;
+  essential: boolean;
+  total_calls: number;
+  total_credits: number;
+  cached_calls: number;
+  error_count: number;
+  avg_credits_per_call: unknown;
+  avg_latency_ms: unknown;
+  avg_batch_size: unknown;
+}
+
+const EMPTY_SELL_STATS: SellAggregateRow = {
+  sell_count: 0,
+  wins_count: 0,
+  losses_count: 0,
+  gross_pnl: 0,
+  sell_gas: 0,
+  sell_tips: 0,
+  gross_wins: 0,
+  gross_losses: 0,
+  avg_win: 0,
+  avg_loss: 0,
+  tranche1_count: 0,
+  tranche2_count: 0,
+  tranche3_count: 0,
+};
+
+const EMPTY_BUY_STATS: BuyAggregateRow = {
+  buy_count: 0,
+  buy_gas: 0,
+  buy_tips: 0,
+};
+
+const EMPTY_HOLD_STATS: HoldAggregateRow = {
+  avg_hold_minutes: 0,
+};
 
 export function resolveSeriesKey(strategy: Strategy | null): string {
   return strategy ?? TOTAL_SERIES_KEY;
@@ -32,12 +112,17 @@ export function carryForwardCapital(
   };
 }
 
-export function chooseHistoricalRegime(
-  snapshots: Array<{ regime: MarketRegime; snappedAt: Date }>,
-  fallback: MarketRegime = "NORMAL",
-): MarketRegime {
-  if (snapshots.length === 0) return fallback;
-  return [...snapshots].sort((a, b) => b.snappedAt.getTime() - a.snappedAt.getTime())[0].regime;
+function toNumber(value: unknown): number {
+  return value == null ? 0 : Number(value);
+}
+
+async function querySingleRow<T>(query: Prisma.Sql): Promise<T | undefined> {
+  const rows = await db.$queryRaw<T[]>(query);
+  return rows[0];
+}
+
+function strategyClause(strategy: Strategy | null): Prisma.Sql {
+  return strategy ? Prisma.sql`AND strategy = ${strategy}` : Prisma.empty;
 }
 
 async function aggregateDailyStats(date: Date): Promise<void> {
@@ -48,8 +133,28 @@ async function aggregateDailyStats(date: Date): Promise<void> {
   const strategies = ["S1_COPY", "S2_GRADUATION", "S3_MOMENTUM"] as const;
   const modes = ["LIVE", "DRY_RUN"] as const;
 
-  const profiles = await db.configProfile.findMany({ select: { name: true } });
-  const profileNames = [...new Set(["default", ...profiles.map((p) => p.name)])];
+  const [profiles, activeProfiles] = await Promise.all([
+    db.$queryRaw<Array<{ configProfile: string }>>(Prisma.sql`
+      SELECT DISTINCT "configProfile"
+      FROM "Trade"
+      WHERE "executedAt" >= ${dayStart}
+        AND "executedAt" < ${dayEnd}
+      UNION
+      SELECT DISTINCT "configProfile"
+      FROM "Position"
+      WHERE "closedAt" >= ${dayStart}
+        AND "closedAt" < ${dayEnd}
+    `),
+    db.configProfile.findMany({
+      where: { isActive: true },
+      select: { name: true },
+    }),
+  ]);
+  const profileNames = [...new Set([
+    "default",
+    ...activeProfiles.map((profile) => profile.name),
+    ...profiles.map((profile) => profile.configProfile),
+  ])];
 
   const slices: Array<{
     dayStart: Date;
@@ -75,8 +180,7 @@ async function aggregateDailyStats(date: Date): Promise<void> {
     }
   }
 
-  await Promise.all(slices.map((s) => aggregateForSlice(s)));
-
+  await Promise.all(slices.map((slice) => aggregateForSlice(slice)));
   await aggregateApiUsage(dayStart);
 }
 
@@ -89,34 +193,55 @@ async function aggregateForSlice(params: {
   seriesKey: string;
 }): Promise<void> {
   const { dayStart, dayEnd, strategy, mode, configProfile, seriesKey } = params;
+  const extraStrategy = strategyClause(strategy);
 
-  const tradeWhere: Record<string, unknown> = {
-    side: "SELL",
-    executedAt: { gte: dayStart, lt: dayEnd },
-    mode,
-    configProfile,
-  };
-  if (strategy) tradeWhere.strategy = strategy;
-
-  const buyWhere: Record<string, unknown> = {
-    side: "BUY",
-    executedAt: { gte: dayStart, lt: dayEnd },
-    mode,
-    configProfile,
-  };
-  if (strategy) buyWhere.strategy = strategy;
-
-  const positionWhere: Record<string, unknown> = {
-    closedAt: { gte: dayStart, lt: dayEnd },
-    mode,
-    configProfile,
-  };
-  if (strategy) positionWhere.strategy = strategy;
-
-  const [sells, buys, closedPositions, previousStats, snapshots] = await Promise.all([
-    db.trade.findMany({ where: tradeWhere, select: { pnlUsd: true, gasFee: true, jitoTip: true, trancheNumber: true } }),
-    db.trade.findMany({ where: buyWhere, select: { gasFee: true, jitoTip: true } }),
-    db.position.findMany({ where: positionWhere, select: { openedAt: true, closedAt: true } }),
+  const [sellStats = EMPTY_SELL_STATS, buyStats = EMPTY_BUY_STATS, holdStats = EMPTY_HOLD_STATS, previousStats, latestSnapshot] = await Promise.all([
+    querySingleRow<SellAggregateRow>(Prisma.sql`
+      SELECT
+        COUNT(*)::int AS sell_count,
+        COUNT(*) FILTER (WHERE "pnlUsd" > 0)::int AS wins_count,
+        COUNT(*) FILTER (WHERE "pnlUsd" <= 0)::int AS losses_count,
+        COALESCE(SUM("pnlUsd"), 0) AS gross_pnl,
+        COALESCE(SUM("gasFee"), 0) AS sell_gas,
+        COALESCE(SUM("jitoTip"), 0) AS sell_tips,
+        COALESCE(SUM("pnlUsd") FILTER (WHERE "pnlUsd" > 0), 0) AS gross_wins,
+        COALESCE(SUM(ABS("pnlUsd")) FILTER (WHERE "pnlUsd" <= 0), 0) AS gross_losses,
+        COALESCE(AVG("pnlUsd") FILTER (WHERE "pnlUsd" > 0), 0) AS avg_win,
+        COALESCE(AVG(ABS("pnlUsd")) FILTER (WHERE "pnlUsd" <= 0), 0) AS avg_loss,
+        COUNT(*) FILTER (WHERE "trancheNumber" = 1)::int AS tranche1_count,
+        COUNT(*) FILTER (WHERE "trancheNumber" = 2)::int AS tranche2_count,
+        COUNT(*) FILTER (WHERE "trancheNumber" = 3)::int AS tranche3_count
+      FROM "Trade"
+      WHERE side = 'SELL'
+        AND "executedAt" >= ${dayStart}
+        AND "executedAt" < ${dayEnd}
+        AND mode = ${mode}
+        AND "configProfile" = ${configProfile}
+        ${extraStrategy}
+    `),
+    querySingleRow<BuyAggregateRow>(Prisma.sql`
+      SELECT
+        COUNT(*)::int AS buy_count,
+        COALESCE(SUM("gasFee"), 0) AS buy_gas,
+        COALESCE(SUM("jitoTip"), 0) AS buy_tips
+      FROM "Trade"
+      WHERE side = 'BUY'
+        AND "executedAt" >= ${dayStart}
+        AND "executedAt" < ${dayEnd}
+        AND mode = ${mode}
+        AND "configProfile" = ${configProfile}
+        ${extraStrategy}
+    `),
+    querySingleRow<HoldAggregateRow>(Prisma.sql`
+      SELECT
+        COALESCE(AVG(EXTRACT(EPOCH FROM ("closedAt" - "openedAt")) / 60.0), 0) AS avg_hold_minutes
+      FROM "Position"
+      WHERE "closedAt" >= ${dayStart}
+        AND "closedAt" < ${dayEnd}
+        AND mode = ${mode}
+        AND "configProfile" = ${configProfile}
+        ${extraStrategy}
+    `),
     db.dailyStats.findFirst({
       where: {
         date: { lt: dayStart },
@@ -127,47 +252,28 @@ async function aggregateForSlice(params: {
       orderBy: { date: "desc" },
       select: { capitalEnd: true },
     }),
-    db.regimeSnapshot.findMany({
+    db.regimeSnapshot.findFirst({
       where: { snappedAt: { lt: dayEnd } },
       orderBy: { snappedAt: "desc" },
-      take: 5,
-      select: { regime: true, snappedAt: true },
+      select: { regime: true },
     }),
   ]);
 
-  const wins = sells.filter((t) => Number(t.pnlUsd ?? 0) > 0);
-  const losses = sells.filter((t) => Number(t.pnlUsd ?? 0) <= 0);
-  const totalTrades = sells.length + buys.length;
-
-  const grossPnl = sells.reduce((s, t) => s + Number(t.pnlUsd ?? 0), 0);
-  const allTrades = [...sells, ...buys];
-  const totalGas = allTrades.reduce((s, t) => s + Number(t.gasFee), 0);
-  const totalTips = allTrades.reduce((s, t) => s + Number(t.jitoTip), 0);
+  const sellCount = Number(sellStats.sell_count ?? 0);
+  const buyCount = Number(buyStats.buy_count ?? 0);
+  const totalTrades = sellCount + buyCount;
+  const grossPnl = toNumber(sellStats.gross_pnl);
+  const totalGas = toNumber(sellStats.sell_gas) + toNumber(buyStats.buy_gas);
+  const totalTips = toNumber(sellStats.sell_tips) + toNumber(buyStats.buy_tips);
   const netPnl = grossPnl - totalGas - totalTips;
-
-  const avgWinUsd = wins.length > 0 ? wins.reduce((s, t) => s + Number(t.pnlUsd ?? 0), 0) / wins.length : 0;
-  const avgLossUsd = losses.length > 0 ? losses.reduce((s, t) => s + Math.abs(Number(t.pnlUsd ?? 0)), 0) / losses.length : 0;
-
-  const grossWins = wins.reduce((s, t) => s + Number(t.pnlUsd ?? 0), 0);
-  const grossLosses = losses.reduce((s, t) => s + Math.abs(Number(t.pnlUsd ?? 0)), 0);
+  const grossWins = toNumber(sellStats.gross_wins);
+  const grossLosses = toNumber(sellStats.gross_losses);
   const profitFactor = grossLosses === 0 ? (grossWins > 0 ? 9999 : 0) : grossWins / grossLosses;
-
-  const winRate = sells.length > 0 ? wins.length / sells.length : 0;
+  const winRate = sellCount > 0 ? Number(sellStats.wins_count ?? 0) / sellCount : 0;
   const lossRate = 1 - winRate;
+  const avgWinUsd = toNumber(sellStats.avg_win);
+  const avgLossUsd = toNumber(sellStats.avg_loss);
   const expectancy = winRate * avgWinUsd - lossRate * avgLossUsd;
-
-  const avgHoldMinutes =
-    closedPositions.length > 0
-      ? closedPositions.reduce((s, p) => {
-          const holdMs = (p.closedAt as Date).getTime() - p.openedAt.getTime();
-          return s + holdMs / 60_000;
-        }, 0) / closedPositions.length
-      : 0;
-
-  const sellCount = sells.length;
-  const trancheT1Pct = sellCount > 0 ? sells.filter((t) => t.trancheNumber === 1).length / sellCount : 0;
-  const trancheT2Pct = sellCount > 0 ? sells.filter((t) => t.trancheNumber === 2).length / sellCount : 0;
-  const trancheT3Pct = sellCount > 0 ? sells.filter((t) => t.trancheNumber === 3).length / sellCount : 0;
 
   const { capitalStart, capitalEnd } = carryForwardCapital(
     previousStats ? Number(previousStats.capitalEnd) : null,
@@ -176,8 +282,8 @@ async function aggregateForSlice(params: {
 
   const data = {
     tradesTotal: totalTrades,
-    tradesWon: wins.length,
-    tradesLost: losses.length,
+    tradesWon: Number(sellStats.wins_count ?? 0),
+    tradesLost: Number(sellStats.losses_count ?? 0),
     winRate,
     grossPnlUsd: grossPnl,
     netPnlUsd: netPnl,
@@ -187,13 +293,13 @@ async function aggregateForSlice(params: {
     avgLossUsd,
     profitFactor,
     expectancy,
-    avgHoldMinutes,
-    trancheT1Pct,
-    trancheT2Pct,
-    trancheT3Pct,
+    avgHoldMinutes: toNumber(holdStats.avg_hold_minutes),
+    trancheT1Pct: sellCount > 0 ? Number(sellStats.tranche1_count ?? 0) / sellCount : 0,
+    trancheT2Pct: sellCount > 0 ? Number(sellStats.tranche2_count ?? 0) / sellCount : 0,
+    trancheT3Pct: sellCount > 0 ? Number(sellStats.tranche3_count ?? 0) / sellCount : 0,
     capitalStart,
     capitalEnd,
-    regime: chooseHistoricalRegime(snapshots),
+    regime: latestSnapshot?.regime ?? "NORMAL",
   };
 
   await db.dailyStats.upsert({
@@ -222,48 +328,88 @@ async function aggregateApiUsage(date: Date): Promise<void> {
   const monthStart = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
 
   for (const service of ["HELIUS", "BIRDEYE"] as const) {
-    const [dailyCalls, monthlyAgg] = await Promise.all([
-      db.apiCall.findMany({
-        where: {
-          service,
-          calledAt: { gte: date, lt: dayEnd },
-        },
-        select: {
-          endpoint: true,
-          strategy: true,
-          mode: true,
-          configProfile: true,
-          purpose: true,
-          essential: true,
-          cacheHit: true,
-          credits: true,
-          batchSize: true,
-          latencyMs: true,
-          statusCode: true,
-          calledAt: true,
-        },
-      }),
-      db.apiCall.aggregate({
-        where: {
-          service,
-          calledAt: { gte: monthStart, lt: dayEnd },
-        },
-        _sum: { credits: true },
-      }),
+    const [summary, endpointRows] = await Promise.all([
+      querySingleRow<DailyApiUsageRow>(Prisma.sql`
+        WITH daily AS (
+          SELECT
+            COUNT(*)::int AS total_calls,
+            COALESCE(SUM(credits), 0)::int AS total_credits,
+            COUNT(*) FILTER (WHERE essential)::int AS essential_calls,
+            COALESCE(SUM(credits) FILTER (WHERE essential), 0)::int AS essential_credits,
+            COUNT(*) FILTER (WHERE "cacheHit")::int AS cached_calls,
+            COALESCE(AVG("latencyMs") FILTER (WHERE "latencyMs" > 0), 0) AS avg_latency_ms,
+            COUNT(*) FILTER (WHERE COALESCE("statusCode", 0) >= 400)::int AS error_count
+          FROM "ApiCall"
+          WHERE service = ${service}
+            AND "calledAt" >= ${date}
+            AND "calledAt" < ${dayEnd}
+        ),
+        monthly AS (
+          SELECT COALESCE(SUM(credits), 0)::int AS monthly_credits_used
+          FROM "ApiCall"
+          WHERE service = ${service}
+            AND "calledAt" >= ${monthStart}
+            AND "calledAt" < ${dayEnd}
+        ),
+        peak AS (
+          SELECT COALESCE(MAX(calls_per_second), 0)::int AS peak_rps
+          FROM (
+            SELECT COUNT(*)::int AS calls_per_second
+            FROM "ApiCall"
+            WHERE service = ${service}
+              AND "calledAt" >= ${date}
+              AND "calledAt" < ${dayEnd}
+            GROUP BY date_trunc('second', "calledAt")
+          ) bucketed
+        )
+        SELECT
+          daily.total_calls,
+          daily.total_credits,
+          daily.essential_calls,
+          daily.essential_credits,
+          daily.cached_calls,
+          daily.avg_latency_ms,
+          daily.error_count,
+          monthly.monthly_credits_used,
+          peak.peak_rps
+        FROM daily, monthly, peak
+      `),
+      db.$queryRaw<EndpointAggregateRow[]>(Prisma.sql`
+        SELECT
+          endpoint,
+          strategy,
+          mode,
+          "configProfile" AS config_profile,
+          purpose,
+          essential,
+          COUNT(*)::int AS total_calls,
+          COALESCE(SUM(credits), 0)::int AS total_credits,
+          COUNT(*) FILTER (WHERE "cacheHit")::int AS cached_calls,
+          COUNT(*) FILTER (WHERE COALESCE("statusCode", 0) >= 400)::int AS error_count,
+          COALESCE(AVG(credits), 0) AS avg_credits_per_call,
+          COALESCE(AVG("latencyMs") FILTER (WHERE "latencyMs" > 0), 0) AS avg_latency_ms,
+          COALESCE(AVG("batchSize") FILTER (WHERE "batchSize" > 0), 0) AS avg_batch_size
+        FROM "ApiCall"
+        WHERE service = ${service}
+          AND "calledAt" >= ${date}
+          AND "calledAt" < ${dayEnd}
+        GROUP BY endpoint, strategy, mode, "configProfile", purpose, essential
+        ORDER BY total_credits DESC, total_calls DESC
+      `),
     ]);
 
-    const totalCalls = dailyCalls.length;
-    const totalCredits = dailyCalls.reduce((sum, call) => sum + call.credits, 0);
-    const essentialCalls = dailyCalls.filter((call) => call.essential).length;
-    const essentialCredits = dailyCalls.filter((call) => call.essential).reduce((sum, call) => sum + call.credits, 0);
+    const totalCalls = Number(summary?.total_calls ?? 0);
+    const totalCredits = Number(summary?.total_credits ?? 0);
+    const essentialCalls = Number(summary?.essential_calls ?? 0);
+    const essentialCredits = Number(summary?.essential_credits ?? 0);
     const nonEssentialCredits = Math.max(0, totalCredits - essentialCredits);
-    const cachedCalls = dailyCalls.filter((call) => call.cacheHit).length;
-    const avgLatencyMs = averageOf(dailyCalls.map((call) => call.latencyMs ?? 0).filter((latency) => latency > 0));
-    const errorCount = dailyCalls.filter((call) => (call.statusCode ?? 0) >= 400).length;
+    const cachedCalls = Number(summary?.cached_calls ?? 0);
+    const avgLatencyMs = Math.round(toNumber(summary?.avg_latency_ms));
+    const errorCount = Number(summary?.error_count ?? 0);
     const avgCreditsPerCall = totalCalls > 0 ? totalCredits / totalCalls : 0;
-    const peakRps = computePeakRps(dailyCalls.map((call) => call.calledAt));
+    const peakRps = Number(summary?.peak_rps ?? 0);
     const budgetTotal = service === "HELIUS" ? config.apiBudgets.helius.monthly : config.apiBudgets.birdeye.monthly;
-    const monthlyCreditsUsed = Number(monthlyAgg._sum.credits ?? 0);
+    const monthlyCreditsUsed = Number(summary?.monthly_credits_used ?? 0);
     const monthlyCreditsRemaining = Math.max(0, budgetTotal - monthlyCreditsUsed);
     const reserveCredits = Math.floor(budgetTotal * config.apiBudgets.reservePct);
     const remainingDays = Math.max(1, Math.ceil((Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1) - dayEnd.getTime()) / DAY_MS));
@@ -296,7 +442,7 @@ async function aggregateApiUsage(date: Date): Promise<void> {
         cachedCalls,
         avgCreditsPerCall,
         peakRps,
-        avgLatencyMs: Math.round(avgLatencyMs),
+        avgLatencyMs,
         errorCount,
         softLimitPct: config.apiBudgets.softLimitPct,
         hardLimitPct: config.apiBudgets.hardLimitPct,
@@ -320,7 +466,7 @@ async function aggregateApiUsage(date: Date): Promise<void> {
         cachedCalls,
         avgCreditsPerCall,
         peakRps,
-        avgLatencyMs: Math.round(avgLatencyMs),
+        avgLatencyMs,
         errorCount,
         softLimitPct: config.apiBudgets.softLimitPct,
         hardLimitPct: config.apiBudgets.hardLimitPct,
@@ -333,102 +479,36 @@ async function aggregateApiUsage(date: Date): Promise<void> {
       where: { date, service },
     });
 
-    const endpointRows = dailyCalls.reduce((acc, call) => {
-      const dimensionKey = [
-        call.endpoint,
-        call.strategy ?? "ALL",
-        call.mode ?? "ALL",
-        call.configProfile ?? "ALL",
-        call.purpose,
-        call.essential ? "1" : "0",
-      ].join("|");
-
-      const entry = acc.get(dimensionKey) ?? {
-        endpoint: call.endpoint,
-        strategy: call.strategy,
-        mode: call.mode,
-        configProfile: call.configProfile,
-        purpose: call.purpose,
-        essential: call.essential,
-        totalCalls: 0,
-        totalCredits: 0,
-        cachedCalls: 0,
-        errorCount: 0,
-        latencyTotal: 0,
-        latencyCount: 0,
-        batchTotal: 0,
-        batchCount: 0,
-      };
-
-      entry.totalCalls += 1;
-      entry.totalCredits += call.credits;
-      if (call.cacheHit) entry.cachedCalls += 1;
-      if ((call.statusCode ?? 0) >= 400) entry.errorCount += 1;
-      if (call.latencyMs && call.latencyMs > 0) {
-        entry.latencyTotal += call.latencyMs;
-        entry.latencyCount += 1;
-      }
-      if (call.batchSize && call.batchSize > 0) {
-        entry.batchTotal += call.batchSize;
-        entry.batchCount += 1;
-      }
-
-      acc.set(dimensionKey, entry);
-      return acc;
-    }, new Map<string, {
-      endpoint: string;
-      strategy: Strategy | null;
-      mode: TradeMode | null;
-      configProfile: string | null;
-      purpose: typeof dailyCalls[number]["purpose"];
-      essential: boolean;
-      totalCalls: number;
-      totalCredits: number;
-      cachedCalls: number;
-      errorCount: number;
-      latencyTotal: number;
-      latencyCount: number;
-      batchTotal: number;
-      batchCount: number;
-    }>());
-
-    if (endpointRows.size > 0) {
+    if (endpointRows.length > 0) {
       await db.apiEndpointDaily.createMany({
-        data: [...endpointRows.entries()].map(([dimensionKey, entry]) => ({
+        data: endpointRows.map((row) => ({
           date,
           service,
-          endpoint: entry.endpoint,
-          dimensionKey,
-          strategy: entry.strategy,
-          mode: entry.mode,
-          configProfile: entry.configProfile,
-          purpose: entry.purpose,
-          essential: entry.essential,
-          totalCalls: entry.totalCalls,
-          totalCredits: entry.totalCredits,
-          cachedCalls: entry.cachedCalls,
-          avgCreditsPerCall: entry.totalCalls > 0 ? entry.totalCredits / entry.totalCalls : 0,
-          avgLatencyMs: entry.latencyCount > 0 ? Math.round(entry.latencyTotal / entry.latencyCount) : 0,
-          errorCount: entry.errorCount,
-          avgBatchSize: entry.batchCount > 0 ? entry.batchTotal / entry.batchCount : 0,
+          endpoint: row.endpoint,
+          dimensionKey: [
+            row.endpoint,
+            row.strategy ?? "ALL",
+            row.mode ?? "ALL",
+            row.config_profile ?? "ALL",
+            row.purpose,
+            row.essential ? "1" : "0",
+          ].join("|"),
+          strategy: row.strategy,
+          mode: row.mode,
+          configProfile: row.config_profile,
+          purpose: row.purpose,
+          essential: row.essential,
+          totalCalls: Number(row.total_calls ?? 0),
+          totalCredits: Number(row.total_credits ?? 0),
+          cachedCalls: Number(row.cached_calls ?? 0),
+          avgCreditsPerCall: toNumber(row.avg_credits_per_call),
+          avgLatencyMs: Math.round(toNumber(row.avg_latency_ms)),
+          errorCount: Number(row.error_count ?? 0),
+          avgBatchSize: toNumber(row.avg_batch_size),
         })),
       });
     }
   }
-}
-
-function averageOf(values: number[]): number {
-  return values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
-}
-
-function computePeakRps(timestamps: Date[]): number {
-  if (timestamps.length === 0) return 0;
-  const buckets = new Map<number, number>();
-  for (const timestamp of timestamps) {
-    const second = Math.floor(timestamp.getTime() / 1000);
-    buckets.set(second, (buckets.get(second) ?? 0) + 1);
-  }
-  return Math.max(...buckets.values());
 }
 
 parentPort?.on("message", async (task: StatsTask) => {

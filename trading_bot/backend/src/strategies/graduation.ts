@@ -1,4 +1,5 @@
 import { EventEmitter } from "events";
+import pLimit from "p-limit";
 import { config } from "../config/index.js";
 import { db } from "../db/client.js";
 import { createChildLogger } from "../utils/logger.js";
@@ -111,32 +112,36 @@ export class GraduationStrategy extends EventEmitter {
     if (this.fallbackInFlight) return;
     this.fallbackInFlight = true;
     try {
-    const listings = await this.birdeye.getNewListings(this.apiMeta("ENTRY_SCAN", false, 20));
-    const promises: Promise<void>[] = [];
-
-    for (const listing of listings as Array<Record<string, unknown>>) {
-      const address = listing.address as string;
-      if (!address) continue;
-      if (this.processingTokens.has(address)) continue;
-      if (this.pendingGraduation.has(address)) continue;
-      if (this.pendingEntryDelays.has(address)) continue;
-
-      this.processingTokens.add(address);
-      const detail = await this.birdeye.getMemeTokenDetail(address, this.apiMeta("ENTRY_SCAN"));
-      if (detail?.graduated) {
-        promises.push(
-          this.processCandidate(detail).finally(() => {
-            this.processingTokens.delete(address);
-          }),
+      const listings = await this.birdeye.getNewListings(this.apiMeta("ENTRY_SCAN", false, 20));
+      const limit = pLimit(3);
+      const candidates = (listings as Array<Record<string, unknown>>)
+        .map((listing) => (typeof listing.address === "string" ? listing.address : ""))
+        .filter((address) =>
+          !!address
+          && !this.processingTokens.has(address)
+          && !this.pendingGraduation.has(address)
+          && !this.pendingEntryDelays.has(address),
         );
-      } else {
-        this.processingTokens.delete(address);
-      }
-    }
 
-    await Promise.allSettled(promises);
+      await Promise.allSettled(
+        candidates.map((address) =>
+          limit(() => this.processFallbackListing(address)),
+        ),
+      );
     } finally {
       this.fallbackInFlight = false;
+    }
+  }
+
+  private async processFallbackListing(address: string): Promise<void> {
+    this.processingTokens.add(address);
+    try {
+      const detail = await this.birdeye.getMemeTokenDetail(address, this.apiMeta("ENTRY_SCAN"));
+      if (detail?.graduated) {
+        await this.processCandidate(detail);
+      }
+    } finally {
+      this.processingTokens.delete(address);
     }
   }
 

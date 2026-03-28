@@ -65,10 +65,8 @@ export default function OverviewPage() {
     [recentStatsQuery.data],
   );
   const regime = overview?.regime ? regimeBadge(overview.regime.regime) : null;
-  const todayWinRate = overview && overview.todayWins + overview.todayLosses > 0
-    ? (overview.todayWins / (overview.todayWins + overview.todayLosses)) * 100
-    : 0;
   const updatedLabel = lastUpdatedAt ? timeAgo(new Date(lastUpdatedAt)) : "awaiting sync";
+  const topUrgentPosition = urgentPositions[0] ?? null;
 
   const recentFlow = useMemo(() => {
     const totals = recentStats.reduce(
@@ -236,11 +234,13 @@ export default function OverviewPage() {
           icon={<Zap className="h-3.5 w-3.5 text-accent-purple" />}
         />
         <SummaryTile
-          label="Today Win Rate"
-          value={formatPercent(todayWinRate).replace("+", "")}
-          sub={`${recentFlow.winningDays} green days in last 7`}
+          label="Next Forced Exit"
+          value={topUrgentPosition ? `${topUrgentPosition.tokenSymbol} · ${Math.max(0, topUrgentPosition.timeRemaining).toFixed(0)}m` : "Clear"}
+          sub={topUrgentPosition
+            ? `${strategyLabel(topUrgentPosition.strategy)} · ${Math.max(0, topUrgentPosition.stopDistance).toFixed(1)}% stop cushion`
+            : "Stops and time budgets are clear"}
           icon={<Target className="h-3.5 w-3.5 text-accent-yellow" />}
-          tone={todayWinRate < 40 ? "warning" : "positive"}
+          tone={topUrgentPosition ? "warning" : "positive"}
         />
         <SummaryTile
           label="Loss Utilization"

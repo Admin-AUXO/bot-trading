@@ -42,6 +42,8 @@ model Trade {
   position Position? @relation(fields: [positionId], references: [id])
 
   @@index([mode, executedAt])
+  @@index([mode, configProfile, executedAt])
+  @@index([mode, configProfile, side, executedAt])
   @@index([strategy, executedAt])
   @@index([tokenAddress])
   @@index([positionId])
@@ -101,6 +103,9 @@ model Position {
   trades Trade[]
 
   @@index([mode, status])
+  @@index([mode, configProfile, status, openedAt])
+  @@index([mode, configProfile, status, closedAt])
+  @@index([status, priceAfter1h, closedAt])
   @@index([status])
   @@index([strategy, status])
   @@index([openedAt])
@@ -157,6 +162,7 @@ model Signal {
   createdAt      DateTime   @default(now())
 
   @@index([mode, detectedAt])
+  @@index([mode, configProfile, detectedAt])
   @@index([strategy, detectedAt])
   @@index([tokenAddress])
   @@index([passed, detectedAt])
@@ -400,6 +406,8 @@ model WalletActivity {
   @@index([side, detectedAt])
   @@index([detectedAt, priceAfter1m])
   @@index([detectedAt, priceAfter5m])
+  @@index([detectedAt, priceAfter15m])
+  @@index([detectedAt, priceAfter1h])
 }
 
 model GraduationEvent {
@@ -429,6 +437,8 @@ model GraduationEvent {
   @@index([rugDetected, graduatedAt])
   @@index([graduatedAt, priceAfter1m])
   @@index([graduatedAt, priceAfter5m])
+  @@index([graduatedAt, priceAfter15m])
+  @@index([graduatedAt, priceAfter1h])
 }
 
 model MarketTick {

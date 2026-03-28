@@ -4,11 +4,11 @@ import helmet from "helmet";
 import compression from "compression";
 import pinoHttp from "pino-http";
 import rateLimit from "express-rate-limit";
-import Decimal from "decimal.js";
 import type { Request, Response, NextFunction } from "express";
 import { config } from "../config/index.js";
 import { logger, createChildLogger } from "../utils/logger.js";
 import { db } from "../db/client.js";
+import { getLaneTodaySummary } from "./lane-summary.js";
 import { overviewRouter } from "./routes/overview.js";
 import { positionsRouter } from "./routes/positions.js";
 import { tradesRouter } from "./routes/trades.js";
@@ -41,6 +41,7 @@ export function createApiServer(deps: {
   walletReconciler?: () => Promise<number | null>;
 }) {
   const app = express();
+  const database = deps.dbClient ?? db;
   app.use(cors({
     origin: [
       `http://localhost:${config.dashboardPort}`,
@@ -104,28 +105,8 @@ export function createApiServer(deps: {
         const snapshot = riskManager.getSnapshot();
         const regime = regimeDetector.getState();
         const scope = deps.scope ?? snapshot.scope;
-        const today = new Date(new Date().toISOString().slice(0, 10));
-        const laneWhere = {
-          mode: scope.mode,
-          configProfile: scope.configProfile,
-        };
-
-        const [todayTrades, todaySells, openPositions] = await Promise.all([
-          db.trade.count({ where: { executedAt: { gte: today }, ...laneWhere } }),
-          db.trade.findMany({
-            where: { executedAt: { gte: today }, side: "SELL", ...laneWhere },
-            select: { pnlUsd: true },
-          }),
-          db.position.findMany({
-            where: { status: { in: ["OPEN", "PARTIALLY_CLOSED"] }, ...laneWhere },
-            orderBy: { openedAt: "desc" },
-          }),
-        ]);
-
-        const todayPnl = todaySells.reduce((sum, t) => sum + Number(t.pnlUsd ?? 0), 0);
-        const todayWins = todaySells.filter((t) => Number(t.pnlUsd ?? 0) > 0).length;
-
-        const positions = openPositions.map((p) => ({
+        const summary = await getLaneTodaySummary(database, scope);
+        const positions = snapshot.openPositions.map((p) => ({
           id: p.id,
           strategy: p.strategy,
           tokenSymbol: p.tokenSymbol,
@@ -141,8 +122,8 @@ export function createApiServer(deps: {
           exit1Done: p.exit1Done,
           exit2Done: p.exit2Done,
           exit3Done: p.exit3Done,
-          pnlPercent: Number(p.entryPriceUsd) > 0
-            ? new Decimal(Number(p.currentPriceUsd)).sub(Number(p.entryPriceUsd)).div(Number(p.entryPriceUsd)).mul(100).toNumber()
+          pnlPercent: p.entryPriceUsd > 0
+            ? ((p.currentPriceUsd - p.entryPriceUsd) / p.entryPriceUsd) * 100
             : 0,
           holdMinutes: (Date.now() - p.openedAt.getTime()) / 60_000,
           status: p.status,
@@ -156,10 +137,10 @@ export function createApiServer(deps: {
         res.write(`data: ${JSON.stringify({
           ...snapshot,
           regime,
-          todayTrades,
-          todayPnl,
-          todayWins,
-          todayLosses: todaySells.length - todayWins,
+          todayTrades: summary.todayTrades,
+          todayPnl: summary.todayPnl,
+          todayWins: summary.todayWins,
+          todayLosses: summary.todayLosses,
           positions,
         })}\n\n`);
       } catch (err) {

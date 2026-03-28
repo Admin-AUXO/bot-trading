@@ -88,6 +88,8 @@ export interface SkippedSignal {
   tokenSymbol: string;
   signalType: string;
   source: string;
+  rejectReason: string | null;
+  filterResults: Record<string, unknown>;
   regime: string | null;
   tokenLiquidity: number | null;
   tokenMcap: number | null;

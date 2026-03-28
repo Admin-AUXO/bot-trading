@@ -79,7 +79,12 @@ export default function PositionsPage() {
   const [confirmExit, setConfirmExit] = useState<{ id: string; symbol: string } | null>(null);
   const { effectiveMode, effectiveProfile, resolvedTradeSource, selectedStrategy } = useDashboardFilters();
   const queryClient = useQueryClient();
-  const { strategyConfig, maxOpenPositions } = useDashboardShell();
+  const {
+    strategyConfig,
+    maxOpenPositions,
+    allPositions: portfolioPositions,
+    openSlots: portfolioOpenSlots,
+  } = useDashboardShell();
 
   useEffect(() => {
     setPage(1);
@@ -210,22 +215,27 @@ export default function PositionsPage() {
         <>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
             <SummaryTile
-              label="Open Positions"
-              value={`${filteredPositions?.length ?? 0}/${maxOpenPositions}`}
-              sub={`${effectiveProfile} · ${selectedStrategy ? strategyLabel(selectedStrategy) : "All strategies"}`}
+              label="Filtered Open"
+              value={String(filteredPositions?.length ?? 0)}
+              sub={`${focusLabel} · ${effectiveProfile}`}
               icon={<Crosshair className="h-3.5 w-3.5 text-accent-blue" />}
+            />
+            <SummaryTile
+              label="Portfolio Capacity"
+              value={`${portfolioPositions.length}/${maxOpenPositions}`}
+              sub={`${portfolioOpenSlots} slots open in runtime`}
             />
             <SummaryTile
               label="Open P&L"
               value={formatUsd(openSummary.openPnlUsd)}
-              sub={`${openSummary.urgentCount} urgent`}
+              sub={`${openSummary.urgentCount} urgent · ${openSummary.manualCount} manual`}
               valueClass={pnlClass(openSummary.openPnlUsd)}
               tone={openSummary.openPnlUsd < 0 ? "danger" : "default"}
             />
             <SummaryTile
               label="Capital Deployed"
               value={formatSol(openSummary.deployedSol)}
-              sub={`${maxOpenPositions - (filteredPositions?.length ?? 0)} slots clear`}
+              sub="Filtered lane only"
             />
             <SummaryTile
               label="Urgent Exits"
@@ -233,11 +243,6 @@ export default function PositionsPage() {
               sub="Stop or time pressure"
               icon={<AlertTriangle className="h-3.5 w-3.5 text-accent-yellow" />}
               tone={openSummary.urgentCount > 0 ? "warning" : "default"}
-            />
-            <SummaryTile
-              label="Manual Positions"
-              value={String(openSummary.manualCount)}
-              sub="Override entries"
             />
             <SummaryTile
               label="Partial Closures"
@@ -526,7 +531,7 @@ export default function PositionsPage() {
 
           <ErrorBoundary>
             {skippedSignalsQuery.isLoading ? (
-              <TableSkeleton rows={4} cols={9} />
+              <TableSkeleton rows={4} cols={10} />
             ) : (
               <>
                 {actionError ? (
@@ -546,7 +551,8 @@ export default function PositionsPage() {
                         <th className="table-header">Liq.</th>
                         <th className="table-header">Vol 5m</th>
                         <th className="table-header">Buy%</th>
-                        <th className="table-header">Blocked</th>
+                        <th className="table-header">Reason</th>
+                        <th className="table-header">Detected</th>
                         <th className="table-header">Enter</th>
                       </tr>
                     </thead>
@@ -569,9 +575,17 @@ export default function PositionsPage() {
                           <td className="table-cell">
                             {signal.buyPressure != null ? (
                               <span className={signal.buyPressure > 60 ? "text-accent-green" : "text-text-muted"}>
-                                {(signal.buyPressure * 100).toFixed(0)}%
+                                {signal.buyPressure.toFixed(0)}%
                               </span>
                             ) : "—"}
+                          </td>
+                          <td className="table-cell max-w-[240px] text-xs text-text-muted">
+                            <div className="truncate" title={signal.rejectReason ?? "Queued by capacity review"}>
+                              {signal.rejectReason ?? "Queued by capacity review"}
+                            </div>
+                            <div className="truncate text-[10px]" title={`${signal.signalType} · ${signal.source}`}>
+                              {signal.signalType} · {signal.source}
+                            </div>
                           </td>
                           <td className="table-cell text-xs text-text-muted">{timeAgo(signal.detectedAt)}</td>
                           <td className="table-cell">
@@ -612,7 +626,7 @@ export default function PositionsPage() {
 
                       {!skippedSignalsQuery.data?.data.length ? (
                         <tr>
-                          <td colSpan={9}>
+                          <td colSpan={10}>
                             <EmptyState
                               icon={<LogIn className="h-5 w-5" />}
                               title="No skipped signals"

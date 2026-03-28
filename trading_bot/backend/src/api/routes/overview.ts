@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "../../db/client.js";
 import { cacheMiddleware } from "../middleware/cache.js";
+import { getLaneTodaySummary } from "../lane-summary.js";
 import type { ApiBudgetManager } from "../../core/api-budget-manager.js";
 import type { RiskManager } from "../../core/risk-manager.js";
 import type { RegimeDetector } from "../../core/regime-detector.js";
@@ -63,11 +64,12 @@ function serializeUsageRow(row: {
   };
 }
 
-export function overviewRouter(deps: { riskManager: unknown; regimeDetector: unknown; apiBudgetManager?: ApiBudgetManager }) {
+export function overviewRouter(deps: { riskManager: unknown; regimeDetector: unknown; apiBudgetManager?: ApiBudgetManager; dbClient?: typeof db }) {
   const router = Router();
   const riskManager = deps.riskManager as RiskManager;
   const regimeDetector = deps.regimeDetector as RegimeDetector;
   const apiBudgetManager = deps.apiBudgetManager;
+  const database = deps.dbClient ?? db;
 
   router.get("/", cacheMiddleware(5_000), async (req, res) => {
     const snapshot = riskManager.getSnapshot();
@@ -82,30 +84,15 @@ export function overviewRouter(deps: { riskManager: unknown; regimeDetector: unk
       mode: snapshot.scope.mode,
       configProfile: snapshot.scope.configProfile,
     };
-
-    const todayTrades = await db.trade.count({
-      where: { executedAt: { gte: new Date(new Date().toISOString().slice(0, 10)) }, ...laneWhere },
-    });
-
-    const todaySells = await db.trade.findMany({
-      where: {
-        executedAt: { gte: new Date(new Date().toISOString().slice(0, 10)) },
-        side: "SELL",
-        ...laneWhere,
-      },
-      select: { pnlUsd: true },
-    });
-
-    const todayPnl = todaySells.reduce((sum, t) => sum + Number(t.pnlUsd ?? 0), 0);
-    const todayWins = todaySells.filter((t) => Number(t.pnlUsd ?? 0) > 0).length;
+    const summary = await getLaneTodaySummary(database, laneWhere);
 
     res.json({
       ...snapshot,
       regime,
-      todayTrades,
-      todayPnl,
-      todayWins,
-      todayLosses: todaySells.length - todayWins,
+      todayTrades: summary.todayTrades,
+      todayPnl: summary.todayPnl,
+      todayWins: summary.todayWins,
+      todayLosses: summary.todayLosses,
       mode: snapshot.scope.mode,
       configProfile: snapshot.scope.configProfile,
     });
@@ -118,22 +105,22 @@ export function overviewRouter(deps: { riskManager: unknown; regimeDetector: unk
     since.setDate(since.getDate() - Math.max(0, days - 1));
     const usage = apiBudgetManager
       ? apiBudgetManager.getSnapshots()
-      : await db.apiUsageDaily.findMany({
+      : await database.apiUsageDaily.findMany({
           where: { date: new Date(today) },
         });
 
     const monthStart = new Date(today.slice(0, 7) + "-01");
     const [monthlyUsage, history, topEndpoints] = await Promise.all([
-      db.apiUsageDaily.groupBy({
+      database.apiUsageDaily.groupBy({
         by: ["service"],
         where: { date: { gte: monthStart } },
         _sum: { totalCredits: true, totalCalls: true, errorCount: true },
       }),
-      db.apiUsageDaily.findMany({
+      database.apiUsageDaily.findMany({
         where: { date: { gte: since } },
         orderBy: [{ date: "asc" }, { service: "asc" }],
       }),
-      db.apiEndpointDaily.groupBy({
+      database.apiEndpointDaily.groupBy({
         by: ["service", "endpoint", "strategy", "mode", "configProfile", "purpose", "essential"],
         where: { date: { gte: since } },
         _sum: {
