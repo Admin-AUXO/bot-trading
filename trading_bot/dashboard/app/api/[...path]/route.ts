@@ -1,28 +1,57 @@
 import type { NextRequest } from "next/server";
+import {
+  getDashboardControlSecret,
+  hasOperatorSession,
+} from "@/lib/server/operator-session";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const BACKEND = process.env.API_URL ?? "http://localhost:3001";
 const BACKEND_RETRY_MS = 3000;
-const CONTROL_SECRET =
-  process.env.CONTROL_SECRET ??
-  process.env.API_CONTROL_SECRET ??
-  process.env.DASHBOARD_CONTROL_SECRET ??
-  "";
 
 let backendAvailable = true;
 let lastFailAt = 0;
+
+function shouldProxyWithControlSecret(
+  method: string,
+  path: string[],
+): boolean {
+  if (!["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase())) {
+    return true;
+  }
+
+  return path.length === 1 && path[0] === "stream";
+}
 
 async function proxy(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
 ): Promise<Response> {
   const { path } = await params;
+  const controlSecret = getDashboardControlSecret();
+  const requiresControlSecret = shouldProxyWithControlSecret(request.method, path);
   const target = new URL(`/api/${path.join("/")}${request.nextUrl.search}`, BACKEND);
 
   if (!backendAvailable && Date.now() - lastFailAt < BACKEND_RETRY_MS) {
     return Response.json({ error: "Backend unavailable" }, { status: 503 });
+  }
+
+  if (requiresControlSecret && !controlSecret) {
+    return Response.json(
+      { error: "Dashboard control secret is not configured" },
+      { status: 503 },
+    );
+  }
+
+  if (
+    !["GET", "HEAD", "OPTIONS"].includes(request.method.toUpperCase()) &&
+    !hasOperatorSession(request)
+  ) {
+    return Response.json(
+      { error: "Operator session required" },
+      { status: 401 },
+    );
   }
 
   const headers = new Headers(request.headers);
@@ -31,9 +60,10 @@ async function proxy(
   headers.delete("connection");
   headers.delete("transfer-encoding");
   headers.delete("accept-encoding");
+  headers.delete("authorization");
 
-  if (CONTROL_SECRET) {
-    headers.set("authorization", `Bearer ${CONTROL_SECRET}`);
+  if (requiresControlSecret) {
+    headers.set("authorization", `Bearer ${controlSecret}`);
   }
 
   const body =

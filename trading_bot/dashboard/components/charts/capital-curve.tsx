@@ -2,7 +2,8 @@
 
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { fetchCapitalCurve } from "@/lib/api";
+import { chartColors } from "@/lib/chart-colors";
+import { capitalCurveQueryOptions } from "@/lib/dashboard-query-options";
 import { useDashboardStore } from "@/lib/store";
 import {
   AreaChart,
@@ -10,18 +11,13 @@ import {
   XAxis,
   YAxis,
   Tooltip,
-  Legend,
   ResponsiveContainer,
 } from "recharts";
 
-export function CapitalCurveChart() {
+export function CapitalCurveChart({ days = 30 }: { days?: number }) {
   const { mode } = useDashboardStore();
 
-  const { data: curve } = useQuery({
-    queryKey: ["capital-curve", mode],
-    queryFn: () => fetchCapitalCurve(mode),
-    refetchInterval: 60000,
-  });
+  const { data: curve } = useQuery(capitalCurveQueryOptions(days, mode));
 
   const chartData = useMemo(() => (curve ?? []).map((p) => ({
     date: new Date(p.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
@@ -38,36 +34,39 @@ export function CapitalCurveChart() {
       <AreaChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
         <defs>
           <linearGradient id="capitalGradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
-            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+            <stop offset="5%" stopColor={chartColors.capital} stopOpacity={0.28} />
+            <stop offset="95%" stopColor={chartColors.capital} stopOpacity={0} />
           </linearGradient>
         </defs>
         <XAxis
           dataKey="date"
-          tick={{ fill: "#71717a", fontSize: 10 }}
-          axisLine={{ stroke: "#242433" }}
+          tick={{ fill: chartColors.muted, fontSize: 10 }}
+          axisLine={{ stroke: chartColors.gridLine }}
           tickLine={false}
         />
         <YAxis
-          tick={{ fill: "#71717a", fontSize: 10 }}
+          tick={{ fill: chartColors.muted, fontSize: 10 }}
           axisLine={false}
           tickLine={false}
           tickFormatter={(v) => `$${v}`}
         />
         <Tooltip
-          wrapperStyle={{ background: "#16161f", border: "1px solid #242433", borderRadius: "8px" }}
-          itemStyle={{ color: "#e4e4e7", fontSize: 12 }}
-          labelStyle={{ color: "#e4e4e7", fontSize: 12 }}
+          wrapperStyle={{
+            background: chartColors.tooltipBg,
+            border: `1px solid ${chartColors.tooltipBorder}`,
+            borderRadius: "8px",
+          }}
+          itemStyle={{ color: chartColors.tooltipText, fontSize: 12 }}
+          labelStyle={{ color: chartColors.tooltipText, fontSize: 12 }}
           formatter={(value, name) => [
             `$${(Number(value) || 0).toFixed(2)}`,
             name === "capital" ? "Capital" : "Cum. P&L",
           ]}
         />
-        <Legend />
         <Area
           type="monotone"
           dataKey="capital"
-          stroke="#3b82f6"
+          stroke={chartColors.capital}
           fill="url(#capitalGradient)"
           strokeWidth={2}
           isAnimationActive={false}

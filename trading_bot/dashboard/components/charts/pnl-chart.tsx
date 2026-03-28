@@ -2,15 +2,14 @@
 
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { fetchDailyStats, fetchOverview } from "@/lib/api";
-import { useDashboardStore } from "@/lib/store";
 import { chartColors } from "@/lib/chart-colors";
+import { dailyStatsQueryOptions, overviewQueryOptions } from "@/lib/dashboard-query-options";
+import { useDashboardStore } from "@/lib/store";
 import {
   Bar,
   XAxis,
   YAxis,
   Tooltip,
-  Legend,
   ResponsiveContainer,
   ReferenceLine,
   Cell,
@@ -21,16 +20,9 @@ import {
 export function PnlChart() {
   const { mode } = useDashboardStore();
 
-  const { data: stats } = useQuery({
-    queryKey: ["daily-stats", mode],
-    queryFn: () => fetchDailyStats(30, mode),
-    refetchInterval: 60000,
-  });
+  const { data: stats } = useQuery(dailyStatsQueryOptions(30, mode));
 
-  const { data: overview } = useQuery({
-    queryKey: ["overview", mode],
-    queryFn: () => fetchOverview(mode),
-  });
+  const { data: overview } = useQuery(overviewQueryOptions(mode));
 
   const filtered = (stats ?? []).filter((s) => s.strategy === null);
   const dailyLossLimit = overview?.dailyLossLimit ?? 10;
@@ -61,12 +53,12 @@ export function PnlChart() {
       <ComposedChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
         <XAxis
           dataKey="date"
-          tick={{ fill: "#71717a", fontSize: 10 }}
-          axisLine={{ stroke: "#242433" }}
+          tick={{ fill: chartColors.muted, fontSize: 10 }}
+          axisLine={{ stroke: chartColors.gridLine }}
           tickLine={false}
         />
         <YAxis
-          tick={{ fill: "#71717a", fontSize: 10 }}
+          tick={{ fill: chartColors.muted, fontSize: 10 }}
           axisLine={false}
           tickLine={false}
           tickFormatter={(v) => `$${v}`}
@@ -76,7 +68,14 @@ export function PnlChart() {
             if (!active || !payload?.length) return null;
             const d = payload[0].payload;
             return (
-              <div className="bg-bg-card border border-bg-border rounded-lg p-2 text-xs space-y-1">
+              <div
+                className="rounded-lg border p-2 text-xs"
+                style={{
+                  background: chartColors.tooltipBg,
+                  borderColor: chartColors.tooltipBorder,
+                  color: chartColors.tooltipText,
+                }}
+              >
                 <div className="font-medium">{d.date} ({d.day})</div>
                 <div className={d.pnl >= 0 ? "text-accent-green" : "text-accent-red"}>
                   P&L: ${d.pnl.toFixed(2)}
@@ -89,9 +88,8 @@ export function PnlChart() {
             );
           }}
         />
-        <Legend />
-        <ReferenceLine y={0} stroke="#242433" />
-        <ReferenceLine y={-dailyLossLimit} stroke="#ef4444" strokeDasharray="4 4" strokeOpacity={0.5} />
+        <ReferenceLine y={0} stroke={chartColors.gridLine} />
+        <ReferenceLine y={-dailyLossLimit} stroke={chartColors.loss} strokeDasharray="4 4" strokeOpacity={0.55} />
         <Bar dataKey="pnl" radius={[3, 3, 0, 0]} isAnimationActive={false}>
           {chartData.map((entry, index) => (
             <Cell
@@ -104,7 +102,7 @@ export function PnlChart() {
         <Line
           type="monotone"
           dataKey="ma7"
-          stroke="#3b82f6"
+          stroke={chartColors.neutral}
           strokeWidth={1.5}
           dot={false}
           strokeOpacity={0.6}

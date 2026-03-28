@@ -1,15 +1,17 @@
 "use client";
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  fetchOverview, fetchApiUsage, pauseBot, resumeBot,
+  pauseBot, resumeBot,
   fetchProfiles, createProfile, toggleProfile, deleteProfile,
-  fetchStrategyConfig, fetchHeartbeat, fetchPositions,
+  fetchStrategyConfig, unlockOperatorSession, clearOperatorSession,
 } from "@/lib/api";
 import type { ConfigProfile } from "@/lib/api";
 import { useDashboardStore } from "@/lib/store";
+import { apiUsageQueryOptions, dashboardQueryKeys } from "@/lib/dashboard-query-options";
+import { useDashboardShell } from "@/hooks/use-dashboard-shell";
 import { formatUsd, formatNumber, timeAgo } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import {
@@ -46,20 +48,9 @@ const STRATEGY_BORDER: Record<string, string> = {
 export default function SettingsPage() {
   const queryClient = useQueryClient();
   const { mode } = useDashboardStore();
-
-  const { data: overview } = useQuery({
-    queryKey: ["overview", mode],
-    queryFn: () => fetchOverview(mode),
-    refetchInterval: 10_000,
-    staleTime: 5_000,
-  });
-
-  const { data: apiUsage } = useQuery({
-    queryKey: ["api-usage"],
-    queryFn: fetchApiUsage,
-    refetchInterval: 30_000,
-    staleTime: 30_000,
-  });
+  const { overview, heartbeat, allPositions: openPositions, operatorSession } = useDashboardShell();
+  const [operatorSecret, setOperatorSecret] = useState("");
+  const { data: apiUsage } = useQuery(apiUsageQueryOptions());
 
   const { data: profiles } = useQuery({
     queryKey: ["profiles"],
@@ -73,28 +64,27 @@ export default function SettingsPage() {
     staleTime: 60_000,
   });
 
-  const { data: heartbeat } = useQuery({
-    queryKey: ["heartbeat"],
-    queryFn: fetchHeartbeat,
-    refetchInterval: 10_000,
-    staleTime: 5_000,
-  });
-
-  const { data: openPositions } = useQuery({
-    queryKey: ["positions", mode],
-    queryFn: () => fetchPositions(mode),
-    refetchInterval: 10_000,
-    staleTime: 5_000,
-  });
-
   const pauseMutation = useMutation({
     mutationFn: pauseBot,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["overview", mode] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.overview(mode) }),
   });
 
   const resumeMutation = useMutation({
     mutationFn: resumeBot,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["overview", mode] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.overview(mode) }),
+  });
+
+  const unlockMutation = useMutation({
+    mutationFn: (secret: string) => unlockOperatorSession(secret),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.operatorSession });
+      setOperatorSecret("");
+    },
+  });
+
+  const clearSessionMutation = useMutation({
+    mutationFn: clearOperatorSession,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.operatorSession }),
   });
 
   const criticalAlerts: string[] = [];
@@ -116,6 +106,8 @@ export default function SettingsPage() {
   const weeklyLossPct = overview ? (overview.weeklyLossUsd / overview.weeklyLossLimit) * 100 : 0;
 
   const todayApiCalls = apiUsage?.daily?.reduce((sum, d) => sum + (d.totalCalls ?? 0), 0) ?? 0;
+  const controlsLocked = operatorSession?.configured !== false && !operatorSession?.authenticated;
+  const controlsUnavailable = operatorSession?.configured === false;
 
   const sectionItem = {
     hidden: { opacity: 0, y: 10 },
@@ -129,6 +121,18 @@ export default function SettingsPage() {
       variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.05 } } }}
       className="space-y-5"
     >
+      <motion.div variants={sectionItem} className="flex flex-col gap-2 xl:flex-row xl:items-end xl:justify-between">
+        <div>
+          <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Control Plane</div>
+          <div className="mt-1 text-sm text-text-secondary">
+            {mode === "LIVE" ? "Live" : "Simulation"} mode · bot controls, risk limits, and profile routing
+          </div>
+        </div>
+        <div className="text-[11px] text-text-muted">
+          Operator {operatorSession?.authenticated ? "unlocked" : operatorSession?.configured === false ? "unavailable" : "locked"}
+        </div>
+      </motion.div>
+
       {/* Critical alerts */}
       {criticalAlerts.length > 0 && (
         <motion.div variants={sectionItem} className="space-y-2">
@@ -175,7 +179,7 @@ export default function SettingsPage() {
       </motion.div>
 
       {/* Bot Control + Process Health */}
-      <motion.div variants={sectionItem} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <motion.div variants={sectionItem} className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <ErrorBoundary>
           <div className="card h-full">
             <div className="flex items-center gap-2 mb-4">
@@ -228,7 +232,7 @@ export default function SettingsPage() {
                     success: "Bot paused",
                     error: "Failed to pause bot",
                   })}
-                  disabled={!overview?.isRunning || pauseMutation.isPending}
+                  disabled={controlsLocked || controlsUnavailable || !overview?.isRunning || pauseMutation.isPending}
                   className="btn-danger disabled:opacity-30 text-xs flex-1"
                   whileTap={{ scale: 0.97 }}
                 >
@@ -240,15 +244,49 @@ export default function SettingsPage() {
                     success: "Bot resumed",
                     error: "Failed to resume bot",
                   })}
-                  disabled={overview?.isRunning === true || resumeMutation.isPending}
+                  disabled={controlsLocked || controlsUnavailable || overview?.isRunning === true || resumeMutation.isPending}
                   className="btn-primary disabled:opacity-30 text-xs flex-1"
                   whileTap={{ scale: 0.97 }}
                 >
                   {resumeMutation.isPending ? "Resuming…" : "Resume Bot"}
                 </motion.button>
               </div>
+              {(controlsLocked || controlsUnavailable) && (
+                <div className="text-[11px] text-text-muted pt-1">
+                  {controlsUnavailable
+                    ? "Bot controls are unavailable until a dashboard operator secret is configured."
+                    : "Bot controls stay locked until operator access is unlocked below."}
+                </div>
+              )}
             </div>
           </div>
+        </ErrorBoundary>
+
+        <ErrorBoundary>
+          <OperatorAccessCard
+            authenticated={operatorSession?.authenticated ?? false}
+            configured={operatorSession?.configured ?? true}
+            operatorSecret={operatorSecret}
+            onOperatorSecretChange={setOperatorSecret}
+            onUnlock={() => toast.promise(
+              unlockMutation.mutateAsync(operatorSecret.trim()),
+              {
+                loading: "Unlocking operator access…",
+                success: "Operator access unlocked",
+                error: "Failed to unlock operator access",
+              },
+            )}
+            onLock={() => toast.promise(
+              clearSessionMutation.mutateAsync(),
+              {
+                loading: "Locking operator access…",
+                success: "Operator access locked",
+                error: "Failed to lock operator access",
+              },
+            )}
+            isUnlocking={unlockMutation.isPending}
+            isLocking={clearSessionMutation.isPending}
+          />
         </ErrorBoundary>
 
         <ErrorBoundary>
@@ -490,7 +528,11 @@ export default function SettingsPage() {
         </ErrorBoundary>
 
         <ErrorBoundary>
-          <ProfilesSection profiles={profiles ?? []} />
+          <ProfilesSection
+            profiles={profiles ?? []}
+            controlsLocked={controlsLocked}
+            controlsUnavailable={controlsUnavailable}
+          />
         </ErrorBoundary>
       </motion.div>
     </motion.div>
@@ -582,7 +624,92 @@ function HealthRow({
   );
 }
 
-function ProfilesSection({ profiles }: { profiles: ConfigProfile[] }) {
+function OperatorAccessCard({
+  authenticated,
+  configured,
+  operatorSecret,
+  onOperatorSecretChange,
+  onUnlock,
+  onLock,
+  isUnlocking,
+  isLocking,
+}: {
+  authenticated: boolean;
+  configured: boolean;
+  operatorSecret: string;
+  onOperatorSecretChange: (value: string) => void;
+  onUnlock: () => void;
+  onLock: () => void;
+  isUnlocking: boolean;
+  isLocking: boolean;
+}) {
+  return (
+    <div className="card h-full">
+      <div className="flex items-center gap-2 mb-4">
+        <Shield className="w-4 h-4 text-accent-cyan" />
+        <span className="stat-label">Operator Access</span>
+        <span className={`ml-auto text-[10px] px-2 py-0.5 rounded-full ${
+          !configured
+            ? "bg-accent-red/15 text-accent-red"
+            : authenticated
+              ? "bg-accent-green/15 text-accent-green"
+              : "bg-accent-yellow/15 text-accent-yellow"
+        }`}>
+          {!configured ? "UNAVAILABLE" : authenticated ? "UNLOCKED" : "LOCKED"}
+        </span>
+      </div>
+
+      {!configured ? (
+        <div className="text-sm text-text-muted">
+          Configure `DASHBOARD_OPERATOR_SECRET`, `CONTROL_SECRET`, or `CONTROL_API_SECRET` to enable privileged dashboard actions.
+        </div>
+      ) : authenticated ? (
+        <div className="space-y-3">
+          <div className="text-sm text-text-muted">
+            Privileged dashboard actions are enabled for this browser session.
+          </div>
+          <button
+            onClick={onLock}
+            disabled={isLocking}
+            className="btn-ghost text-xs disabled:opacity-30"
+          >
+            {isLocking ? "Locking…" : "Lock Operator Access"}
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="text-sm text-text-muted">
+            Enter the operator secret to unlock bot controls, manual trades, and profile changes.
+          </div>
+          <input
+            type="password"
+            value={operatorSecret}
+            onChange={(e) => onOperatorSecretChange(e.target.value)}
+            placeholder="Operator secret"
+            className="input-base"
+          />
+          <button
+            onClick={onUnlock}
+            disabled={!operatorSecret.trim() || isUnlocking}
+            className="btn-primary text-xs disabled:opacity-30"
+          >
+            {isUnlocking ? "Unlocking…" : "Unlock Operator Access"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProfilesSection({
+  profiles,
+  controlsLocked,
+  controlsUnavailable,
+}: {
+  profiles: ConfigProfile[];
+  controlsLocked: boolean;
+  controlsUnavailable: boolean;
+}) {
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
@@ -620,6 +747,7 @@ function ProfilesSection({ profiles }: { profiles: ConfigProfile[] }) {
         </div>
         <button
           onClick={() => setShowCreate(!showCreate)}
+          disabled={controlsLocked || controlsUnavailable}
           className="btn-ghost text-xs flex items-center gap-1"
         >
           <Plus className="w-3.5 h-3.5" />
@@ -627,8 +755,16 @@ function ProfilesSection({ profiles }: { profiles: ConfigProfile[] }) {
         </button>
       </div>
 
+      {(controlsLocked || controlsUnavailable) && (
+        <div className="text-[11px] text-text-muted mb-3">
+          {controlsUnavailable
+            ? "Profile changes are unavailable until a dashboard operator secret is configured."
+            : "Profile changes are locked until operator access is unlocked."}
+        </div>
+      )}
+
       <AnimatePresence>
-        {showCreate && (
+        {showCreate && !controlsLocked && !controlsUnavailable && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
@@ -666,7 +802,7 @@ function ProfilesSection({ profiles }: { profiles: ConfigProfile[] }) {
                       { loading: "Creating profile…", success: "Profile created", error: "Failed to create profile" },
                     );
                   }}
-                  disabled={!newName.trim() || createMut.isPending}
+                  disabled={controlsLocked || controlsUnavailable || !newName.trim() || createMut.isPending}
                   className="btn-primary text-xs disabled:opacity-30 whitespace-nowrap"
                 >
                   Create
@@ -716,6 +852,7 @@ function ProfilesSection({ profiles }: { profiles: ConfigProfile[] }) {
               <div className="flex items-center gap-1 flex-shrink-0">
                 <button
                   onClick={() => toggleMut.mutate({ name: p.name, active: !p.isActive })}
+                  disabled={controlsLocked || controlsUnavailable}
                   className="btn-ghost p-1.5"
                   title={p.isActive ? "Deactivate" : "Activate"}
                 >
@@ -730,6 +867,7 @@ function ProfilesSection({ profiles }: { profiles: ConfigProfile[] }) {
                       deleteMut.mutateAsync(p.name),
                       { loading: "Deleting…", success: "Profile deleted", error: "Failed to delete profile" },
                     )}
+                    disabled={controlsLocked || controlsUnavailable}
                     className="btn-ghost p-1.5 text-accent-red/60 hover:text-accent-red"
                     title="Delete"
                   >

@@ -13,6 +13,9 @@ This file applies to work inside `trading_bot/` and is more specific than the re
 - Do not create Prisma migration files. Keep schema changes in `backend/prisma/schema.prisma` and DB rollout SQL in `backend/prisma/views/create_views.sql`.
 - Use `npm run db:setup` when you need the actual database bootstrap. `npm run db:push` syncs tables only; the dashboard views come from `backend/prisma/views/create_views.sql`.
 - Control-plane writes must stay behind bearer auth. If a route mutates runtime behavior, positions, or profiles, assume auth is required unless a narrower rule is documented.
+- Dashboard control auth stays centralized in `dashboard/app/api/[...path]/route.ts` and `dashboard/app/api/operator-session/route.ts`. New mutating dashboard actions should use that same boundary.
+- Reuse `dashboard/lib/dashboard-query-options.ts` and `dashboard/hooks/use-dashboard-shell.ts` when changing dashboard data flow so query keys, request params, shared shell state, and layout chrome stay aligned.
+- Keep dashboard light/dark styling on semantic variables in `dashboard/app/globals.css` and `dashboard/lib/chart-colors.ts`; do not add page-local hard-coded chart or surface colors.
 - Manual control paths must obey the same capital, reserve, and sizing checks as automated entry paths. Never validate overrides against only the default size.
 - Workers must reuse the supported Prisma initialization path from `backend/src/db/client.ts`; do not construct ad-hoc Prisma clients for background jobs.
 - Historical stats must be derived from immutable trade/snapshot history. Do not write past rows from current singleton runtime state.
@@ -69,7 +72,7 @@ Use the matching rule doc before making non-trivial changes:
 - `trading-security.md`
 - `prisma-patterns.md`
 - `api-routes.md`
-- `dashboard-patterns.md`
+- `dashboard/README.md`
 - `solana-api-patterns.md`
 - `strategy-patterns.md`
 - `testing-patterns.md`

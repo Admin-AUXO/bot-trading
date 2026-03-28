@@ -40,8 +40,10 @@ If a task does not clearly require root-level files, avoid touching files outsid
 - Docker production startup should preserve this sequence: backend applies DB bootstrap first, backend becomes healthy, dashboard starts after backend health.
 - Treat control-plane write routes as authenticated surfaces by default. Read-only routes may be public; mutating routes must make the boundary explicit.
 - Keep dashboard proxy auth centralized. Do not rely on per-endpoint token hacks when a whole control subtree needs the same bearer token.
+- Reuse the shared dashboard shell state in `trading_bot/dashboard/hooks/use-dashboard-shell.ts` for layout chrome and page summaries instead of re-querying overview, positions, heartbeat, and operator session in every component.
 - Keep analytics deterministic. Historical recomputes must derive from immutable records or persisted snapshots, not mutable singleton state.
 - Keep frontend query keys, URL params, and backend filters aligned. If the key varies by `days`, `mode`, `configProfile`, or `tradeSource`, the request must vary too.
+- Keep dashboard theme and chart styling on semantic CSS variables. Do not hard-code dark/light chart colors when `trading_bot/dashboard/app/globals.css` and `trading_bot/dashboard/lib/chart-colors.ts` already define the contract.
 
 ## Main References
 
@@ -52,7 +54,7 @@ Use these as the source of truth for project-specific patterns:
 - `trading-security.md` for execution safety, secrets, and validation
 - `prisma-patterns.md` for schema and query patterns
 - `api-routes.md` for API route conventions
-- `dashboard-patterns.md` for dashboard data and UI patterns
+- `trading_bot/dashboard/README.md` for dashboard data flow, shared shell/query patterns, control/auth boundaries, and theme guidance
 - `strategy-patterns.md` for strategy and trade lifecycle rules
 - `testing-patterns.md` for testing expectations
 

@@ -91,10 +91,16 @@ export function analyticsRouter() {
   });
 
   router.get("/capital-curve", cacheMiddleware(60_000), async (req, res) => {
+    const days = parseDays(req.query.days, 30, 365);
     const mode = req.query.mode as string | undefined;
     const profile = req.query.profile as string | undefined;
+    const since = new Date();
+    since.setDate(since.getDate() - days);
 
-    const where: Record<string, unknown> = { strategy: null };
+    const where: Record<string, unknown> = {
+      strategy: null,
+      date: { gte: since },
+    };
     if (mode) where.mode = mode;
     if (profile) where.configProfile = profile;
 

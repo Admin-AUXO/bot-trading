@@ -2,151 +2,226 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "motion/react";
 import { useEffect, useState } from "react";
 import {
-  LayoutDashboard,
-  Crosshair,
+  Activity,
   ArrowLeftRight,
   BarChart3,
-  Settings,
-  Activity,
+  Crosshair,
+  LayoutDashboard,
   Menu,
+  Settings,
   X,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { useDashboardStore } from "@/lib/store";
-import { fetchPositions } from "@/lib/api";
+import { useDashboardShell } from "@/hooks/use-dashboard-shell";
+import { cn, formatUsd, pnlClass, strategyLabel } from "@/lib/utils";
+
+const SIDEBAR_WIDTH = 256;
 
 const navItems = [
-  { href: "/", label: "Overview", icon: LayoutDashboard, key: "1" },
-  { href: "/positions", label: "Positions", icon: Crosshair, key: "2" },
-  { href: "/trades", label: "Trades", icon: ArrowLeftRight, key: "3" },
-  { href: "/analytics", label: "Analytics", icon: BarChart3, key: "4" },
-  { href: "/settings", label: "Settings", icon: Settings, key: "5" },
-];
+  {
+    href: "/",
+    label: "Overview",
+    description: "System state and exposure",
+    icon: LayoutDashboard,
+    key: "1",
+  },
+  {
+    href: "/positions",
+    label: "Positions",
+    description: "Open risk and skipped capacity",
+    icon: Crosshair,
+    key: "2",
+  },
+  {
+    href: "/trades",
+    label: "Trades",
+    description: "Execution and signal history",
+    icon: ArrowLeftRight,
+    key: "3",
+  },
+  {
+    href: "/analytics",
+    label: "Analytics",
+    description: "Expectancy and edge leakage",
+    icon: BarChart3,
+    key: "4",
+  },
+  {
+    href: "/settings",
+    label: "Settings",
+    description: "Controls and profiles",
+    icon: Settings,
+    key: "5",
+  },
+] as const;
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { sidebarOpen, setSidebarOpen, mode } = useDashboardStore();
+  const { sidebarOpen, setSidebarOpen, setSelectedStrategy } = useDashboardStore();
+  const { allPositions, selectedStrategy, openPnlUsd, deployedCapitalUsd, activeStrategiesCount, operatorAccess } =
+    useDashboardShell();
   const [isDesktop, setIsDesktop] = useState(() =>
     typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches,
   );
 
   useEffect(() => {
-    const mq = window.matchMedia("(min-width: 1024px)");
-    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
+    const mediaQuery = window.matchMedia("(min-width: 1024px)");
+    const handleChange = (event: MediaQueryListEvent) => setIsDesktop(event.matches);
+    mediaQuery.addEventListener("change", handleChange);
+    return () => mediaQuery.removeEventListener("change", handleChange);
   }, []);
-
-  const { data: positions } = useQuery({
-    queryKey: ["positions", mode],
-    queryFn: () => fetchPositions(mode),
-    refetchInterval: 10000,
-  });
-
-  const activeStrategies = new Set(positions?.map((p) => p.strategy) ?? []);
 
   return (
     <>
       <button
         onClick={() => setSidebarOpen(true)}
-        className="fixed top-3 left-3 z-50 lg:hidden p-2 rounded-lg bg-bg-card border border-bg-border"
+        className="fixed left-3 top-3 z-50 rounded-xl border border-bg-border bg-bg-card/90 p-2 text-text-primary shadow-lg lg:hidden"
+        aria-label="Open sidebar"
       >
-        <Menu className="w-4 h-4" />
+        <Menu className="h-4 w-4" />
       </button>
 
       <AnimatePresence>
-        {sidebarOpen && (
+        {sidebarOpen ? (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+            transition={{ duration: 0.18 }}
+            className="fixed inset-0 z-40 bg-black/45 lg:hidden"
             onClick={() => setSidebarOpen(false)}
           />
-        )}
+        ) : null}
       </AnimatePresence>
 
       <motion.aside
         initial={false}
-        animate={{ x: isDesktop || sidebarOpen ? 0 : -224 }}
-        transition={{ type: "spring", damping: 25, stiffness: 200 }}
-        className="fixed left-0 top-0 h-screen w-56 bg-bg-secondary/80 backdrop-blur-xl border-r border-white/[0.06] flex flex-col z-50 lg:translate-x-0"
+        animate={{ x: isDesktop || sidebarOpen ? 0 : -SIDEBAR_WIDTH }}
+        transition={{ type: "spring", damping: 28, stiffness: 240 }}
+        className="fixed left-0 top-0 z-50 flex h-screen w-64 flex-col border-r border-bg-border/80 bg-bg-secondary/92 backdrop-blur-xl lg:translate-x-0"
       >
-        <div className="p-4 border-b border-bg-border flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Activity className="w-5 h-5 text-accent-green" />
-            <span className="text-sm font-bold tracking-wider text-text-primary">
-              SOLANA BOT
-            </span>
+        <div className="border-b border-bg-border px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Activity className="h-5 w-5 text-accent-green" />
+              <div>
+                <div className="text-sm font-semibold tracking-[0.18em] text-text-primary">SOLANA BOT</div>
+                <div className="text-[11px] text-text-muted">Operator dashboard</div>
+              </div>
+            </div>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              className="rounded-lg p-1 text-text-muted transition-colors hover:bg-bg-hover hover:text-text-primary lg:hidden"
+              aria-label="Close sidebar"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
-          <button
-            onClick={() => setSidebarOpen(false)}
-            className="lg:hidden p-1 rounded hover:bg-bg-hover"
-          >
-            <X className="w-4 h-4" />
-          </button>
+
+          <div className="mt-3 rounded-xl border border-bg-border bg-bg-card/70 p-3">
+            <div className="flex items-center justify-between text-[10px] uppercase tracking-wider text-text-muted">
+              <span>Capacity</span>
+              <span className={allPositions.length >= 5 ? "text-accent-red" : "text-text-primary"}>
+                {allPositions.length}/5
+              </span>
+            </div>
+            <div className="mt-2 flex gap-1">
+              {Array.from({ length: 5 }).map((_, index) => (
+                <div
+                  key={index}
+                  className={cn(
+                    "h-1.5 flex-1 rounded-full transition-colors",
+                    index < allPositions.length ? "bg-accent-green" : "bg-bg-border",
+                  )}
+                />
+              ))}
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-text-secondary">
+              <div>
+                <div className="text-text-muted">Open P&L</div>
+                <div className={cn("font-medium tabular-nums", pnlClass(openPnlUsd))}>{formatUsd(openPnlUsd)}</div>
+              </div>
+              <div>
+                <div className="text-text-muted">Deployed</div>
+                <div className="font-medium tabular-nums text-text-primary">{formatUsd(deployedCapitalUsd)}</div>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <nav className="flex-1 p-3 space-y-1">
+        <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-3">
           {navItems.map((item) => {
             const isActive = pathname === item.href;
+            const badge =
+              item.href === "/positions"
+                ? `${allPositions.length}`
+                : item.href === "/trades"
+                  ? selectedStrategy
+                    ? strategyLabel(selectedStrategy)
+                    : undefined
+                  : undefined;
+
             return (
               <div key={item.href} className="relative">
-                {isActive && (
+                {isActive ? (
                   <motion.span
                     layoutId="sidebar-active"
-                    className="absolute inset-0 bg-accent-green/10 rounded-lg"
-                    transition={{ type: "spring", damping: 25, stiffness: 200 }}
+                    className="absolute inset-0 rounded-xl border border-accent-blue/15 bg-accent-blue/10"
+                    transition={{ type: "spring", damping: 26, stiffness: 240 }}
                   />
-                )}
+                ) : null}
                 <Link
                   href={item.href}
                   onClick={() => setSidebarOpen(false)}
                   className={cn(
-                    "relative flex items-center justify-between px-3 py-2.5 rounded-lg text-sm transition-colors border-l-2 border-transparent",
+                    "relative flex items-center justify-between rounded-xl px-3 py-3 transition-colors",
                     isActive
-                      ? "text-accent-green border-l-accent-green"
-                      : "text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                      ? "text-text-primary"
+                      : "text-text-secondary hover:bg-bg-hover hover:text-text-primary",
                   )}
                 >
-                  <div className="flex items-center gap-3">
-                    <item.icon className="w-4 h-4" />
-                    {item.label}
+                  <div className="flex min-w-0 items-start gap-3">
+                    <item.icon className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium">{item.label}</div>
+                      <div className="truncate text-[11px] text-text-muted">{item.description}</div>
+                    </div>
                   </div>
-                  <kbd className="text-[10px] text-text-muted opacity-50">{item.key}</kbd>
+                  <div className="flex flex-col items-end gap-1 text-[10px] text-text-muted">
+                    <kbd>{item.key}</kbd>
+                    {badge ? <span className="rounded-full bg-bg-hover px-1.5 py-0.5">{badge}</span> : null}
+                  </div>
                 </Link>
               </div>
             );
           })}
         </nav>
 
-        <div className="p-3 border-t border-bg-border space-y-2">
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-[10px] text-text-muted">
-              <span>POSITIONS</span>
-              <span className={`font-medium ${(positions?.length ?? 0) >= 5 ? "text-accent-red" : "text-text-primary"}`}>
-                {positions?.length ?? 0}/5
-              </span>
+        <div className="space-y-3 border-t border-bg-border px-3 py-3">
+          <div className="rounded-xl border border-bg-border bg-bg-card/70 p-3">
+            <div className="text-[10px] uppercase tracking-wider text-text-muted">Filter Focus</div>
+            <div className="mt-1 text-sm font-medium text-text-primary">
+              {selectedStrategy ? strategyLabel(selectedStrategy) : "All strategies"}
             </div>
-            <div className="flex gap-0.5">
-              {[...Array(5)].map((_, i) => (
-                <div
-                  key={i}
-                  className={`h-1 flex-1 rounded-full transition-colors duration-300 ${
-                    i < (positions?.length ?? 0) ? "bg-accent-green" : "bg-bg-border"
-                  }`}
-                />
-              ))}
+            <div className="mt-1 text-[11px] text-text-muted">
+              {activeStrategiesCount} strategies active · operator {operatorAccess}
             </div>
+            {selectedStrategy ? (
+              <button
+                onClick={() => setSelectedStrategy(null)}
+                className="mt-2 text-[11px] text-accent-blue transition-colors hover:text-accent-blue/80"
+              >
+                Clear strategy focus
+              </button>
+            ) : null}
           </div>
+
           <div className="flex items-center justify-between text-[10px] text-text-muted">
-            <span>{activeStrategies.size}/3 strategies</span>
-            <span className="opacity-50">R·L·1-5</span>
+            <span>Shortcuts</span>
+            <span>1-5 navigate · L mode</span>
           </div>
         </div>
       </motion.aside>

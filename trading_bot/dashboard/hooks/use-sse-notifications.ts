@@ -1,14 +1,10 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { createSSEConnection } from "@/lib/api";
-import { useDashboardStore } from "@/lib/store";
 import { toast } from "sonner";
 
 export function useSSENotifications() {
-  const queryClient = useQueryClient();
-  const { setConnected } = useDashboardStore();
   const prevState = useRef<{
     isRunning?: boolean;
     capitalLevel?: string;
@@ -21,10 +17,7 @@ export function useSSENotifications() {
     const es = createSSEConnection(
       (data: unknown) => {
         try {
-          setConnected(true);
           const d = data as Record<string, unknown>;
-
-          queryClient.setQueryData(["sse-overview"], d);
 
           const isRunning = d.isRunning as boolean;
           const capitalLevel = d.capitalLevel as string;
@@ -62,13 +55,11 @@ export function useSSENotifications() {
           void error;
         }
       },
-      () => {
-        setConnected(false);
-      }
+      () => undefined,
     );
 
     return () => {
       es.close();
     };
-  }, [queryClient, setConnected]);
+  }, []);
 }

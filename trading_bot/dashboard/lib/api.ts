@@ -51,12 +51,7 @@ export async function fetchPositionHistory(page: number = 1, strategy?: string, 
   if (strategy) params.set("strategy", strategy);
   if (mode) params.set("mode", mode);
   if (profile) params.set("profile", profile);
-  return api.get("api/positions/history?" + params).json<{
-    data: Position[];
-    total: number;
-    page: number;
-    totalPages: number;
-  }>();
+  return api.get("api/positions/history?" + params).json<PositionHistoryResponse>();
 }
 
 export async function fetchTrades(page: number = 1, strategy?: string, mode?: string, profile?: string) {
@@ -64,12 +59,7 @@ export async function fetchTrades(page: number = 1, strategy?: string, mode?: st
   if (strategy) params.set("strategy", strategy);
   if (mode) params.set("mode", mode);
   if (profile) params.set("profile", profile);
-  return api.get("api/trades?" + params).json<{
-    data: Trade[];
-    total: number;
-    page: number;
-    totalPages: number;
-  }>();
+  return api.get("api/trades?" + params).json<TradesResponse>();
 }
 
 export async function fetchSignals(strategy?: string) {
@@ -90,9 +80,11 @@ export async function fetchStrategyAnalytics(days: number = 30, mode?: string) {
   return api.get("api/analytics/strategy?" + params).json<StrategyPerformance[]>();
 }
 
-export async function fetchCapitalCurve(mode?: string) {
-  const params = mode ? `?mode=${mode}` : "";
-  return api.get("api/analytics/capital-curve" + params).json<CapitalPoint[]>();
+export async function fetchCapitalCurve(days: number = 30, mode?: string, profile?: string) {
+  const params = new URLSearchParams({ days: String(days) });
+  if (mode) params.set("mode", mode);
+  if (profile) params.set("profile", profile);
+  return api.get("api/analytics/capital-curve?" + params).json<CapitalPoint[]>();
 }
 
 export async function fetchRegimeHistory() {
@@ -109,6 +101,24 @@ export async function resumeBot() {
 
 export async function fetchProfiles() {
   return api.get("api/profiles").json<ConfigProfile[]>();
+}
+
+export async function fetchOperatorSessionStatus() {
+  return api.get("api/operator-session").json<{
+    authenticated: boolean;
+    configured: boolean;
+  }>();
+}
+
+export async function unlockOperatorSession(secret: string) {
+  return api.post("api/operator-session", { json: { secret } }).json<{
+    authenticated: boolean;
+    configured: boolean;
+  }>();
+}
+
+export async function clearOperatorSession() {
+  return api.delete("api/operator-session").json<{ authenticated: boolean }>();
 }
 
 export async function createProfile(data: { name: string; description: string; mode: string; settings: Record<string, unknown> }) {
@@ -312,12 +322,12 @@ export interface WalletActivityItem {
   tokenSymbol: string;
   action: string;
   amountSol: number | null;
-  priceUsd: number | null;
+  priceAtTrade: number | null;
   priceAfter1m: number | null;
   priceAfter5m: number | null;
   priceAfter15m: number | null;
   priceAfter1h: number | null;
-  peakPriceUsd: number | null;
+  peakPriceAfter: number | null;
   detectedAt: string;
 }
 
@@ -328,25 +338,72 @@ export interface PnlDistributionPoint {
   exitReason: string | null;
 }
 
-export async function fetchSignalsPaginated(page: number = 1, strategy?: string) {
-  const params = new URLSearchParams({ page: String(page) });
-  if (strategy) params.set("strategy", strategy);
-  return api.get("api/trades/signals?" + params).json<{
-    data: Signal[];
-    total: number;
-    page: number;
-    totalPages: number;
-  }>();
+export interface PositionHistorySummary {
+  closedCount: number;
+  wins: number;
+  losses: number;
+  netPnlUsd: number;
+  avgPnlPercent: number;
 }
 
-export async function fetchSkippedSignals(page: number = 1) {
+export interface PositionHistoryResponse {
+  data: Position[];
+  total: number;
+  page: number;
+  totalPages: number;
+  summary: PositionHistorySummary;
+}
+
+export interface TradesSummary {
+  totalTrades: number;
+  totalExits: number;
+  wins: number;
+  losses: number;
+  netPnlUsd: number;
+  totalFeesSol: number;
+  lastExecutedAt: string | null;
+}
+
+export interface TradesResponse {
+  data: Trade[];
+  total: number;
+  page: number;
+  totalPages: number;
+  summary: TradesSummary;
+}
+
+export interface SignalsSummary {
+  totalSignals: number;
+  passed: number;
+  rejected: number;
+  passRate: number;
+  topRejectReason: string | null;
+  topRejectCount: number;
+  lastDetectedAt: string | null;
+}
+
+export interface SignalsResponse<TSignal = Signal> {
+  data: TSignal[];
+  total: number;
+  page: number;
+  totalPages: number;
+  summary: SignalsSummary;
+}
+
+export async function fetchSignalsPaginated(page: number = 1, strategy?: string, mode?: string, profile?: string) {
+  const params = new URLSearchParams({ page: String(page) });
+  if (strategy) params.set("strategy", strategy);
+  if (mode) params.set("mode", mode);
+  if (profile) params.set("profile", profile);
+  return api.get("api/trades/signals?" + params).json<SignalsResponse>();
+}
+
+export async function fetchSkippedSignals(page: number = 1, strategy?: string, mode?: string, profile?: string) {
   const params = new URLSearchParams({ page: String(page), skipped: "true" });
-  return api.get("api/trades/signals?" + params).json<{
-    data: SkippedSignal[];
-    total: number;
-    page: number;
-    totalPages: number;
-  }>();
+  if (strategy) params.set("strategy", strategy);
+  if (mode) params.set("mode", mode);
+  if (profile) params.set("profile", profile);
+  return api.get("api/trades/signals?" + params).json<SignalsResponse<SkippedSignal>>();
 }
 
 export async function manualEntry(payload: { tokenAddress: string; tokenSymbol: string; strategy: string; amountSol?: number }) {
@@ -385,8 +442,10 @@ export async function fetchStrategyConfig() {
   }>();
 }
 
-export async function fetchWouldHaveWon(days: number = 7) {
-  return api.get(`api/analytics/would-have-won?days=${days}`).json<{
+export async function fetchWouldHaveWon(days: number = 7, mode?: string) {
+  const params = new URLSearchParams({ days: String(days) });
+  if (mode) params.set("mode", mode);
+  return api.get("api/analytics/would-have-won?" + params).json<{
     total: number;
     wouldHaveWon: number;
     wouldHaveWonRate: number;

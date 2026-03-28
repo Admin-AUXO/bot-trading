@@ -1,273 +1,434 @@
 "use client";
 
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "motion/react";
-import { fetchOverview, fetchApiUsage, fetchPositions, fetchDailyStats, fetchHeartbeat, getErrorMessage } from "@/lib/api";
+import { apiUsageQueryOptions, dailyStatsQueryOptions } from "@/lib/dashboard-query-options";
 import { useDashboardStore } from "@/lib/store";
-import { formatUsd, formatPercent, formatNumber, formatSol, pnlClass, strategyLabel, strategyColor, regimeBadge } from "@/lib/utils";
+import { useDashboardShell } from "@/hooks/use-dashboard-shell";
 import { PnlChart } from "@/components/charts/pnl-chart";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
-import { StatCardSkeleton, ChartSkeleton } from "@/components/ui/skeleton";
-import { TrendingUp, TrendingDown, Wallet, Target, Shield, Zap, Activity, Database, Heart } from "lucide-react";
+import { ChartSkeleton, StatCardSkeleton } from "@/components/ui/skeleton";
+import { SummaryTile } from "@/components/ui/summary-tile";
+import {
+  cn,
+  formatNumber,
+  formatPercent,
+  formatUsd,
+  pnlClass,
+  regimeBadge,
+  strategyColor,
+  strategyLabel,
+  timeAgo,
+} from "@/lib/utils";
+import {
+  Activity,
+  AlertTriangle,
+  BarChart3,
+  Database,
+  Heart,
+  Shield,
+  Target,
+  TrendingUp,
+  Wallet,
+  Zap,
+} from "lucide-react";
 
 export default function OverviewPage() {
-  const { mode } = useDashboardStore();
+  const { mode, selectedStrategy } = useDashboardStore();
+  const {
+    overview,
+    heartbeat,
+    connectionState,
+    allPositions,
+    urgentPositions,
+    openPnlUsd,
+    deployedCapitalUsd,
+    activeStrategiesCount,
+    manualPositions,
+    openSlots,
+    lastUpdatedAt,
+    isLoadingShell,
+  } = useDashboardShell();
 
-  const { data: overview, isLoading, error } = useQuery({
-    queryKey: ["overview", mode],
-    queryFn: () => fetchOverview(mode),
-    refetchInterval: (query) => query.state.status === "error" ? 30_000 : 5000,
-    staleTime: 5000,
-  });
+  const apiUsageQuery = useQuery(apiUsageQueryOptions());
+  const recentStatsQuery = useQuery(dailyStatsQueryOptions(7, mode));
 
-  const { data: positions } = useQuery({
-    queryKey: ["positions", mode],
-    queryFn: () => fetchPositions(mode),
-    refetchInterval: (query) => query.state.status === "error" ? 30_000 : 5000,
-  });
-
-  const { data: apiUsage } = useQuery({
-    queryKey: ["api-usage"],
-    queryFn: fetchApiUsage,
-    refetchInterval: 30000,
-  });
-
-  const { data: recentStats } = useQuery({
-    queryKey: ["daily-stats-sparkline", mode],
-    queryFn: () => fetchDailyStats(7, mode),
-    refetchInterval: 60000,
-  });
-
-  const { data: heartbeat } = useQuery({
-    queryKey: ["heartbeat"],
-    queryFn: fetchHeartbeat,
-    refetchInterval: 15_000,
-    staleTime: 10_000,
-  });
-
-  if (isLoading) {
-    return (
-      <div className="space-y-6">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {[...Array(4)].map((_, i) => <StatCardSkeleton key={i} />)}
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {[...Array(3)].map((_, i) => <div key={i} className="card"><ChartSkeleton height="h-32" /></div>)}
-        </div>
-        <div className="card"><ChartSkeleton height="h-48" /></div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center h-32 text-text-secondary text-sm">
-        Failed to load overview — {getErrorMessage(error)}
-      </div>
-    );
-  }
-
-  if (!overview) return null;
-
-  const regime = regimeBadge(overview.regime.regime);
-  const todayWinRate = overview.todayWins + overview.todayLosses > 0
+  const recentStats = useMemo(
+    () => (recentStatsQuery.data ?? []).filter((stat) => stat.strategy === null),
+    [recentStatsQuery.data],
+  );
+  const regime = overview?.regime ? regimeBadge(overview.regime.regime) : null;
+  const todayWinRate = overview && overview.todayWins + overview.todayLosses > 0
     ? (overview.todayWins / (overview.todayWins + overview.todayLosses)) * 100
     : 0;
+  const updatedLabel = lastUpdatedAt ? timeAgo(new Date(lastUpdatedAt)) : "awaiting sync";
 
-  const last7dPnl = recentStats
-    ?.filter((s) => s.strategy === null)
-    .reduce((sum, s) => sum + s.netPnlUsd, 0) ?? 0;
+  const recentFlow = useMemo(() => {
+    const totals = recentStats.reduce(
+      (acc, stat) => ({
+        pnl: acc.pnl + stat.netPnlUsd,
+        trades: acc.trades + stat.tradesTotal,
+        wins: acc.wins + stat.tradesWon,
+        losses: acc.losses + stat.tradesLost,
+      }),
+      { pnl: 0, trades: 0, wins: 0, losses: 0 },
+    );
 
-  const containerVariants = {
+    const bestDay = recentStats.reduce<typeof recentStats[number] | null>(
+      (best, stat) => (best == null || stat.netPnlUsd > best.netPnlUsd ? stat : best),
+      null,
+    );
+    const worstDay = recentStats.reduce<typeof recentStats[number] | null>(
+      (worst, stat) => (worst == null || stat.netPnlUsd < worst.netPnlUsd ? stat : worst),
+      null,
+    );
+
+    return {
+      ...totals,
+      bestDay,
+      losingDays: recentStats.filter((stat) => stat.netPnlUsd < 0).length,
+      worstDay,
+      winningDays: recentStats.filter((stat) => stat.netPnlUsd > 0).length,
+    };
+  }, [recentStats]);
+
+  const strategyExposure = useMemo(() => {
+    const strategies = allPositions.reduce<Record<string, { count: number; deployedUsd: number; pnlUsd: number }>>(
+      (acc, position) => {
+        const entry = acc[position.strategy] ?? { count: 0, deployedUsd: 0, pnlUsd: 0 };
+        entry.count += 1;
+        entry.deployedUsd += position.amountSol * position.entryPriceUsd;
+        entry.pnlUsd += position.pnlUsd ?? 0;
+        acc[position.strategy] = entry;
+        return acc;
+      },
+      {},
+    );
+
+    return Object.entries(strategies).sort((left, right) => right[1].deployedUsd - left[1].deployedUsd);
+  }, [allPositions]);
+
+  const usageHighlights = useMemo(() => {
+    return (apiUsageQuery.data?.monthly ?? [])
+      .map((usage) => {
+        const budget = usage.service === "HELIUS" ? 10_000_000 : 1_500_000;
+        const credits = usage._sum.totalCredits ?? 0;
+        return {
+          credits,
+          pct: budget > 0 ? (credits / budget) * 100 : 0,
+          service: usage.service,
+        };
+      })
+      .sort((left, right) => right.pct - left.pct)
+      .slice(0, 3);
+  }, [apiUsageQuery.data?.monthly]);
+
+  const motionContainer = {
     hidden: {},
     visible: { transition: { staggerChildren: 0.04 } },
   };
-
-  const itemVariants = {
-    hidden: { opacity: 0, y: 16 },
-    visible: { opacity: 1, y: 0, transition: { duration: 0.3, ease: [0.16, 1, 0.3, 1] as const } },
+  const motionItem = {
+    hidden: { opacity: 0, y: 14 },
+    visible: { opacity: 1, y: 0, transition: { duration: 0.28, ease: [0.16, 1, 0.3, 1] as const } },
   };
 
+  if (isLoadingShell) {
+    return (
+      <div className="space-y-5">
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-6">
+          {Array.from({ length: 6 }).map((_, index) => <StatCardSkeleton key={index} />)}
+        </div>
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div key={index} className="card">
+              <ChartSkeleton height="h-40" />
+            </div>
+          ))}
+        </div>
+        <div className="card">
+          <ChartSkeleton height="h-52" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!overview) {
+    return (
+      <div className="flex h-40 items-center justify-center rounded-2xl border border-bg-border bg-bg-card/70 text-sm text-text-secondary">
+        {connectionState === "offline"
+          ? "Backend unavailable. Shell data has gone dark."
+          : "Overview feed unavailable. Waiting for fresh state."}
+      </div>
+    );
+  }
+
   return (
-    <motion.div className="space-y-6" variants={containerVariants} initial="hidden" animate="visible">
-      <motion.div variants={itemVariants} className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          icon={<Wallet className="w-4 h-4 text-accent-blue" />}
+    <motion.div className="space-y-5" variants={motionContainer} initial="hidden" animate="visible">
+      <motion.div variants={motionItem} className="flex flex-col gap-2 xl:flex-row xl:items-end xl:justify-between">
+        <div>
+          <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Operating Picture</div>
+          <div className="mt-1 text-sm text-text-secondary">
+            {mode === "LIVE" ? "Live" : "Simulation"} mode · {selectedStrategy ? strategyLabel(selectedStrategy) : "All strategies"} · updated {updatedLabel}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-text-muted">
+          <span>{activeStrategiesCount} strategies engaged</span>
+          <span>{manualPositions} manual overrides</span>
+          <span>{openSlots} slots available</span>
+        </div>
+      </motion.div>
+
+      <motion.div variants={motionItem} className="grid grid-cols-2 gap-3 xl:grid-cols-6">
+        <SummaryTile
           label="Capital"
           value={formatUsd(overview.capitalUsd)}
-          sub={`${overview.capitalSol.toFixed(2)} SOL`}
-          trend={last7dPnl !== 0 ? `7d: ${formatUsd(last7dPnl)}` : undefined}
-          trendClass={pnlClass(last7dPnl)}
+          sub={`${overview.capitalSol.toFixed(2)} SOL on hand`}
+          icon={<Wallet className="h-3.5 w-3.5 text-accent-blue" />}
         />
-        <StatCard
-          icon={overview.todayPnl >= 0
-            ? <TrendingUp className="w-4 h-4 text-accent-green" />
-            : <TrendingDown className="w-4 h-4 text-accent-red" />
-          }
-          label="Today P&L"
+        <SummaryTile
+          label="Today Realized"
           value={formatUsd(overview.todayPnl)}
+          sub={`${overview.todayTrades} trades · ${overview.todayWins}W ${overview.todayLosses}L`}
+          icon={<TrendingUp className="h-3.5 w-3.5 text-accent-green" />}
           valueClass={pnlClass(overview.todayPnl)}
-          sub={`${overview.todayTrades} trades`}
+          tone={overview.todayPnl < 0 ? "danger" : "default"}
         />
-        <StatCard
-          icon={<Target className="w-4 h-4 text-accent-purple" />}
-          label="Win Rate (Today)"
+        <SummaryTile
+          label="Open P&L"
+          value={formatUsd(openPnlUsd)}
+          sub={`${allPositions.length} active positions`}
+          icon={<Activity className="h-3.5 w-3.5 text-accent-cyan" />}
+          valueClass={pnlClass(openPnlUsd)}
+          tone={openPnlUsd < 0 ? "danger" : "default"}
+        />
+        <SummaryTile
+          label="Capital Deployed"
+          value={formatUsd(deployedCapitalUsd)}
+          sub={`${Math.max(0, 5 - openSlots)} slots used`}
+          icon={<Zap className="h-3.5 w-3.5 text-accent-purple" />}
+        />
+        <SummaryTile
+          label="Today Win Rate"
           value={formatPercent(todayWinRate).replace("+", "")}
-          sub={`${overview.todayWins}W / ${overview.todayLosses}L`}
+          sub={`${recentFlow.winningDays} green days in last 7`}
+          icon={<Target className="h-3.5 w-3.5 text-accent-yellow" />}
+          tone={todayWinRate < 40 ? "warning" : "positive"}
         />
-        <StatCard
-          icon={<Shield className="w-4 h-4 text-accent-yellow" />}
-          label="Daily Loss"
-          value={formatUsd(overview.dailyLossUsd)}
-          sub={`limit: ${formatUsd(overview.dailyLossLimit)}`}
-          valueClass={overview.dailyLossUsd > overview.dailyLossLimit * 0.7 ? "text-accent-yellow" : ""}
-          progress={overview.dailyLossLimit > 0 ? (overview.dailyLossUsd / overview.dailyLossLimit) * 100 : 0}
+        <SummaryTile
+          label="Loss Utilization"
+          value={`${overview.dailyLossLimit > 0 ? ((overview.dailyLossUsd / overview.dailyLossLimit) * 100).toFixed(0) : "0"}%`}
+          sub={`${formatUsd(overview.dailyLossUsd)} of ${formatUsd(overview.dailyLossLimit)}`}
+          icon={<Shield className="h-3.5 w-3.5 text-accent-red" />}
+          tone={overview.dailyLossLimit > 0 && overview.dailyLossUsd / overview.dailyLossLimit > 0.7 ? "danger" : "default"}
         />
       </motion.div>
 
-      <motion.div variants={itemVariants} className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <motion.div variants={motionItem} className="grid grid-cols-1 gap-4 xl:grid-cols-[1.15fr_1fr_1fr]">
         <ErrorBoundary>
           <div className="card">
-            <div className="flex items-center justify-between mb-3">
-              <span className="stat-label">Market Regime</span>
-              <span className={`badge ${regime.class}`}>{regime.label}</span>
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Heart className="h-4 w-4 text-accent-red" />
+                <span className="stat-label">System State</span>
+              </div>
+              {regime ? <span className={`badge ${regime.class}`}>{regime.label}</span> : null}
             </div>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-text-muted">SOL Price</span>
-                <span className="tabular-nums">{formatUsd(overview.regime.solPrice)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-text-muted">5m Change</span>
-                <span className={`tabular-nums ${pnlClass(overview.regime.solChange5m)}`}>
-                  {formatPercent(overview.regime.solChange5m)}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-text-muted">1h Change</span>
-                <span className={`tabular-nums ${pnlClass(overview.regime.solChange1h)}`}>
-                  {formatPercent(overview.regime.solChange1h)}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-text-muted">Rolling Win Rate</span>
-                <span className="tabular-nums">{(overview.rollingWinRate * 100).toFixed(0)}%</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-text-muted">Trending Tokens</span>
-                <span className="tabular-nums">{(overview.regime as { trendingCount?: number }).trendingCount ?? "—"}</span>
-              </div>
+
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <MetricRow label="Capital level" value={overview.capitalLevel} />
+              <MetricRow label="Rolling win rate" value={`${(overview.rollingWinRate * 100).toFixed(0)}%`} />
+              <MetricRow label="SOL spot" value={formatUsd(overview.regime.solPrice)} />
+              <MetricRow label="SOL 1h" value={formatPercent(overview.regime.solChange1h)} valueClass={pnlClass(overview.regime.solChange1h)} />
+              <MetricRow label="Last trade" value={heartbeat?.lastTradeAt ? timeAgo(heartbeat.lastTradeAt) : "—"} />
+              <MetricRow label="Last signal" value={heartbeat?.lastSignalAt ? timeAgo(heartbeat.lastSignalAt) : "—"} />
             </div>
-            {heartbeat && (
-              <div className="mt-3 pt-3 border-t border-bg-border flex items-center justify-between text-xs text-text-muted">
-                <div className="flex items-center gap-1.5">
-                  <Heart className="w-3 h-3 text-accent-red" />
-                  <span>Uptime</span>
+
+            <div className="mt-4 grid grid-cols-2 gap-3 rounded-xl border border-bg-border/80 bg-bg-hover/30 p-3 text-xs text-text-secondary">
+              <div>
+                <div className="text-text-muted">Weekly drawdown</div>
+                <div className={cn("mt-1 font-medium tabular-nums", pnlClass(-overview.weeklyLossUsd))}>
+                  {formatUsd(overview.weeklyLossUsd)}
                 </div>
-                <span>{formatUptimeShort(heartbeat.uptime)}</span>
               </div>
-            )}
+              <div>
+                <div className="text-text-muted">Process uptime</div>
+                <div className="mt-1 font-medium text-text-primary">
+                  {heartbeat ? formatUptimeShort(heartbeat.uptime) : "—"}
+                </div>
+              </div>
+            </div>
           </div>
         </ErrorBoundary>
 
         <ErrorBoundary>
           <div className="card">
-            <div className="flex items-center gap-2 mb-3">
-              <Zap className="w-4 h-4 text-accent-cyan" />
-              <span className="stat-label">Open Positions ({positions?.length ?? 0}/5)</span>
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-accent-yellow" />
+                <span className="stat-label">Risk Queue</span>
+              </div>
+              <span className="text-[11px] text-text-muted">{urgentPositions.length ? "Closest to forced action" : "No urgent exits"}</span>
             </div>
-            {positions && positions.length > 0 ? (
-              <div className="space-y-2">
-                {positions.map((pos) => (
-                  <div key={pos.id} className="space-y-1">
-                    <div className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2">
-                        <span className={`text-xs font-medium ${strategyColor(pos.strategy)}`}>
-                          {strategyLabel(pos.strategy)}
-                        </span>
-                        <span className="text-text-primary font-medium">{pos.tokenSymbol}</span>
-                        {pos.tradeSource === "MANUAL" && (
-                          <span className="text-[9px] px-1 py-0.5 bg-accent-yellow/20 text-accent-yellow rounded">M</span>
-                        )}
+
+            {urgentPositions.length ? (
+              <div className="space-y-3">
+                {urgentPositions.map((position) => (
+                  <div key={position.id} className="rounded-xl border border-bg-border/80 bg-bg-hover/35 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className={cn("text-sm font-medium", strategyColor(position.strategy))}>
+                          {strategyLabel(position.strategy)}
+                        </div>
+                        <div className="text-xs text-text-secondary">
+                          {position.tokenSymbol} · {position.tradeSource === "MANUAL" ? "manual" : "auto"}
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className={`tabular-nums font-medium ${pnlClass(pos.pnlPercent)}`}>
-                          {formatPercent(pos.pnlPercent)}
-                        </span>
-                        {pos.pnlUsd != null && (
-                          <span className={`text-xs tabular-nums ${pnlClass(pos.pnlUsd)}`}>
-                            {formatUsd(pos.pnlUsd)}
-                          </span>
-                        )}
+                      <div className={cn("text-sm font-semibold tabular-nums", pnlClass(position.pnlUsd ?? 0))}>
+                        {formatUsd(position.pnlUsd ?? 0)}
                       </div>
                     </div>
-                    <div className="flex items-center justify-between text-[10px] text-text-muted">
-                      <span>{formatSol(pos.amountSol)}</span>
-                      <span>{pos.holdMinutes ? `${pos.holdMinutes.toFixed(0)}m held` : ""}</span>
+
+                    <div className="mt-3 grid grid-cols-3 gap-2 text-[11px] text-text-secondary">
+                      <MetricStack
+                        label="Stop cushion"
+                        value={`${Math.max(0, position.stopDistance).toFixed(1)}%`}
+                        valueClass={position.stopDistance <= 5 ? "text-accent-red" : position.stopDistance <= 10 ? "text-accent-yellow" : "text-text-primary"}
+                      />
+                      <MetricStack
+                        label="Time left"
+                        value={`${Math.max(0, position.timeRemaining).toFixed(0)}m`}
+                        valueClass={position.timeRemaining <= 3 ? "text-accent-red" : position.timeRemaining <= 10 ? "text-accent-yellow" : "text-text-primary"}
+                      />
+                      <MetricStack label="Held" value={`${position.holdMinutes.toFixed(0)}m`} />
                     </div>
                   </div>
                 ))}
-                <div className="pt-2 mt-1 border-t border-bg-border text-xs flex justify-between text-text-muted">
-                  <span>Total invested</span>
-                  <span className="tabular-nums">{formatSol(positions.reduce((s, p) => s + p.amountSol, 0))}</span>
-                </div>
               </div>
             ) : (
-              <div className="text-text-muted text-sm py-4 text-center">No open positions</div>
+              <div className="rounded-xl border border-dashed border-bg-border px-4 py-10 text-center text-sm text-text-muted">
+                Stops and time budgets are clear. Nothing pressing.
+              </div>
             )}
           </div>
         </ErrorBoundary>
 
         <ErrorBoundary>
           <div className="card">
-            <div className="flex items-center gap-2 mb-3">
-              <Database className="w-4 h-4 text-accent-green" />
-              <span className="stat-label">API Usage (Month)</span>
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <BarChart3 className="h-4 w-4 text-accent-blue" />
+                <span className="stat-label">Strategy Exposure</span>
+              </div>
+              <span className="text-[11px] text-text-muted">{strategyExposure.length || 0} active buckets</span>
             </div>
-            {apiUsage?.monthly ? (
+
+            {strategyExposure.length ? (
               <div className="space-y-3">
-                {apiUsage.monthly.map((u) => {
-                  const budget = u.service === "HELIUS" ? 10_000_000 : 1_500_000;
-                  const used = u._sum.totalCredits ?? 0;
-                  const pct = budget > 0 ? (used / budget) * 100 : 0;
-                  const projectedMonthly = used * (30 / new Date().getDate());
-                  return (
-                    <div key={u.service} className="space-y-1">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-text-muted">{u.service}</span>
-                        <span>{formatNumber(used)} / {formatNumber(budget)}</span>
-                      </div>
-                      <div className="h-1.5 bg-bg-border rounded-full overflow-hidden">
-                        <motion.div
-                          className={`h-full rounded-full ${
-                            pct > 80 ? "bg-accent-red" : pct > 60 ? "bg-accent-yellow" : "bg-accent-green"
-                          }`}
-                          style={{ transformOrigin: "left" }}
-                          initial={{ scaleX: 0 }}
-                          animate={{ scaleX: Math.min(pct, 100) / 100 }}
-                          transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] as const, delay: 0.3 }}
-                        />
-                      </div>
-                      <div className="text-[10px] text-text-muted">
-                        Projected: {formatNumber(projectedMonthly)} ({((projectedMonthly / budget) * 100).toFixed(0)}%)
-                      </div>
+                {strategyExposure.map(([strategy, exposure]) => (
+                  <div key={strategy} className="rounded-xl border border-bg-border/80 bg-bg-hover/35 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className={cn("text-sm font-medium", strategyColor(strategy))}>{strategyLabel(strategy)}</span>
+                      <span className="text-xs text-text-muted">{exposure.count} positions</span>
                     </div>
-                  );
-                })}
+                    <div className="mt-2 flex items-center justify-between text-xs text-text-secondary">
+                      <span>Entry deployed {formatUsd(exposure.deployedUsd)}</span>
+                      <span className={cn("tabular-nums", pnlClass(exposure.pnlUsd))}>{formatUsd(exposure.pnlUsd)}</span>
+                    </div>
+                  </div>
+                ))}
               </div>
             ) : (
-              <div className="text-text-muted text-sm">Loading...</div>
+              <div className="rounded-xl border border-dashed border-bg-border px-4 py-10 text-center text-sm text-text-muted">
+                No live exposure. Capital is idle.
+              </div>
             )}
           </div>
         </ErrorBoundary>
       </motion.div>
 
-      <motion.div variants={itemVariants}>
+      <motion.div variants={motionItem} className="grid grid-cols-1 gap-4 xl:grid-cols-[1.1fr_0.9fr]">
         <ErrorBoundary>
           <div className="card">
-            <div className="flex items-center gap-2 mb-4">
-              <Activity className="w-4 h-4 text-accent-blue" />
-              <span className="stat-label">Daily P&L (30 days)</span>
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Database className="h-4 w-4 text-accent-green" />
+                <span className="stat-label">API Budget Drift</span>
+              </div>
+              <span className="text-[11px] text-text-muted">Top monthly consumers</span>
+            </div>
+
+            {usageHighlights.length ? (
+              <div className="space-y-3">
+                {usageHighlights.map((usage) => (
+                  <div key={usage.service} className="space-y-1.5">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-text-secondary">{usage.service}</span>
+                      <span className={cn(
+                        "font-medium tabular-nums",
+                        usage.pct > 80 ? "text-accent-red" : usage.pct > 60 ? "text-accent-yellow" : "text-accent-green",
+                      )}>
+                        {usage.pct.toFixed(1)}%
+                      </span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-bg-border">
+                      <motion.div
+                        className={cn(
+                          "h-full rounded-full",
+                          usage.pct > 80 ? "bg-accent-red" : usage.pct > 60 ? "bg-accent-yellow" : "bg-accent-green",
+                        )}
+                        initial={{ scaleX: 0 }}
+                        animate={{ scaleX: Math.min(usage.pct, 100) / 100 }}
+                        style={{ transformOrigin: "left" }}
+                        transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] as const }}
+                      />
+                    </div>
+                    <div className="text-[11px] text-text-muted">{formatNumber(usage.credits)} credits consumed</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm text-text-muted">Budget telemetry hasn’t arrived yet.</div>
+            )}
+          </div>
+        </ErrorBoundary>
+
+        <ErrorBoundary>
+          <div className="card">
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="h-4 w-4 text-accent-purple" />
+                <span className="stat-label">Recent Flow</span>
+              </div>
+              <span className="text-[11px] text-text-muted">Last 7 days</span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <MetricRow label="Net P&L" value={formatUsd(recentFlow.pnl)} valueClass={pnlClass(recentFlow.pnl)} />
+              <MetricRow label="Trades closed" value={String(recentFlow.trades)} />
+              <MetricRow label="Winning days" value={String(recentFlow.winningDays)} />
+              <MetricRow label="Losing days" value={String(recentFlow.losingDays)} />
+              <MetricRow
+                label="Best day"
+                value={recentFlow.bestDay ? formatUsd(recentFlow.bestDay.netPnlUsd) : "—"}
+                valueClass={pnlClass(recentFlow.bestDay?.netPnlUsd ?? 0)}
+              />
+              <MetricRow
+                label="Worst day"
+                value={recentFlow.worstDay ? formatUsd(recentFlow.worstDay.netPnlUsd) : "—"}
+                valueClass={pnlClass(recentFlow.worstDay?.netPnlUsd ?? 0)}
+              />
+            </div>
+          </div>
+        </ErrorBoundary>
+      </motion.div>
+
+      <motion.div variants={motionItem}>
+        <ErrorBoundary>
+          <div className="card">
+            <div className="mb-4 flex items-center gap-2">
+              <Activity className="h-4 w-4 text-accent-blue" />
+              <span className="stat-label">Daily P&amp;L</span>
             </div>
             <PnlChart />
           </div>
@@ -277,61 +438,47 @@ export default function OverviewPage() {
   );
 }
 
-function formatUptimeShort(seconds: number): string {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  if (h > 24) return `${Math.floor(h / 24)}d ${h % 24}h`;
-  return `${h}h ${m}m`;
-}
-
-function StatCard({
-  icon,
+function MetricRow({
   label,
   value,
-  sub,
-  valueClass = "",
-  trend,
-  trendClass = "",
-  progress,
+  valueClass,
 }: {
-  icon: React.ReactNode;
   label: string;
   value: string;
-  sub?: string;
   valueClass?: string;
-  trend?: string;
-  trendClass?: string;
-  progress?: number;
 }) {
   return (
-    <motion.div
-      className="card"
-      whileHover={{ scale: 1.01 }}
-      whileTap={{ scale: 0.99 }}
-      transition={{ duration: 0.15 }}
-    >
-      <div className="flex items-center gap-2 mb-2">
-        {icon}
-        <span className="stat-label">{label}</span>
-      </div>
-      <div className={`stat-value ${valueClass}`}>{value}</div>
-      <div className="flex items-center justify-between mt-1">
-        {sub && <span className="text-xs text-text-muted">{sub}</span>}
-        {trend && <span className={`text-xs font-medium ${trendClass}`}>{trend}</span>}
-      </div>
-      {progress !== undefined && (
-        <div className="h-1 bg-bg-border rounded-full overflow-hidden mt-2">
-          <motion.div
-            className={`h-full rounded-full ${
-              progress > 70 ? "bg-accent-red" : progress > 40 ? "bg-accent-yellow" : "bg-accent-green"
-            }`}
-            style={{ transformOrigin: "left" }}
-            initial={{ scaleX: 0 }}
-            animate={{ scaleX: Math.min(progress, 100) / 100 }}
-            transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1], delay: 0.3 }}
-          />
-        </div>
-      )}
-    </motion.div>
+    <div className="flex items-center justify-between gap-3 border-b border-bg-border/70 py-1.5 last:border-0">
+      <span className="text-text-muted">{label}</span>
+      <span className={cn("font-medium tabular-nums text-text-primary", valueClass)}>{value}</span>
+    </div>
   );
+}
+
+function MetricStack({
+  label,
+  value,
+  valueClass,
+}: {
+  label: string;
+  value: string;
+  valueClass?: string;
+}) {
+  return (
+    <div>
+      <div className="text-text-muted">{label}</div>
+      <div className={cn("mt-1 font-medium tabular-nums text-text-primary", valueClass)}>{value}</div>
+    </div>
+  );
+}
+
+function formatUptimeShort(seconds: number) {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+
+  if (hours >= 24) {
+    return `${Math.floor(hours / 24)}d ${hours % 24}h`;
+  }
+
+  return `${hours}h ${minutes}m`;
 }

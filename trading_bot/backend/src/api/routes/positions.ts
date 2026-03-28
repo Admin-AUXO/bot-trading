@@ -58,7 +58,7 @@ export function positionsRouter(deps?: { tradeExecutor?: unknown; positionTracke
     if (mode) where.mode = mode;
     if (profile) where.configProfile = profile;
 
-    const [positions, total] = await Promise.all([
+    const [positions, total, wins, losses, pnlAggregate, pnlPercentAggregate] = await Promise.all([
       database.position.findMany({
         where,
         orderBy: { closedAt: "desc" },
@@ -66,6 +66,26 @@ export function positionsRouter(deps?: { tradeExecutor?: unknown; positionTracke
         take: limit,
       }),
       database.position.count({ where }),
+      database.position.count({
+        where: {
+          ...where,
+          pnlUsd: { gt: 0 },
+        },
+      }),
+      database.position.count({
+        where: {
+          ...where,
+          pnlUsd: { lte: 0 },
+        },
+      }),
+      database.position.aggregate({
+        where,
+        _sum: { pnlUsd: true },
+      }),
+      database.position.aggregate({
+        where,
+        _avg: { pnlPercent: true },
+      }),
     ]);
 
     res.json({
@@ -80,6 +100,13 @@ export function positionsRouter(deps?: { tradeExecutor?: unknown; positionTracke
       total,
       page,
       totalPages: Math.ceil(total / limit),
+      summary: {
+        closedCount: total,
+        wins,
+        losses,
+        netPnlUsd: Number(pnlAggregate._sum.pnlUsd ?? 0),
+        avgPnlPercent: Number(pnlPercentAggregate._avg.pnlPercent ?? 0),
+      },
     });
   });
 

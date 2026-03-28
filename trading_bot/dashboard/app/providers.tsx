@@ -1,18 +1,12 @@
 "use client";
 
-import { QueryClient, QueryClientProvider, QueryCache } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
 import { useState } from "react";
-import { useDashboardStore } from "@/lib/store";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(() => {
-    const { setConnected } = useDashboardStore.getState();
     return new QueryClient({
-      queryCache: new QueryCache({
-        onError: () => setConnected(false),
-        onSuccess: () => setConnected(true),
-      }),
       defaultOptions: {
         queries: {
           staleTime: 5000,
@@ -25,7 +19,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   });
 
   return (
-    <ThemeProvider attribute="class" defaultTheme="dark" disableTransitionOnChange>
+    <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     </ThemeProvider>
   );

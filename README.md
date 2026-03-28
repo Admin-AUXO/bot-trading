@@ -11,6 +11,7 @@ This repository is a workspace. The actual application lives in `trading_bot/`. 
 - `trading_bot/backend/prisma/`: Prisma schema, seed, and SQL views
 - `trading_bot/dashboard/`: Next.js dashboard
 - `trading_bot/dashboard/features/`: route-owned UI implementations separated from thin App Router entrypoints
+- `trading_bot/dashboard/README.md`: dashboard architecture, shared shell/query patterns, theme tokens, and control-plane auth notes
 - `.codex/`, `.agents/`: local agent and workflow configuration
 
 ## Quick start
@@ -48,11 +49,23 @@ npm run db:setup
 npm run dev
 ```
 
-6. In a second terminal, start the dashboard:
+6. In a second terminal, start the dashboard.
+For privileged dashboard actions, run the dashboard with the same control secret available to the Next.js server.
+The dashboard accepts `CONTROL_API_SECRET`, `CONTROL_SECRET`, or `DASHBOARD_OPERATOR_SECRET`:
 
 ```bash
 cd trading_bot/dashboard
 npm install
+export CONTROL_API_SECRET="replace-with-at-least-16-characters"
+npm run dev
+```
+
+PowerShell:
+
+```powershell
+cd trading_bot/dashboard
+npm install
+$env:CONTROL_API_SECRET="replace-with-at-least-16-characters"
 npm run dev
 ```
 
@@ -123,7 +136,10 @@ npm run lint
 
 - `LIVE` mode sends real trades. Treat it accordingly.
 - The current capital and risk defaults are tuned for a small account, around `$200`, with a maximum of `5` open positions.
-- Internal audit notes live in `trading_bot/docs/`.
+- The dashboard shell now derives shared status from `trading_bot/dashboard/hooks/use-dashboard-shell.ts`; header, sidebar, footer, and page-level summaries should reuse that data instead of re-querying overview, positions, and heartbeat independently.
+- Control-plane writes and SSE proxying stay centralized in `trading_bot/dashboard/app/api/[...path]/route.ts`. Operator session state is issued by `trading_bot/dashboard/app/api/operator-session/route.ts` through an httpOnly cookie.
+- Dashboard filtering is contract-sensitive: if a query key varies by `days`, `mode`, `profile`, or `tradeSource`, the request and backend route must vary by the same parameters.
+- Theme and chart colors are driven by semantic CSS variables in `trading_bot/dashboard/app/globals.css` and `trading_bot/dashboard/lib/chart-colors.ts`; avoid hard-coded light/dark literals in charts or layout chrome.
 - Prisma changes are schema-and-views only here: update `trading_bot/backend/prisma/schema.prisma` and `trading_bot/backend/prisma/views/create_views.sql`, and do not create migration files.
 - When you need the actual database bootstrap, use `npm run db:setup` instead of stopping at `npm run db:push`; `db:push` creates tables, while `db:views` applies the SQL views.
 - Control-plane write actions are authenticated through the dashboard proxy; keep any new pause/resume/manual/profile mutations on that same protected path.

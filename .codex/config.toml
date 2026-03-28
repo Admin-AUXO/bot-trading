@@ -1,7 +1,7 @@
 approval_policy = "never"
 experimental_windows_sandbox = false
 model = "gpt-5.4"
-model_reasoning_effort = "high"
+model_reasoning_effort = "xhigh"
 project_doc_fallback_filenames = ["AGENTS.md"]
 project_root_markers = [
     ".git",
@@ -76,6 +76,19 @@ args = [
     "postgresql://botuser:botpass@localhost:5432/trading_bot",
 ]
 command = "npx"
+enabled = true
+required = true
+startup_timeout_ms = 20000
+
+[mcp_servers.redis]
+args = [
+    "--from",
+    "redis-mcp-server@latest",
+    "redis-mcp-server",
+    "--url",
+    "redis://localhost:6379/0",
+]
+command = "uvx"
 enabled = true
 required = false
 startup_timeout_ms = 20000
