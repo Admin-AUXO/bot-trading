@@ -6,9 +6,9 @@ import { getStopLossPercent } from "../utils/strategy-config.js";
 import type { PositionTracker } from "./position-tracker.js";
 import type { RiskManager } from "./risk-manager.js";
 import type { JupiterService } from "../services/jupiter.js";
-import type { Strategy, MarketRegime, ExitReason, TradeResult, TradeMode } from "../utils/types.js";
+import type { ExecutionScope, TradeResult } from "../utils/types.js";
 import { SOL_MINT } from "../utils/types.js";
-import type { ITradeExecutor } from "../utils/trade-executor-interface.js";
+import type { BuyParams, ITradeExecutor, SellParams } from "../utils/trade-executor-interface.js";
 
 const log = createChildLogger("dry-run");
 
@@ -17,140 +17,133 @@ export class DryRunExecutor implements ITradeExecutor {
     private positionTracker: PositionTracker,
     private riskManager: RiskManager,
     private jupiter: JupiterService,
-    private configProfile: string,
+    private scope: ExecutionScope,
   ) {}
 
   private fakeTxSig(): string {
     return `dryrun_${randomBytes(32).toString("hex")}`;
   }
 
-  async executeBuy(params: {
-    strategy: Strategy;
-    tokenAddress: string;
-    tokenSymbol: string;
-    amountSol: number;
-    maxSlippageBps: number;
-    regime: MarketRegime;
-    trancheNumber?: number;
-    positionId?: string;
-    entryVolume5m?: number;
-    platform?: string;
-    walletSource?: string;
-    entryLiquidity?: number;
-    entryMcap?: number;
-    entryHolders?: number;
-    entryVolume1h?: number;
-    entryBuyPressure?: number;
-  }): Promise<TradeResult> {
-    const amountLamports = await this.jupiter.toBaseUnits(SOL_MINT, params.amountSol);
-    if (amountLamports === null || amountLamports <= 0) {
-      return { success: false, error: "failed to normalize SOL amount (dry-run)" };
+  async executeBuy(params: BuyParams): Promise<TradeResult> {
+    const shouldTrackPending = !params.positionId;
+    if (shouldTrackPending) {
+      const check = this.riskManager.canOpenPosition(params.strategy, params.amountSol);
+      if (!check.allowed) return { success: false, error: check.reason };
+      this.riskManager.reservePosition(params.strategy);
     }
 
-    const quote = await this.jupiter.getQuote({
-      inputMint: SOL_MINT,
-      outputMint: params.tokenAddress,
-      amount: amountLamports,
-      slippageBps: params.maxSlippageBps,
-    });
+    try {
+      const amountLamports = await this.jupiter.toBaseUnits(SOL_MINT, params.amountSol);
+      if (amountLamports === null || amountLamports <= 0) {
+        return { success: false, error: "failed to normalize SOL amount (dry-run)" };
+      }
 
-    if (!quote) return { success: false, error: "failed to get quote (dry-run)" };
-    if (quote.inputAmountUi <= 0 || quote.outputAmountUi <= 0) {
-      return { success: false, error: "invalid normalized quote (dry-run)" };
-    }
-
-    if (quote.priceImpactPct > params.maxSlippageBps / 100) {
-      return { success: false, error: `slippage too high: ${quote.priceImpactPct}% (dry-run)` };
-    }
-
-    const priceUsd = await this.jupiter.getTokenPriceUsd(params.tokenAddress);
-    const amountToken = quote.outputAmountUi;
-    const priceSol = params.amountSol / amountToken;
-    const txSig = this.fakeTxSig();
-
-    let positionId = params.positionId;
-    if (!positionId) {
-      const pos = await this.positionTracker.openPosition({
-        strategy: params.strategy,
-        tokenAddress: params.tokenAddress,
-        tokenSymbol: params.tokenSymbol,
-        entryPriceSol: priceSol,
-        entryPriceUsd: priceUsd ?? 0,
-        amountSol: params.amountSol,
-        amountToken,
-        stopLossPercent: getStopLossPercent(params.strategy),
-        regime: params.regime,
-        entryVolume5m: params.entryVolume5m,
-        platform: params.platform,
-        walletSource: params.walletSource,
-        mode: "DRY_RUN",
-        configProfile: this.configProfile,
-        entryLiquidity: params.entryLiquidity,
-        entryMcap: params.entryMcap,
-        entryHolders: params.entryHolders,
-        entryVolume1h: params.entryVolume1h,
-        entryBuyPressure: params.entryBuyPressure,
-        entrySlippageBps: Math.round(quote.priceImpactPct * 100),
+      const quote = await this.jupiter.getQuote({
+        inputMint: SOL_MINT,
+        outputMint: params.tokenAddress,
+        amount: amountLamports,
+        slippageBps: params.maxSlippageBps,
       });
-      positionId = pos.id;
-    } else {
-      await this.positionTracker.fillTranche2(positionId, amountToken);
-    }
 
-    await db.trade.create({
-      data: {
-        mode: "DRY_RUN",
-        configProfile: this.configProfile,
+      if (!quote) return { success: false, error: "failed to get quote (dry-run)" };
+      if (quote.inputAmountUi <= 0 || quote.outputAmountUi <= 0) {
+        return { success: false, error: "invalid normalized quote (dry-run)" };
+      }
+
+      if (quote.priceImpactPct > params.maxSlippageBps / 100) {
+        return { success: false, error: `slippage too high: ${quote.priceImpactPct}% (dry-run)` };
+      }
+
+      const priceUsd = await this.jupiter.getTokenPriceUsd(params.tokenAddress);
+      const amountToken = quote.outputAmountUi;
+      const priceSol = params.amountSol / amountToken;
+      const txSig = this.fakeTxSig();
+
+      let positionId = params.positionId;
+      if (!positionId) {
+        const pos = await this.positionTracker.openPosition({
+          strategy: params.strategy,
+          tokenAddress: params.tokenAddress,
+          tokenSymbol: params.tokenSymbol,
+          entryPriceSol: priceSol,
+          entryPriceUsd: priceUsd ?? 0,
+          amountSol: params.amountSol,
+          amountToken,
+          stopLossPercent: getStopLossPercent(params.strategy),
+          regime: params.regime,
+          entryVolume5m: params.entryVolume5m,
+          platform: params.platform,
+          walletSource: params.walletSource,
+          mode: this.scope.mode,
+          configProfile: this.scope.configProfile,
+          entryLiquidity: params.entryLiquidity,
+          entryMcap: params.entryMcap,
+          entryHolders: params.entryHolders,
+          entryVolume1h: params.entryVolume1h,
+          entryBuyPressure: params.entryBuyPressure,
+          entrySlippageBps: Math.round(quote.priceImpactPct * 100),
+          tradeSource: params.tradeSource ?? "AUTO",
+        });
+        positionId = pos.id;
+      } else {
+        await this.positionTracker.fillPosition(positionId, {
+          additionalSol: params.amountSol,
+          additionalToken: amountToken,
+          fillPriceSol: priceSol,
+          fillPriceUsd: priceUsd ?? 0,
+        });
+      }
+
+      await db.trade.create({
+        data: {
+          mode: this.scope.mode,
+          configProfile: this.scope.configProfile,
+          strategy: params.strategy,
+          tokenAddress: params.tokenAddress,
+          tokenSymbol: params.tokenSymbol,
+          side: "BUY",
+          positionId,
+          amountSol: params.amountSol,
+          amountToken,
+          priceUsd: priceUsd ?? 0,
+          priceSol,
+          slippageBps: Math.round(quote.priceImpactPct * 100),
+          gasFee: config.capital.gasFee,
+          jitoTip: 0,
+          txSignature: txSig,
+          trancheNumber: params.trancheNumber ?? 1,
+          regime: params.regime,
+          walletAddress: params.walletSource,
+          platform: params.platform,
+          tradeSource: params.tradeSource ?? "AUTO",
+        },
+      });
+      this.riskManager.recordBuyExecution(params.amountSol, config.capital.gasFee);
+
+      log.info({
+        profile: this.scope.configProfile,
         strategy: params.strategy,
-        tokenAddress: params.tokenAddress,
-        tokenSymbol: params.tokenSymbol,
-        side: "BUY",
-        positionId,
+        token: params.tokenSymbol,
         amountSol: params.amountSol,
-        amountToken,
+        priceUsd,
+      }, "DRY-RUN buy recorded");
+
+      return {
+        success: true,
+        txSignature: txSig,
         priceUsd: priceUsd ?? 0,
         priceSol,
+        amountToken,
         slippageBps: Math.round(quote.priceImpactPct * 100),
         gasFee: config.capital.gasFee,
         jitoTip: 0,
-        txSignature: txSig,
-        trancheNumber: params.trancheNumber ?? 1,
-        regime: params.regime,
-        walletAddress: params.walletSource,
-        platform: params.platform,
-      },
-    });
-
-    log.info({
-      profile: this.configProfile,
-      strategy: params.strategy,
-      token: params.tokenSymbol,
-      amountSol: params.amountSol,
-      priceUsd,
-    }, "DRY-RUN buy recorded");
-
-    return {
-      success: true,
-      txSignature: txSig,
-      priceUsd: priceUsd ?? 0,
-      priceSol,
-      amountToken,
-      slippageBps: Math.round(quote.priceImpactPct * 100),
-      gasFee: config.capital.gasFee,
-      jitoTip: 0,
-    };
+      };
+    } finally {
+      if (shouldTrackPending) this.riskManager.releasePosition(params.strategy);
+    }
   }
 
-  async executeSell(params: {
-    positionId: string;
-    tokenAddress: string;
-    tokenSymbol: string;
-    strategy: Strategy;
-    amountToken: number;
-    maxSlippageBps: number;
-    exitReason: ExitReason;
-    trancheNumber: number;
-  }): Promise<TradeResult> {
+  async executeSell(params: SellParams): Promise<TradeResult> {
     const position = this.positionTracker.getById(params.positionId);
     if (!position) return { success: false, error: "position not found" };
 
@@ -182,25 +175,14 @@ export class DryRunExecutor implements ITradeExecutor {
       : pnlSol * (position.entryPriceUsd / position.entryPriceSol);
     const pnlPercent = ((priceSol - position.entryPriceSol) / position.entryPriceSol) * 100;
 
-    const remaining = position.remainingToken - params.amountToken;
+    const remaining = Math.max(0, position.remainingToken - params.amountToken);
     const tranche = params.trancheNumber as 1 | 2 | 3;
     await this.positionTracker.markTrancheExit(params.positionId, tranche, remaining);
 
-    if (remaining <= 0) {
-      const totalPnlPercent = ((position.currentPriceUsd - position.entryPriceUsd) / position.entryPriceUsd) * 100;
-      await this.positionTracker.closePosition(
-        params.positionId,
-        params.exitReason,
-        pnlSol,
-        pnlUsd,
-        totalPnlPercent,
-      );
-    }
-
     await db.trade.create({
       data: {
-        mode: "DRY_RUN",
-        configProfile: this.configProfile,
+        mode: this.scope.mode,
+        configProfile: this.scope.configProfile,
         strategy: params.strategy,
         tokenAddress: params.tokenAddress,
         tokenSymbol: params.tokenSymbol,
@@ -211,7 +193,7 @@ export class DryRunExecutor implements ITradeExecutor {
         priceUsd: priceUsd ?? 0,
         priceSol,
         slippageBps: Math.round(quote.priceImpactPct * 100),
-        gasFee: 0,
+        gasFee: config.capital.gasFee,
         jitoTip: 0,
         txSignature: txSig,
         exitReason: params.exitReason,
@@ -220,11 +202,31 @@ export class DryRunExecutor implements ITradeExecutor {
         pnlPercent,
         trancheNumber: params.trancheNumber,
         regime: position.regime,
+        tradeSource: params.tradeSource ?? "AUTO",
       },
     });
+    this.riskManager.recordSellExecution(solReceived, pnlUsd, pnlUsd > 0, config.capital.gasFee);
+
+    if (remaining <= 0) {
+      const realized = await db.trade.aggregate({
+        where: { positionId: params.positionId, side: "SELL" },
+        _sum: { pnlSol: true, pnlUsd: true },
+      });
+      const totalPnlSol = Number(realized._sum.pnlSol ?? 0);
+      const totalPnlUsd = Number(realized._sum.pnlUsd ?? 0);
+      const totalCostUsd = position.amountToken * position.entryPriceUsd;
+      const totalPnlPercent = totalCostUsd > 0 ? (totalPnlUsd / totalCostUsd) * 100 : 0;
+      await this.positionTracker.closePosition(
+        params.positionId,
+        params.exitReason,
+        totalPnlSol,
+        totalPnlUsd,
+        totalPnlPercent,
+      );
+    }
 
     log.info({
-      profile: this.configProfile,
+      profile: this.scope.configProfile,
       strategy: params.strategy,
       token: params.tokenSymbol,
       exitReason: params.exitReason,
@@ -237,7 +239,7 @@ export class DryRunExecutor implements ITradeExecutor {
       priceUsd: priceUsd ?? 0,
       priceSol,
       amountToken: params.amountToken,
-      gasFee: 0,
+      gasFee: config.capital.gasFee,
       jitoTip: 0,
     };
   }

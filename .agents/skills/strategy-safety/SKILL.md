@@ -13,6 +13,8 @@ Use this skill for strategy changes.
 - Validate interactions with risk limits, regime rules, and execution paths.
 - Avoid changes that rely on hidden assumptions or unverified data quality.
 - Ensure manual entry or override paths obey the same reserve, sizing, and capital checks as automated entries.
+- Never let quota throttling disable exits, execution completion, or wallet reconciliation; degrade non-essential scans, scoring, and backfills first.
+- New provider-heavy logic must flow through the shared services so essentiality, purpose, caching, and batching remain visible to the budget manager.
 
 ## Review Order
 - Entry conditions.

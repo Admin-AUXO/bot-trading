@@ -4,12 +4,24 @@ import type { PositionState, Strategy, MarketRegime, ExitReason, TradeMode, Trad
 
 const log = createChildLogger("position-tracker");
 
+interface PositionFilter {
+  mode?: TradeMode;
+  configProfile?: string;
+}
+
 export class PositionTracker {
   private positions: Map<string, PositionState> = new Map();
 
-  async loadOpenPositions(): Promise<void> {
+  async loadOpenPositions(filter?: PositionFilter): Promise<void> {
+    this.positions.clear();
+    const where: Record<string, unknown> = {
+      status: { in: ["OPEN", "PARTIALLY_CLOSED"] },
+    };
+    if (filter?.mode) where.mode = filter.mode;
+    if (filter?.configProfile) where.configProfile = filter.configProfile;
+
     const rows = await db.position.findMany({
-      where: { status: { in: ["OPEN", "PARTIALLY_CLOSED"] } },
+      where,
     });
     for (const r of rows) {
       this.positions.set(r.id, {
@@ -59,18 +71,25 @@ export class PositionTracker {
     return Array.from(this.positions.values());
   }
 
-  getOpen(mode?: TradeMode): PositionState[] {
+  private matchesFilter(position: PositionState, filter?: PositionFilter): boolean {
+    if (!filter) return true;
+    if (filter.mode && position.mode !== filter.mode) return false;
+    if (filter.configProfile && position.configProfile !== filter.configProfile) return false;
+    return true;
+  }
+
+  getOpen(filter?: PositionFilter): PositionState[] {
     return this.getAll().filter((p) => {
       const statusOk = p.status === "OPEN" || p.status === "PARTIALLY_CLOSED";
-      return mode ? statusOk && p.mode === mode : statusOk;
+      return statusOk && this.matchesFilter(p, filter);
     });
   }
 
-  getByStrategy(strategy: Strategy, mode?: TradeMode): PositionState[] {
+  getByStrategy(strategy: Strategy, filter?: PositionFilter): PositionState[] {
     return Array.from(this.positions.values()).filter((p) => {
       if (p.strategy !== strategy) return false;
       const statusOk = p.status === "OPEN" || p.status === "PARTIALLY_CLOSED";
-      return mode ? statusOk && p.mode === mode : statusOk;
+      return statusOk && this.matchesFilter(p, filter);
     });
   }
 
@@ -78,16 +97,16 @@ export class PositionTracker {
     return this.positions.get(id);
   }
 
-  holdsToken(tokenAddress: string, mode?: TradeMode): boolean {
-    return this.getOpen(mode).some((p) => p.tokenAddress === tokenAddress);
+  holdsToken(tokenAddress: string, filter?: PositionFilter): boolean {
+    return this.getOpen(filter).some((p) => p.tokenAddress === tokenAddress);
   }
 
-  openCount(mode?: TradeMode): number {
-    return this.getOpen(mode).filter((p) => p.tradeSource !== "MANUAL").length;
+  openCount(filter?: PositionFilter): number {
+    return this.getOpen(filter).length;
   }
 
-  countByStrategy(strategy: Strategy, mode?: TradeMode): number {
-    return this.getByStrategy(strategy, mode).filter((p) => p.tradeSource !== "MANUAL").length;
+  countByStrategy(strategy: Strategy, filter?: PositionFilter): number {
+    return this.getByStrategy(strategy, filter).length;
   }
 
   async openPosition(params: {
@@ -248,20 +267,45 @@ export class PositionTracker {
     await db.position.update({ where: { id }, data: update });
   }
 
-  async fillTranche2(id: string, additionalToken: number): Promise<void> {
+  async fillPosition(id: string, fill: {
+    additionalSol: number;
+    additionalToken: number;
+    fillPriceSol: number;
+    fillPriceUsd: number;
+  }): Promise<void> {
     const pos = this.positions.get(id);
     if (!pos) return;
 
+    const totalToken = pos.amountToken + fill.additionalToken;
+    const weightedPriceSol = totalToken > 0
+      ? (pos.entryPriceSol * pos.amountToken + fill.fillPriceSol * fill.additionalToken) / totalToken
+      : pos.entryPriceSol;
+    const weightedPriceUsd = totalToken > 0
+      ? (pos.entryPriceUsd * pos.amountToken + fill.fillPriceUsd * fill.additionalToken) / totalToken
+      : pos.entryPriceUsd;
+
     pos.tranche2Filled = true;
-    pos.amountToken += additionalToken;
-    pos.remainingToken += additionalToken;
+    pos.amountSol += fill.additionalSol;
+    pos.amountToken = totalToken;
+    pos.remainingToken += fill.additionalToken;
+    pos.entryPriceSol = weightedPriceSol;
+    pos.entryPriceUsd = weightedPriceUsd;
+    pos.currentPriceSol = fill.fillPriceSol;
+    pos.currentPriceUsd = fill.fillPriceUsd;
+    pos.peakPriceUsd = Math.max(pos.peakPriceUsd, fill.fillPriceUsd);
 
     await db.position.update({
       where: { id },
       data: {
         tranche2Filled: true,
+        amountSol: pos.amountSol,
         amountToken: pos.amountToken,
         remainingToken: pos.remainingToken,
+        entryPriceSol: pos.entryPriceSol,
+        entryPriceUsd: pos.entryPriceUsd,
+        currentPriceSol: pos.currentPriceSol,
+        currentPriceUsd: pos.currentPriceUsd,
+        peakPriceUsd: pos.peakPriceUsd,
       },
     });
   }

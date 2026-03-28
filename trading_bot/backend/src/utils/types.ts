@@ -1,6 +1,46 @@
-import type { Strategy, MarketRegime, CapitalLevel, ExitReason, PositionStatus, TradeMode, TradeSource } from "@prisma/client";
+import type {
+  Strategy,
+  MarketRegime,
+  CapitalLevel,
+  ExitReason,
+  PositionStatus,
+  TradeMode,
+  TradeSource,
+  ApiCallPurpose,
+  ApiService,
+  QuotaSource,
+  QuotaStatus,
+} from "@prisma/client";
 
-export type { Strategy, MarketRegime, CapitalLevel, ExitReason, PositionStatus, TradeMode, TradeSource };
+export type {
+  Strategy,
+  MarketRegime,
+  CapitalLevel,
+  ExitReason,
+  PositionStatus,
+  TradeMode,
+  TradeSource,
+  ApiCallPurpose,
+  ApiService,
+  QuotaSource,
+  QuotaStatus,
+};
+
+export interface ExecutionScope {
+  mode: TradeMode;
+  configProfile: string;
+}
+
+export interface CapitalConfig {
+  startingUsd: number;
+  startingSol: number;
+  gasReserve: number;
+  gasFee: number;
+  maxOpenPositions: number;
+  rollingWindowSize: number;
+  dailyLossPercent: number;
+  weeklyLossPercent: number;
+}
 
 export interface TokenOverview {
   address: string;
@@ -114,6 +154,7 @@ export interface PositionState {
 }
 
 export interface BotStateSnapshot {
+  scope: ExecutionScope;
   capitalUsd: number;
   capitalSol: number;
   walletBalance: number;
@@ -126,7 +167,44 @@ export interface BotStateSnapshot {
   rollingWinRate: number;
   isRunning: boolean;
   pauseReason: string | null;
+  pauseReasons: string[];
   openPositions: PositionState[];
+}
+
+export interface ApiRequestMeta {
+  strategy?: Strategy;
+  mode?: TradeMode;
+  configProfile?: string;
+  purpose?: ApiCallPurpose;
+  essential?: boolean;
+  batchSize?: number;
+}
+
+export interface BudgetSnapshot {
+  service: ApiService;
+  date: string;
+  budgetTotal: number;
+  monthlyUsed: number;
+  monthlyRemaining: number;
+  dailyBudget: number;
+  dailyUsed: number;
+  dailyRemaining: number;
+  essentialCredits: number;
+  nonEssentialCredits: number;
+  cachedCalls: number;
+  totalCalls: number;
+  avgCreditsPerCall: number;
+  softLimitPct: number;
+  hardLimitPct: number;
+  quotaStatus: QuotaStatus;
+  quotaSource: QuotaSource;
+  providerCycleStart: Date | null;
+  providerCycleEnd: Date | null;
+  providerReportedUsed: number | null;
+  providerReportedRemaining: number | null;
+  providerReportedOverage: number | null;
+  providerReportedOverageCost: number | null;
+  pauseReason: string | null;
 }
 
 export interface TradeResult {

@@ -42,6 +42,8 @@ If a task does not clearly require root-level files, avoid touching files outsid
 - Keep dashboard proxy auth centralized. Do not rely on per-endpoint token hacks when a whole control subtree needs the same bearer token.
 - Reuse the shared dashboard shell state in `trading_bot/dashboard/hooks/use-dashboard-shell.ts` for layout chrome and page summaries instead of re-querying overview, positions, heartbeat, and operator session in every component.
 - Keep analytics deterministic. Historical recomputes must derive from immutable records or persisted snapshots, not mutable singleton state.
+- Treat Helius and Birdeye quota as first-class runtime constraints. Daily budget, soft-limit degradation, and hard-limit entry pauses are part of normal operation, not optional extras.
+- Route provider calls through the shared services under `trading_bot/backend/src/services/`. Do not add raw provider fetches, side workers, or ad-hoc clients that bypass quota accounting, batching, caching, or auth.
 - Keep frontend query keys, URL params, and backend filters aligned. If the key varies by `days`, `mode`, `configProfile`, or `tradeSource`, the request must vary too.
 - Keep dashboard theme and chart styling on semantic CSS variables. Do not hard-code dark/light chart colors when `trading_bot/dashboard/app/globals.css` and `trading_bot/dashboard/lib/chart-colors.ts` already define the contract.
 
@@ -50,13 +52,14 @@ If a task does not clearly require root-level files, avoid touching files outsid
 Use these as the source of truth for project-specific patterns:
 
 - `AGENTS.md` and `trading_bot/AGENTS.md` for Codex operating guidance
-- `typescript-patterns.md` for TypeScript and ESM conventions
-- `trading-security.md` for execution safety, secrets, and validation
-- `prisma-patterns.md` for schema and query patterns
-- `api-routes.md` for API route conventions
+- `README.md` for repo layout, bootstrap, and operational notes
 - `trading_bot/dashboard/README.md` for dashboard data flow, shared shell/query patterns, control/auth boundaries, and theme guidance
-- `strategy-patterns.md` for strategy and trade lifecycle rules
-- `testing-patterns.md` for testing expectations
+- `.agents/skills/docs-editor/SKILL.md` for documentation workflow
+- `.agents/skills/database-safety/SKILL.md` for schema, SQL, and rollout rules
+- `.agents/skills/strategy-safety/SKILL.md` for trading-path safety rules
+- `.agents/skills/performance-investigation/SKILL.md` for bottleneck analysis
+- `.agents/skills/analytics-advice/SKILL.md` for metric interpretation
+- `.agents/skills/trading-research-workflow/SKILL.md` for current provider-plan and API research
 
 For domain-heavy work, consult the configured Codex agent under `.codex/agents/`.
 
@@ -93,4 +96,6 @@ Before finishing:
 - Run the relevant checks for the area changed
 - Make sure no unused imports, dead code, or placeholder fixes remain
 - Verify behavior, not just syntax
+- If Prisma schema or generated client surface changed, run the Prisma generate step before trusting TypeScript output
+- If runtime behavior, route contracts, or operator controls changed, update the corresponding docs and agent guidance in the same pass
 - For dashboard work, prove the actual build path is green and confirm any search-param client hooks sit behind the required Suspense boundary.

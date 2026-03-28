@@ -8,7 +8,7 @@ This dashboard is the operator surface for the trading bot. It is a Next.js 16 A
 - `/positions`: open risk, close history, skipped-capacity review, and manual entry/exit controls
 - `/trades`: trade tape plus signal pass/reject flow
 - `/analytics`: expectancy, capital curve, distribution, reject leakage, regime history, and wallet activity
-- `/settings`: bot controls, operator session, strategy config, risk limits, API budget, and config profiles
+- `/settings`: bot controls, operator session, strategy config, risk limits, API budget headroom, top endpoint spenders, pause reasons, and config profiles
 
 Page titles and descriptions live in `lib/page-meta.ts`. Keep those descriptions aligned with what the page actually answers.
 
@@ -26,9 +26,12 @@ Use these files as the dashboard data contract:
 Rules:
 
 - If a filter varies by `days`, `mode`, `profile`, or `tradeSource`, the query key, request params, and backend route must all vary by the same fields.
+- If operator state can contain multiple blockers, surface `pauseReasons` instead of collapsing everything to one string too early.
 - Do not add new header/footer/sidebar queries for overview, positions, heartbeat, or operator session when `use-dashboard-shell.ts` already exposes them.
 - Connection state is derived from heartbeat plus available shell data. Do not reintroduce a manual `connected` flag in client state.
 - Keep compact metrics on `components/ui/summary-tile.tsx` unless a page has a stronger reason to diverge.
+- `/api/overview/api-usage` is a compound contract now: current snapshots, persisted daily rows, monthly aggregates, and top endpoint spenders. Do not assume the old `{ daily, monthly }` shape.
+- `/api/analytics/execution-quality` summarizes entry/exit slippage, fees, latency, and copy lag by strategy. Keep types in `lib/api.ts` aligned before using it in UI code.
 
 ## Control And Auth
 
@@ -105,4 +108,5 @@ Browser verification should confirm:
 - page renders for `/`, `/positions`, `/trades`, `/analytics`, and `/settings`
 - header, sidebar, and footer agree on mode, operator state, and connection state
 - selected filters are reflected in the actual requests
+- settings surfaces current provider budget, pause reasons, and any top-endpoint usage widgets without assuming stale response shapes
 - search-param hooks remain behind the required Suspense boundaries

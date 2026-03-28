@@ -7,11 +7,14 @@ This file applies to work inside `trading_bot/` and is more specific than the re
 - Use `backend/src/utils/logger.ts`; do not add `console.log`, `console.warn`, or `console.error`.
 - This is a TypeScript ESM codebase. Relative imports should use `.js` extensions.
 - Keep configuration in the existing config system under `backend/src/config/`.
+- Provider calls must go through `backend/src/services/helius.ts` and `backend/src/services/birdeye.ts`; do not bolt on raw provider fetches or quota-blind side workers.
 - Preserve existing circuit breaker, retry, and rate-limit patterns around external APIs.
 - Avoid unnecessary code comments.
 - Prefer minimal, reversible changes over large refactors.
 - Do not create Prisma migration files. Keep schema changes in `backend/prisma/schema.prisma` and DB rollout SQL in `backend/prisma/views/create_views.sql`.
 - Use `npm run db:setup` when you need the actual database bootstrap. `npm run db:push` syncs tables only; the dashboard views come from `backend/prisma/views/create_views.sql`.
+- Preserve quota classification. Exits, execution follow-through, and wallet reconciliation are essential traffic; discovery, wallet scoring, analytics enrichment, and backfills should degrade first.
+- Keep API-budget analytics dimensional. Service, endpoint, strategy, mode, config profile, purpose, essential/cache-hit state, and batch size must remain queryable.
 - Control-plane writes must stay behind bearer auth. If a route mutates runtime behavior, positions, or profiles, assume auth is required unless a narrower rule is documented.
 - Dashboard control auth stays centralized in `dashboard/app/api/[...path]/route.ts` and `dashboard/app/api/operator-session/route.ts`. New mutating dashboard actions should use that same boundary.
 - Reuse `dashboard/lib/dashboard-query-options.ts` and `dashboard/hooks/use-dashboard-shell.ts` when changing dashboard data flow so query keys, request params, shared shell state, and layout chrome stay aligned.
@@ -34,6 +37,7 @@ If a change can affect live trading behavior, validate the actual execution path
 ## Working Map
 
 - `backend/src/core/`: execution engine and portfolio lifecycle
+- `backend/src/core/api-budget-manager.ts`: provider budget accounting, daily quota policy, and runtime pause semantics
 - `backend/src/strategies/`: strategy-specific signal generation
 - `backend/src/services/`: Helius, Birdeye, Jupiter, and related integrations
 - `backend/src/api/`: Express routes and middleware
@@ -68,14 +72,15 @@ npm run build
 
 Use the matching rule doc before making non-trivial changes:
 
-- `typescript-patterns.md`
-- `trading-security.md`
-- `prisma-patterns.md`
-- `api-routes.md`
+- `../AGENTS.md`
+- `../README.md`
 - `dashboard/README.md`
-- `solana-api-patterns.md`
-- `strategy-patterns.md`
-- `testing-patterns.md`
+- `../.agents/skills/docs-editor/SKILL.md`
+- `../.agents/skills/database-safety/SKILL.md`
+- `../.agents/skills/strategy-safety/SKILL.md`
+- `../.agents/skills/performance-investigation/SKILL.md`
+- `../.agents/skills/analytics-advice/SKILL.md`
+- `../.agents/skills/trading-research-workflow/SKILL.md`
 
 ## Done Criteria
 
@@ -84,5 +89,6 @@ Do not mark work complete until:
 - The changed area has been verified with the relevant command or behavior check
 - Error handling still surfaces failures clearly
 - No new hardcoded secrets, unsafe defaults, or silent fallbacks were introduced
+- If provider budget behavior changed, the shared services, runtime intervals, API responses, and docs were updated together
 - Dashboard filters and analytics requests stay mode-aware and parameter-consistent end to end when the changed area touches UI data flow
 - Docker or startup changes still preserve backend-first DB bootstrap and dashboard-after-backend-health sequencing

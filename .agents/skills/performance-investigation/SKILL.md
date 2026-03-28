@@ -14,6 +14,8 @@ Use this skill for latency, throughput, or resource issues.
 - Prefer the smallest change with measurable impact.
 - Question redundant polling when SSE or another push path already exists, and prefer cache hydration over duplicate hot-path reads.
 - Push stable hot aggregates closer to SQL when repeated Node-side recomputation is the bottleneck.
+- Treat provider credit/CU burn as a bottleneck dimension alongside latency; batch, cache, dedupe, and classify traffic before increasing scan frequency.
+- Use endpoint-level usage evidence before blaming “the network” in the abstract.
 
 ## Preferred Tools
 - `serena` and `filesystem` for tracing hot paths.

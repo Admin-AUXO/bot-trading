@@ -1,6 +1,7 @@
 import { db } from "../db/client.js";
 import { config } from "../config/index.js";
 import { createChildLogger } from "../utils/logger.js";
+import type { ApiBudgetManager } from "../core/api-budget-manager.js";
 import type { JupiterService } from "./jupiter.js";
 import type { BirdeyeService } from "./birdeye.js";
 import type { RegimeDetector } from "../core/regime-detector.js";
@@ -16,6 +17,7 @@ export class MarketTickRecorder {
     private jupiter: JupiterService,
     private birdeye: BirdeyeService,
     private regimeDetector: RegimeDetector,
+    private budgetManager?: ApiBudgetManager,
   ) {}
 
   start(): void {
@@ -30,9 +32,10 @@ export class MarketTickRecorder {
 
   private async recordTick(): Promise<void> {
     try {
+      if (this.budgetManager && !this.budgetManager.shouldRunNonEssential("BIRDEYE")) return;
       const [solPrice, trending] = await Promise.all([
         this.jupiter.getSolPriceUsd(),
-        this.birdeye.getTokenTrending(),
+        this.birdeye.getTokenTrending({ purpose: "MARKET_TICK", essential: false, batchSize: 10 }),
       ]);
 
       if (!solPrice) return;

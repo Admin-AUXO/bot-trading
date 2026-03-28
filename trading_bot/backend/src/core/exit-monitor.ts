@@ -71,8 +71,12 @@ export class ExitMonitor {
     if (positions.length === 0) return;
 
     const addresses = [...new Set(positions.map((p) => p.tokenAddress))];
+    const exitMeta = {
+      purpose: "EXIT_MONITOR" as const,
+      essential: true,
+    };
     const [prices, solPrice, tradeDataMap] = await Promise.all([
-      this.birdeye.getMultiPrice(addresses),
+      this.birdeye.getMultiPrice(addresses, { ...exitMeta, batchSize: addresses.length }),
       this.jupiter.getSolPriceUsd(),
       this.fetchTradeDataBatch(positions),
     ]);
@@ -125,7 +129,13 @@ export class ExitMonitor {
   private async fetchTradeDataBatch(positions: PositionState[]): Promise<Map<string, TradeData>> {
     const needsData = positions.filter((p) => p.strategy === "S3_MOMENTUM" && p.entryVolume5m && p.entryVolume5m > 0);
     if (needsData.length === 0) return new Map();
-    const fetched = await Promise.all(needsData.map((p) => this.birdeye.getTradeData(p.tokenAddress)));
+    const fetched = await Promise.all(needsData.map((p) => this.birdeye.getTradeData(p.tokenAddress, {
+      strategy: p.strategy,
+      mode: p.mode,
+      configProfile: p.configProfile,
+      purpose: "EXIT_MONITOR",
+      essential: true,
+    })));
     const map = new Map<string, TradeData>();
     needsData.forEach((p, i) => {
       if (fetched[i]) map.set(p.tokenAddress, fetched[i]!);

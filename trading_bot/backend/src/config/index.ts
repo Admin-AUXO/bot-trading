@@ -161,6 +161,11 @@ export const config = {
   ],
 
   apiBudgets: {
+    softLimitPct: 70,
+    hardLimitPct: 100,
+    reservePct: 0.2,
+    syncIntervalMs: 3_600_000,
+    persistIntervalMs: 60_000,
     helius: { monthly: 10_000_000 },
     birdeye: { monthly: 1_500_000, rps: 15 },
   },

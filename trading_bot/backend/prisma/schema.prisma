@@ -183,13 +183,23 @@ model ApiCall {
   service     ApiService
   endpoint    String
   strategy    Strategy?
+  mode        TradeMode?
+  configProfile String?
+  purpose     ApiCallPurpose @default(OTHER)
+  essential   Boolean  @default(false)
+  cacheHit    Boolean  @default(false)
+  batchSize   Int?
   credits     Int      @default(1)
+  requestedCredits Int?
   statusCode  Int?
   latencyMs   Int?
+  success     Boolean  @default(true)
   calledAt    DateTime @default(now())
 
   @@index([service, calledAt])
   @@index([strategy, calledAt])
+  @@index([service, purpose, calledAt])
+  @@index([mode, configProfile, calledAt])
 }
 
 // ─── METRICS: Computed / aggregated data ───
@@ -238,13 +248,60 @@ model ApiUsageDaily {
   totalCredits        Int        @default(0)
   budgetTotal         Int        @default(0)
   budgetUsedPercent   Decimal    @default(0) @db.Decimal(5, 2)
+  monthlyCreditsUsed  Int        @default(0)
+  monthlyCreditsRemaining Int    @default(0)
+  dailyBudget         Int        @default(0)
+  dailyCreditsRemaining Int      @default(0)
+  essentialCalls      Int        @default(0)
+  essentialCredits    Int        @default(0)
+  nonEssentialCredits Int        @default(0)
+  cachedCalls         Int        @default(0)
+  avgCreditsPerCall   Decimal    @default(0) @db.Decimal(10, 2)
   peakRps             Decimal    @default(0) @db.Decimal(6, 2)
   avgLatencyMs        Int        @default(0)
   errorCount          Int        @default(0)
+  softLimitPct        Decimal    @default(70) @db.Decimal(5, 2)
+  hardLimitPct        Decimal    @default(100) @db.Decimal(5, 2)
+  quotaStatus         QuotaStatus @default(HEALTHY)
+  quotaSource         QuotaSource @default(INTERNAL)
+  providerCycleStart  DateTime?
+  providerCycleEnd    DateTime?
+  providerReportedUsed Int?
+  providerReportedRemaining Int?
+  providerReportedOverage Int?
+  providerReportedOverageCost Decimal? @db.Decimal(18, 4)
+  pauseTriggeredAt    DateTime?
+  pauseReason         String?
   createdAt           DateTime   @default(now())
 
   @@unique([date, service])
   @@index([date])
+}
+
+model ApiEndpointDaily {
+  id                String         @id @default(cuid())
+  date              DateTime       @db.Date
+  service           ApiService
+  endpoint          String
+  dimensionKey      String
+  strategy          Strategy?
+  mode              TradeMode?
+  configProfile     String?
+  purpose           ApiCallPurpose @default(OTHER)
+  essential         Boolean        @default(false)
+  totalCalls        Int            @default(0)
+  totalCredits      Int            @default(0)
+  cachedCalls       Int            @default(0)
+  avgCreditsPerCall Decimal        @default(0) @db.Decimal(10, 2)
+  avgLatencyMs      Int            @default(0)
+  errorCount        Int            @default(0)
+  avgBatchSize      Decimal        @default(0) @db.Decimal(10, 2)
+  createdAt         DateTime       @default(now())
+
+  @@unique([date, service, dimensionKey])
+  @@index([date, service])
+  @@index([service, endpoint, date])
+  @@index([mode, configProfile, date])
 }
 
 model RegimeSnapshot {
@@ -275,6 +332,7 @@ model BotState {
   totalTradesCount Int        @default(0)
   isRunning      Boolean      @default(false)
   pauseReason    String?
+  pauseReasons   String[]     @default([])
   lastDailyReset DateTime     @default(now())
   lastWeeklyReset DateTime    @default(now())
   updatedAt      DateTime     @updatedAt
@@ -444,6 +502,33 @@ enum ApiService {
   BIRDEYE
   JUPITER
   JITO
+}
+
+enum ApiCallPurpose {
+  ENTRY_SCAN
+  EXIT_MONITOR
+  WALLET_SCORING
+  WALLET_DISCOVERY
+  ANALYTICS
+  RECONCILIATION
+  EXECUTION
+  REGIME
+  MARKET_TICK
+  BACKFILL
+  OTHER
+}
+
+enum QuotaStatus {
+  HEALTHY
+  SOFT_LIMIT
+  HARD_LIMIT
+  PAUSED
+}
+
+enum QuotaSource {
+  INTERNAL
+  PROVIDER
+  MIXED
 }
 
 enum TradeMode {

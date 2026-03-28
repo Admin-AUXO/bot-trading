@@ -12,6 +12,7 @@ Use this skill for current trading and provider research.
 - Capture exact dates and version changes.
 - Distinguish provider facts from strategy recommendations.
 - Summarize impact on this repo's integrations.
+- Capture current plan quotas, endpoint credit/CU costs, and whether repo defaults or docs should be updated to match the provider’s current billing model.
 
 ## Preferred Tools
 - `fetch` for public docs and changelogs.

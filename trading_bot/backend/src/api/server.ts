@@ -16,8 +16,10 @@ import { analyticsRouter } from "./routes/analytics.js";
 import { controlRouter } from "./routes/control.js";
 import { profilesRouter } from "./routes/profiles.js";
 import { requireBearerToken } from "./middleware/auth.js";
+import type { ApiBudgetManager } from "../core/api-budget-manager.js";
 import type { RiskManager } from "../core/risk-manager.js";
 import type { RegimeDetector } from "../core/regime-detector.js";
+import type { CapitalConfig, ExecutionScope } from "../utils/types.js";
 
 const log = createChildLogger("api");
 
@@ -28,6 +30,15 @@ export function createApiServer(deps: {
   configProfileManager: unknown;
   tradeExecutor?: unknown;
   dbClient?: typeof db;
+  scope?: ExecutionScope;
+  strategyConfigs?: {
+    S1_COPY: { maxPositions: number; stopLossPercent: number; timeStopMinutes: number; maxSlippageBps: number; positionSizeSol: number };
+    S2_GRADUATION: { maxPositions: number; stopLossPercent: number; timeStopMinutes: number; timeLimitMinutes: number; maxSlippageBps: number; positionSizeSol: number };
+    S3_MOMENTUM: { maxPositions: number; stopLossPercent: number; timeStopMinutes: number; timeLimitMinutes: number; maxSlippageBps: number; positionSizeSol: number };
+  };
+  capitalConfig?: CapitalConfig;
+  apiBudgetManager?: ApiBudgetManager;
+  walletReconciler?: () => Promise<number | null>;
 }) {
   const app = express();
   app.use(cors({
@@ -48,13 +59,19 @@ export function createApiServer(deps: {
     tradeExecutor: deps.tradeExecutor,
     positionTracker: deps.positionTracker,
     dbClient: deps.dbClient,
+    scope: deps.scope,
+    strategyConfigs: deps.strategyConfigs,
   }));
-  app.use("/api/trades", tradesRouter());
-  app.use("/api/analytics", analyticsRouter());
+  app.use("/api/trades", tradesRouter({ scope: deps.scope }));
+  app.use("/api/analytics", analyticsRouter({ scope: deps.scope }));
   app.use("/api/control", controlLimiter, controlRouter({
     riskManager: deps.riskManager,
     tradeExecutor: deps.tradeExecutor,
     dbClient: deps.dbClient,
+    scope: deps.scope,
+    strategyConfigs: deps.strategyConfigs,
+    capitalConfig: deps.capitalConfig,
+    walletReconciler: deps.walletReconciler,
   }));
   app.use("/api/profiles", profilesRouter({
     configProfileManager: deps.configProfileManager,
@@ -86,16 +103,21 @@ export function createApiServer(deps: {
       try {
         const snapshot = riskManager.getSnapshot();
         const regime = regimeDetector.getState();
+        const scope = deps.scope ?? snapshot.scope;
         const today = new Date(new Date().toISOString().slice(0, 10));
+        const laneWhere = {
+          mode: scope.mode,
+          configProfile: scope.configProfile,
+        };
 
         const [todayTrades, todaySells, openPositions] = await Promise.all([
-          db.trade.count({ where: { executedAt: { gte: today } } }),
+          db.trade.count({ where: { executedAt: { gte: today }, ...laneWhere } }),
           db.trade.findMany({
-            where: { executedAt: { gte: today }, side: "SELL" },
+            where: { executedAt: { gte: today }, side: "SELL", ...laneWhere },
             select: { pnlUsd: true },
           }),
           db.position.findMany({
-            where: { status: { in: ["OPEN", "PARTIALLY_CLOSED"] } },
+            where: { status: { in: ["OPEN", "PARTIALLY_CLOSED"] }, ...laneWhere },
             orderBy: { openedAt: "desc" },
           }),
         ]);

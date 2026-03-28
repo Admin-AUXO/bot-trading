@@ -5,13 +5,29 @@ import { cacheMiddleware } from "../middleware/cache.js";
 import { requireBearerToken } from "../middleware/auth.js";
 import type { RiskManager } from "../../core/risk-manager.js";
 import type { TradeExecutor } from "../../core/trade-executor.js";
-import type { Strategy } from "../../utils/types.js";
+import type { CapitalConfig, ExecutionScope, Strategy } from "../../utils/types.js";
 
-export function controlRouter(deps: { riskManager: unknown; tradeExecutor?: unknown; dbClient?: typeof db }) {
+type StrategyConfigs = {
+  S1_COPY: { maxPositions: number; positionSizeSol: number; stopLossPercent: number; maxSlippageBps: number; timeStopMinutes: number };
+  S2_GRADUATION: { maxPositions: number; positionSizeSol: number; stopLossPercent: number; maxSlippageBps: number; timeStopMinutes: number; timeLimitMinutes: number };
+  S3_MOMENTUM: { maxPositions: number; positionSizeSol: number; stopLossPercent: number; maxSlippageBps: number; timeStopMinutes: number; timeLimitMinutes: number };
+};
+
+export function controlRouter(deps: {
+  riskManager: unknown;
+  tradeExecutor?: unknown;
+  dbClient?: typeof db;
+  scope?: ExecutionScope;
+  strategyConfigs?: StrategyConfigs;
+  capitalConfig?: CapitalConfig;
+  walletReconciler?: () => Promise<number | null>;
+}) {
   const router = Router();
   const riskManager = deps.riskManager as RiskManager;
   const tradeExecutor = deps.tradeExecutor as TradeExecutor | undefined;
   const database = deps.dbClient ?? db;
+  const snapshotScope = () => deps.scope ?? riskManager.getSnapshot().scope;
+  const strategyConfigs = deps.strategyConfigs;
 
   router.post("/pause", requireBearerToken, async (_req, res) => {
     riskManager.pause("manual pause");
@@ -29,16 +45,24 @@ export function controlRouter(deps: { riskManager: unknown; tradeExecutor?: unkn
 
   router.get("/state", cacheMiddleware(10_000), async (_req, res) => {
     const state = await database.botState.findUnique({ where: { id: "singleton" } });
-    if (!state) return res.status(404).json({ error: "bot state not found" });
+    const snapshot = riskManager.getSnapshot();
+    const scope = snapshotScope();
     res.json({
-      ...state,
-      capitalUsd:      Number(state.capitalUsd),
-      capitalSol:      Number(state.capitalSol),
-      walletBalance:   Number(state.walletBalance),
-      dailyLossUsd:    Number(state.dailyLossUsd),
-      weeklyLossUsd:   Number(state.weeklyLossUsd),
-      dailyLossLimit:  Number(state.dailyLossLimit),
-      weeklyLossLimit: Number(state.weeklyLossLimit),
+      scope,
+      capitalUsd: snapshot.capitalUsd,
+      capitalSol: snapshot.capitalSol,
+      walletBalance: snapshot.walletBalance,
+      dailyLossUsd: snapshot.dailyLossUsd,
+      weeklyLossUsd: snapshot.weeklyLossUsd,
+      dailyLossLimit: snapshot.dailyLossLimit,
+      weeklyLossLimit: snapshot.weeklyLossLimit,
+      capitalLevel: snapshot.capitalLevel,
+      regime: snapshot.regime,
+      rollingWinRate: snapshot.rollingWinRate,
+      isRunning: snapshot.isRunning,
+      pauseReason: snapshot.pauseReason,
+      pauseReasons: snapshot.pauseReasons,
+      updatedAt: state?.updatedAt ?? null,
     });
   });
 
@@ -49,12 +73,17 @@ export function controlRouter(deps: { riskManager: unknown; tradeExecutor?: unkn
   });
 
   router.get("/heartbeat", cacheMiddleware(5_000), async (_req, res) => {
-    const state = await database.botState.findUnique({ where: { id: "singleton" } });
-    const lastTrade = await database.trade.findFirst({ orderBy: { executedAt: "desc" }, select: { executedAt: true } });
-    const lastSignal = await database.signal.findFirst({ orderBy: { detectedAt: "desc" }, select: { detectedAt: true } });
+    const scope = snapshotScope();
+    const laneWhere = { mode: scope.mode, configProfile: scope.configProfile };
+    const snapshot = riskManager.getSnapshot();
+    const [lastTrade, lastSignal] = await Promise.all([
+      database.trade.findFirst({ where: laneWhere, orderBy: { executedAt: "desc" }, select: { executedAt: true } }),
+      database.signal.findFirst({ where: laneWhere, orderBy: { detectedAt: "desc" }, select: { detectedAt: true } }),
+    ]);
 
     res.json({
-      isRunning: state?.isRunning ?? false,
+      scope,
+      isRunning: snapshot.isRunning,
       uptime: process.uptime(),
       lastTradeAt: lastTrade?.executedAt ?? null,
       lastSignalAt: lastSignal?.detectedAt ?? null,
@@ -63,34 +92,49 @@ export function controlRouter(deps: { riskManager: unknown; tradeExecutor?: unkn
   });
 
   router.get("/config", cacheMiddleware(30_000), async (_req, res) => {
-    const state = await database.botState.findUnique({ where: { id: "singleton" } });
+    const snapshot = riskManager.getSnapshot();
+    const scope = snapshotScope();
+    const configs = strategyConfigs ?? {
+      S1_COPY: { maxPositions: 2, positionSizeSol: 0.2, stopLossPercent: 20, maxSlippageBps: 500, timeStopMinutes: 120 },
+      S2_GRADUATION: { maxPositions: 2, positionSizeSol: 0.2, stopLossPercent: 25, maxSlippageBps: 1000, timeStopMinutes: 15, timeLimitMinutes: 120 },
+      S3_MOMENTUM: { maxPositions: 3, positionSizeSol: 0.1, stopLossPercent: 10, maxSlippageBps: 500, timeStopMinutes: 5, timeLimitMinutes: 30 },
+    };
     res.json({
+      scope,
       strategies: {
         S1_COPY: {
-          maxPositions: 2,
-          positionSize: 0.20,
-          stopLoss: 20,
-          timeStop: "2h (no +10%)",
+          maxPositions: configs.S1_COPY.maxPositions,
+          positionSize: configs.S1_COPY.positionSizeSol,
+          stopLoss: configs.S1_COPY.stopLossPercent,
+          maxSlippageBps: configs.S1_COPY.maxSlippageBps,
+          timeStopMinutes: configs.S1_COPY.timeStopMinutes,
         },
         S2_GRADUATION: {
-          maxPositions: 2,
-          positionSize: 0.20,
-          stopLoss: 25,
-          timeStop: "15m (no +10%)",
+          maxPositions: configs.S2_GRADUATION.maxPositions,
+          positionSize: configs.S2_GRADUATION.positionSizeSol,
+          stopLoss: configs.S2_GRADUATION.stopLossPercent,
+          maxSlippageBps: configs.S2_GRADUATION.maxSlippageBps,
+          timeStopMinutes: configs.S2_GRADUATION.timeStopMinutes,
+          timeLimitMinutes: configs.S2_GRADUATION.timeLimitMinutes,
         },
         S3_MOMENTUM: {
-          maxPositions: 3,
-          positionSize: 0.10,
-          stopLoss: 10,
-          timeStop: "5m (no +5%)",
+          maxPositions: configs.S3_MOMENTUM.maxPositions,
+          positionSize: configs.S3_MOMENTUM.positionSizeSol,
+          stopLoss: configs.S3_MOMENTUM.stopLossPercent,
+          maxSlippageBps: configs.S3_MOMENTUM.maxSlippageBps,
+          timeStopMinutes: configs.S3_MOMENTUM.timeStopMinutes,
+          timeLimitMinutes: configs.S3_MOMENTUM.timeLimitMinutes,
         },
       },
       risk: {
-        dailyLossLimit: Number(state?.dailyLossLimit ?? 10),
-        weeklyLossLimit: Number(state?.weeklyLossLimit ?? 20),
-        maxOpenPositions: 5,
-        gasReserve: 0.10,
-        capitalLevel: state?.capitalLevel ?? "NORMAL",
+        dailyLossLimit: snapshot.dailyLossLimit,
+        weeklyLossLimit: snapshot.weeklyLossLimit,
+        walletBalance: snapshot.walletBalance,
+        maxOpenPositions: deps.capitalConfig?.maxOpenPositions ?? 5,
+        gasReserve: deps.capitalConfig?.gasReserve ?? 0.1,
+        capitalLevel: snapshot.capitalLevel,
+        pauseReason: snapshot.pauseReason,
+        pauseReasons: snapshot.pauseReasons,
       },
     });
   });
@@ -141,7 +185,7 @@ export function controlRouter(deps: { riskManager: unknown; tradeExecutor?: unkn
       tokenAddress,
       tokenSymbol,
       amountSol: size,
-      maxSlippageBps: 500,
+      maxSlippageBps: strategyConfigs?.[strategy]?.maxSlippageBps ?? 500,
       regime: snapshot.regime,
       tradeSource: "MANUAL",
     });
@@ -151,6 +195,24 @@ export function controlRouter(deps: { riskManager: unknown; tradeExecutor?: unkn
     } else {
       res.status(400).json({ success: false, error: result.error });
     }
+  });
+
+  router.post("/reconcile-wallet", requireBearerToken, async (_req, res) => {
+    if (!deps.walletReconciler) {
+      return res.status(400).json({ error: "wallet reconciliation unavailable in this mode" });
+    }
+
+    const balanceSol = await deps.walletReconciler();
+    if (balanceSol === null) {
+      return res.status(502).json({ error: "wallet reconciliation failed" });
+    }
+
+    await riskManager.saveState();
+    res.json({
+      scope: snapshotScope(),
+      balanceSol,
+      status: "reconciled",
+    });
   });
 
   return router;

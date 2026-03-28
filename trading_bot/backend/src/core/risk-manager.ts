@@ -5,9 +5,23 @@ import { config } from "../config/index.js";
 import { createChildLogger } from "../utils/logger.js";
 import type { PositionTracker } from "./position-tracker.js";
 import type { RegimeDetector } from "./regime-detector.js";
-import type { Strategy, MarketRegime, CapitalLevel, BotStateSnapshot } from "../utils/types.js";
+import type { Strategy, CapitalLevel, BotStateSnapshot, CapitalConfig, ExecutionScope } from "../utils/types.js";
 
 const log = createChildLogger("risk-manager");
+
+type StrategyRiskConfig = {
+  maxPositions: number;
+  positionSizeSol: number;
+};
+
+type StrategyRiskConfigMap = Record<Strategy, StrategyRiskConfig>;
+
+interface RiskManagerOptions {
+  capitalConfig?: CapitalConfig;
+  persistState?: boolean;
+  scope?: ExecutionScope;
+  strategyConfigs?: StrategyRiskConfigMap;
+}
 
 export class RiskManager extends EventEmitter {
   private capitalUsd: number;
@@ -17,25 +31,48 @@ export class RiskManager extends EventEmitter {
   private weeklyLossUsd = 0;
   private totalTradesCount = 0;
   private capitalLevel: CapitalLevel = "NORMAL";
-  private pauseReason: string | null = null;
+  private pauseReasons: Set<string> = new Set();
   private lastDailyReset: Date;
   private lastWeeklyReset: Date;
   private recentResults: boolean[] = [];
   private pendingByStrategy: Map<Strategy, number> = new Map();
+  private readonly capitalConfig: CapitalConfig;
+  private readonly persistState: boolean;
+  private readonly scope: ExecutionScope;
+  private readonly strategyConfigs: StrategyRiskConfigMap;
 
   constructor(
     private positionTracker: PositionTracker,
     private regimeDetector: RegimeDetector,
+    options?: RiskManagerOptions,
   ) {
     super();
-    this.capitalUsd = config.capital.startingUsd;
-    this.capitalSol = config.capital.startingSol;
-    this.walletBalance = config.capital.startingSol;
+    this.capitalConfig = options?.capitalConfig ?? config.capital;
+    this.persistState = options?.persistState ?? true;
+    this.scope = options?.scope ?? { mode: config.tradeMode, configProfile: "default" };
+    this.strategyConfigs = options?.strategyConfigs ?? {
+      S1_COPY: {
+        maxPositions: config.strategies.s1.maxPositions,
+        positionSizeSol: config.strategies.s1.positionSizeSol,
+      },
+      S2_GRADUATION: {
+        maxPositions: config.strategies.s2.maxPositions,
+        positionSizeSol: config.strategies.s2.positionSizeSol,
+      },
+      S3_MOMENTUM: {
+        maxPositions: config.strategies.s3.maxPositions,
+        positionSizeSol: config.strategies.s3.positionSizeSol,
+      },
+    };
+    this.capitalUsd = this.capitalConfig.startingUsd;
+    this.capitalSol = this.capitalConfig.startingSol;
+    this.walletBalance = this.capitalConfig.startingSol;
     this.lastDailyReset = new Date();
     this.lastWeeklyReset = new Date();
   }
 
   async loadState(): Promise<void> {
+    if (!this.persistState) return;
     const state = await db.botState.findUnique({ where: { id: "singleton" } });
     if (!state) return;
 
@@ -46,12 +83,18 @@ export class RiskManager extends EventEmitter {
     this.weeklyLossUsd = Number(state.weeklyLossUsd);
     this.capitalLevel = state.capitalLevel;
     this.totalTradesCount = state.totalTradesCount;
-    this.pauseReason = state.isRunning ? state.pauseReason : (state.pauseReason ?? "manual pause");
+    const restoredReasons = state.pauseReasons.length > 0
+      ? state.pauseReasons
+      : state.pauseReason
+      ? [state.pauseReason]
+      : [];
+    this.pauseReasons = new Set(restoredReasons);
     this.lastDailyReset = state.lastDailyReset;
     this.lastWeeklyReset = state.lastWeeklyReset;
   }
 
   async saveState(): Promise<void> {
+    if (!this.persistState) return;
     await db.botState.upsert({
       where: { id: "singleton" },
       update: {
@@ -66,8 +109,9 @@ export class RiskManager extends EventEmitter {
         regime: this.regimeDetector.getRegime(),
         rollingWinRate: this.getRollingWinRate(),
         totalTradesCount: this.totalTradesCount,
-        isRunning: !this.pauseReason,
-        pauseReason: this.pauseReason,
+        isRunning: this.pauseReasons.size === 0,
+        pauseReason: this.getPrimaryPauseReason(),
+        pauseReasons: this.getPauseReasons(),
         lastDailyReset: this.lastDailyReset,
         lastWeeklyReset: this.lastWeeklyReset,
       },
@@ -81,18 +125,19 @@ export class RiskManager extends EventEmitter {
         capitalLevel: this.capitalLevel,
         regime: this.regimeDetector.getRegime(),
         rollingWinRate: this.getRollingWinRate(),
-        isRunning: !this.pauseReason,
-        pauseReason: this.pauseReason,
+        isRunning: this.pauseReasons.size === 0,
+        pauseReason: this.getPrimaryPauseReason(),
+        pauseReasons: this.getPauseReasons(),
       },
     });
   }
 
   getDailyLossLimit(): number {
-    return new Decimal(this.capitalUsd).mul(config.capital.dailyLossPercent).toNumber();
+    return new Decimal(this.capitalUsd).mul(this.capitalConfig.dailyLossPercent).toNumber();
   }
 
   getWeeklyLossLimit(): number {
-    return new Decimal(this.capitalUsd).mul(config.capital.weeklyLossPercent).toNumber();
+    return new Decimal(this.capitalUsd).mul(this.capitalConfig.weeklyLossPercent).toNumber();
   }
 
   getRollingWinRate(): number {
@@ -102,25 +147,38 @@ export class RiskManager extends EventEmitter {
   }
 
   pause(reason = "manual pause"): void {
-    if (this.pauseReason && this.pauseReason !== "manual pause") return;
-    this.pauseReason = reason;
+    this.pauseReasons.add(reason);
+  }
+
+  unpause(reason: string): boolean {
+    return this.pauseReasons.delete(reason);
   }
 
   resume(): boolean {
-    if (this.pauseReason !== "manual pause") return false;
-    this.pauseReason = null;
-    return true;
+    return this.unpause("manual pause");
+  }
+
+  getPauseReasons(): string[] {
+    return [...this.pauseReasons];
+  }
+
+  getPrimaryPauseReason(): string | null {
+    return this.getPauseReasons()[0] ?? null;
   }
 
   getPositionSize(strategy: Strategy): number {
     const regime = this.regimeDetector.getRegime();
     const tier = this.getScalingTier();
+    const configuredBase = this.strategyConfigs[strategy].positionSizeSol;
+    const defaultBase = strategy === "S3_MOMENTUM"
+      ? config.strategies.s3.positionSizeSol
+      : strategy === "S2_GRADUATION"
+      ? config.strategies.s2.positionSizeSol
+      : config.strategies.s1.positionSizeSol;
 
-    let base: number;
-    if (strategy === "S3_MOMENTUM") {
-      base = tier.s3Size;
-    } else {
-      base = tier.s1s2Size;
+    let base = configuredBase;
+    if (configuredBase === defaultBase) {
+      base = strategy === "S3_MOMENTUM" ? tier.s3Size : tier.s1s2Size;
     }
 
     if (regime === "CHOPPY") base = new Decimal(base).mul("0.5").toNumber();
@@ -149,8 +207,9 @@ export class RiskManager extends EventEmitter {
   }
 
   canOpenPosition(strategy: Strategy, requestedAmountSol?: number): { allowed: boolean; reason?: string } {
-    if (this.pauseReason) {
-      return { allowed: false, reason: this.pauseReason };
+    const pauseReason = this.getPrimaryPauseReason();
+    if (pauseReason) {
+      return { allowed: false, reason: pauseReason };
     }
 
     const regime = this.regimeDetector.getRegime();
@@ -168,18 +227,18 @@ export class RiskManager extends EventEmitter {
     }
 
     const pendingTotal = [...this.pendingByStrategy.values()].reduce((a, b) => a + b, 0);
-    if (this.positionTracker.openCount() + pendingTotal >= config.capital.maxOpenPositions) {
-      return { allowed: false, reason: "max 5 open positions reached" };
+    if (this.positionTracker.openCount(this.scope) + pendingTotal >= this.capitalConfig.maxOpenPositions) {
+      return { allowed: false, reason: `max ${this.capitalConfig.maxOpenPositions} open positions reached` };
     }
 
-    const stratConfig = this.getStrategyConfig(strategy);
+    const stratConfig = this.strategyConfigs[strategy];
     const stratPending = this.pendingByStrategy.get(strategy) ?? 0;
-    if (this.positionTracker.countByStrategy(strategy) + stratPending >= stratConfig.maxPositions) {
+    if (this.positionTracker.countByStrategy(strategy, this.scope) + stratPending >= stratConfig.maxPositions) {
       return { allowed: false, reason: `max ${stratConfig.maxPositions} ${strategy} positions reached` };
     }
 
     const size = requestedAmountSol ?? this.getPositionSize(strategy);
-    if (this.walletBalance < size + config.capital.gasReserve) {
+    if (this.walletBalance < size + this.capitalConfig.gasReserve) {
       return { allowed: false, reason: "insufficient balance (gas reserve protected)" };
     }
 
@@ -198,18 +257,21 @@ export class RiskManager extends EventEmitter {
     return { allowed: true };
   }
 
-  private getStrategyConfig(strategy: Strategy) {
-    switch (strategy) {
-      case "S1_COPY": return config.strategies.s1;
-      case "S2_GRADUATION": return config.strategies.s2;
-      case "S3_MOMENTUM": return config.strategies.s3;
-    }
+  recordBuyExecution(spendSol: number, feeSol: number = 0): void {
+    this.walletBalance = Math.max(0, this.walletBalance - spendSol - feeSol);
+    this.capitalSol = this.walletBalance;
+  }
+
+  recordSellExecution(receivedSol: number, pnlUsd: number, isWin: boolean, feeSol: number = 0): void {
+    this.walletBalance = Math.max(0, this.walletBalance + receivedSol - feeSol);
+    this.capitalSol = this.walletBalance;
+    this.recordTradeResult(pnlUsd, isWin);
   }
 
   recordTradeResult(pnlUsd: number, isWin: boolean): void {
     this.totalTradesCount++;
     this.recentResults.push(isWin);
-    if (this.recentResults.length > config.capital.rollingWindowSize) this.recentResults.shift();
+    if (this.recentResults.length > this.capitalConfig.rollingWindowSize) this.recentResults.shift();
 
     if (!isWin) {
       this.dailyLossUsd += Math.abs(pnlUsd);
@@ -221,13 +283,13 @@ export class RiskManager extends EventEmitter {
     this.regimeDetector.updateRollingWinRate(this.getRollingWinRate());
 
     if (this.dailyLossUsd >= this.getDailyLossLimit()) {
-      this.pauseReason = "daily loss limit hit";
+      this.pause("daily loss limit hit");
       log.warn({ dailyLoss: this.dailyLossUsd, limit: this.getDailyLossLimit() }, "daily loss limit reached");
       this.emit("daily-limit-hit");
     }
 
     if (this.weeklyLossUsd >= this.getWeeklyLossLimit()) {
-      this.pauseReason = "weekly loss limit hit";
+      this.pause("weekly loss limit hit");
       log.warn({ weeklyLoss: this.weeklyLossUsd, limit: this.getWeeklyLossLimit() }, "weekly loss limit reached");
       this.emit("weekly-limit-hit");
     }
@@ -238,8 +300,12 @@ export class RiskManager extends EventEmitter {
     this.capitalSol = balance;
   }
 
+  getScope(): ExecutionScope {
+    return { ...this.scope };
+  }
+
   private updateCapitalLevel(): void {
-    const startingCapital = config.capital.startingUsd;
+    const startingCapital = this.capitalConfig.startingUsd;
     const ratio = new Decimal(this.capitalUsd).div(startingCapital).toNumber();
     const prev = this.capitalLevel;
 
@@ -263,7 +329,7 @@ export class RiskManager extends EventEmitter {
     if (lastResetDay !== todayStr) {
       this.dailyLossUsd = 0;
       this.lastDailyReset = now;
-      if (this.pauseReason === "daily loss limit hit") this.pauseReason = null;
+      this.unpause("daily loss limit hit");
       log.info("daily loss counter reset");
     }
 
@@ -272,13 +338,14 @@ export class RiskManager extends EventEmitter {
     if (lastWeek !== thisWeek) {
       this.weeklyLossUsd = 0;
       this.lastWeeklyReset = now;
-      if (this.pauseReason === "weekly loss limit hit") this.pauseReason = null;
+      this.unpause("weekly loss limit hit");
       log.info("weekly loss counter reset");
     }
   }
 
   getSnapshot(): BotStateSnapshot {
     return {
+      scope: this.getScope(),
       capitalUsd: this.capitalUsd,
       capitalSol: this.capitalSol,
       walletBalance: this.walletBalance,
@@ -289,9 +356,10 @@ export class RiskManager extends EventEmitter {
       capitalLevel: this.capitalLevel,
       regime: this.regimeDetector.getRegime(),
       rollingWinRate: this.getRollingWinRate(),
-      isRunning: !this.pauseReason,
-      pauseReason: this.pauseReason,
-      openPositions: this.positionTracker.getOpen(),
+      isRunning: this.pauseReasons.size === 0,
+      pauseReason: this.getPrimaryPauseReason(),
+      pauseReasons: this.getPauseReasons(),
+      openPositions: this.positionTracker.getOpen(this.scope),
     };
   }
 }

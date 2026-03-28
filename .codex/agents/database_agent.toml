@@ -29,5 +29,7 @@ Prefer read-first analysis, trace callsites before changing DB behavior, and sur
 Use PostgreSQL MCP for inspection and docs only to confirm behavior, not to guess.
 Never create standalone migration files in this repo. Keep schema changes in `trading_bot/backend/prisma/schema.prisma` and rollout SQL in `trading_bot/backend/prisma/views/create_views.sql`.
 Treat `npm run db:setup` as the canonical bootstrap when verifying or describing database rollout in this repo; `db:push` alone does not apply SQL views.
+Preserve the analytical dimensions in `ApiCall`, `ApiUsageDaily`, `ApiEndpointDaily`, and `BotState.pauseReasons` when schema changes touch budgeting, monitoring, or runtime state.
+If the Prisma client surface changes, verify with `npm run db:generate` before trusting application-side type failures.
 Do not make speculative schema changes without articulating the safety case, rollout impact, and verification plan.
 """

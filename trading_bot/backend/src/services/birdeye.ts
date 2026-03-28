@@ -1,16 +1,57 @@
 import { config } from "../config/index.js";
 import { createChildLogger } from "../utils/logger.js";
-import { ApiCallBuffer } from "../utils/api-call-buffer.js";
 import { CircuitBreaker } from "../utils/circuit-breaker.js";
 import { RateLimiter, backoffWithJitter } from "../utils/rate-limiter.js";
-import type { TokenOverview, TokenSecurity, TokenHolder, TradeData, MemeToken, MultiPriceResult } from "../utils/types.js";
+import { ApiBudgetManager, QuotaExceededError } from "../core/api-budget-manager.js";
+import type { ApiRequestMeta, MultiPriceResult, MemeToken, TokenHolder, TokenOverview, TokenSecurity, TradeData } from "../utils/types.js";
 
 const log = createChildLogger("birdeye");
+
+const ENDPOINT_COSTS = {
+  "/defi/token_overview": 30,
+  "/defi/token_security": 50,
+  "/v3/token/holder": 50,
+  "/v3/token/trade-data/single": 15,
+  "/v3/token/list": 100,
+  "/v3/token/meme/list": 100,
+  "/v3/token/meme/detail/single": 30,
+  "/v2/tokens/top_traders": 30,
+  "/defi/token_trending": 50,
+  "/v2/tokens/new_listing": 80,
+  "/v3/pair/overview/single": 20,
+  "/defi/ohlcv": 40,
+  "/v3/token/txs": 20,
+  "/utils/v1/credits": 1,
+} as const;
+
+const CACHE_TTLS = {
+  overview: 30_000,
+  security: 15 * 60_000,
+  holders: 10 * 60_000,
+  trade: 20_000,
+  tokenList: 20_000,
+  memeList: 20_000,
+  memeDetail: 30_000,
+  trending: 20_000,
+  newListings: 20_000,
+  pair: 20_000,
+  multiPrice: 5_000,
+  credits: 60_000,
+} as const;
 
 class BirdeyeHttpError extends Error {
   constructor(public status: number, statusText: string) {
     super(`Birdeye HTTP ${status}: ${statusText}`);
   }
+}
+
+export interface BirdeyeCreditsUsage {
+  cycleStart: Date | null;
+  cycleEnd: Date | null;
+  used: number | null;
+  remaining: number | null;
+  overage: number | null;
+  overageCost: number | null;
 }
 
 function isAbortError(err: unknown): boolean {
@@ -19,20 +60,21 @@ function isAbortError(err: unknown): boolean {
 
 function sanitizeFinite(v: unknown, fallback = 0): number {
   const n = Number(v);
-  return isFinite(n) ? n : fallback;
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function estimateBatchCost(batchSize: number, baseCost: number = 5): number {
+  return Math.ceil(Math.pow(Math.max(batchSize, 1), 0.8) * baseCost);
 }
 
 export class BirdeyeService {
   private lastRequestTime = 0;
-  private apiBuffer: ApiCallBuffer;
   private circuitBreaker: CircuitBreaker;
   private walletRateLimiter: RateLimiter;
   private readonly tokenCache = new Map<string, { value: unknown; expiresAt: number }>();
-  private readonly CACHE_TTL = config.api.birdeyeCacheTtlMs;
-  private inflight: Map<string, Promise<unknown>> = new Map();
+  private inflight = new Map<string, Promise<unknown>>();
 
-  constructor(apiBuffer?: ApiCallBuffer) {
-    this.apiBuffer = apiBuffer ?? new ApiCallBuffer();
+  constructor(private budgetManager: ApiBudgetManager) {
     this.circuitBreaker = new CircuitBreaker(
       "birdeye",
       config.circuitBreaker.birdeye.failureThreshold,
@@ -43,13 +85,17 @@ export class BirdeyeService {
     this.walletRateLimiter = new RateLimiter("birdeye-wallet", config.api.birdeyeWalletRpmLimit, config.api.birdeyeWalletWindowMs);
   }
 
-  private async request<T>(path: string, params?: Record<string, string | number | boolean | undefined>): Promise<T> {
+  private async request<T>(
+    path: string,
+    params?: Record<string, string | number | boolean | undefined>,
+  ): Promise<T> {
     const url = new URL(path, config.birdeye.baseUrl);
     if (params) {
       for (const [k, v] of Object.entries(params)) {
         if (v !== undefined) url.searchParams.set(k, String(v));
       }
     }
+
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), config.api.birdeyeTimeoutMs);
     try {
@@ -69,7 +115,7 @@ export class BirdeyeService {
     const now = Date.now();
     const wait = Math.max(0, minInterval - (now - this.lastRequestTime));
 
-    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
     this.lastRequestTime = Date.now();
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -81,9 +127,10 @@ export class BirdeyeService {
         if (!isRetryable || attempt === maxRetries) throw err;
         const delay = backoffWithJitter(attempt);
         log.debug({ attempt, delay, status }, "retrying birdeye request");
-        await new Promise((r) => setTimeout(r, delay));
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
+
     throw new Error("unreachable");
   }
 
@@ -95,21 +142,87 @@ export class BirdeyeService {
   private getCached<T>(key: string): T | null {
     const entry = this.tokenCache.get(key);
     if (entry && Date.now() < entry.expiresAt) return entry.value as T;
+    if (entry) this.tokenCache.delete(key);
     return null;
   }
 
   private setCache(key: string, value: unknown): void {
-    this.tokenCache.set(key, { value, expiresAt: Date.now() + this.CACHE_TTL });
+    this.tokenCache.set(key, { value, expiresAt: Date.now() + this.getCacheTtl(key) });
   }
 
-  async getTokenOverview(address: string): Promise<TokenOverview | null> {
-    const cached = this.getCached<TokenOverview>(`overview:${address}`);
-    if (cached) return cached;
+  private getCacheTtl(key: string): number {
+    if (key.startsWith("overview:")) return CACHE_TTLS.overview;
+    if (key.startsWith("security:")) return CACHE_TTLS.security;
+    if (key.startsWith("holders:")) return CACHE_TTLS.holders;
+    if (key.startsWith("trade:")) return CACHE_TTLS.trade;
+    if (key.startsWith("token-list:")) return CACHE_TTLS.tokenList;
+    if (key.startsWith("meme-list:")) return CACHE_TTLS.memeList;
+    if (key.startsWith("meme-detail:")) return CACHE_TTLS.memeDetail;
+    if (key.startsWith("trending:")) return CACHE_TTLS.trending;
+    if (key.startsWith("new-listings:")) return CACHE_TTLS.newListings;
+    if (key.startsWith("pair:")) return CACHE_TTLS.pair;
+    if (key.startsWith("multi-price:")) return CACHE_TTLS.multiPrice;
+    if (key.startsWith("credits:")) return CACHE_TTLS.credits;
+    return config.api.birdeyeCacheTtlMs;
+  }
+
+  private dedupedFetch<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    const existing = this.inflight.get(key);
+    if (existing) return existing as Promise<T>;
+    const promise = fn().finally(() => this.inflight.delete(key));
+    this.inflight.set(key, promise);
+    return promise;
+  }
+
+  private async requestWithBudget<T>(options: {
+    endpoint: string;
+    params?: Record<string, string | number | boolean | undefined>;
+    estimatedCredits: number;
+    meta?: ApiRequestMeta;
+    walletEndpoint?: boolean;
+  }): Promise<T> {
+    const reservation = await this.budgetManager.reserve("BIRDEYE", options.estimatedCredits, options.meta);
+    const startedAt = Date.now();
+    try {
+      const runner = options.walletEndpoint ? this.walletThrottledRequest.bind(this) : this.throttledRequest.bind(this);
+      const result = await runner(() => this.request<T>(options.endpoint, options.params));
+      reservation.commit({
+        endpoint: options.endpoint,
+        credits: options.estimatedCredits,
+        statusCode: 200,
+        latencyMs: Date.now() - startedAt,
+        batchSize: options.meta?.batchSize,
+      });
+      return result;
+    } catch (err) {
+      reservation.commit({
+        endpoint: options.endpoint,
+        credits: options.estimatedCredits,
+        statusCode: err instanceof BirdeyeHttpError ? err.status : 0,
+        latencyMs: Date.now() - startedAt,
+        success: false,
+        batchSize: options.meta?.batchSize,
+      });
+      throw err;
+    }
+  }
+
+  async getTokenOverview(address: string, meta?: ApiRequestMeta): Promise<TokenOverview | null> {
+    const cacheKey = `overview:${address}`;
+    const cached = this.getCached<TokenOverview>(cacheKey);
+    if (cached) {
+      this.budgetManager.recordCacheHit("BIRDEYE", "/defi/token_overview", meta);
+      return cached;
+    }
 
     try {
-      return this.dedupedFetch(`overview:${address}`, () =>
-        this.throttledRequest(() => this.request<{ data?: Record<string, unknown> }>(`/defi/token_overview`, { address })),
-      ).then((res) => {
+      return this.dedupedFetch(cacheKey, async () => {
+        const res = await this.requestWithBudget<{ data?: Record<string, unknown> }>({
+          endpoint: "/defi/token_overview",
+          params: { address },
+          estimatedCredits: ENDPOINT_COSTS["/defi/token_overview"],
+          meta,
+        });
         const d = res?.data;
         if (!d) return null;
 
@@ -128,23 +241,32 @@ export class BirdeyeService {
           buyPercent: sanitizeFinite(d.buy5mPercent),
           sellPercent: sanitizeFinite(d.sell5mPercent),
         };
-        this.setCache(`overview:${address}`, result);
+        this.setCache(cacheKey, result);
         return result;
       });
     } catch (err) {
-      log.error({ err: (err as Error).message, address }, "getTokenOverview failed");
+      if (!(err instanceof QuotaExceededError)) {
+        log.error({ err: (err as Error).message, address }, "getTokenOverview failed");
+      }
       return null;
     }
   }
 
-  async getTokenSecurity(address: string): Promise<TokenSecurity | null> {
-    const cached = this.getCached<TokenSecurity>(`security:${address}`);
-    if (cached) return cached;
+  async getTokenSecurity(address: string, meta?: ApiRequestMeta): Promise<TokenSecurity | null> {
+    const cacheKey = `security:${address}`;
+    const cached = this.getCached<TokenSecurity>(cacheKey);
+    if (cached) {
+      this.budgetManager.recordCacheHit("BIRDEYE", "/defi/token_security", meta);
+      return cached;
+    }
 
     try {
-      const res = await this.throttledRequest(() =>
-        this.request<{ data?: Record<string, unknown> }>(`/defi/token_security`, { address }),
-      );
+      const res = await this.requestWithBudget<{ data?: Record<string, unknown> }>({
+        endpoint: "/defi/token_security",
+        params: { address },
+        estimatedCredits: ENDPOINT_COSTS["/defi/token_security"],
+        meta,
+      });
       const d = res?.data;
       if (!d) return null;
 
@@ -155,40 +277,62 @@ export class BirdeyeService {
         transferFeeEnable: d.transferFeeEnable === "true" || d.transferFeeEnable === true,
         mutableMetadata: d.mutableMetadata === "true" || d.mutableMetadata === true,
       };
-      this.setCache(`security:${address}`, result);
+      this.setCache(cacheKey, result);
       return result;
     } catch (err) {
-      log.error({ err: (err as Error).message, address }, "getTokenSecurity failed");
+      if (!(err instanceof QuotaExceededError)) {
+        log.error({ err: (err as Error).message, address }, "getTokenSecurity failed");
+      }
       return null;
     }
   }
 
-  async getTokenHolders(address: string, limit: number = 10): Promise<TokenHolder[]> {
+  async getTokenHolders(address: string, limit: number = 10, meta?: ApiRequestMeta): Promise<TokenHolder[]> {
+    const cacheKey = `holders:${address}:${limit}`;
+    const cached = this.getCached<TokenHolder[]>(cacheKey);
+    if (cached) {
+      this.budgetManager.recordCacheHit("BIRDEYE", "/v3/token/holder", { ...meta, batchSize: limit });
+      return cached;
+    }
+
     try {
-      const res = await this.throttledRequest(() =>
-        this.request<{ data?: { items?: unknown[] } }>(`/v3/token/holder`, { address, limit }),
-      );
-      this.trackCall("v3/token/holder");
+      const res = await this.requestWithBudget<{ data?: { items?: unknown[] } }>({
+        endpoint: "/v3/token/holder",
+        params: { address, limit },
+        estimatedCredits: ENDPOINT_COSTS["/v3/token/holder"],
+        meta: { ...meta, batchSize: limit },
+        walletEndpoint: true,
+      });
       const items = (res?.data?.items ?? []) as Record<string, unknown>[];
-      return items.map((h) => ({
-        address: String(h.owner ?? ""),
-        percent: sanitizeFinite(h.uiAmountPercent),
+      const holders = items.map((holder) => ({
+        address: String(holder.owner ?? ""),
+        percent: sanitizeFinite(holder.uiAmountPercent),
       }));
+      this.setCache(cacheKey, holders);
+      return holders;
     } catch (err) {
-      log.warn({ err: (err as Error).message, address }, "getTokenHolders failed");
+      if (!(err instanceof QuotaExceededError)) {
+        log.warn({ err: (err as Error).message, address }, "getTokenHolders failed");
+      }
       return [];
     }
   }
 
-  async getTradeData(address: string): Promise<TradeData | null> {
-    const cached = this.getCached<TradeData>(`trade:${address}`);
-    if (cached) return cached;
+  async getTradeData(address: string, meta?: ApiRequestMeta): Promise<TradeData | null> {
+    const cacheKey = `trade:${address}`;
+    const cached = this.getCached<TradeData>(cacheKey);
+    if (cached) {
+      this.budgetManager.recordCacheHit("BIRDEYE", "/v3/token/trade-data/single", meta);
+      return cached;
+    }
 
     try {
-      const res = await this.throttledRequest(() =>
-        this.request<{ data?: Record<string, unknown> }>(`/v3/token/trade-data/single`, { address }),
-      );
-      this.trackCall("v3/token/trade-data/single");
+      const res = await this.requestWithBudget<{ data?: Record<string, unknown> }>({
+        endpoint: "/v3/token/trade-data/single",
+        params: { address },
+        estimatedCredits: ENDPOINT_COSTS["/v3/token/trade-data/single"],
+        meta,
+      });
       const d = res?.data;
       if (!d) return null;
 
@@ -200,25 +344,38 @@ export class BirdeyeService {
         buy5m: sanitizeFinite(d.buy5m),
         uniqueWallet5m: sanitizeFinite(d.uniqueWallet5m),
       };
-      this.setCache(`trade:${address}`, result);
+      this.setCache(cacheKey, result);
       return result;
     } catch (err) {
-      log.warn({ err: (err as Error).message, address }, "getTradeData failed");
+      if (!(err instanceof QuotaExceededError)) {
+        log.warn({ err: (err as Error).message, address }, "getTradeData failed");
+      }
       return null;
     }
   }
 
-  async getTokenList(params: {
-    sortBy: string;
-    minVolume5m?: number;
-    minLiquidity?: number;
-    maxMarketCap?: number;
-    minHolder?: number;
-    limit?: number;
-  }): Promise<TokenOverview[]> {
+  async getTokenList(
+    params: {
+      sortBy: string;
+      minVolume5m?: number;
+      minLiquidity?: number;
+      maxMarketCap?: number;
+      minHolder?: number;
+      limit?: number;
+    },
+    meta?: ApiRequestMeta,
+  ): Promise<TokenOverview[]> {
+    const cacheKey = `token-list:${JSON.stringify(params)}`;
+    const cached = this.getCached<TokenOverview[]>(cacheKey);
+    if (cached) {
+      this.budgetManager.recordCacheHit("BIRDEYE", "/v3/token/list", { ...meta, batchSize: params.limit ?? 5 });
+      return cached;
+    }
+
     try {
-      const res = await this.throttledRequest(() =>
-        this.request<{ data?: { items?: unknown[] } }>(`/v3/token/list`, {
+      const res = await this.requestWithBudget<{ data?: { items?: unknown[] } }>({
+        endpoint: "/v3/token/list",
+        params: {
           sort_by: params.sortBy,
           sort_type: "desc",
           min_volume_5m_usd: params.minVolume5m,
@@ -226,11 +383,12 @@ export class BirdeyeService {
           max_market_cap: params.maxMarketCap,
           min_holder: params.minHolder,
           limit: params.limit ?? 5,
-        }),
-      );
-      this.trackCall("v3/token/list");
+        },
+        estimatedCredits: ENDPOINT_COSTS["/v3/token/list"],
+        meta: { ...meta, batchSize: params.limit ?? 5 },
+      });
       const items = (res?.data?.items ?? []) as Record<string, unknown>[];
-      return items.map((d) => ({
+      const list = items.map((d) => ({
         address: String(d.address ?? ""),
         symbol: String(d.symbol ?? ""),
         name: String(d.name ?? ""),
@@ -245,32 +403,48 @@ export class BirdeyeService {
         buyPercent: sanitizeFinite(d.buy5mPercent),
         sellPercent: sanitizeFinite(d.sell5mPercent),
       }));
+      this.setCache(cacheKey, list);
+      return list;
     } catch (err) {
-      log.error({ err: (err as Error).message }, "getTokenList failed");
+      if (!(err instanceof QuotaExceededError)) {
+        log.error({ err: (err as Error).message }, "getTokenList failed");
+      }
       return [];
     }
   }
 
-  async getMemeTokenList(params: {
-    graduated?: boolean;
-    minProgressPercent?: number;
-    minGraduatedTime?: number;
-    source?: string;
-    limit?: number;
-  }): Promise<MemeToken[]> {
+  async getMemeTokenList(
+    params: {
+      graduated?: boolean;
+      minProgressPercent?: number;
+      minGraduatedTime?: number;
+      source?: string;
+      limit?: number;
+    },
+    meta?: ApiRequestMeta,
+  ): Promise<MemeToken[]> {
+    const cacheKey = `meme-list:${JSON.stringify(params)}`;
+    const cached = this.getCached<MemeToken[]>(cacheKey);
+    if (cached) {
+      this.budgetManager.recordCacheHit("BIRDEYE", "/v3/token/meme/list", { ...meta, batchSize: params.limit ?? 10 });
+      return cached;
+    }
+
     try {
-      const res = await this.throttledRequest(() =>
-        this.request<{ data?: { items?: unknown[] } }>(`/v3/token/meme/list`, {
+      const res = await this.requestWithBudget<{ data?: { items?: unknown[] } }>({
+        endpoint: "/v3/token/meme/list",
+        params: {
           graduated: params.graduated,
           min_progress_percent: params.minProgressPercent,
           min_graduated_time: params.minGraduatedTime,
           source: params.source,
           limit: params.limit ?? 10,
-        }),
-      );
-      this.trackCall("v3/token/meme/list");
+        },
+        estimatedCredits: ENDPOINT_COSTS["/v3/token/meme/list"],
+        meta: { ...meta, batchSize: params.limit ?? 10 },
+      });
       const items = (res?.data?.items ?? []) as Record<string, unknown>[];
-      return items.map((d) => ({
+      const tokens = items.map((d) => ({
         address: String(d.address ?? ""),
         symbol: String(d.symbol ?? ""),
         name: String(d.name ?? ""),
@@ -281,22 +455,35 @@ export class BirdeyeService {
         realSolReserves: sanitizeFinite(d.realSolReserves),
         creator: String(d.creator ?? ""),
       }));
+      this.setCache(cacheKey, tokens);
+      return tokens;
     } catch (err) {
-      log.error({ err: (err as Error).message }, "getMemeTokenList failed");
+      if (!(err instanceof QuotaExceededError)) {
+        log.error({ err: (err as Error).message }, "getMemeTokenList failed");
+      }
       return [];
     }
   }
 
-  async getMemeTokenDetail(address: string): Promise<MemeToken | null> {
+  async getMemeTokenDetail(address: string, meta?: ApiRequestMeta): Promise<MemeToken | null> {
+    const cacheKey = `meme-detail:${address}`;
+    const cached = this.getCached<MemeToken>(cacheKey);
+    if (cached) {
+      this.budgetManager.recordCacheHit("BIRDEYE", "/v3/token/meme/detail/single", meta);
+      return cached;
+    }
+
     try {
-      const res = await this.throttledRequest(() =>
-        this.request<{ data?: Record<string, unknown> }>(`/v3/token/meme/detail/single`, { address }),
-      );
-      this.trackCall("v3/token/meme/detail/single");
+      const res = await this.requestWithBudget<{ data?: Record<string, unknown> }>({
+        endpoint: "/v3/token/meme/detail/single",
+        params: { address },
+        estimatedCredits: ENDPOINT_COSTS["/v3/token/meme/detail/single"],
+        meta,
+      });
       const d = res?.data;
       if (!d) return null;
 
-      return {
+      const token = {
         address: String(d.address ?? ""),
         symbol: String(d.symbol ?? ""),
         name: String(d.name ?? ""),
@@ -307,132 +494,255 @@ export class BirdeyeService {
         realSolReserves: sanitizeFinite(d.realSolReserves),
         creator: String(d.creator ?? ""),
       };
+      this.setCache(cacheKey, token);
+      return token;
     } catch (err) {
-      log.warn({ err: (err as Error).message, address }, "getMemeTokenDetail failed");
+      if (!(err instanceof QuotaExceededError)) {
+        log.warn({ err: (err as Error).message, address }, "getMemeTokenDetail failed");
+      }
       return null;
     }
   }
 
-  async getTopTraders(address: string): Promise<unknown[]> {
+  async getTopTraders(address: string, meta?: ApiRequestMeta): Promise<unknown[]> {
     try {
-      const res = await this.throttledRequest(() =>
-        this.request<{ data?: unknown[] }>(`/v2/tokens/top_traders`, { address }),
-      );
-      this.trackCall("v2/tokens/top_traders");
+      const res = await this.requestWithBudget<{ data?: unknown[] }>({
+        endpoint: "/v2/tokens/top_traders",
+        params: { address },
+        estimatedCredits: ENDPOINT_COSTS["/v2/tokens/top_traders"],
+        meta,
+      });
       return res?.data ?? [];
     } catch (err) {
-      log.warn({ err: (err as Error).message, address }, "getTopTraders failed");
+      if (!(err instanceof QuotaExceededError)) {
+        log.warn({ err: (err as Error).message, address }, "getTopTraders failed");
+      }
       return [];
     }
   }
 
-  async getTokenTrending(): Promise<unknown[]> {
+  async getTokenTrending(meta?: ApiRequestMeta): Promise<unknown[]> {
+    const cacheKey = "trending:volume";
+    const cached = this.getCached<unknown[]>(cacheKey);
+    if (cached) {
+      this.budgetManager.recordCacheHit("BIRDEYE", "/defi/token_trending", meta);
+      return cached;
+    }
+
     try {
-      const res = await this.throttledRequest(() =>
-        this.request<{ data?: { items?: unknown[] } }>(`/defi/token_trending`, {
+      const res = await this.requestWithBudget<{ data?: { items?: unknown[] } }>({
+        endpoint: "/defi/token_trending",
+        params: {
           sort_by: "volume",
           sort_type: "desc",
           offset: 0,
           limit: 10,
-        }),
-      );
-      this.trackCall("token_trending");
-      return res?.data?.items ?? [];
+        },
+        estimatedCredits: ENDPOINT_COSTS["/defi/token_trending"],
+        meta: { ...meta, batchSize: 10 },
+      });
+      const items = res?.data?.items ?? [];
+      this.setCache(cacheKey, items);
+      return items;
     } catch (err) {
-      log.warn({ err: (err as Error).message }, "getTokenTrending failed");
+      if (!(err instanceof QuotaExceededError)) {
+        log.warn({ err: (err as Error).message }, "getTokenTrending failed");
+      }
       return [];
     }
   }
 
-  async getNewListings(): Promise<unknown[]> {
+  async getNewListings(meta?: ApiRequestMeta): Promise<unknown[]> {
+    const cacheKey = "new-listings:20";
+    const cached = this.getCached<unknown[]>(cacheKey);
+    if (cached) {
+      this.budgetManager.recordCacheHit("BIRDEYE", "/v2/tokens/new_listing", meta);
+      return cached;
+    }
+
     try {
-      const res = await this.throttledRequest(() =>
-        this.request<{ data?: unknown[] }>(`/v2/tokens/new_listing`, { limit: 20 }),
-      );
-      this.trackCall("v2/tokens/new_listing");
-      return res?.data ?? [];
+      const res = await this.requestWithBudget<{ data?: unknown[] }>({
+        endpoint: "/v2/tokens/new_listing",
+        params: { limit: 20 },
+        estimatedCredits: ENDPOINT_COSTS["/v2/tokens/new_listing"],
+        meta: { ...meta, batchSize: 20 },
+      });
+      const listings = res?.data ?? [];
+      this.setCache(cacheKey, listings);
+      return listings;
     } catch (err) {
-      log.warn({ err: (err as Error).message }, "getNewListings failed");
+      if (!(err instanceof QuotaExceededError)) {
+        log.warn({ err: (err as Error).message }, "getNewListings failed");
+      }
       return [];
     }
   }
 
-  async getPairOverview(pairAddress: string): Promise<unknown> {
+  async getPairOverview(pairAddress: string, meta?: ApiRequestMeta): Promise<unknown> {
+    const cacheKey = `pair:${pairAddress}`;
+    const cached = this.getCached<unknown>(cacheKey);
+    if (cached) {
+      this.budgetManager.recordCacheHit("BIRDEYE", "/v3/pair/overview/single", meta);
+      return cached;
+    }
+
     try {
-      const res = await this.throttledRequest(() =>
-        this.request<{ data?: unknown }>(`/v3/pair/overview/single`, { address: pairAddress }),
-      );
-      this.trackCall("v3/pair/overview/single");
-      return res?.data ?? null;
+      const res = await this.requestWithBudget<{ data?: unknown }>({
+        endpoint: "/v3/pair/overview/single",
+        params: { address: pairAddress },
+        estimatedCredits: ENDPOINT_COSTS["/v3/pair/overview/single"],
+        meta,
+      });
+      const pair = res?.data ?? null;
+      this.setCache(cacheKey, pair);
+      return pair;
     } catch (err) {
-      log.warn({ err: (err as Error).message, pairAddress }, "getPairOverview failed");
+      if (!(err instanceof QuotaExceededError)) {
+        log.warn({ err: (err as Error).message, pairAddress }, "getPairOverview failed");
+      }
       return null;
     }
   }
 
-  async getOhlcv(address: string, params?: {
-    timeFrom?: number;
-    timeTo?: number;
-    type?: string;
-  }): Promise<unknown[]> {
+  async getOhlcv(
+    address: string,
+    params?: {
+      timeFrom?: number;
+      timeTo?: number;
+      type?: string;
+    },
+    meta?: ApiRequestMeta,
+  ): Promise<unknown[]> {
     try {
-      const res = await this.throttledRequest(() =>
-        this.request<{ data?: { items?: unknown[] } }>(`/defi/ohlcv`, {
+      const res = await this.requestWithBudget<{ data?: { items?: unknown[] } }>({
+        endpoint: "/defi/ohlcv",
+        params: {
           address,
           type: params?.type ?? "15m",
           time_from: params?.timeFrom,
           time_to: params?.timeTo,
           limit: 999,
-        }),
-      );
-      this.trackCall("ohlcv", 60);
+        },
+        estimatedCredits: ENDPOINT_COSTS["/defi/ohlcv"],
+        meta,
+      });
       return res?.data?.items ?? [];
     } catch (err) {
-      log.warn({ err: (err as Error).message, address }, "getOhlcv failed");
+      if (!(err instanceof QuotaExceededError)) {
+        log.warn({ err: (err as Error).message, address }, "getOhlcv failed");
+      }
       return [];
     }
   }
 
-  async getTokenTradeHistory(address: string): Promise<unknown[]> {
+  async getTokenTradeHistory(address: string, meta?: ApiRequestMeta): Promise<unknown[]> {
     try {
-      const res = await this.throttledRequest(() =>
-        this.request<{ data?: { items?: unknown[] } }>(`/v3/token/txs`, { address, limit: 100 }),
-      );
-      this.trackCall("v3/token/txs", 25);
+      const res = await this.requestWithBudget<{ data?: { items?: unknown[] } }>({
+        endpoint: "/v3/token/txs",
+        params: { address, limit: 100 },
+        estimatedCredits: ENDPOINT_COSTS["/v3/token/txs"],
+        meta: { ...meta, batchSize: 100 },
+      });
       return res?.data?.items ?? [];
     } catch (err) {
-      log.warn({ err: (err as Error).message, address }, "getTokenTradeHistory failed");
+      if (!(err instanceof QuotaExceededError)) {
+        log.warn({ err: (err as Error).message, address }, "getTokenTradeHistory failed");
+      }
       return [];
     }
   }
 
-  async getMultiPrice(addresses: string[]): Promise<Map<string, MultiPriceResult>> {
+  async getMultiPrice(addresses: string[], meta?: ApiRequestMeta): Promise<Map<string, MultiPriceResult>> {
     const results = new Map<string, MultiPriceResult>();
-    if (addresses.length === 0) return results;
+    const unique = [...new Set(addresses.filter(Boolean))];
+    if (unique.length === 0) return results;
+
+    const misses: string[] = [];
+    for (const address of unique) {
+      const cached = this.getCached<MultiPriceResult>(`multi-price:${address}`);
+      if (cached) {
+        results.set(address, cached);
+      } else {
+        misses.push(address);
+      }
+    }
+
+    if (misses.length === 0) {
+      this.budgetManager.recordCacheHit("BIRDEYE", "/defi/multi_price", { ...meta, batchSize: unique.length });
+      return results;
+    }
 
     try {
-      const res = await this.throttledRequest(() =>
-        this.request<{ data?: Record<string, unknown> }>(`/defi/multi_price`, {
-          list_address: addresses.join(","),
-        }),
-      );
-      this.trackCall("multi_price", addresses.length);
+      const res = await this.requestWithBudget<{ data?: Record<string, unknown> }>({
+        endpoint: "/defi/multi_price",
+        params: { list_address: misses.join(",") },
+        estimatedCredits: estimateBatchCost(misses.length),
+        meta: { ...meta, batchSize: misses.length },
+      });
       const data = res?.data ?? {};
 
-      for (const [addr, info] of Object.entries(data)) {
+      for (const [address, info] of Object.entries(data)) {
         const d = info as Record<string, unknown>;
-        results.set(addr, {
-          value: (d.value as number) ?? 0,
-          priceChange24h: (d.priceChange24h as number) ?? 0,
-          liquidity: (d.liquidity as number) ?? 0,
-          updateUnixTime: (d.updateUnixTime as number) ?? 0,
-        });
+        const entry: MultiPriceResult = {
+          value: sanitizeFinite(d.value),
+          priceChange24h: sanitizeFinite(d.priceChange24h),
+          liquidity: sanitizeFinite(d.liquidity),
+          updateUnixTime: sanitizeFinite(d.updateUnixTime),
+        };
+        results.set(address, entry);
+        this.setCache(`multi-price:${address}`, entry);
       }
     } catch (err) {
-      log.error({ err: (err as Error).message, count: addresses.length }, "getMultiPrice failed");
+      if (!(err instanceof QuotaExceededError)) {
+        log.error({ err: (err as Error).message, count: misses.length }, "getMultiPrice failed");
+      }
     }
 
     return results;
+  }
+
+  async getCreditsUsage(meta?: ApiRequestMeta): Promise<BirdeyeCreditsUsage | null> {
+    const cacheKey = "credits:usage";
+    const cached = this.getCached<BirdeyeCreditsUsage>(cacheKey);
+    if (cached) {
+      this.budgetManager.recordCacheHit("BIRDEYE", "/utils/v1/credits", meta);
+      return cached;
+    }
+
+    try {
+      const res = await this.requestWithBudget<{ data?: Record<string, unknown> }>({
+        endpoint: "/utils/v1/credits",
+        estimatedCredits: ENDPOINT_COSTS["/utils/v1/credits"],
+        meta,
+      });
+      const data = res?.data;
+      if (!data) return null;
+
+      const usage = {
+        cycleStart: typeof data.cycle_start === "string" ? new Date(data.cycle_start) : null,
+        cycleEnd: typeof data.cycle_end === "string" ? new Date(data.cycle_end) : null,
+        used: sanitizeFinite((data.usage as Record<string, unknown> | undefined)?.total, NaN),
+        remaining: sanitizeFinite((data.remaining as Record<string, unknown> | undefined)?.total, NaN),
+        overage: sanitizeFinite(data.overage_usage, NaN),
+        overageCost: sanitizeFinite(data.overage_cost, NaN),
+      };
+
+      const normalized: BirdeyeCreditsUsage = {
+        cycleStart: usage.cycleStart,
+        cycleEnd: usage.cycleEnd,
+        used: Number.isFinite(usage.used) ? usage.used : null,
+        remaining: Number.isFinite(usage.remaining) ? usage.remaining : null,
+        overage: Number.isFinite(usage.overage) ? usage.overage : null,
+        overageCost: Number.isFinite(usage.overageCost) ? usage.overageCost : null,
+      };
+      this.setCache(cacheKey, normalized);
+      return normalized;
+    } catch (err) {
+      if (!(err instanceof QuotaExceededError)) {
+        log.warn({ err: (err as Error).message }, "getCreditsUsage failed");
+      }
+      return null;
+    }
   }
 
   getCircuitBreakerState(): string {
@@ -441,21 +751,5 @@ export class BirdeyeService {
 
   getWalletRateLimitUsage() {
     return this.walletRateLimiter.getUsage();
-  }
-
-  private trackCall(endpoint: string, credits: number = 1): void {
-    this.apiBuffer.log({ service: "BIRDEYE", endpoint, credits });
-  }
-
-  private dedupedFetch<T>(key: string, fn: () => Promise<T>): Promise<T> {
-    const existing = this.inflight.get(key);
-    if (existing) return existing as Promise<T>;
-    const p = fn().finally(() => this.inflight.delete(key));
-    this.inflight.set(key, p);
-    return p;
-  }
-
-  async flushApiCalls(): Promise<void> {
-    await this.apiBuffer.flush();
   }
 }

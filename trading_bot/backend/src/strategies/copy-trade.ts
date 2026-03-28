@@ -1,10 +1,8 @@
 import { EventEmitter } from "events";
-import { fileURLToPath } from "node:url";
-import path from "node:path";
+import pLimit from "p-limit";
 import { config } from "../config/index.js";
 import { db } from "../db/client.js";
 import { createChildLogger } from "../utils/logger.js";
-import { WorkerPool } from "../utils/worker-pool.js";
 import type { RiskManager } from "../core/risk-manager.js";
 import type { PositionTracker } from "../core/position-tracker.js";
 import type { ITradeExecutor } from "../utils/trade-executor-interface.js";
@@ -12,28 +10,30 @@ import type { ExitMonitor } from "../core/exit-monitor.js";
 import type { RegimeDetector } from "../core/regime-detector.js";
 import type { HeliusService } from "../services/helius.js";
 import type { BirdeyeService } from "../services/birdeye.js";
-import type { SignalResult, JsonValue } from "../utils/types.js";
+import type { ApiCallPurpose, ExecutionScope, SignalResult, JsonValue } from "../utils/types.js";
 
 const log = createChildLogger("s1-copy");
-const cfg = config.strategies.s1;
-
-interface ScoringTask {
-  walletAddress: string;
-  heliusApiKey: string;
-  heliusRpcUrl: string;
-}
+const DEFAULT_SCOPE: ExecutionScope = { mode: config.tradeMode, configProfile: "default" };
 
 interface ScoringResult {
   walletAddress: string;
   compositeScore: number;
   archetype: string;
+  winRate: number;
+  maxLoss: number;
+  consistency: number;
+  frequency: number;
+  diversity: number;
+  age: number;
 }
 
 export class CopyTradeStrategy extends EventEmitter {
   private eliteWallets: string[] = [];
   private wsMessageHandler: ((data: unknown) => void) | null = null;
   private processingTokens: Set<string> = new Set();
-  private scoringPool: WorkerPool<ScoringTask, ScoringResult | null> | null = null;
+  private recentWalletSignatures: Set<string> = new Set();
+  private readonly cfg: typeof config.strategies.s1;
+  private readonly scope: ExecutionScope;
 
   constructor(
     private riskManager: RiskManager,
@@ -43,12 +43,22 @@ export class CopyTradeStrategy extends EventEmitter {
     private regimeDetector: RegimeDetector,
     private helius: HeliusService,
     private birdeye: BirdeyeService,
+    options?: {
+      scope?: ExecutionScope;
+      strategyConfig?: typeof config.strategies.s1;
+    },
   ) {
     super();
+    this.scope = options?.scope ?? DEFAULT_SCOPE;
+    this.cfg = options?.strategyConfig ?? config.strategies.s1;
   }
 
   async start(): Promise<void> {
     await this.loadEliteWallets();
+    if (this.eliteWallets.length === 0) {
+      await this.runWalletScoring();
+      await this.loadEliteWallets();
+    }
     this.wsMessageHandler = (data) => {
       void this.handleWebhookEvent(data);
     };
@@ -79,19 +89,37 @@ export class CopyTradeStrategy extends EventEmitter {
     const recent = await db.walletScore.findMany({
       where: { isElite: true },
       orderBy: { scoredAt: "desc" },
-      take: cfg.walletCount * 10,
+      take: this.cfg.walletCount * 10,
       select: { walletAddress: true },
     });
 
     const seen = new Set<string>();
     this.eliteWallets = recent
       .filter((w) => !seen.has(w.walletAddress) && seen.add(w.walletAddress) !== undefined)
-      .slice(0, cfg.walletCount)
+      .slice(0, this.cfg.walletCount)
       .map((w) => w.walletAddress);
 
     if (this.eliteWallets.length === 0) {
-      log.warn("no elite wallets found — S1 will be idle until wallet scoring runs");
+      log.warn({ profile: this.scope.configProfile }, "no elite wallets found — bootstrapping wallet scoring");
     }
+  }
+
+  private apiMeta(purpose: ApiCallPurpose, essential = false, batchSize?: number) {
+    return {
+      strategy: "S1_COPY" as const,
+      mode: this.scope.mode,
+      configProfile: this.scope.configProfile,
+      purpose,
+      essential,
+      batchSize,
+    };
+  }
+
+  private trackRecentSignature(signature: string): void {
+    this.recentWalletSignatures.add(signature);
+    if (this.recentWalletSignatures.size <= 2_000) return;
+    const oldest = this.recentWalletSignatures.values().next().value;
+    if (oldest) this.recentWalletSignatures.delete(oldest);
   }
 
   private async handleWebhookEvent(data: unknown): Promise<void> {
@@ -104,8 +132,10 @@ export class CopyTradeStrategy extends EventEmitter {
       const result = params.result as Record<string, unknown> | undefined;
       if (!result) return;
 
-      const accountKey = (result as Record<string, unknown>).value?.toString() ?? "";
-      if (!this.eliteWallets.includes(accountKey)) return;
+    const accountKey = typeof event.subscriptionAddress === "string"
+      ? event.subscriptionAddress
+      : "";
+    if (!this.eliteWallets.includes(accountKey)) return;
 
       await this.processWalletActivity(accountKey, detectedAt);
     } catch (err) {
@@ -114,30 +144,31 @@ export class CopyTradeStrategy extends EventEmitter {
   }
 
   private async processWalletActivity(walletAddress: string, detectedAt: number): Promise<void> {
-    const recentTxs = await this.helius.getTransactionsForAddress(walletAddress, {
-      tokenAccounts: "balanceChanged",
-      limit: 5,
-    });
-    if (!recentTxs.length) return;
-
-    const latestTx = recentTxs[0] as Record<string, unknown>;
-    const tokenTransfers = latestTx.tokenTransfers as Array<Record<string, unknown>> | undefined;
-    if (!tokenTransfers?.length) return;
-
-    const buyTransfer = tokenTransfers.find(
-      (t) => t.fromUserAccount === "" || t.fromUserAccount === null,
+    const signatures = await this.helius.getSignaturesForAddressIncremental(
+      walletAddress,
+      5,
+      this.apiMeta("WALLET_DISCOVERY"),
     );
-    if (!buyTransfer) return;
+    if (!signatures.length) return;
 
-    const tokenAddress = buyTransfer.mint as string;
-    const txSignature = latestTx.signature as string;
+    const nextSignature = signatures
+      .map((entry) => (entry as Record<string, unknown>).signature)
+      .find((signature): signature is string => typeof signature === "string" && !this.recentWalletSignatures.has(signature));
+    if (!nextSignature) return;
+
+    const walletTrade = await this.helius.getWalletTradeFromSignature(
+      nextSignature,
+      walletAddress,
+      this.apiMeta("WALLET_DISCOVERY"),
+    );
+    if (!walletTrade || walletTrade.side !== "BUY") return;
+
+    this.trackRecentSignature(nextSignature);
+    const { tokenAddress, amountSol, amountToken, signature: txSignature } = walletTrade;
     if (!tokenAddress || this.processingTokens.has(tokenAddress)) return;
 
     this.processingTokens.add(tokenAddress);
     try {
-      const nativeChange = (latestTx.nativeTransfers as Array<Record<string, unknown>> | undefined)?.[0];
-      const amountSol = Math.abs((nativeChange?.amount as number) ?? 0) / 1e9;
-      const amountToken = Number(buyTransfer.tokenAmount ?? 0);
 
       const walletScore = await db.walletScore.findFirst({
         where: { walletAddress, isElite: true },
@@ -147,14 +178,14 @@ export class CopyTradeStrategy extends EventEmitter {
       if (txSignature) {
         const existing = await db.walletActivity.findUnique({ where: { txSignature } });
         if (!existing) {
-          const priceUsd = await this.birdeye.getMultiPrice([tokenAddress]);
+          const priceUsd = await this.birdeye.getMultiPrice([tokenAddress], this.apiMeta("ENTRY_SCAN"));
           const price = priceUsd.get(tokenAddress);
 
           await db.walletActivity.create({
             data: {
               walletAddress,
               tokenAddress,
-              tokenSymbol: (buyTransfer.tokenStandard as string) ?? "",
+              tokenSymbol: "",
               side: "BUY",
               amountSol,
               amountToken,
@@ -174,7 +205,7 @@ export class CopyTradeStrategy extends EventEmitter {
   }
 
   private async evaluateAndTrade(tokenAddress: string, walletAddress: string, detectedAt: number): Promise<void> {
-    if (!tokenAddress || tokenAddress.length !== 44 || !/^[1-9A-HJ-NP-Z]{44}$/.test(tokenAddress)) {
+    if (!tokenAddress || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(tokenAddress)) {
       log.warn({ tokenAddress }, "invalid token address in webhook — skipping");
       return;
     }
@@ -198,6 +229,8 @@ export class CopyTradeStrategy extends EventEmitter {
 
     await db.signal.create({
       data: {
+        mode: this.scope.mode,
+        configProfile: this.scope.configProfile,
         strategy: "S1_COPY",
         tokenAddress,
         tokenSymbol: signal.tokenSymbol,
@@ -220,7 +253,7 @@ export class CopyTradeStrategy extends EventEmitter {
       return;
     }
 
-    if (this.positionTracker.holdsToken(tokenAddress)) {
+    if (this.positionTracker.holdsToken(tokenAddress, this.scope)) {
       log.info({ token: signal.tokenSymbol }, "already holding token");
       return;
     }
@@ -238,7 +271,7 @@ export class CopyTradeStrategy extends EventEmitter {
       tokenAddress,
       tokenSymbol: signal.tokenSymbol,
       amountSol: positionSize,
-      maxSlippageBps: cfg.maxSlippageBps,
+      maxSlippageBps: this.cfg.maxSlippageBps,
       regime: this.regimeDetector.getRegime(),
       walletSource: walletAddress,
       entryVolume5m: (signal.filterResults.volume5m as number) ?? 0,
@@ -249,7 +282,7 @@ export class CopyTradeStrategy extends EventEmitter {
     });
 
     if (result.success) {
-      const positions = this.positionTracker.getByStrategy("S1_COPY");
+      const positions = this.positionTracker.getByStrategy("S1_COPY", this.scope);
       const newPos = positions.find((p) => p.tokenAddress === tokenAddress);
       if (newPos) this.exitMonitor.startMonitoring(newPos);
     }
@@ -259,10 +292,10 @@ export class CopyTradeStrategy extends EventEmitter {
     const filters: Record<string, JsonValue> = {};
 
     const [overview, security, holders, tradeData] = await Promise.all([
-      this.birdeye.getTokenOverview(tokenAddress),
-      this.birdeye.getTokenSecurity(tokenAddress),
-      this.birdeye.getTokenHolders(tokenAddress, 1),
-      this.birdeye.getTradeData(tokenAddress),
+      this.birdeye.getTokenOverview(tokenAddress, this.apiMeta("ENTRY_SCAN")),
+      this.birdeye.getTokenSecurity(tokenAddress, this.apiMeta("ENTRY_SCAN")),
+      this.birdeye.getTokenHolders(tokenAddress, 1, this.apiMeta("ENTRY_SCAN", false, 1)),
+      this.birdeye.getTradeData(tokenAddress, this.apiMeta("ENTRY_SCAN")),
     ]);
 
     if (!overview) return { passed: false, tokenAddress, tokenSymbol: "", rejectReason: "no overview data", filterResults: filters };
@@ -273,16 +306,16 @@ export class CopyTradeStrategy extends EventEmitter {
     filters.volume5m = overview.volume5m;
     filters.priceAtSignal = overview.price;
 
-    if (overview.liquidity < cfg.minLiquidity) {
-      return { passed: false, tokenAddress, tokenSymbol: overview.symbol, rejectReason: `liquidity ${overview.liquidity} < ${cfg.minLiquidity}`, filterResults: filters };
+    if (overview.liquidity < this.cfg.minLiquidity) {
+      return { passed: false, tokenAddress, tokenSymbol: overview.symbol, rejectReason: `liquidity ${overview.liquidity} < ${this.cfg.minLiquidity}`, filterResults: filters };
     }
 
-    if (overview.marketCap > cfg.maxMarketCap) {
-      return { passed: false, tokenAddress, tokenSymbol: overview.symbol, rejectReason: `mcap ${overview.marketCap} > ${cfg.maxMarketCap}`, filterResults: filters };
+    if (overview.marketCap > this.cfg.maxMarketCap) {
+      return { passed: false, tokenAddress, tokenSymbol: overview.symbol, rejectReason: `mcap ${overview.marketCap} > ${this.cfg.maxMarketCap}`, filterResults: filters };
     }
 
-    if (overview.buyPercent < cfg.minBuyPressure) {
-      return { passed: false, tokenAddress, tokenSymbol: overview.symbol, rejectReason: `buy pressure ${overview.buyPercent}% < ${cfg.minBuyPressure}%`, filterResults: filters };
+    if (overview.buyPercent < this.cfg.minBuyPressure) {
+      return { passed: false, tokenAddress, tokenSymbol: overview.symbol, rejectReason: `buy pressure ${overview.buyPercent}% < ${this.cfg.minBuyPressure}%`, filterResults: filters };
     }
 
     if (!security) return { passed: false, tokenAddress, tokenSymbol: overview.symbol, rejectReason: "no security data", filterResults: filters };
@@ -291,8 +324,8 @@ export class CopyTradeStrategy extends EventEmitter {
     filters.freezeable = security.freezeable;
     filters.mintAuthority = security.mintAuthority;
 
-    if (security.top10HolderPercent > cfg.maxTop10HolderPercent) {
-      return { passed: false, tokenAddress, tokenSymbol: overview.symbol, rejectReason: `top10 holders ${security.top10HolderPercent}% > ${cfg.maxTop10HolderPercent}%`, filterResults: filters };
+    if (security.top10HolderPercent > this.cfg.maxTop10HolderPercent) {
+      return { passed: false, tokenAddress, tokenSymbol: overview.symbol, rejectReason: `top10 holders ${security.top10HolderPercent}% > ${this.cfg.maxTop10HolderPercent}%`, filterResults: filters };
     }
 
     if (security.freezeable) {
@@ -307,9 +340,9 @@ export class CopyTradeStrategy extends EventEmitter {
       return { passed: false, tokenAddress, tokenSymbol: overview.symbol, rejectReason: "transfer fee enabled", filterResults: filters };
     }
 
-    if (holders.length > 0 && holders[0].percent > cfg.maxSingleHolderPercent) {
+    if (holders.length > 0 && holders[0].percent > this.cfg.maxSingleHolderPercent) {
       filters.topHolderPercent = holders[0].percent;
-      return { passed: false, tokenAddress, tokenSymbol: overview.symbol, rejectReason: `top holder ${holders[0].percent}% > ${cfg.maxSingleHolderPercent}%`, filterResults: filters };
+      return { passed: false, tokenAddress, tokenSymbol: overview.symbol, rejectReason: `top holder ${holders[0].percent}% > ${this.cfg.maxSingleHolderPercent}%`, filterResults: filters };
     }
 
     if (tradeData) {
@@ -331,26 +364,14 @@ export class CopyTradeStrategy extends EventEmitter {
   }
 
   async runWalletScoring(): Promise<void> {
-    log.info("starting daily wallet scoring (worker pool)");
+    log.info("starting daily wallet scoring");
     const candidateWallets = await this.getCandidateWallets();
-
-    if (!this.scoringPool) {
-      const workerPath = path.resolve(
-        path.dirname(fileURLToPath(import.meta.url)),
-        "../workers/wallet-scorer.js",
-      );
-      this.scoringPool = new WorkerPool<ScoringTask, ScoringResult | null>(workerPath, config.walletScorer.workerPoolSize, {
-        scoringConfig: config.walletScorer,
-      });
+    if (candidateWallets.length === 0) {
+      log.warn({ profile: this.scope.configProfile }, "wallet scoring skipped — no candidate wallets discovered");
+      return;
     }
-
-    const tasks: ScoringTask[] = candidateWallets.map((addr) => ({
-      walletAddress: addr,
-      heliusApiKey: config.helius.apiKey,
-      heliusRpcUrl: config.helius.rpcUrl,
-    }));
-
-    const results = await this.scoringPool.executeBatch(tasks);
+    const limit = pLimit(config.walletScorer.workerPoolSize);
+    const results = await Promise.all(candidateWallets.map((walletAddress) => limit(() => this.scoreWallet(walletAddress))));
 
     const scores = results
       .filter((r): r is ScoringResult => r !== null)
@@ -359,7 +380,7 @@ export class CopyTradeStrategy extends EventEmitter {
     scores.sort((a, b) => b.score - a.score);
 
     const previousElites = [...this.eliteWallets];
-    const topWallets = scores.slice(0, cfg.walletCount);
+    const topWallets = scores.slice(0, this.cfg.walletCount);
     const nextEliteWallets = topWallets.map((w) => w.address);
 
     await db.$transaction(async (tx) => {
@@ -396,22 +417,161 @@ export class CopyTradeStrategy extends EventEmitter {
     log.info({ eliteWallets: this.eliteWallets, scored: scores.length }, "wallet scoring complete");
   }
 
-  private async getCandidateWallets(): Promise<string[]> {
-    const existing = await db.walletScore.findMany({
-      orderBy: { compositeScore: "desc" },
-      take: cfg.scoringPoolSize * 10,
-      select: { walletAddress: true },
+  private async scoreWallet(walletAddress: string): Promise<ScoringResult | null> {
+    const txs = await this.helius.getTransactionsForAddress(
+      walletAddress,
+      { limit: config.walletScorer.txFetchLimit },
+      this.apiMeta("WALLET_SCORING"),
+    );
+    if (txs.length < config.walletScorer.minTxCount) return null;
+
+    let wins = 0;
+    let losses = 0;
+    let maxLoss = 0;
+    const tokens = new Set<string>();
+
+    for (const tx of txs as Array<Record<string, unknown>>) {
+      const transfers = tx.tokenTransfers as Array<Record<string, unknown>> | undefined;
+      if (!transfers) continue;
+      for (const transfer of transfers) {
+        if (typeof transfer.mint === "string") tokens.add(transfer.mint);
+      }
+
+      const nativeChange = (tx.nativeTransfers as Array<Record<string, unknown>> | undefined)?.[0];
+      if (!nativeChange) continue;
+      const amount = Number(nativeChange.amount ?? 0);
+      if (amount > 0) wins++;
+      else {
+        losses++;
+        maxLoss = Math.max(maxLoss, Math.abs(amount));
+      }
+    }
+
+    const totalTrades = wins + losses;
+    if (totalTrades === 0) return null;
+
+    const winRate = wins / totalTrades;
+    const frequency = totalTrades;
+    const diversity = tokens.size;
+    const consistency = winRate * config.walletScorer.consistencyMultiplier;
+    const age = config.walletScorer.placeholderAgeDays;
+    const weights = config.walletScorer.weights;
+
+    const compositeScore =
+      winRate * weights.winRate +
+      (1 - Math.min(maxLoss / 1e9, 1)) * weights.maxLoss +
+      consistency * weights.consistency +
+      (frequency >= config.walletScorer.freqMin && frequency <= config.walletScorer.freqMax ? 1 : 0.5) * weights.frequency +
+      (diversity >= config.walletScorer.diversityMin ? 1 : diversity / config.walletScorer.diversityMin) * weights.diversity +
+      (age >= config.walletScorer.ageMinDays ? 1 : age / config.walletScorer.ageMinDays) * weights.age;
+
+    const archetype = winRate > config.walletScorer.archetypeSniper.minWinRate && frequency > config.walletScorer.archetypeSniper.minFreq
+      ? "sniper"
+      : frequency < config.walletScorer.archetypeSwingMaxFreq
+      ? "swing"
+      : "scalper";
+
+    await db.walletScore.create({
+      data: {
+        walletAddress,
+        winRate,
+        maxLossPercent: maxLoss / 1e9,
+        pnlConsistency: consistency,
+        tradeFrequency: frequency,
+        tokenDiversity: diversity,
+        walletAgeDays: age,
+        compositeScore,
+        isElite: false,
+        redFlags: [],
+        archetype,
+      },
     });
+
+    return {
+      walletAddress,
+      compositeScore,
+      archetype,
+      winRate,
+      maxLoss,
+      consistency,
+      frequency,
+      diversity,
+      age,
+    };
+  }
+
+  private async getCandidateWallets(): Promise<string[]> {
+    const [existing, observedWallets, discoveredTopTraders] = await Promise.all([
+      db.walletScore.findMany({
+        orderBy: { compositeScore: "desc" },
+        take: this.cfg.scoringPoolSize * 10,
+        select: { walletAddress: true },
+      }),
+      db.walletActivity.findMany({
+        distinct: ["walletAddress"],
+        orderBy: { detectedAt: "desc" },
+        take: this.cfg.scoringPoolSize,
+        select: { walletAddress: true },
+      }),
+      this.discoverTopTraderWallets(),
+    ]);
+
     const seen = new Set<string>();
-    return existing
-      .filter((w) => !seen.has(w.walletAddress) && seen.add(w.walletAddress) !== undefined)
-      .slice(0, cfg.scoringPoolSize)
-      .map((w) => w.walletAddress);
+    return [
+      ...existing.map((w) => w.walletAddress),
+      ...observedWallets.map((w) => w.walletAddress),
+      ...discoveredTopTraders,
+    ]
+      .filter((walletAddress) => {
+        if (!walletAddress || seen.has(walletAddress)) return false;
+        seen.add(walletAddress);
+        return true;
+      })
+      .slice(0, this.cfg.scoringPoolSize);
+  }
+
+  private async discoverTopTraderWallets(): Promise<string[]> {
+    const trending = await this.birdeye.getTokenTrending(this.apiMeta("WALLET_DISCOVERY"));
+    const tokenAddresses = trending
+      .map((entry) => this.extractBase58((entry as Record<string, unknown>)["address"]))
+      .filter((address): address is string => !!address)
+      .slice(0, 6);
+
+    if (tokenAddresses.length === 0) return [];
+
+    const limit = pLimit(3);
+    const topTraderLists = await Promise.all(
+      tokenAddresses.map((address) => limit(() => this.birdeye.getTopTraders(address, this.apiMeta("WALLET_DISCOVERY")))),
+    );
+
+    const seen = new Set<string>();
+    const wallets: string[] = [];
+    for (const traders of topTraderLists) {
+      for (const trader of traders as Array<Record<string, unknown>>) {
+        const walletAddress = this.extractWalletAddress(trader);
+        if (!walletAddress || seen.has(walletAddress)) continue;
+        seen.add(walletAddress);
+        wallets.push(walletAddress);
+      }
+    }
+    return wallets;
+  }
+
+  private extractWalletAddress(value: Record<string, unknown>): string | null {
+    for (const key of ["walletAddress", "wallet", "owner", "ownerAddress", "trader", "maker", "address"]) {
+      const candidate = this.extractBase58(value[key]);
+      if (candidate) return candidate;
+    }
+    return null;
+  }
+
+  private extractBase58(value: unknown): string | null {
+    const text = typeof value === "string" ? value.trim() : "";
+    return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(text) ? text : null;
   }
 
   stop(): void {
     this.helius.disconnect();
-    this.scoringPool?.terminate();
     log.info("S1 copy trade stopped");
   }
 }

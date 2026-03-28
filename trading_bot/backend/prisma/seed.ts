@@ -20,6 +20,23 @@ async function main() {
     },
   });
 
+  await prisma.configProfile.upsert({
+    where: { name: "default" },
+    update: {
+      description: "Baseline default dry-run profile",
+      mode: "DRY_RUN",
+      isActive: true,
+      settings: {},
+    },
+    create: {
+      name: "default",
+      description: "Baseline default dry-run profile",
+      mode: "DRY_RUN",
+      isActive: true,
+      settings: {},
+    },
+  });
+
   await prisma.apiUsageDaily.createMany({
     data: [
       {

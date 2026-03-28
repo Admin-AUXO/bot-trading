@@ -1,7 +1,9 @@
 import { db } from "../db/client.js";
 import { config } from "../config/index.js";
 import { createChildLogger } from "../utils/logger.js";
-import type { TradeMode, ConfigProfileSettings, StrategyOverrides } from "../utils/types.js";
+import type { TradeMode, CapitalConfig, ConfigProfileSettings, StrategyOverrides } from "../utils/types.js";
+
+type StrategyConfigKey = keyof typeof config.strategies;
 
 const log = createChildLogger("config-profile");
 
@@ -9,6 +11,7 @@ export class ConfigProfileManager {
   private profiles: Map<string, { mode: TradeMode; settings: ConfigProfileSettings }> = new Map();
 
   async loadProfiles(): Promise<void> {
+    this.profiles.clear();
     const rows = await db.configProfile.findMany({ where: { isActive: true } });
     for (const row of rows) {
       this.profiles.set(row.name, {
@@ -31,7 +34,11 @@ export class ConfigProfileManager {
     return this.getActiveProfiles().filter((p) => p.mode === "DRY_RUN");
   }
 
-  getStrategyConfig(profileName: string, strategy: "s1" | "s2" | "s3") {
+  getActiveProfile(mode: TradeMode): { name: string; mode: TradeMode; settings: ConfigProfileSettings } | null {
+    return this.getActiveProfiles().find((profile) => profile.mode === mode) ?? null;
+  }
+
+  getStrategyConfig<T extends StrategyConfigKey>(profileName: string, strategy: T): (typeof config.strategies)[T] {
     const profile = this.profiles.get(profileName);
     const base = config.strategies[strategy];
     if (!profile) return base;
@@ -39,10 +46,10 @@ export class ConfigProfileManager {
     const overrides = profile.settings[strategy];
     if (!overrides) return base;
 
-    return { ...base, ...this.applyOverrides(base, overrides) };
+    return { ...base, ...this.applyOverrides(base, overrides) } as (typeof config.strategies)[T];
   }
 
-  getCapitalConfig(profileName: string) {
+  getCapitalConfig(profileName: string): CapitalConfig {
     const profile = this.profiles.get(profileName);
     if (!profile) return config.capital;
 
@@ -54,11 +61,11 @@ export class ConfigProfileManager {
     };
   }
 
-  private applyOverrides(base: Record<string, unknown>, overrides: StrategyOverrides): Record<string, unknown> {
-    const result: Record<string, unknown> = {};
+  private applyOverrides<T extends Record<string, unknown>>(base: T, overrides: StrategyOverrides): Partial<T> {
+    const result: Partial<T> = {};
     for (const [key, value] of Object.entries(overrides)) {
       if (value !== undefined && key in base) {
-        result[key] = value;
+        result[key as keyof T] = value as T[keyof T];
       }
     }
     return result;
@@ -70,16 +77,23 @@ export class ConfigProfileManager {
     mode: TradeMode;
     settings: ConfigProfileSettings;
   }): Promise<void> {
-    await db.configProfile.create({
-      data: {
-        name: params.name,
-        description: params.description ?? "",
-        mode: params.mode,
-        isActive: true,
-        settings: params.settings as object,
-      },
+    await db.$transaction(async (tx) => {
+      await tx.configProfile.updateMany({
+        where: { mode: params.mode, isActive: true },
+        data: { isActive: false },
+      });
+
+      await tx.configProfile.create({
+        data: {
+          name: params.name,
+          description: params.description ?? "",
+          mode: params.mode,
+          isActive: true,
+          settings: params.settings as object,
+        },
+      });
     });
-    this.profiles.set(params.name, { mode: params.mode, settings: params.settings });
+    await this.loadProfiles();
     log.info({ name: params.name, mode: params.mode }, "profile created");
   }
 
@@ -94,12 +108,33 @@ export class ConfigProfileManager {
   }
 
   async toggleProfile(name: string, active: boolean): Promise<void> {
-    await db.configProfile.update({
+    if (!active) {
+      await db.configProfile.update({
+        where: { name },
+        data: { isActive: false },
+      });
+      this.profiles.delete(name);
+      return;
+    }
+
+    const profile = await db.configProfile.findUnique({
       where: { name },
-      data: { isActive: active },
+      select: { mode: true },
     });
-    if (!active) this.profiles.delete(name);
-    else await this.loadProfiles();
+    if (!profile) return;
+
+    await db.$transaction(async (tx) => {
+      await tx.configProfile.updateMany({
+        where: { mode: profile.mode, isActive: true },
+        data: { isActive: false },
+      });
+      await tx.configProfile.update({
+        where: { name },
+        data: { isActive: true },
+      });
+    });
+
+    await this.loadProfiles();
   }
 
   async deleteProfile(name: string): Promise<void> {

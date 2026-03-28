@@ -14,6 +14,8 @@ Use this skill for metrics and performance interpretation.
 - Frame recommendations as testable hypotheses.
 - Check that historical metrics come from immutable records or snapshots rather than mutable runtime singleton state.
 - Verify sign conventions, aggregate-row keys, and filter propagation before trusting reported expectancy or date-range slices.
+- Include provider-cost pressure when it changes what can be scanned or executed in production; quota-blind recommendations are incomplete.
+- Prefer endpoint-, purpose-, and scope-level evidence from `ApiUsageDaily` and `ApiEndpointDaily` when data spend or latency is part of the argument.
 
 ## Preferred Inputs
 - Trade outcomes, daily stats, regime snapshots, and strategy comparisons.

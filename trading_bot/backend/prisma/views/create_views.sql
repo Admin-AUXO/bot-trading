@@ -57,9 +57,9 @@ SELECT
 FROM "BotState" bs
 LEFT JOIN (
   SELECT
-    COUNT(*) FILTER (WHERE status = 'OPEN')                       AS open_positions,
-    COUNT(*) FILTER (WHERE status = 'OPEN' AND mode = 'LIVE')     AS open_positions_live,
-    COUNT(*) FILTER (WHERE status = 'OPEN' AND mode = 'DRY_RUN')  AS open_positions_dry
+    COUNT(*) FILTER (WHERE status IN ('OPEN', 'PARTIALLY_CLOSED'))                       AS open_positions,
+    COUNT(*) FILTER (WHERE status IN ('OPEN', 'PARTIALLY_CLOSED') AND mode = 'LIVE')     AS open_positions_live,
+    COUNT(*) FILTER (WHERE status IN ('OPEN', 'PARTIALLY_CLOSED') AND mode = 'DRY_RUN')  AS open_positions_dry
   FROM "Position"
 ) p_counts ON true
 LEFT JOIN (
@@ -137,6 +137,19 @@ SELECT
   a.service,
   SUM(a."totalCredits") AS credits_used_month,
   MAX(a."budgetTotal") AS budget_total,
+  MAX(a."monthlyCreditsRemaining") AS credits_remaining_month,
+  MAX(a."dailyBudget") AS daily_budget,
+  MAX(a."dailyCreditsRemaining") AS daily_remaining,
+  MAX(a."essentialCredits") AS essential_credits_today,
+  MAX(a."nonEssentialCredits") AS non_essential_credits_today,
+  MAX(a."cachedCalls") AS cached_calls_today,
+  MAX(a."quotaStatus") AS quota_status,
+  MAX(a."quotaSource") AS quota_source,
+  MAX(a."providerCycleStart") AS provider_cycle_start,
+  MAX(a."providerCycleEnd") AS provider_cycle_end,
+  MAX(a."providerReportedUsed") AS provider_reported_used,
+  MAX(a."providerReportedRemaining") AS provider_reported_remaining,
+  MAX(a."pauseReason") AS pause_reason,
   CASE
     WHEN MAX(a."budgetTotal") > 0
     THEN ROUND(SUM(a."totalCredits")::NUMERIC / MAX(a."budgetTotal") * 100, 2)
@@ -144,11 +157,34 @@ SELECT
   END AS usage_percent,
   SUM(a."totalCalls") AS total_calls,
   ROUND(AVG(a."avgLatencyMs"), 0) AS avg_latency_ms,
+  ROUND(AVG(a."avgCreditsPerCall"), 2) AS avg_credits_per_call,
   SUM(a."errorCount") AS total_errors,
   MAX(a."peakRps") AS peak_rps
 FROM "ApiUsageDaily" a
 WHERE a.date >= DATE_TRUNC('month', CURRENT_DATE)
 GROUP BY a.service;
+
+DROP VIEW IF EXISTS v_api_endpoint_efficiency;
+CREATE OR REPLACE VIEW v_api_endpoint_efficiency AS
+SELECT
+  a.date,
+  a.service,
+  a.endpoint,
+  a.strategy,
+  a.mode,
+  a."configProfile",
+  a.purpose,
+  a.essential,
+  a."totalCalls",
+  a."totalCredits",
+  a."cachedCalls",
+  a."avgCreditsPerCall",
+  a."avgLatencyMs",
+  a."errorCount",
+  a."avgBatchSize"
+FROM "ApiEndpointDaily" a
+WHERE a.date >= CURRENT_DATE - INTERVAL '7 days'
+ORDER BY a.date DESC, a."totalCredits" DESC, a."totalCalls" DESC;
 
 -- Recent trades feed (last 50, includes mode)
 CREATE OR REPLACE VIEW v_recent_trades AS

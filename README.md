@@ -136,11 +136,15 @@ npm run lint
 
 - `LIVE` mode sends real trades. Treat it accordingly.
 - The current capital and risk defaults are tuned for a small account, around `$200`, with a maximum of `5` open positions.
+- Helius and Birdeye quota are managed centrally in `trading_bot/backend/src/core/api-budget-manager.ts`. The current defaults in `trading_bot/backend/src/config/index.ts` assume Helius Developer (`10M` monthly credits) and Birdeye Lite (`1.5M` monthly CU). If your provider plan differs, update that config before trusting the budget dashboard.
+- Daily provider budget is derived from remaining monthly quota with a reserve. Non-essential work such as wallet scoring, wallet discovery, and backfills can be skipped under budget pressure. Hard-limit exhaustion pauses new entries, while exits, execution completion, and wallet reconciliation remain essential.
+- Provider spend and efficiency are persisted for later analysis in Prisma through `ApiCall`, `ApiUsageDaily`, and `ApiEndpointDaily`. The backend exposes the current budget snapshot and top endpoint consumers via `/api/overview/api-usage`, and execution-quality summaries via `/api/analytics/execution-quality`.
 - The dashboard shell now derives shared status from `trading_bot/dashboard/hooks/use-dashboard-shell.ts`; header, sidebar, footer, and page-level summaries should reuse that data instead of re-querying overview, positions, and heartbeat independently.
 - Control-plane writes and SSE proxying stay centralized in `trading_bot/dashboard/app/api/[...path]/route.ts`. Operator session state is issued by `trading_bot/dashboard/app/api/operator-session/route.ts` through an httpOnly cookie.
 - Dashboard filtering is contract-sensitive: if a query key varies by `days`, `mode`, `profile`, or `tradeSource`, the request and backend route must vary by the same parameters.
 - Theme and chart colors are driven by semantic CSS variables in `trading_bot/dashboard/app/globals.css` and `trading_bot/dashboard/lib/chart-colors.ts`; avoid hard-coded light/dark literals in charts or layout chrome.
 - Prisma changes are schema-and-views only here: update `trading_bot/backend/prisma/schema.prisma` and `trading_bot/backend/prisma/views/create_views.sql`, and do not create migration files.
 - When you need the actual database bootstrap, use `npm run db:setup` instead of stopping at `npm run db:push`; `db:push` creates tables, while `db:views` applies the SQL views.
+- If the Prisma schema changes, run `npm run db:generate` before relying on backend typecheck/build output.
 - Control-plane write actions are authenticated through the dashboard proxy; keep any new pause/resume/manual/profile mutations on that same protected path.
 - Analytics and dashboard filters must stay parameter-consistent: query keys, URL params, and backend filters should all vary together for `days`, `mode`, `configProfile`, and `tradeSource` when relevant.

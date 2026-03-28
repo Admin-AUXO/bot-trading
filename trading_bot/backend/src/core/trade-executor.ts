@@ -6,9 +6,9 @@ import type { PositionTracker } from "./position-tracker.js";
 import type { RiskManager } from "./risk-manager.js";
 import type { JupiterService } from "../services/jupiter.js";
 import type { HeliusService } from "../services/helius.js";
-import type { Strategy, MarketRegime, ExitReason, TradeResult, TradeSource } from "../utils/types.js";
+import type { ExecutionScope, TradeResult } from "../utils/types.js";
 import { SOL_MINT } from "../utils/types.js";
-import type { ITradeExecutor } from "../utils/trade-executor-interface.js";
+import type { BuyParams, ITradeExecutor, SellParams } from "../utils/trade-executor-interface.js";
 
 const log = createChildLogger("trade-executor");
 
@@ -18,38 +18,28 @@ export class TradeExecutor implements ITradeExecutor {
     private riskManager: RiskManager,
     private jupiter: JupiterService,
     private helius: HeliusService,
+    private scope: ExecutionScope,
   ) {}
 
-  async executeBuy(params: {
-    strategy: Strategy;
-    tokenAddress: string;
-    tokenSymbol: string;
-    amountSol: number;
-    maxSlippageBps: number;
-    regime: MarketRegime;
-    trancheNumber?: number;
-    positionId?: string;
-    entryVolume5m?: number;
-    platform?: string;
-    walletSource?: string;
-    entryLiquidity?: number;
-    entryMcap?: number;
-    entryHolders?: number;
-    entryVolume1h?: number;
-    entryBuyPressure?: number;
-    tradeSource?: TradeSource;
-    priceAtSignal?: number;
-    copyLeadMs?: number;
-  }): Promise<TradeResult> {
+  async executeBuy(params: BuyParams): Promise<TradeResult> {
     const entryStart = Date.now();
-    const isManual = params.tradeSource === "MANUAL";
+    const shouldTrackPending = !params.positionId;
+    const executionMeta = {
+      strategy: params.strategy,
+      mode: this.scope.mode,
+      configProfile: this.scope.configProfile,
+      purpose: "EXECUTION" as const,
+      essential: false,
+    };
 
-    if (!params.positionId && !isManual) {
-      const check = this.riskManager.canOpenPosition(params.strategy);
+    if (!params.positionId) {
+      const check = this.riskManager.canOpenPosition(params.strategy, params.amountSol);
       if (!check.allowed) {
-        if (check.reason === "max 5 open positions reached") {
+        if (check.reason === "max 5 open positions reached" && params.tradeSource !== "MANUAL") {
           await db.signal.create({
             data: {
+              mode: this.scope.mode,
+              configProfile: this.scope.configProfile,
               strategy: params.strategy,
               tokenAddress: params.tokenAddress,
               tokenSymbol: params.tokenSymbol,
@@ -63,7 +53,6 @@ export class TradeExecutor implements ITradeExecutor {
               tokenVolume5m: params.entryVolume5m ?? null,
               buyPressure: params.entryBuyPressure ?? null,
               priceAtSignal: params.priceAtSignal ?? null,
-              mode: config.tradeMode,
             },
           }).catch((err) => { log.warn({ err }, "failed to log skipped signal"); });
         }
@@ -72,7 +61,7 @@ export class TradeExecutor implements ITradeExecutor {
       }
     }
 
-    if (!params.positionId && !isManual) this.riskManager.reservePosition(params.strategy);
+    if (shouldTrackPending) this.riskManager.reservePosition(params.strategy);
     try {
       const amountLamports = await this.jupiter.toBaseUnits(SOL_MINT, params.amountSol);
       if (amountLamports === null || amountLamports <= 0) {
@@ -99,9 +88,11 @@ export class TradeExecutor implements ITradeExecutor {
       }
 
       const [priorityFee, blockhashInfo] = await Promise.all([
-        this.helius.getPriorityFeeEstimate(),
-        this.helius.getLatestBlockhash(),
+        this.helius.getPriorityFeeEstimate(executionMeta),
+        this.helius.getLatestBlockhash(executionMeta),
       ]);
+      const jitoTipSol = priorityFee / 1e9;
+      const totalFeeSol = config.capital.gasFee + jitoTipSol;
 
       const swapTx = await this.jupiter.buildSwapTransaction(quote, {
         priorityFee,
@@ -110,7 +101,7 @@ export class TradeExecutor implements ITradeExecutor {
 
       if (!swapTx) return { success: false, error: "failed to build swap tx" };
 
-      const simResult = await this.helius.simulateTransaction(swapTx);
+      const simResult = await this.helius.simulateTransaction(swapTx, executionMeta);
       if (!simResult.success) {
         return { success: false, error: "tx simulation failed" };
       }
@@ -121,12 +112,12 @@ export class TradeExecutor implements ITradeExecutor {
 
       const isS1 = params.strategy === "S1_COPY";
       const txSig = isS1
-        ? await this.helius.sendTransactionFast(swapTx)
-        : await this.helius.sendTransaction(swapTx);
+        ? await this.helius.sendTransactionFast(swapTx, executionMeta)
+        : await this.helius.sendTransaction(swapTx, undefined, executionMeta);
 
       if (!txSig) return { success: false, error: "tx submission failed" };
 
-      const confirmed = await this.helius.confirmTransaction(txSig, blockhashInfo);
+      const confirmed = await this.helius.confirmTransaction(txSig, blockhashInfo, undefined, executionMeta);
       if (!confirmed) return { success: false, error: "tx confirmation failed" };
 
       const entryLatencyMs = Date.now() - entryStart;
@@ -136,6 +127,8 @@ export class TradeExecutor implements ITradeExecutor {
       let positionId = params.positionId;
       if (!positionId) {
         const pos = await this.positionTracker.openPosition({
+          mode: this.scope.mode,
+          configProfile: this.scope.configProfile,
           strategy: params.strategy,
           tokenAddress: params.tokenAddress,
           tokenSymbol: params.tokenSymbol,
@@ -159,11 +152,18 @@ export class TradeExecutor implements ITradeExecutor {
         });
         positionId = pos.id;
       } else {
-        await this.positionTracker.fillTranche2(positionId, amountToken);
+        await this.positionTracker.fillPosition(positionId, {
+          additionalSol: params.amountSol,
+          additionalToken: amountToken,
+          fillPriceSol: priceSol,
+          fillPriceUsd: priceUsd ?? 0,
+        });
       }
 
       await db.trade.create({
         data: {
+          mode: this.scope.mode,
+          configProfile: this.scope.configProfile,
           strategy: params.strategy,
           tokenAddress: params.tokenAddress,
           tokenSymbol: params.tokenSymbol,
@@ -175,7 +175,7 @@ export class TradeExecutor implements ITradeExecutor {
           priceSol,
           slippageBps: Math.round(quote.priceImpactPct * 100),
           gasFee: config.capital.gasFee,
-          jitoTip: priorityFee / 1e9,
+          jitoTip: jitoTipSol,
           txSignature: txSig,
           trancheNumber: params.trancheNumber ?? 1,
           regime: params.regime,
@@ -185,6 +185,7 @@ export class TradeExecutor implements ITradeExecutor {
           copyLeadMs: params.copyLeadMs ?? null,
         },
       });
+      this.riskManager.recordBuyExecution(params.amountSol, totalFeeSol);
 
       log.info({
         strategy: params.strategy,
@@ -203,26 +204,23 @@ export class TradeExecutor implements ITradeExecutor {
         amountToken,
         slippageBps: Math.round(quote.priceImpactPct * 100),
         gasFee: config.capital.gasFee,
-        jitoTip: priorityFee / 1e9,
+        jitoTip: jitoTipSol,
       };
     } finally {
-      if (!params.positionId && !isManual) this.riskManager.releasePosition(params.strategy);
+      if (shouldTrackPending) this.riskManager.releasePosition(params.strategy);
     }
   }
 
-  async executeSell(params: {
-    positionId: string;
-    tokenAddress: string;
-    tokenSymbol: string;
-    strategy: Strategy;
-    amountToken: number;
-    maxSlippageBps: number;
-    exitReason: ExitReason;
-    trancheNumber: number;
-    tradeSource?: TradeSource;
-  }): Promise<TradeResult> {
+  async executeSell(params: SellParams): Promise<TradeResult> {
     const position = this.positionTracker.getById(params.positionId);
     if (!position) return { success: false, error: "position not found" };
+    const executionMeta = {
+      strategy: params.strategy,
+      mode: position.mode,
+      configProfile: position.configProfile,
+      purpose: "EXECUTION" as const,
+      essential: true,
+    };
 
     const amountLamports = await this.jupiter.toBaseUnits(params.tokenAddress, params.amountToken);
     if (amountLamports === null || amountLamports <= 0) {
@@ -237,16 +235,29 @@ export class TradeExecutor implements ITradeExecutor {
     });
 
     if (!quote) return { success: false, error: "failed to get sell quote" };
+    if (quote.priceImpactPct > params.maxSlippageBps / 100) {
+      return { success: false, error: `sell slippage too high: ${quote.priceImpactPct}%` };
+    }
 
-    const blockhashInfo = await this.helius.getLatestBlockhash();
-    const swapTx = await this.jupiter.buildSwapTransaction(quote, { blockhash: blockhashInfo.blockhash });
+    const [priorityFee, blockhashInfo] = await Promise.all([
+      this.helius.getPriorityFeeEstimate(executionMeta),
+      this.helius.getLatestBlockhash(executionMeta),
+    ]);
+    const jitoTipSol = priorityFee / 1e9;
+    const totalFeeSol = config.capital.gasFee + jitoTipSol;
+    const swapTx = await this.jupiter.buildSwapTransaction(quote, {
+      priorityFee,
+      blockhash: blockhashInfo.blockhash,
+    });
 
     if (!swapTx) return { success: false, error: "failed to build sell tx" };
+    const simResult = await this.helius.simulateTransaction(swapTx, executionMeta);
+    if (!simResult.success) return { success: false, error: "sell tx simulation failed" };
 
-    const txSig = await this.helius.sendTransaction(swapTx);
+    const txSig = await this.helius.sendTransaction(swapTx, undefined, executionMeta);
     if (!txSig) return { success: false, error: "sell tx submission failed" };
 
-    const confirmed = await this.helius.confirmTransaction(txSig, blockhashInfo);
+    const confirmed = await this.helius.confirmTransaction(txSig, blockhashInfo, undefined, executionMeta);
     if (!confirmed) return { success: false, error: "sell tx confirmation failed" };
 
     const solReceived = quote.outputAmountUi;
@@ -259,24 +270,14 @@ export class TradeExecutor implements ITradeExecutor {
       : pnlSol * position.entryPriceUsd / position.entryPriceSol;
     const pnlPercent = ((priceSol - position.entryPriceSol) / position.entryPriceSol) * 100;
 
-    const remaining = position.remainingToken - params.amountToken;
+    const remaining = Math.max(0, position.remainingToken - params.amountToken);
     const tranche = params.trancheNumber as 1 | 2 | 3;
     await this.positionTracker.markTrancheExit(params.positionId, tranche, remaining);
 
-    if (remaining <= 0) {
-      const totalPnlPercent = ((position.currentPriceUsd - position.entryPriceUsd) / position.entryPriceUsd) * 100;
-      await this.positionTracker.closePosition(
-        params.positionId,
-        params.exitReason,
-        pnlSol,
-        pnlUsd,
-        totalPnlPercent,
-      );
-      this.riskManager.recordTradeResult(pnlUsd, pnlUsd > 0);
-    }
-
     await db.trade.create({
       data: {
+        mode: position.mode,
+        configProfile: position.configProfile,
         strategy: params.strategy,
         tokenAddress: params.tokenAddress,
         tokenSymbol: params.tokenSymbol,
@@ -288,7 +289,7 @@ export class TradeExecutor implements ITradeExecutor {
         priceSol,
         slippageBps: Math.round(quote.priceImpactPct * 100),
         gasFee: config.capital.gasFee,
-        jitoTip: 0,
+        jitoTip: jitoTipSol,
         txSignature: txSig,
         exitReason: params.exitReason,
         pnlSol,
@@ -299,6 +300,25 @@ export class TradeExecutor implements ITradeExecutor {
         tradeSource: params.tradeSource ?? "AUTO",
       },
     });
+    this.riskManager.recordSellExecution(solReceived, pnlUsd, pnlUsd > 0, totalFeeSol);
+
+    if (remaining <= 0) {
+      const realized = await db.trade.aggregate({
+        where: { positionId: params.positionId, side: "SELL" },
+        _sum: { pnlSol: true, pnlUsd: true },
+      });
+      const totalPnlSol = Number(realized._sum.pnlSol ?? 0);
+      const totalPnlUsd = Number(realized._sum.pnlUsd ?? 0);
+      const totalCostUsd = position.amountToken * position.entryPriceUsd;
+      const totalPnlPercent = totalCostUsd > 0 ? (totalPnlUsd / totalCostUsd) * 100 : 0;
+      await this.positionTracker.closePosition(
+        params.positionId,
+        params.exitReason,
+        totalPnlSol,
+        totalPnlUsd,
+        totalPnlPercent,
+      );
+    }
 
     log.info({
       strategy: params.strategy,
@@ -315,7 +335,7 @@ export class TradeExecutor implements ITradeExecutor {
       priceSol,
       amountToken: params.amountToken,
       gasFee: config.capital.gasFee,
-      jitoTip: 0,
+      jitoTip: jitoTipSol,
     };
   }
 

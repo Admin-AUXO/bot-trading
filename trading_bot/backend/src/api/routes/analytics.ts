@@ -1,18 +1,20 @@
 import { Router } from "express";
 import { db } from "../../db/client.js";
 import { cacheMiddleware } from "../middleware/cache.js";
+import type { ExecutionScope } from "../../utils/types.js";
 
 function parseDays(value: unknown, fallback: number, max: number): number {
   return Math.min(Number(value) || fallback, max);
 }
 
-export function analyticsRouter() {
+export function analyticsRouter(deps?: { scope?: ExecutionScope }) {
   const router = Router();
+  const defaultScope = deps?.scope;
 
   router.get("/daily", cacheMiddleware(30_000), async (req, res) => {
     const days = parseDays(req.query.days, 30, 90);
-    const mode = req.query.mode as string | undefined;
-    const profile = req.query.profile as string | undefined;
+    const mode = (req.query.mode as string | undefined) ?? defaultScope?.mode;
+    const profile = (req.query.profile as string | undefined) ?? defaultScope?.configProfile;
     const since = new Date();
     since.setDate(since.getDate() - days);
 
@@ -40,8 +42,8 @@ export function analyticsRouter() {
 
   router.get("/strategy", cacheMiddleware(30_000), async (req, res) => {
     const days = parseDays(req.query.days, 30, 90);
-    const mode = req.query.mode as string | undefined;
-    const profile = req.query.profile as string | undefined;
+    const mode = (req.query.mode as string | undefined) ?? defaultScope?.mode;
+    const profile = (req.query.profile as string | undefined) ?? defaultScope?.configProfile;
     const tradeSource = req.query.tradeSource as string | undefined;
     const since = new Date();
     since.setDate(since.getDate() - days);
@@ -92,8 +94,8 @@ export function analyticsRouter() {
 
   router.get("/capital-curve", cacheMiddleware(60_000), async (req, res) => {
     const days = parseDays(req.query.days, 30, 365);
-    const mode = req.query.mode as string | undefined;
-    const profile = req.query.profile as string | undefined;
+    const mode = (req.query.mode as string | undefined) ?? defaultScope?.mode;
+    const profile = (req.query.profile as string | undefined) ?? defaultScope?.configProfile;
     const since = new Date();
     since.setDate(since.getDate() - days);
 
@@ -142,8 +144,8 @@ export function analyticsRouter() {
 
   router.get("/would-have-won", cacheMiddleware(60_000), async (req, res) => {
     const days = parseDays(req.query.days, 7, 30);
-    const mode = req.query.mode as string | undefined;
-    const profile = req.query.profile as string | undefined;
+    const mode = (req.query.mode as string | undefined) ?? defaultScope?.mode;
+    const profile = (req.query.profile as string | undefined) ?? defaultScope?.configProfile;
     const since = new Date();
     since.setDate(since.getDate() - days);
 
@@ -236,8 +238,8 @@ export function analyticsRouter() {
 
   router.get("/pnl-distribution", cacheMiddleware(30_000), async (req, res) => {
     const days = parseDays(req.query.days, 30, 90);
-    const mode = req.query.mode as string | undefined;
-    const profile = req.query.profile as string | undefined;
+    const mode = (req.query.mode as string | undefined) ?? defaultScope?.mode;
+    const profile = (req.query.profile as string | undefined) ?? defaultScope?.configProfile;
     const tradeSource = req.query.tradeSource as string | undefined;
     const since = new Date();
     since.setDate(since.getDate() - days);
@@ -268,6 +270,77 @@ export function analyticsRouter() {
       strategy: t.strategy,
       exitReason: t.exitReason,
     })));
+  });
+
+  router.get("/execution-quality", cacheMiddleware(30_000), async (req, res) => {
+    const days = parseDays(req.query.days, 14, 90);
+    const mode = (req.query.mode as string | undefined) ?? defaultScope?.mode;
+    const profile = (req.query.profile as string | undefined) ?? defaultScope?.configProfile;
+    const tradeSource = req.query.tradeSource as string | undefined;
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+
+    const tradeWhere: Record<string, unknown> = {
+      executedAt: { gte: since },
+    };
+    if (mode) tradeWhere.mode = mode;
+    if (profile) tradeWhere.configProfile = profile;
+    if (tradeSource) tradeWhere.tradeSource = tradeSource;
+
+    const [trades, positions] = await Promise.all([
+      db.trade.findMany({
+        where: tradeWhere,
+        select: {
+          strategy: true,
+          side: true,
+          slippageBps: true,
+          gasFee: true,
+          jitoTip: true,
+          copyLeadMs: true,
+          tradeSource: true,
+        },
+      }),
+      db.position.findMany({
+        where: {
+          openedAt: { gte: since },
+          ...(mode ? { mode: mode as "LIVE" | "DRY_RUN" } : {}),
+          ...(profile ? { configProfile: profile } : {}),
+          ...(tradeSource ? { tradeSource: tradeSource as "AUTO" | "MANUAL" } : {}),
+        },
+        select: {
+          strategy: true,
+          entryLatencyMs: true,
+          entrySlippageBps: true,
+        },
+      }),
+    ]);
+
+    const strategies = ["S1_COPY", "S2_GRADUATION", "S3_MOMENTUM"] as const;
+    const results = strategies.map((strategy) => {
+      const strategyTrades = trades.filter((trade) => trade.strategy === strategy);
+      const strategyPositions = positions.filter((position) => position.strategy === strategy);
+      const buys = strategyTrades.filter((trade) => trade.side === "BUY");
+      const sells = strategyTrades.filter((trade) => trade.side === "SELL");
+      const autoTrades = strategyTrades.filter((trade) => trade.tradeSource === "AUTO");
+      const avg = (values: number[]) => values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+
+      return {
+        strategy,
+        buyCount: buys.length,
+        sellCount: sells.length,
+        avgEntrySlippageBps: avg([
+          ...strategyPositions.map((position) => position.entrySlippageBps ?? 0),
+          ...buys.map((trade) => trade.slippageBps ?? 0),
+        ]),
+        avgExitSlippageBps: avg(sells.map((trade) => trade.slippageBps ?? 0)),
+        avgFeeSol: avg(strategyTrades.map((trade) => Number(trade.gasFee) + Number(trade.jitoTip))),
+        avgEntryLatencyMs: avg(strategyPositions.map((position) => position.entryLatencyMs ?? 0).filter((latency) => latency > 0)),
+        avgCopyLeadMs: avg(autoTrades.map((trade) => trade.copyLeadMs ?? 0).filter((lead) => lead > 0)),
+        manualShare: strategyTrades.length > 0 ? strategyTrades.filter((trade) => trade.tradeSource === "MANUAL").length / strategyTrades.length : 0,
+      };
+    });
+
+    res.json(results);
   });
 
   return router;

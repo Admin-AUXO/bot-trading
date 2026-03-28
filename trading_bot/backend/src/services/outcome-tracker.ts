@@ -1,6 +1,7 @@
 import { db } from "../db/client.js";
 import { config } from "../config/index.js";
 import { createChildLogger } from "../utils/logger.js";
+import type { ApiBudgetManager } from "../core/api-budget-manager.js";
 import type { BirdeyeService } from "./birdeye.js";
 import type { JupiterService } from "./jupiter.js";
 
@@ -31,6 +32,7 @@ export class OutcomeTracker {
   constructor(
     private birdeye: BirdeyeService,
     private jupiter: JupiterService,
+    private budgetManager?: ApiBudgetManager,
   ) {}
 
   start(): void {
@@ -44,6 +46,7 @@ export class OutcomeTracker {
 
   private async runBackfill(): Promise<void> {
     try {
+      if (this.budgetManager && !this.budgetManager.shouldRunNonEssential("BIRDEYE")) return;
       await Promise.allSettled([
         this.backfillSignals(),
         this.backfillPositions(),
@@ -60,7 +63,7 @@ export class OutcomeTracker {
     if (pending.length === 0) return;
 
     const addresses = [...new Set(pending.map((p) => p.tokenAddress))];
-    const prices = await this.birdeye.getMultiPrice(addresses);
+    const prices = await this.birdeye.getMultiPrice(addresses, { purpose: "BACKFILL", essential: false, batchSize: addresses.length });
 
     const updates = [];
     for (const item of pending) {
@@ -139,7 +142,7 @@ export class OutcomeTracker {
     if (need1h.length === 0) return;
 
     const addresses = [...new Set(need1h.map((p) => p.tokenAddress))];
-    const prices = await this.birdeye.getMultiPrice(addresses);
+    const prices = await this.birdeye.getMultiPrice(addresses, { purpose: "BACKFILL", essential: false, batchSize: addresses.length });
 
     const updates = need1h
       .filter((pos) => prices.get(pos.tokenAddress))
@@ -171,7 +174,7 @@ export class OutcomeTracker {
       if (pending.length === 0) continue;
 
       const addresses = [...new Set(pending.map((p: { tokenAddress: string }) => p.tokenAddress))];
-      const prices = await this.birdeye.getMultiPrice(addresses);
+      const prices = await this.birdeye.getMultiPrice(addresses, { purpose: "BACKFILL", essential: false, batchSize: addresses.length });
 
       const updates = pending
         .filter((item) => prices.get(item.tokenAddress))
@@ -207,7 +210,7 @@ export class OutcomeTracker {
       if (pending.length === 0) continue;
 
       const addresses = [...new Set(pending.map((p: { tokenAddress: string }) => p.tokenAddress))];
-      const prices = await this.birdeye.getMultiPrice(addresses);
+      const prices = await this.birdeye.getMultiPrice(addresses, { purpose: "BACKFILL", essential: false, batchSize: addresses.length });
 
       const updates = [];
       for (const item of pending) {

@@ -1,5 +1,5 @@
 import { parentPort } from "node:worker_threads";
-import type { MarketRegime, Strategy, TradeMode } from "@prisma/client";
+import type { ApiService, MarketRegime, Strategy, TradeMode } from "@prisma/client";
 import { config } from "../config/index.js";
 import { createPrismaClient } from "../db/client.js";
 
@@ -49,7 +49,7 @@ async function aggregateDailyStats(date: Date): Promise<void> {
   const modes = ["LIVE", "DRY_RUN"] as const;
 
   const profiles = await db.configProfile.findMany({ select: { name: true } });
-  const profileNames = profiles.map((p) => p.name);
+  const profileNames = [...new Set(["default", ...profiles.map((p) => p.name)])];
 
   const slices: Array<{
     dayStart: Date;
@@ -219,46 +219,216 @@ async function aggregateForSlice(params: {
 
 async function aggregateApiUsage(date: Date): Promise<void> {
   const dayEnd = new Date(date.getTime() + DAY_MS);
+  const monthStart = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
 
   for (const service of ["HELIUS", "BIRDEYE"] as const) {
-    const calls = await db.apiCall.aggregate({
-      where: {
-        service,
-        calledAt: { gte: date, lt: dayEnd },
-      },
-      _count: true,
-      _sum: { credits: true },
-      _avg: { latencyMs: true },
-    });
+    const [dailyCalls, monthlyAgg] = await Promise.all([
+      db.apiCall.findMany({
+        where: {
+          service,
+          calledAt: { gte: date, lt: dayEnd },
+        },
+        select: {
+          endpoint: true,
+          strategy: true,
+          mode: true,
+          configProfile: true,
+          purpose: true,
+          essential: true,
+          cacheHit: true,
+          credits: true,
+          batchSize: true,
+          latencyMs: true,
+          statusCode: true,
+          calledAt: true,
+        },
+      }),
+      db.apiCall.aggregate({
+        where: {
+          service,
+          calledAt: { gte: monthStart, lt: dayEnd },
+        },
+        _sum: { credits: true },
+      }),
+    ]);
 
-    const errors = await db.apiCall.count({
-      where: {
-        service,
-        calledAt: { gte: date, lt: dayEnd },
-        statusCode: { gte: 400 },
-      },
-    });
+    const totalCalls = dailyCalls.length;
+    const totalCredits = dailyCalls.reduce((sum, call) => sum + call.credits, 0);
+    const essentialCalls = dailyCalls.filter((call) => call.essential).length;
+    const essentialCredits = dailyCalls.filter((call) => call.essential).reduce((sum, call) => sum + call.credits, 0);
+    const nonEssentialCredits = Math.max(0, totalCredits - essentialCredits);
+    const cachedCalls = dailyCalls.filter((call) => call.cacheHit).length;
+    const avgLatencyMs = averageOf(dailyCalls.map((call) => call.latencyMs ?? 0).filter((latency) => latency > 0));
+    const errorCount = dailyCalls.filter((call) => (call.statusCode ?? 0) >= 400).length;
+    const avgCreditsPerCall = totalCalls > 0 ? totalCredits / totalCalls : 0;
+    const peakRps = computePeakRps(dailyCalls.map((call) => call.calledAt));
+    const budgetTotal = service === "HELIUS" ? config.apiBudgets.helius.monthly : config.apiBudgets.birdeye.monthly;
+    const monthlyCreditsUsed = Number(monthlyAgg._sum.credits ?? 0);
+    const monthlyCreditsRemaining = Math.max(0, budgetTotal - monthlyCreditsUsed);
+    const reserveCredits = Math.floor(budgetTotal * config.apiBudgets.reservePct);
+    const remainingDays = Math.max(1, Math.ceil((Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1) - dayEnd.getTime()) / DAY_MS));
+    const dailyBudget = remainingDays > 0 ? Math.floor(Math.max(0, monthlyCreditsRemaining - reserveCredits) / remainingDays) : 0;
+    const dailyCreditsRemaining = Math.max(0, dailyBudget - totalCredits);
+    const budgetUsedPercent = budgetTotal > 0 ? (monthlyCreditsUsed / budgetTotal) * 100 : 0;
+    const quotaStatus =
+      monthlyCreditsRemaining <= 0
+        ? "PAUSED"
+        : dailyBudget > 0 && totalCredits >= dailyBudget
+        ? "HARD_LIMIT"
+        : dailyBudget > 0 && totalCredits >= Math.floor(dailyBudget * (config.apiBudgets.softLimitPct / 100))
+        ? "SOFT_LIMIT"
+        : "HEALTHY";
 
     await db.apiUsageDaily.upsert({
       where: { date_service: { date, service } },
       update: {
-        totalCalls: calls._count,
-        totalCredits: calls._sum.credits ?? 0,
-        avgLatencyMs: Math.round(calls._avg.latencyMs ?? 0),
-        errorCount: errors,
-        budgetTotal: service === "HELIUS" ? 10_000_000 : 1_500_000,
+        totalCalls,
+        totalCredits,
+        budgetTotal,
+        budgetUsedPercent,
+        monthlyCreditsUsed,
+        monthlyCreditsRemaining,
+        dailyBudget,
+        dailyCreditsRemaining,
+        essentialCalls,
+        essentialCredits,
+        nonEssentialCredits,
+        cachedCalls,
+        avgCreditsPerCall,
+        peakRps,
+        avgLatencyMs: Math.round(avgLatencyMs),
+        errorCount,
+        softLimitPct: config.apiBudgets.softLimitPct,
+        hardLimitPct: config.apiBudgets.hardLimitPct,
+        quotaStatus,
+        quotaSource: "INTERNAL",
       },
       create: {
         date,
         service,
-        totalCalls: calls._count,
-        totalCredits: calls._sum.credits ?? 0,
-        avgLatencyMs: Math.round(calls._avg.latencyMs ?? 0),
-        errorCount: errors,
-        budgetTotal: service === "HELIUS" ? 10_000_000 : 1_500_000,
+        totalCalls,
+        totalCredits,
+        budgetTotal,
+        budgetUsedPercent,
+        monthlyCreditsUsed,
+        monthlyCreditsRemaining,
+        dailyBudget,
+        dailyCreditsRemaining,
+        essentialCalls,
+        essentialCredits,
+        nonEssentialCredits,
+        cachedCalls,
+        avgCreditsPerCall,
+        peakRps,
+        avgLatencyMs: Math.round(avgLatencyMs),
+        errorCount,
+        softLimitPct: config.apiBudgets.softLimitPct,
+        hardLimitPct: config.apiBudgets.hardLimitPct,
+        quotaStatus,
+        quotaSource: "INTERNAL",
       },
     });
+
+    await db.apiEndpointDaily.deleteMany({
+      where: { date, service },
+    });
+
+    const endpointRows = dailyCalls.reduce((acc, call) => {
+      const dimensionKey = [
+        call.endpoint,
+        call.strategy ?? "ALL",
+        call.mode ?? "ALL",
+        call.configProfile ?? "ALL",
+        call.purpose,
+        call.essential ? "1" : "0",
+      ].join("|");
+
+      const entry = acc.get(dimensionKey) ?? {
+        endpoint: call.endpoint,
+        strategy: call.strategy,
+        mode: call.mode,
+        configProfile: call.configProfile,
+        purpose: call.purpose,
+        essential: call.essential,
+        totalCalls: 0,
+        totalCredits: 0,
+        cachedCalls: 0,
+        errorCount: 0,
+        latencyTotal: 0,
+        latencyCount: 0,
+        batchTotal: 0,
+        batchCount: 0,
+      };
+
+      entry.totalCalls += 1;
+      entry.totalCredits += call.credits;
+      if (call.cacheHit) entry.cachedCalls += 1;
+      if ((call.statusCode ?? 0) >= 400) entry.errorCount += 1;
+      if (call.latencyMs && call.latencyMs > 0) {
+        entry.latencyTotal += call.latencyMs;
+        entry.latencyCount += 1;
+      }
+      if (call.batchSize && call.batchSize > 0) {
+        entry.batchTotal += call.batchSize;
+        entry.batchCount += 1;
+      }
+
+      acc.set(dimensionKey, entry);
+      return acc;
+    }, new Map<string, {
+      endpoint: string;
+      strategy: Strategy | null;
+      mode: TradeMode | null;
+      configProfile: string | null;
+      purpose: typeof dailyCalls[number]["purpose"];
+      essential: boolean;
+      totalCalls: number;
+      totalCredits: number;
+      cachedCalls: number;
+      errorCount: number;
+      latencyTotal: number;
+      latencyCount: number;
+      batchTotal: number;
+      batchCount: number;
+    }>());
+
+    if (endpointRows.size > 0) {
+      await db.apiEndpointDaily.createMany({
+        data: [...endpointRows.entries()].map(([dimensionKey, entry]) => ({
+          date,
+          service,
+          endpoint: entry.endpoint,
+          dimensionKey,
+          strategy: entry.strategy,
+          mode: entry.mode,
+          configProfile: entry.configProfile,
+          purpose: entry.purpose,
+          essential: entry.essential,
+          totalCalls: entry.totalCalls,
+          totalCredits: entry.totalCredits,
+          cachedCalls: entry.cachedCalls,
+          avgCreditsPerCall: entry.totalCalls > 0 ? entry.totalCredits / entry.totalCalls : 0,
+          avgLatencyMs: entry.latencyCount > 0 ? Math.round(entry.latencyTotal / entry.latencyCount) : 0,
+          errorCount: entry.errorCount,
+          avgBatchSize: entry.batchCount > 0 ? entry.batchTotal / entry.batchCount : 0,
+        })),
+      });
+    }
   }
+}
+
+function averageOf(values: number[]): number {
+  return values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+}
+
+function computePeakRps(timestamps: Date[]): number {
+  if (timestamps.length === 0) return 0;
+  const buckets = new Map<number, number>();
+  for (const timestamp of timestamps) {
+    const second = Math.floor(timestamp.getTime() / 1000);
+    buckets.set(second, (buckets.get(second) ?? 0) + 1);
+  }
+  return Math.max(...buckets.values());
 }
 
 parentPort?.on("message", async (task: StatsTask) => {

@@ -1,16 +1,24 @@
 import { db } from "../db/client.js";
 import { createChildLogger } from "./logger.js";
-import type { ApiService, Strategy } from "@prisma/client";
+import type { ApiCallPurpose, ApiService, Strategy, TradeMode } from "@prisma/client";
 
 const log = createChildLogger("api-call-buffer");
 
 interface ApiCallData {
-  service: string;
+  service: ApiService;
   endpoint: string;
   credits: number;
-  strategy?: string;
+  requestedCredits?: number;
+  strategy?: Strategy;
+  mode?: TradeMode;
+  configProfile?: string;
+  purpose?: ApiCallPurpose;
+  essential?: boolean;
+  cacheHit?: boolean;
+  batchSize?: number;
   statusCode?: number;
   latencyMs?: number;
+  success?: boolean;
 }
 
 export class ApiCallBuffer {
@@ -32,12 +40,20 @@ export class ApiCallBuffer {
     try {
       await db.apiCall.createMany({
         data: batch.map((c) => ({
-          service: c.service as ApiService,
+          service: c.service,
           endpoint: c.endpoint,
           credits: c.credits,
-          strategy: (c.strategy as Strategy) ?? null,
+          requestedCredits: c.requestedCredits ?? c.credits,
+          strategy: c.strategy ?? null,
+          mode: c.mode ?? null,
+          configProfile: c.configProfile ?? null,
+          purpose: c.purpose ?? "OTHER",
+          essential: c.essential ?? false,
+          cacheHit: c.cacheHit ?? false,
+          batchSize: c.batchSize ?? null,
           statusCode: c.statusCode ?? null,
           latencyMs: c.latencyMs ?? null,
+          success: c.success ?? (c.statusCode ? c.statusCode < 400 : true),
         })),
       });
       this.buffer.splice(0, batch.length);
