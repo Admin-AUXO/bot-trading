@@ -11,7 +11,8 @@ import {
   skippedSignalsQueryOptions,
 } from "@/lib/dashboard-query-options";
 import { manualEntry, manualExit } from "@/lib/api";
-import { useDashboardStore } from "@/lib/store";
+import { useDashboardFilters } from "@/hooks/use-dashboard-filters";
+import { useDashboardShell } from "@/hooks/use-dashboard-shell";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
@@ -42,17 +43,16 @@ import {
   Timer,
 } from "lucide-react";
 
-const STRATEGY_TIME_STOPS: Record<string, number> = {
-  S1_COPY: 120,
-  S2_GRADUATION: 15,
-  S3_MOMENTUM: 5,
-};
+const STRATEGY_TIME_STOPS: Record<string, number> = { S1_COPY: 120, S2_GRADUATION: 15, S3_MOMENTUM: 5 };
+const STRATEGY_STOP_LOSS: Record<string, number> = { S1_COPY: 20, S2_GRADUATION: 25, S3_MOMENTUM: 10 };
 
-const STRATEGY_STOP_LOSS: Record<string, number> = {
-  S1_COPY: 20,
-  S2_GRADUATION: 25,
-  S3_MOMENTUM: 10,
-};
+function getTimeBudget(strategy: string, strategyConfig?: ReturnType<typeof useDashboardShell>["strategyConfig"]) {
+  return strategyConfig?.strategies[strategy]?.timeStopMinutes ?? STRATEGY_TIME_STOPS[strategy] ?? 30;
+}
+
+function getStopLoss(strategy: string, strategyConfig?: ReturnType<typeof useDashboardShell>["strategyConfig"]) {
+  return strategyConfig?.strategies[strategy]?.stopLoss ?? STRATEGY_STOP_LOSS[strategy] ?? 20;
+}
 
 function getNextExit(position: { exit1Done: boolean; exit2Done: boolean; exit3Done: boolean; strategy: string }) {
   if (!position.exit1Done) {
@@ -77,21 +77,22 @@ export default function PositionsPage() {
   const [exitingId, setExitingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirmExit, setConfirmExit] = useState<{ id: string; symbol: string } | null>(null);
-  const { mode, selectedStrategy } = useDashboardStore();
+  const { effectiveMode, effectiveProfile, resolvedTradeSource, selectedStrategy } = useDashboardFilters();
   const queryClient = useQueryClient();
+  const { strategyConfig, maxOpenPositions } = useDashboardShell();
 
   useEffect(() => {
     setPage(1);
     setSkippedPage(1);
   }, [selectedStrategy]);
 
-  const openPositionsQuery = useQuery(positionsQueryOptions(mode));
+  const openPositionsQuery = useQuery(positionsQueryOptions(effectiveMode, effectiveProfile, resolvedTradeSource));
   const historyQuery = useQuery({
-    ...positionHistoryQueryOptions(page, selectedStrategy, mode),
+    ...positionHistoryQueryOptions(page, selectedStrategy, effectiveMode, effectiveProfile, resolvedTradeSource),
     enabled: tab === "history",
   });
   const skippedSignalsQuery = useQuery({
-    ...skippedSignalsQueryOptions(skippedPage, selectedStrategy, mode),
+    ...skippedSignalsQueryOptions(skippedPage, selectedStrategy, effectiveMode, effectiveProfile),
     enabled: tab === "skipped",
   });
   const operatorSessionQuery = useQuery(operatorSessionQueryOptions());
@@ -102,8 +103,8 @@ export default function PositionsPage() {
   const entryMutation = useMutation({
     mutationFn: manualEntry,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.positions(mode) });
-      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.skippedSignals(skippedPage, selectedStrategy, mode) });
+      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.positions(effectiveMode, effectiveProfile, resolvedTradeSource) });
+      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.skippedSignals(skippedPage, selectedStrategy, effectiveMode, effectiveProfile) });
       queryClient.invalidateQueries({ queryKey: ["position-history"] });
     },
   });
@@ -111,7 +112,7 @@ export default function PositionsPage() {
   const exitMutation = useMutation({
     mutationFn: (positionId: string) => manualExit(positionId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.positions(mode) });
+      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.positions(effectiveMode, effectiveProfile, resolvedTradeSource) });
       queryClient.invalidateQueries({ queryKey: ["position-history"] });
     },
   });
@@ -126,17 +127,18 @@ export default function PositionsPage() {
     const openPnlUsd = positions.reduce((sum, position) => sum + (position.pnlUsd ?? 0), 0);
     const deployedSol = positions.reduce((sum, position) => sum + position.amountSol, 0);
     const urgentCount = positions.filter((position) => {
-      const stopDistance = position.pnlPercent + (STRATEGY_STOP_LOSS[position.strategy] ?? 20);
+      const stopDistance = position.pnlPercent + getStopLoss(position.strategy, strategyConfig);
       const timeRemaining = Math.max(
         0,
-        (STRATEGY_TIME_STOPS[position.strategy] ?? 30) - (position.holdMinutes ?? 0),
+        getTimeBudget(position.strategy, strategyConfig) - (position.holdMinutes ?? 0),
       );
       return stopDistance <= 5 || timeRemaining <= 5;
     }).length;
     const manualCount = positions.filter((position) => position.tradeSource === "MANUAL").length;
+    const partialCount = positions.filter((position) => position.status === "PARTIALLY_CLOSED").length;
 
-    return { deployedSol, manualCount, openPnlUsd, urgentCount };
-  }, [filteredPositions]);
+    return { deployedSol, manualCount, openPnlUsd, partialCount, urgentCount };
+  }, [filteredPositions, strategyConfig]);
 
   const historySummary = historyQuery.data?.summary;
   const skippedSummary = skippedSignalsQuery.data?.summary;
@@ -166,7 +168,8 @@ export default function PositionsPage() {
         <div>
           <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Position Risk</div>
           <div className="mt-1 text-sm text-text-secondary">
-            {mode === "LIVE" ? "Live" : "Simulation"} mode · {selectedStrategy ? strategyLabel(selectedStrategy) : "All strategies"}
+            {effectiveMode === "LIVE" ? "Live" : "Simulation"} analysis · {effectiveProfile} · {selectedStrategy ? strategyLabel(selectedStrategy) : "All strategies"}
+            {resolvedTradeSource ? ` · ${resolvedTradeSource.toLowerCase()} only` : ""}
           </div>
         </div>
 
@@ -208,8 +211,8 @@ export default function PositionsPage() {
           <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
             <SummaryTile
               label="Open Positions"
-              value={String(filteredPositions?.length ?? 0)}
-              sub={selectedStrategy ? strategyLabel(selectedStrategy) : "All strategies"}
+              value={`${filteredPositions?.length ?? 0}/${maxOpenPositions}`}
+              sub={`${effectiveProfile} · ${selectedStrategy ? strategyLabel(selectedStrategy) : "All strategies"}`}
               icon={<Crosshair className="h-3.5 w-3.5 text-accent-blue" />}
             />
             <SummaryTile
@@ -222,7 +225,7 @@ export default function PositionsPage() {
             <SummaryTile
               label="Capital Deployed"
               value={formatSol(openSummary.deployedSol)}
-              sub="Current exposure"
+              sub={`${maxOpenPositions - (filteredPositions?.length ?? 0)} slots clear`}
             />
             <SummaryTile
               label="Urgent Exits"
@@ -235,6 +238,12 @@ export default function PositionsPage() {
               label="Manual Positions"
               value={String(openSummary.manualCount)}
               sub="Override entries"
+            />
+            <SummaryTile
+              label="Partial Closures"
+              value={String(openSummary.partialCount)}
+              sub="Still consuming capacity"
+              tone={openSummary.partialCount > 0 ? "warning" : "default"}
             />
           </div>
 
@@ -259,14 +268,15 @@ export default function PositionsPage() {
                       <th className="table-header">Time</th>
                       <th className="table-header">Next Exit</th>
                       <th className="table-header">Source</th>
+                      <th className="table-header">State</th>
                       <th className="table-header">Exit</th>
                     </tr>
                   </thead>
                   <motion.tbody layout>
                     <AnimatePresence mode="popLayout">
                       {filteredPositions?.map((position, index) => {
-                        const stopDistance = position.pnlPercent + (STRATEGY_STOP_LOSS[position.strategy] ?? 20);
-                        const timeBudget = STRATEGY_TIME_STOPS[position.strategy] ?? 30;
+                        const stopDistance = position.pnlPercent + getStopLoss(position.strategy, strategyConfig);
+                        const timeBudget = getTimeBudget(position.strategy, strategyConfig);
                         const holdMinutes = position.holdMinutes ?? 0;
                         const timeRemaining = Math.max(0, timeBudget - holdMinutes);
                         const nextExit = getNextExit(position);
@@ -287,7 +297,7 @@ export default function PositionsPage() {
                             <td className="table-cell">
                               <div className="font-medium text-text-primary">{position.tokenSymbol}</div>
                               <div className="text-[10px] text-text-muted">
-                                {position.walletSource ? `${position.walletSource.slice(0, 6)}…${position.walletSource.slice(-4)}` : "Tracked position"}
+                                {position.configProfile ?? effectiveProfile} · {position.walletSource ? `${position.walletSource.slice(0, 6)}…${position.walletSource.slice(-4)}` : "Tracked position"}
                               </div>
                             </td>
                             <td className="table-cell tabular-nums">{formatSol(position.amountSol)}</td>
@@ -313,6 +323,11 @@ export default function PositionsPage() {
                             <td className="table-cell">
                               <span className={position.tradeSource === "MANUAL" ? "badge badge-yellow text-[10px]" : "badge badge-blue text-[10px]"}>
                                 {position.tradeSource ?? "AUTO"}
+                              </span>
+                            </td>
+                            <td className="table-cell">
+                              <span className={position.status === "PARTIALLY_CLOSED" ? "badge badge-yellow text-[10px]" : "badge badge-green text-[10px]"}>
+                                {position.status === "PARTIALLY_CLOSED" ? "Partial" : "Open"}
                               </span>
                             </td>
                             <td className="table-cell">
@@ -351,7 +366,7 @@ export default function PositionsPage() {
 
                       {!filteredPositions?.length ? (
                         <tr>
-                          <td colSpan={11}>
+                          <td colSpan={12}>
                             <EmptyState
                               icon={<Crosshair className="h-5 w-5" />}
                               title="No open positions"

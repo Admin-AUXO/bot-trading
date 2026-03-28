@@ -20,6 +20,10 @@ export const DASHBOARD_PAGE_META: Record<string, DashboardPageMeta> = {
     title: "Analytics",
     description: "Strategy expectancy, regime fit, and where the edge is leaking.",
   },
+  "/quota": {
+    title: "API Quota",
+    description: "Provider runway, endpoint spenders, and when quota pressure starts steering the bot.",
+  },
   "/settings": {
     title: "Settings",
     description: "Bot controls, operator access, risk guardrails, and active profiles.",

@@ -31,6 +31,7 @@ export function positionsRouter(deps?: {
   router.get("/", cacheMiddleware(5_000), async (req, res) => {
     const mode = (req.query.mode as string | undefined) ?? defaultScope?.mode;
     const profile = (req.query.profile as string | undefined) ?? defaultScope?.configProfile;
+    const tradeSource = req.query.tradeSource as string | undefined;
     const includeTrades = req.query.includeTrades === "true";
 
     const where: Record<string, unknown> = {
@@ -38,6 +39,7 @@ export function positionsRouter(deps?: {
     };
     if (mode) where.mode = mode;
     if (profile) where.configProfile = profile;
+    if (tradeSource) where.tradeSource = tradeSource;
 
     const positions = await database.position.findMany({
       where,
@@ -68,11 +70,13 @@ export function positionsRouter(deps?: {
     const strategy = req.query.strategy as string | undefined;
     const mode = (req.query.mode as string | undefined) ?? defaultScope?.mode;
     const profile = (req.query.profile as string | undefined) ?? defaultScope?.configProfile;
+    const tradeSource = req.query.tradeSource as string | undefined;
 
     const where: Record<string, unknown> = { status: "CLOSED" };
     if (strategy) where.strategy = strategy;
     if (mode) where.mode = mode;
     if (profile) where.configProfile = profile;
+    if (tradeSource) where.tradeSource = tradeSource;
 
     const [positions, total, wins, losses, pnlAggregate, pnlPercentAggregate] = await Promise.all([
       database.position.findMany({

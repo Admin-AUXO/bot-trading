@@ -41,6 +41,7 @@ If a task does not clearly require root-level files, avoid touching files outsid
 - Treat control-plane write routes as authenticated surfaces by default. Read-only routes may be public; mutating routes must make the boundary explicit.
 - Keep dashboard proxy auth centralized. Do not rely on per-endpoint token hacks when a whole control subtree needs the same bearer token.
 - Reuse the shared dashboard shell state in `trading_bot/dashboard/hooks/use-dashboard-shell.ts` for layout chrome and page summaries instead of re-querying overview, positions, heartbeat, and operator session in every component.
+- Keep active runtime scope separate from analysis filters. Header, sidebar, footer, overview, and control surfaces reflect runtime truth; `trading_bot/dashboard/hooks/use-dashboard-filters.ts` owns analysis-lane inspection for positions, trades, analytics, and quota drill-downs.
 - Keep analytics deterministic. Historical recomputes must derive from immutable records or persisted snapshots, not mutable singleton state.
 - Treat Helius and Birdeye quota as first-class runtime constraints. Daily budget, soft-limit degradation, and hard-limit entry pauses are part of normal operation, not optional extras.
 - Route provider calls through the shared services under `trading_bot/backend/src/services/`. Do not add raw provider fetches, side workers, or ad-hoc clients that bypass quota accounting, batching, caching, or auth.

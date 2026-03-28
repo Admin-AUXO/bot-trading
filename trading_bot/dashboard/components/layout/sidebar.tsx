@@ -9,13 +9,16 @@ import {
   ArrowLeftRight,
   BarChart3,
   Crosshair,
+  Gauge,
   LayoutDashboard,
   Menu,
   Settings,
   X,
 } from "lucide-react";
-import { useDashboardStore } from "@/lib/store";
+import { useDashboardFilters } from "@/hooks/use-dashboard-filters";
 import { useDashboardShell } from "@/hooks/use-dashboard-shell";
+import { useDashboardStore } from "@/lib/store";
+import { ALL_TRADE_SOURCE_FILTER } from "@/lib/store";
 import { cn, formatUsd, pnlClass, strategyLabel } from "@/lib/utils";
 
 const SIDEBAR_WIDTH = 256;
@@ -50,19 +53,42 @@ const navItems = [
     key: "4",
   },
   {
+    href: "/quota",
+    label: "API Quota",
+    description: "Provider runway and spenders",
+    icon: Gauge,
+    key: "5",
+  },
+  {
     href: "/settings",
     label: "Settings",
     description: "Controls and profiles",
     icon: Settings,
-    key: "5",
+    key: "6",
   },
 ] as const;
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { sidebarOpen, setSidebarOpen, setSelectedStrategy } = useDashboardStore();
-  const { allPositions, selectedStrategy, openPnlUsd, deployedCapitalUsd, activeStrategiesCount, operatorAccess } =
-    useDashboardShell();
+  const { sidebarOpen, setSidebarOpen } = useDashboardStore();
+  const {
+    selectedStrategy,
+    setSelectedStrategy,
+    activeScope,
+    effectiveMode,
+    effectiveProfile,
+    selectedTradeSource,
+  } = useDashboardFilters();
+  const {
+    allPositions,
+    openPnlUsd,
+    deployedCapitalUsd,
+    activeStrategiesCount,
+    operatorAccess,
+    maxOpenPositions,
+    pauseReasons,
+    worstQuota,
+  } = useDashboardShell();
   const [isDesktop, setIsDesktop] = useState(() =>
     typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches,
   );
@@ -124,12 +150,12 @@ export function Sidebar() {
           <div className="mt-3 rounded-xl border border-bg-border bg-bg-card/70 p-3">
             <div className="flex items-center justify-between text-[10px] uppercase tracking-wider text-text-muted">
               <span>Capacity</span>
-              <span className={allPositions.length >= 5 ? "text-accent-red" : "text-text-primary"}>
-                {allPositions.length}/5
+              <span className={allPositions.length >= maxOpenPositions ? "text-accent-red" : "text-text-primary"}>
+                {allPositions.length}/{maxOpenPositions}
               </span>
             </div>
             <div className="mt-2 flex gap-1">
-              {Array.from({ length: 5 }).map((_, index) => (
+              {Array.from({ length: maxOpenPositions }).map((_, index) => (
                 <div
                   key={index}
                   className={cn(
@@ -150,6 +176,24 @@ export function Sidebar() {
               </div>
             </div>
           </div>
+
+          <div className="mt-3 rounded-xl border border-bg-border bg-bg-card/55 p-3 text-[11px] text-text-secondary">
+            <div className="text-[10px] uppercase tracking-wider text-text-muted">Runtime Scope</div>
+            <div className="mt-1 font-medium text-text-primary">
+              {activeScope ? `${activeScope.mode} / ${activeScope.configProfile}` : "Waiting for scope"}
+            </div>
+            {worstQuota ? (
+              <div className="mt-2 flex items-center justify-between">
+                <span>Quota</span>
+                <span className={quotaTone(worstQuota.quotaStatus)}>{worstQuota.service} {worstQuota.quotaStatus}</span>
+              </div>
+            ) : null}
+            {pauseReasons.length > 0 ? (
+              <div className="mt-2 text-accent-yellow" title={pauseReasons.join(" · ")}>
+                {pauseReasons.length} pause blocker{pauseReasons.length > 1 ? "s" : ""}
+              </div>
+            ) : null}
+          </div>
         </div>
 
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-3">
@@ -161,8 +205,12 @@ export function Sidebar() {
                 : item.href === "/trades"
                   ? selectedStrategy
                     ? strategyLabel(selectedStrategy)
-                    : undefined
-                  : undefined;
+                    : selectedTradeSource !== ALL_TRADE_SOURCE_FILTER
+                      ? selectedTradeSource
+                      : undefined
+                  : item.href === "/quota" && worstQuota
+                    ? worstQuota.quotaStatus
+                    : undefined;
 
             return (
               <div key={item.href} className="relative">
@@ -202,9 +250,12 @@ export function Sidebar() {
 
         <div className="space-y-3 border-t border-bg-border px-3 py-3">
           <div className="rounded-xl border border-bg-border bg-bg-card/70 p-3">
-            <div className="text-[10px] uppercase tracking-wider text-text-muted">Filter Focus</div>
+            <div className="text-[10px] uppercase tracking-wider text-text-muted">Analysis Focus</div>
             <div className="mt-1 text-sm font-medium text-text-primary">
               {selectedStrategy ? strategyLabel(selectedStrategy) : "All strategies"}
+            </div>
+            <div className="mt-1 text-[11px] text-text-muted">
+              {effectiveMode} / {effectiveProfile}
             </div>
             <div className="mt-1 text-[11px] text-text-muted">
               {activeStrategiesCount} strategies active · operator {operatorAccess}
@@ -218,13 +269,14 @@ export function Sidebar() {
               </button>
             ) : null}
           </div>
-
-          <div className="flex items-center justify-between text-[10px] text-text-muted">
-            <span>Shortcuts</span>
-            <span>1-5 navigate · L mode</span>
-          </div>
         </div>
       </motion.aside>
     </>
   );
+}
+
+function quotaTone(status: "HEALTHY" | "SOFT_LIMIT" | "HARD_LIMIT" | "PAUSED") {
+  if (status === "HEALTHY") return "text-accent-green";
+  if (status === "SOFT_LIMIT") return "text-accent-yellow";
+  return "text-accent-red";
 }

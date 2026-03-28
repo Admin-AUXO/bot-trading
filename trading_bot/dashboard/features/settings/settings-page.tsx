@@ -1,23 +1,23 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   pauseBot, resumeBot,
-  fetchProfiles, createProfile, toggleProfile, deleteProfile,
-  fetchStrategyConfig, unlockOperatorSession, clearOperatorSession,
+  createProfile, toggleProfile, deleteProfile,
+  reconcileWallet, unlockOperatorSession, clearOperatorSession,
 } from "@/lib/api";
-import type { ConfigProfile } from "@/lib/api";
-import { useDashboardStore } from "@/lib/store";
-import { apiUsageQueryOptions, dashboardQueryKeys } from "@/lib/dashboard-query-options";
+import type { ConfigProfile, TradeMode } from "@/lib/api";
+import { dashboardQueryKeys, profilesQueryOptions } from "@/lib/dashboard-query-options";
 import { useDashboardShell } from "@/hooks/use-dashboard-shell";
 import { formatUsd, formatNumber, timeAgo } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import {
   Power, Database, Shield, Wallet, Layers, Plus, Trash2,
   ToggleLeft, ToggleRight, Heart, AlertTriangle, Cpu, Activity,
-  Target, TrendingDown, CircleCheck, XCircle, Clock,
+  Target, TrendingDown, CircleCheck, XCircle, Clock, Gauge, RefreshCcw,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -47,31 +47,29 @@ const STRATEGY_BORDER: Record<string, string> = {
 
 export default function SettingsPage() {
   const queryClient = useQueryClient();
-  const { mode } = useDashboardStore();
-  const { overview, heartbeat, allPositions: openPositions, operatorSession } = useDashboardShell();
+  const {
+    activeScope,
+    overview,
+    heartbeat,
+    allPositions: openPositions,
+    operatorSession,
+    strategyConfig: stratConfig,
+    apiUsage,
+    maxOpenPositions,
+    pauseReasons,
+    worstQuota,
+  } = useDashboardShell();
   const [operatorSecret, setOperatorSecret] = useState("");
-  const { data: apiUsage } = useQuery(apiUsageQueryOptions());
-
-  const { data: profiles } = useQuery({
-    queryKey: ["profiles"],
-    queryFn: fetchProfiles,
-    staleTime: 60_000,
-  });
-
-  const { data: stratConfig } = useQuery({
-    queryKey: ["strategy-config"],
-    queryFn: fetchStrategyConfig,
-    staleTime: 60_000,
-  });
+  const { data: profiles } = useQuery(profilesQueryOptions());
 
   const pauseMutation = useMutation({
     mutationFn: pauseBot,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.overview(mode) }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.overview }),
   });
 
   const resumeMutation = useMutation({
     mutationFn: resumeBot,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.overview(mode) }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.overview }),
   });
 
   const unlockMutation = useMutation({
@@ -87,6 +85,15 @@ export default function SettingsPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.operatorSession }),
   });
 
+  const reconcileMutation = useMutation({
+    mutationFn: reconcileWallet,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.overview });
+      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.heartbeat });
+      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.strategyConfig });
+    },
+  });
+
   const criticalAlerts: string[] = [];
   if (overview) {
     if (overview.dailyLossUsd >= overview.dailyLossLimit * 0.8)
@@ -96,6 +103,9 @@ export default function SettingsPage() {
     if (overview.capitalLevel === "HALT")
       criticalAlerts.push("Capital below $100 — trading halted");
   }
+  if (pauseReasons.length > 0) {
+    criticalAlerts.push(...pauseReasons);
+  }
 
   const positionsByStrategy = openPositions?.reduce<Record<string, number>>((acc, p) => {
     acc[p.strategy] = (acc[p.strategy] ?? 0) + 1;
@@ -104,8 +114,20 @@ export default function SettingsPage() {
 
   const dailyLossPct = overview ? (overview.dailyLossUsd / overview.dailyLossLimit) * 100 : 0;
   const weeklyLossPct = overview ? (overview.weeklyLossUsd / overview.weeklyLossLimit) * 100 : 0;
-
-  const todayApiCalls = apiUsage?.daily?.reduce((sum, d) => sum + (d.totalCalls ?? 0), 0) ?? 0;
+  const currentQuota = (apiUsage?.current ?? [])
+    .map((snapshot) => ({
+      ...snapshot,
+      dailyPct: snapshot.dailyBudget > 0 ? (snapshot.dailyUsed / snapshot.dailyBudget) * 100 : 0,
+      monthlyPct: snapshot.budgetTotal > 0 ? (snapshot.monthlyUsed / snapshot.budgetTotal) * 100 : 0,
+    }))
+    .sort((left, right) => right.monthlyPct - left.monthlyPct);
+  const monthlySummaryByService = new Map(
+    (apiUsage?.monthly ?? []).map((entry) => [entry.service, entry]),
+  );
+  const topQuotaEndpoints = apiUsage?.topEndpoints.slice(0, 4) ?? [];
+  const todayApiCalls = currentQuota.length > 0
+    ? currentQuota.reduce((sum, snapshot) => sum + snapshot.totalCalls, 0)
+    : apiUsage?.daily?.reduce((sum, d) => sum + (d.totalCalls ?? 0), 0) ?? 0;
   const controlsLocked = operatorSession?.configured !== false && !operatorSession?.authenticated;
   const controlsUnavailable = operatorSession?.configured === false;
 
@@ -125,7 +147,9 @@ export default function SettingsPage() {
         <div>
           <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Control Plane</div>
           <div className="mt-1 text-sm text-text-secondary">
-            {mode === "LIVE" ? "Live" : "Simulation"} mode · bot controls, risk limits, and profile routing
+            {activeScope?.mode === "LIVE" ? "Live" : activeScope?.mode === "DRY_RUN" ? "Simulation" : "Runtime"} scope
+            {activeScope ? ` · ${activeScope.configProfile}` : ""}
+            {" · "}bot controls, quota pressure, and profile routing
           </div>
         </div>
         <div className="text-[11px] text-text-muted">
@@ -173,7 +197,7 @@ export default function SettingsPage() {
         <MiniStat
           icon={<Activity className="w-3.5 h-3.5 text-accent-green" />}
           label="Open Positions"
-          value={`${openPositions?.length ?? 0} / 5`}
+          value={`${openPositions?.length ?? 0} / ${maxOpenPositions}`}
           sub={`Today: ${overview?.todayTrades ?? 0} trades`}
         />
       </motion.div>
@@ -195,12 +219,16 @@ export default function SettingsPage() {
             </div>
 
             <div className="space-y-3">
-              {overview?.pauseReason && (
-                <div className="flex items-start gap-2 px-3 py-2 bg-accent-yellow/10 border border-accent-yellow/20 rounded-lg text-xs text-accent-yellow">
-                  <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-                  {overview.pauseReason}
+              {pauseReasons.length > 0 ? (
+                <div className="space-y-2 rounded-lg border border-accent-yellow/20 bg-accent-yellow/10 px-3 py-2 text-xs text-accent-yellow">
+                  {pauseReasons.map((reason) => (
+                    <div key={reason} className="flex items-start gap-2">
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                      <span>{reason}</span>
+                    </div>
+                  ))}
                 </div>
-              )}
+              ) : null}
 
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div className="space-y-0.5">
@@ -212,6 +240,10 @@ export default function SettingsPage() {
                 <div className="space-y-0.5">
                   <div className="text-text-muted text-xs">Regime</div>
                   <div className="font-medium text-sm">{overview?.regime.regime ?? "—"}</div>
+                </div>
+                <div className="space-y-0.5">
+                  <div className="text-text-muted text-xs">Profile</div>
+                  <div className="font-medium text-sm">{activeScope?.configProfile ?? overview?.configProfile ?? "—"}</div>
                 </div>
                 <div className="space-y-0.5">
                   <div className="text-text-muted text-xs">Today Trades</div>
@@ -251,6 +283,21 @@ export default function SettingsPage() {
                   {resumeMutation.isPending ? "Resuming…" : "Resume Bot"}
                 </motion.button>
               </div>
+              {activeScope?.mode === "LIVE" ? (
+                <motion.button
+                  onClick={() => toast.promise(reconcileMutation.mutateAsync(), {
+                    loading: "Reconciling wallet balance…",
+                    success: "Wallet reconciled",
+                    error: "Wallet reconcile failed",
+                  })}
+                  disabled={controlsLocked || controlsUnavailable || reconcileMutation.isPending}
+                  className="btn-ghost w-full text-xs disabled:opacity-30"
+                  whileTap={{ scale: 0.97 }}
+                >
+                  <RefreshCcw className="mr-1 inline h-3.5 w-3.5" />
+                  {reconcileMutation.isPending ? "Reconciling…" : "Reconcile Wallet"}
+                </motion.button>
+              ) : null}
               {(controlsLocked || controlsUnavailable) && (
                 <div className="text-[11px] text-text-muted pt-1">
                   {controlsUnavailable
@@ -326,6 +373,20 @@ export default function SettingsPage() {
                   label="Last Signal"
                   value={heartbeat.lastSignalAt ? timeAgo(heartbeat.lastSignalAt) : "None"}
                 />
+                <HealthRow
+                  icon={<Layers className="w-3.5 h-3.5 text-text-muted" />}
+                  label="Runtime Scope"
+                  value={activeScope ? `${activeScope.mode} / ${activeScope.configProfile}` : "Pending"}
+                />
+                {worstQuota ? (
+                  <HealthRow
+                    icon={<Gauge className="w-3.5 h-3.5 text-text-muted" />}
+                    label="Quota"
+                    value={`${worstQuota.service} ${worstQuota.quotaStatus}`}
+                    sub={worstQuota.pauseReason ?? undefined}
+                    subClass={worstQuota.quotaStatus === "HEALTHY" ? "text-accent-green" : worstQuota.quotaStatus === "SOFT_LIMIT" ? "text-accent-yellow" : "text-accent-red"}
+                  />
+                ) : null}
                 <div className="pt-2 border-t border-bg-border">
                   <div className="flex justify-between items-center">
                     <span className="text-text-muted text-xs">Today API Calls</span>
@@ -382,7 +443,9 @@ export default function SettingsPage() {
                       <div className="grid grid-cols-2 gap-x-4">
                         <Row label="Size" value={`${cfg.positionSize} SOL`} />
                         <Row label="Stop Loss" value={`${cfg.stopLoss}%`} />
-                        <Row label="Time Stop" value={cfg.timeStop} />
+                        <Row label="Time Stop" value={`${cfg.timeStopMinutes}m`} />
+                        <Row label="Max Slip" value={`${cfg.maxSlippageBps} bps`} />
+                        <Row label="Hard Limit" value={cfg.timeLimitMinutes ? `${cfg.timeLimitMinutes}m` : "—"} />
                       </div>
                       {exits && (
                         <div className="pt-2 mt-1 border-t border-bg-border space-y-1">
@@ -464,64 +527,108 @@ export default function SettingsPage() {
       <motion.div variants={sectionItem} className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <ErrorBoundary>
           <div className="card h-full">
-            <div className="flex items-center gap-2 mb-4">
-              <Database className="w-4 h-4 text-accent-green" />
-              <span className="stat-label">API Budget</span>
+            <div className="mb-4 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Database className="w-4 h-4 text-accent-green" />
+                <span className="stat-label">API Quota</span>
+              </div>
+              <Link href="/quota" className="text-[11px] font-medium text-accent-blue transition-colors hover:text-accent-cyan">
+                Open quota page
+              </Link>
             </div>
             <div className="space-y-4">
-              {apiUsage?.monthly?.map((u) => {
-                const budget = u.service === "HELIUS" ? 10_000_000 : 1_500_000;
-                const used = u._sum.totalCredits ?? 0;
-                const calls = u._sum.totalCalls ?? 0;
-                const pct = budget > 0 ? (used / budget) * 100 : 0;
-                const dayOfMonth = new Date().getDate();
-                const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
-                const projected = dayOfMonth > 0 ? used * (daysInMonth / dayOfMonth) : used;
-                const projectedPct = budget > 0 ? (projected / budget) * 100 : 0;
-                const daysUntilExhausted = used > 0 ? (budget / (used / dayOfMonth)) : null;
-
-                const todayService = apiUsage.daily?.find((d) => d.service === u.service);
+              {currentQuota.map((snapshot) => {
+                const summary = monthlySummaryByService.get(snapshot.service);
+                const monthlyTone = snapshot.quotaStatus === "HEALTHY"
+                  ? "text-accent-green"
+                  : snapshot.quotaStatus === "SOFT_LIMIT"
+                    ? "text-accent-yellow"
+                    : "text-accent-red";
 
                 return (
-                  <div key={u.service} className="space-y-2">
+                  <div key={snapshot.service} className="rounded-xl border border-bg-border/80 bg-bg-hover/35 p-3">
                     <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium">{u.service}</span>
-                      <span className={`text-xs font-medium ${pct > 80 ? "text-accent-red" : pct > 60 ? "text-accent-yellow" : "text-accent-green"}`}>
-                        {pct.toFixed(1)}%
+                      <span className="text-sm font-medium">{snapshot.service}</span>
+                      <span className={`text-xs font-medium ${monthlyTone}`}>
+                        {snapshot.quotaStatus}
                       </span>
                     </div>
-                    <div className="h-2 bg-bg-border rounded-full overflow-hidden">
+                    <div className="mt-2 h-2 bg-bg-border rounded-full overflow-hidden">
                       <motion.div
-                        className={`h-full rounded-full ${pct > 80 ? "bg-accent-red" : pct > 60 ? "bg-accent-yellow" : "bg-accent-green"}`}
+                        className={`h-full rounded-full ${
+                          snapshot.quotaStatus === "HEALTHY"
+                            ? "bg-accent-green"
+                            : snapshot.quotaStatus === "SOFT_LIMIT"
+                              ? "bg-accent-yellow"
+                              : "bg-accent-red"
+                        }`}
                         style={{ transformOrigin: "left" }}
                         initial={{ scaleX: 0 }}
-                        animate={{ scaleX: Math.min(pct, 100) / 100 }}
+                        animate={{ scaleX: Math.min(snapshot.monthlyPct, 100) / 100 }}
                         transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] as const }}
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-x-4 text-xs text-text-muted">
-                      <div>{formatNumber(used)} / {formatNumber(budget)} credits</div>
-                      <div className="text-right">{formatNumber(calls)} calls</div>
-                      <div>Projected: {projectedPct.toFixed(0)}%</div>
-                      {daysUntilExhausted !== null && daysUntilExhausted < 35 && (
-                        <div className={`text-right ${daysUntilExhausted < 10 ? "text-accent-red" : "text-text-muted"}`}>
-                          Exhausted in ~{daysUntilExhausted.toFixed(0)}d
-                        </div>
-                      )}
+                    <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-text-muted">
+                      <div>{formatNumber(snapshot.monthlyUsed)} / {formatNumber(snapshot.budgetTotal)} credits</div>
+                      <div className="text-right">{snapshot.monthlyPct.toFixed(1)}% month</div>
+                      <div>Today {formatNumber(snapshot.dailyUsed)} / {formatNumber(snapshot.dailyBudget)}</div>
+                      <div className="text-right">{snapshot.dailyPct.toFixed(0)}% day</div>
+                      <div>Essential {formatNumber(snapshot.essentialCredits)}</div>
+                      <div className="text-right">Non-essential {formatNumber(snapshot.nonEssentialCredits)}</div>
+                      <div>Cached {formatNumber(snapshot.cachedCalls)} calls</div>
+                      <div className="text-right">{snapshot.avgCreditsPerCall.toFixed(1)} cr/call</div>
+                      <div>Monthly calls {formatNumber(summary?.totalCalls ?? snapshot.totalCalls)}</div>
+                      <div className="text-right">Errors {formatNumber(summary?.totalErrors ?? 0)}</div>
                     </div>
-                    {todayService && (
-                      <div className="flex items-center gap-1 text-xs text-text-muted bg-bg-hover/60 rounded px-2 py-1">
-                        <span>Today:</span>
-                        <span className="text-text-primary font-medium">{formatNumber(todayService.totalCalls)} calls</span>
-                        <span>·</span>
-                        <span className="text-text-primary font-medium">{formatNumber(todayService.totalCredits)} credits</span>
+                    <div className="mt-3 grid grid-cols-1 gap-1 text-[11px] text-text-muted">
+                      <div className="flex items-center justify-between gap-3">
+                        <span>Quota source</span>
+                        <span className="font-medium text-text-primary">{snapshot.quotaSource}</span>
                       </div>
-                    )}
+                      <div className="flex items-center justify-between gap-3">
+                        <span>Cycle end</span>
+                        <span className="font-medium text-text-primary">
+                          {snapshot.providerCycleEnd ? new Date(snapshot.providerCycleEnd).toLocaleDateString() : "Calendar month"}
+                        </span>
+                      </div>
+                    </div>
+                    {snapshot.pauseReason ? (
+                      <div className="mt-3 flex items-start gap-2 rounded-lg border border-accent-yellow/20 bg-accent-yellow/8 px-3 py-2 text-[11px] text-accent-yellow">
+                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                        <span>{snapshot.pauseReason}</span>
+                      </div>
+                    ) : null}
                   </div>
                 );
               })}
-              {(!apiUsage?.monthly || apiUsage.monthly.length === 0) && (
-                <div className="text-text-muted text-sm">No usage data yet</div>
+              {topQuotaEndpoints.length ? (
+                <div className="rounded-xl border border-bg-border/80 bg-bg-hover/25 p-3">
+                  <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Top Endpoint Spenders</div>
+                  <div className="mt-3 space-y-2">
+                    {topQuotaEndpoints.map((endpoint) => (
+                      <div
+                        key={`${endpoint.service}:${endpoint.endpoint}:${endpoint.purpose}:${endpoint.configProfile ?? "all"}`}
+                        className="flex items-center justify-between gap-3 text-xs"
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate font-medium text-text-primary">
+                            {endpoint.service} · {endpoint.endpoint}
+                          </div>
+                          <div className="truncate text-text-muted">
+                            {endpoint.purpose} · {endpoint.configProfile ?? "all profiles"}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-medium text-text-primary">{formatNumber(endpoint.totalCredits)} cr</div>
+                          <div className="text-text-muted">{formatNumber(endpoint.totalCalls)} calls</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {!currentQuota.length && (
+                <div className="text-text-muted text-sm">No quota telemetry yet</div>
               )}
             </div>
           </div>
@@ -714,10 +821,10 @@ function ProfilesSection({
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
-  const [newMode, setNewMode] = useState("DRY_RUN");
+  const [newMode, setNewMode] = useState<TradeMode>("DRY_RUN");
 
   const createMut = useMutation({
-    mutationFn: (data: { name: string; description: string; mode: string; settings: Record<string, unknown> }) =>
+    mutationFn: (data: { name: string; description: string; mode: TradeMode; settings: Record<string, unknown> }) =>
       createProfile(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["profiles"] });
@@ -788,7 +895,7 @@ function ProfilesSection({
               <div className="flex items-center gap-2">
                 <select
                   value={newMode}
-                  onChange={(e) => setNewMode(e.target.value)}
+                  onChange={(e) => setNewMode(e.target.value as TradeMode)}
                   className="input-base flex-1"
                 >
                   <option value="DRY_RUN">Dry Run</option>

@@ -1,145 +1,19 @@
 import ky from "ky";
 
-// Use relative URLs so Next.js rewrites proxy them to the backend.
-// This avoids CORS issues and Docker-internal hostname resolution in the browser.
 const api = ky.create({
   prefixUrl: "/",
   timeout: 10_000,
 });
 
-// Note: ky throws on HTTP errors (4xx/5xx). Errors are caught by TanStack Query and available
-// in the error state of useQuery hooks. Use getErrorMessage() to display errors in UI.
+export type TradeMode = "LIVE" | "DRY_RUN";
+export type TradeSource = "AUTO" | "MANUAL";
+export type ApiService = "HELIUS" | "BIRDEYE" | "JUPITER" | "JITO";
+export type QuotaStatus = "HEALTHY" | "SOFT_LIMIT" | "HARD_LIMIT" | "PAUSED";
+export type QuotaSource = "INTERNAL" | "PROVIDER" | "MIXED";
 
-export async function fetchOverview(mode?: string) {
-  const params = mode ? `?mode=${mode}` : "";
-  return api.get("api/overview" + params).json<{
-    capitalUsd: number;
-    capitalSol: number;
-    walletBalance: number;
-    dailyLossUsd: number;
-    weeklyLossUsd: number;
-    dailyLossLimit: number;
-    weeklyLossLimit: number;
-    capitalLevel: string;
-    regime: { regime: string; solPrice: number; solChange5m: number; solChange1h: number };
-    rollingWinRate: number;
-    isRunning: boolean;
-    pauseReason: string | null;
-    openPositions: Position[];
-    todayTrades: number;
-    todayPnl: number;
-    todayWins: number;
-    todayLosses: number;
-    mode: string;
-  }>();
-}
-
-export async function fetchApiUsage() {
-  return api.get("api/overview/api-usage").json<{
-    daily: ApiUsageDaily[];
-    monthly: { service: string; _sum: { totalCredits: number; totalCalls: number } }[];
-  }>();
-}
-
-export async function fetchPositions(mode?: string) {
-  const params = mode ? `?mode=${mode}` : "";
-  return api.get("api/positions" + params).json<Position[]>();
-}
-
-export async function fetchPositionHistory(page: number = 1, strategy?: string, mode?: string, profile?: string) {
-  const params = new URLSearchParams({ page: String(page) });
-  if (strategy) params.set("strategy", strategy);
-  if (mode) params.set("mode", mode);
-  if (profile) params.set("profile", profile);
-  return api.get("api/positions/history?" + params).json<PositionHistoryResponse>();
-}
-
-export async function fetchTrades(page: number = 1, strategy?: string, mode?: string, profile?: string) {
-  const params = new URLSearchParams({ page: String(page) });
-  if (strategy) params.set("strategy", strategy);
-  if (mode) params.set("mode", mode);
-  if (profile) params.set("profile", profile);
-  return api.get("api/trades?" + params).json<TradesResponse>();
-}
-
-export async function fetchSignals(strategy?: string) {
-  const params = strategy ? `?strategy=${strategy}` : "";
-  return api.get("api/trades/signals" + params).json<Signal[]>();
-}
-
-export async function fetchDailyStats(days: number = 30, mode?: string, profile?: string) {
-  const params = new URLSearchParams({ days: String(days) });
-  if (mode) params.set("mode", mode);
-  if (profile) params.set("profile", profile);
-  return api.get("api/analytics/daily?" + params).json<DailyStat[]>();
-}
-
-export async function fetchStrategyAnalytics(days: number = 30, mode?: string) {
-  const params = new URLSearchParams({ days: String(days) });
-  if (mode) params.set("mode", mode);
-  return api.get("api/analytics/strategy?" + params).json<StrategyPerformance[]>();
-}
-
-export async function fetchCapitalCurve(days: number = 30, mode?: string, profile?: string) {
-  const params = new URLSearchParams({ days: String(days) });
-  if (mode) params.set("mode", mode);
-  if (profile) params.set("profile", profile);
-  return api.get("api/analytics/capital-curve?" + params).json<CapitalPoint[]>();
-}
-
-export async function fetchRegimeHistory() {
-  return api.get("api/analytics/regime-history").json<RegimeSnapshot[]>();
-}
-
-export async function pauseBot() {
-  return api.post("api/control/pause").json();
-}
-
-export async function resumeBot() {
-  return api.post("api/control/resume").json();
-}
-
-export async function fetchProfiles() {
-  return api.get("api/profiles").json<ConfigProfile[]>();
-}
-
-export async function fetchOperatorSessionStatus() {
-  return api.get("api/operator-session").json<{
-    authenticated: boolean;
-    configured: boolean;
-  }>();
-}
-
-export async function unlockOperatorSession(secret: string) {
-  return api.post("api/operator-session", { json: { secret } }).json<{
-    authenticated: boolean;
-    configured: boolean;
-  }>();
-}
-
-export async function clearOperatorSession() {
-  return api.delete("api/operator-session").json<{ authenticated: boolean }>();
-}
-
-export async function createProfile(data: { name: string; description: string; mode: string; settings: Record<string, unknown> }) {
-  return api.post("api/profiles", { json: data }).json();
-}
-
-export async function updateProfile(name: string, settings: Record<string, unknown>) {
-  return api.put(`api/profiles/${name}`, { json: { settings } }).json();
-}
-
-export async function toggleProfile(name: string, active: boolean) {
-  return api.post(`api/profiles/${name}/toggle`, { json: { active } }).json();
-}
-
-export async function deleteProfile(name: string) {
-  return api.delete(`api/profiles/${name}`).json();
-}
-
-export async function fetchProfileResults(name: string, mode?: string) {
-  const params = mode ? `?mode=${mode}` : "";
-  return api.get(`api/profiles/${name}/results` + params).json<ProfileResults>();
+export interface ExecutionScope {
+  mode: TradeMode;
+  configProfile: string;
 }
 
 export interface Position {
@@ -168,9 +42,9 @@ export interface Position {
   openedAt: string;
   closedAt: string | null;
   holdMinutes?: number;
-  mode?: string;
+  mode?: TradeMode;
   configProfile?: string;
-  tradeSource?: string;
+  tradeSource?: TradeSource;
 }
 
 export interface Trade {
@@ -189,9 +63,9 @@ export interface Trade {
   txSignature: string;
   regime: string;
   executedAt: string;
-  mode?: string;
+  mode?: TradeMode;
   configProfile?: string;
-  tradeSource?: string;
+  tradeSource?: TradeSource;
 }
 
 export interface Signal {
@@ -235,7 +109,7 @@ export interface DailyStat {
   capitalEnd: number;
   maxDrawdownUsd: number;
   regime: string;
-  mode?: string;
+  mode?: TradeMode;
   configProfile?: string;
 }
 
@@ -249,6 +123,18 @@ export interface StrategyPerformance {
   avgWinUsd: number;
   avgLossUsd: number;
   totalFeesSol: number;
+}
+
+export interface ExecutionQuality {
+  strategy: string;
+  buyCount: number;
+  sellCount: number;
+  avgEntrySlippageBps: number;
+  avgExitSlippageBps: number;
+  avgFeeSol: number;
+  avgEntryLatencyMs: number;
+  avgCopyLeadMs: number;
+  manualShare: number;
 }
 
 export interface CapitalPoint {
@@ -269,19 +155,71 @@ export interface RegimeSnapshot {
   snappedAt: string;
 }
 
-export interface ApiUsageDaily {
-  service: string;
+export interface BudgetSnapshot {
+  service: ApiService;
+  date: string;
+  budgetTotal: number;
+  monthlyUsed: number;
+  monthlyRemaining: number;
+  dailyBudget: number;
+  dailyUsed: number;
+  dailyRemaining: number;
+  essentialCredits: number;
+  nonEssentialCredits: number;
+  cachedCalls: number;
+  totalCalls: number;
+  avgCreditsPerCall: number;
+  softLimitPct: number;
+  hardLimitPct: number;
+  quotaStatus: QuotaStatus;
+  quotaSource: QuotaSource;
+  providerCycleStart: string | null;
+  providerCycleEnd: string | null;
+  providerReportedUsed: number | null;
+  providerReportedRemaining: number | null;
+  providerReportedOverage: number | null;
+  providerReportedOverageCost: number | null;
+  pauseReason: string | null;
+}
+
+export interface ApiUsageMonthlySummary {
+  service: ApiService;
+  totalCredits: number;
+  totalCalls: number;
+  totalErrors: number;
+}
+
+export interface ApiEndpointUsage {
+  service: ApiService;
+  endpoint: string;
+  strategy: string | null;
+  mode: TradeMode | null;
+  configProfile: string | null;
+  purpose: string;
+  essential: boolean;
   totalCalls: number;
   totalCredits: number;
-  budgetTotal: number;
-  budgetUsedPercent: number;
+  cachedCalls: number;
+  errorCount: number;
+  avgCreditsPerCall: number;
+  avgLatencyMs: number;
+  avgBatchSize: number;
+}
+
+export interface ApiUsageResponse {
+  current: BudgetSnapshot[] | null;
+  daily: BudgetSnapshot[];
+  monthly: ApiUsageMonthlySummary[];
+  history: BudgetSnapshot[];
+  topEndpoints: ApiEndpointUsage[];
+  windowDays: number;
 }
 
 export interface ConfigProfile {
   id: string;
   name: string;
   description: string;
-  mode: string;
+  mode: TradeMode;
   settings: Record<string, unknown>;
   isActive: boolean;
   createdAt: string;
@@ -290,7 +228,7 @@ export interface ConfigProfile {
 
 export interface ProfileResults {
   profile: string;
-  mode: string;
+  mode: TradeMode;
   totalTrades: number;
   totalExits: number;
   wins: number;
@@ -390,20 +328,246 @@ export interface SignalsResponse<TSignal = Signal> {
   summary: SignalsSummary;
 }
 
-export async function fetchSignalsPaginated(page: number = 1, strategy?: string, mode?: string, profile?: string) {
+export interface OverviewResponse {
+  scope: ExecutionScope;
+  capitalUsd: number;
+  capitalSol: number;
+  walletBalance: number;
+  dailyLossUsd: number;
+  weeklyLossUsd: number;
+  dailyLossLimit: number;
+  weeklyLossLimit: number;
+  capitalLevel: string;
+  regime: {
+    regime: string;
+    solPrice: number;
+    solChange5m: number;
+    solChange1h: number;
+    trendingCount: number;
+    rollingWinRate: number;
+  };
+  rollingWinRate: number;
+  isRunning: boolean;
+  pauseReason: string | null;
+  pauseReasons: string[];
+  openPositions: Position[];
+  todayTrades: number;
+  todayPnl: number;
+  todayWins: number;
+  todayLosses: number;
+  mode: TradeMode;
+  configProfile: string;
+}
+
+export interface HeartbeatResponse {
+  scope: ExecutionScope;
+  isRunning: boolean;
+  uptime: number;
+  lastTradeAt: string | null;
+  lastSignalAt: string | null;
+  memoryMb: number;
+}
+
+export interface StrategyConfigResponse {
+  scope: ExecutionScope;
+  strategies: Record<string, {
+    maxPositions: number;
+    positionSize: number;
+    stopLoss: number;
+    maxSlippageBps: number;
+    timeStopMinutes: number;
+    timeLimitMinutes?: number;
+  }>;
+  risk: {
+    dailyLossLimit: number;
+    weeklyLossLimit: number;
+    walletBalance: number;
+    maxOpenPositions: number;
+    gasReserve: number;
+    capitalLevel: string;
+    pauseReason: string | null;
+    pauseReasons: string[];
+  };
+}
+
+function withParams(path: string, params?: URLSearchParams): string {
+  const query = params?.toString();
+  return query ? `${path}?${query}` : path;
+}
+
+export async function fetchOverview() {
+  return api.get("api/overview").json<OverviewResponse>();
+}
+
+export async function fetchApiUsage(days: number = 14) {
+  const params = new URLSearchParams({ days: String(days) });
+  return api.get(withParams("api/overview/api-usage", params)).json<ApiUsageResponse>();
+}
+
+export async function fetchPositions(mode?: TradeMode, profile?: string, tradeSource?: TradeSource) {
+  const params = new URLSearchParams();
+  if (mode) params.set("mode", mode);
+  if (profile) params.set("profile", profile);
+  if (tradeSource) params.set("tradeSource", tradeSource);
+  return api.get(withParams("api/positions", params)).json<Position[]>();
+}
+
+export async function fetchPositionHistory(
+  page: number = 1,
+  strategy?: string,
+  mode?: TradeMode,
+  profile?: string,
+  tradeSource?: TradeSource,
+) {
   const params = new URLSearchParams({ page: String(page) });
   if (strategy) params.set("strategy", strategy);
   if (mode) params.set("mode", mode);
   if (profile) params.set("profile", profile);
-  return api.get("api/trades/signals?" + params).json<SignalsResponse>();
+  if (tradeSource) params.set("tradeSource", tradeSource);
+  return api.get(withParams("api/positions/history", params)).json<PositionHistoryResponse>();
 }
 
-export async function fetchSkippedSignals(page: number = 1, strategy?: string, mode?: string, profile?: string) {
+export async function fetchTrades(
+  page: number = 1,
+  strategy?: string,
+  mode?: TradeMode,
+  profile?: string,
+  tradeSource?: TradeSource,
+) {
+  const params = new URLSearchParams({ page: String(page) });
+  if (strategy) params.set("strategy", strategy);
+  if (mode) params.set("mode", mode);
+  if (profile) params.set("profile", profile);
+  if (tradeSource) params.set("tradeSource", tradeSource);
+  return api.get(withParams("api/trades", params)).json<TradesResponse>();
+}
+
+export async function fetchSignals(strategy?: string) {
+  const params = new URLSearchParams();
+  if (strategy) params.set("strategy", strategy);
+  return api.get(withParams("api/trades/signals", params)).json<Signal[]>();
+}
+
+export async function fetchSignalsPaginated(
+  page: number = 1,
+  strategy?: string,
+  mode?: TradeMode,
+  profile?: string,
+) {
+  const params = new URLSearchParams({ page: String(page) });
+  if (strategy) params.set("strategy", strategy);
+  if (mode) params.set("mode", mode);
+  if (profile) params.set("profile", profile);
+  return api.get(withParams("api/trades/signals", params)).json<SignalsResponse>();
+}
+
+export async function fetchSkippedSignals(
+  page: number = 1,
+  strategy?: string,
+  mode?: TradeMode,
+  profile?: string,
+) {
   const params = new URLSearchParams({ page: String(page), skipped: "true" });
   if (strategy) params.set("strategy", strategy);
   if (mode) params.set("mode", mode);
   if (profile) params.set("profile", profile);
-  return api.get("api/trades/signals?" + params).json<SignalsResponse<SkippedSignal>>();
+  return api.get(withParams("api/trades/signals", params)).json<SignalsResponse<SkippedSignal>>();
+}
+
+export async function fetchDailyStats(days: number = 30, mode?: TradeMode, profile?: string) {
+  const params = new URLSearchParams({ days: String(days) });
+  if (mode) params.set("mode", mode);
+  if (profile) params.set("profile", profile);
+  return api.get(withParams("api/analytics/daily", params)).json<DailyStat[]>();
+}
+
+export async function fetchStrategyAnalytics(
+  days: number = 30,
+  mode?: TradeMode,
+  profile?: string,
+  tradeSource?: TradeSource,
+) {
+  const params = new URLSearchParams({ days: String(days) });
+  if (mode) params.set("mode", mode);
+  if (profile) params.set("profile", profile);
+  if (tradeSource) params.set("tradeSource", tradeSource);
+  return api.get(withParams("api/analytics/strategy", params)).json<StrategyPerformance[]>();
+}
+
+export async function fetchExecutionQuality(
+  days: number = 14,
+  mode?: TradeMode,
+  profile?: string,
+  tradeSource?: TradeSource,
+) {
+  const params = new URLSearchParams({ days: String(days) });
+  if (mode) params.set("mode", mode);
+  if (profile) params.set("profile", profile);
+  if (tradeSource) params.set("tradeSource", tradeSource);
+  return api.get(withParams("api/analytics/execution-quality", params)).json<ExecutionQuality[]>();
+}
+
+export async function fetchCapitalCurve(days: number = 30, mode?: TradeMode, profile?: string) {
+  const params = new URLSearchParams({ days: String(days) });
+  if (mode) params.set("mode", mode);
+  if (profile) params.set("profile", profile);
+  return api.get(withParams("api/analytics/capital-curve", params)).json<CapitalPoint[]>();
+}
+
+export async function fetchRegimeHistory() {
+  return api.get("api/analytics/regime-history").json<RegimeSnapshot[]>();
+}
+
+export async function pauseBot() {
+  return api.post("api/control/pause").json();
+}
+
+export async function resumeBot() {
+  return api.post("api/control/resume").json();
+}
+
+export async function fetchProfiles() {
+  return api.get("api/profiles").json<ConfigProfile[]>();
+}
+
+export async function fetchOperatorSessionStatus() {
+  return api.get("api/operator-session").json<{
+    authenticated: boolean;
+    configured: boolean;
+  }>();
+}
+
+export async function unlockOperatorSession(secret: string) {
+  return api.post("api/operator-session", { json: { secret } }).json<{
+    authenticated: boolean;
+    configured: boolean;
+  }>();
+}
+
+export async function clearOperatorSession() {
+  return api.delete("api/operator-session").json<{ authenticated: boolean }>();
+}
+
+export async function createProfile(data: { name: string; description: string; mode: TradeMode; settings: Record<string, unknown> }) {
+  return api.post("api/profiles", { json: data }).json();
+}
+
+export async function updateProfile(name: string, settings: Record<string, unknown>) {
+  return api.put(`api/profiles/${name}`, { json: { settings } }).json();
+}
+
+export async function toggleProfile(name: string, active: boolean) {
+  return api.post(`api/profiles/${name}/toggle`, { json: { active } }).json();
+}
+
+export async function deleteProfile(name: string) {
+  return api.delete(`api/profiles/${name}`).json();
+}
+
+export async function fetchProfileResults(name: string, mode?: TradeMode) {
+  const params = new URLSearchParams();
+  if (mode) params.set("mode", mode);
+  return api.get(withParams(`api/profiles/${name}/results`, params)).json<ProfileResults>();
 }
 
 export async function manualEntry(payload: { tokenAddress: string; tokenSymbol: string; strategy: string; amountSol?: number }) {
@@ -415,37 +579,26 @@ export async function manualExit(positionId: string) {
 }
 
 export async function fetchHeartbeat() {
-  return api.get("api/control/heartbeat").json<{
-    isRunning: boolean;
-    uptime: number;
-    lastTradeAt: string | null;
-    lastSignalAt: string | null;
-    memoryMb: number;
-  }>();
+  return api.get("api/control/heartbeat").json<HeartbeatResponse>();
 }
 
 export async function fetchStrategyConfig() {
-  return api.get("api/control/config").json<{
-    strategies: Record<string, {
-      maxPositions: number;
-      positionSize: number;
-      stopLoss: number;
-      timeStop: string;
-    }>;
-    risk: {
-      dailyLossLimit: number;
-      weeklyLossLimit: number;
-      maxOpenPositions: number;
-      gasReserve: number;
-      capitalLevel: string;
-    };
+  return api.get("api/control/config").json<StrategyConfigResponse>();
+}
+
+export async function reconcileWallet() {
+  return api.post("api/control/reconcile-wallet").json<{
+    scope: ExecutionScope;
+    balanceSol: number;
+    status: string;
   }>();
 }
 
-export async function fetchWouldHaveWon(days: number = 7, mode?: string) {
+export async function fetchWouldHaveWon(days: number = 7, mode?: TradeMode, profile?: string) {
   const params = new URLSearchParams({ days: String(days) });
   if (mode) params.set("mode", mode);
-  return api.get("api/analytics/would-have-won?" + params).json<{
+  if (profile) params.set("profile", profile);
+  return api.get(withParams("api/analytics/would-have-won", params)).json<{
     total: number;
     wouldHaveWon: number;
     wouldHaveWonRate: number;
@@ -454,30 +607,38 @@ export async function fetchWouldHaveWon(days: number = 7, mode?: string) {
 }
 
 export async function fetchWalletActivity(limit: number = 50) {
-  return api.get(`api/analytics/wallet-activity?limit=${limit}`).json<WalletActivityItem[]>();
+  const params = new URLSearchParams({ limit: String(limit) });
+  return api.get(withParams("api/analytics/wallet-activity", params)).json<WalletActivityItem[]>();
 }
 
 export async function fetchGraduationStats(days: number = 30) {
-  return api.get(`api/analytics/graduation-stats?days=${days}`).json<{
+  const params = new URLSearchParams({ days: String(days) });
+  return api.get(withParams("api/analytics/graduation-stats", params)).json<{
     totalEvents: number;
     byPlatform: Record<string, { total: number; traded: number; rugged: number }>;
   }>();
 }
 
-export async function fetchPnlDistribution(days: number = 30, mode?: string) {
+export async function fetchPnlDistribution(
+  days: number = 30,
+  mode?: TradeMode,
+  profile?: string,
+  tradeSource?: TradeSource,
+) {
   const params = new URLSearchParams({ days: String(days) });
   if (mode) params.set("mode", mode);
-  return api.get("api/analytics/pnl-distribution?" + params).json<PnlDistributionPoint[]>();
+  if (profile) params.set("profile", profile);
+  if (tradeSource) params.set("tradeSource", tradeSource);
+  return api.get(withParams("api/analytics/pnl-distribution", params)).json<PnlDistributionPoint[]>();
 }
 
 export function createSSEConnection(onMessage: (data: unknown) => void, onError?: () => void): EventSource {
-  const es = new EventSource(`/api/stream`);
+  const es = new EventSource("/api/stream");
   es.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data);
       onMessage(data);
     } catch (error) {
-      // Ignore malformed SSE payloads and let the next event recover the stream.
       void error;
     }
   };

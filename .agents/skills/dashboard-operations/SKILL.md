@@ -13,6 +13,8 @@ Use this skill for non-specialist dashboard changes.
 - Verify visible behavior in a browser when feasible.
 - Keep changes scoped and readable.
 - Keep query keys, URL params, and backend filters aligned for `days`, `mode`, `configProfile`, and `tradeSource` where those filters matter.
+- Keep active runtime scope separate from analysis filters. `use-dashboard-shell.ts` owns chrome/runtime truth; `use-dashboard-filters.ts` owns page-level lane inspection.
+- Treat `/quota` service totals as global provider budgets. Only endpoint drill-downs should narrow by lane metadata, and only when that metadata exists.
 - Centralize control-plane auth in the dashboard proxy rather than scattering token handling through callers.
 - When using `useSearchParams`, `useQueryState`, or similar client-side search-param hooks at page level, put the client subtree behind the required Suspense boundary.
 

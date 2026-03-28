@@ -5,15 +5,17 @@ import { useQuery } from "@tanstack/react-query";
 import { parseAsStringLiteral, useQueryState } from "nuqs";
 import { motion } from "motion/react";
 import {
-  fetchGraduationStats,
-  fetchPnlDistribution,
-  fetchRegimeHistory,
-  fetchStrategyAnalytics,
-  fetchWalletActivity,
-  fetchWouldHaveWon,
-} from "@/lib/api";
-import { dailyStatsQueryOptions } from "@/lib/dashboard-query-options";
-import { useDashboardStore } from "@/lib/store";
+  dailyStatsQueryOptions,
+  executionQualityQueryOptions,
+  graduationStatsQueryOptions,
+  pnlDistributionQueryOptions,
+  regimeHistoryQueryOptions,
+  strategyAnalyticsQueryOptions,
+  walletActivityQueryOptions,
+  wouldHaveWonQueryOptions,
+} from "@/lib/dashboard-query-options";
+import { useDashboardFilters } from "@/hooks/use-dashboard-filters";
+import { useDashboardShell } from "@/hooks/use-dashboard-shell";
 import {
   dateRangeToDays,
   exportCsv,
@@ -32,8 +34,10 @@ import { SummaryTile } from "@/components/ui/summary-tile";
 import {
   AlertTriangle,
   BarChart3,
+  Clock3,
   Download,
   Eye,
+  Gauge,
   GraduationCap,
   Shield,
   TrendingUp,
@@ -53,47 +57,34 @@ import {
 const DATE_RANGES = ["7d", "14d", "30d", "60d", "90d"] as const;
 
 export function AnalyticsPageClient() {
-  const { mode } = useDashboardStore();
+  const { activeScope } = useDashboardShell();
+  const { effectiveMode, effectiveProfile, resolvedTradeSource } = useDashboardFilters();
   const [dateRange, setDateRange] = useQueryState(
     "dateRange",
     parseAsStringLiteral(DATE_RANGES).withDefault("30d"),
   );
   const days = dateRangeToDays(dateRange);
 
-  const strategiesQuery = useQuery({
-    queryKey: ["strategy-analytics", mode, days],
-    queryFn: () => fetchStrategyAnalytics(days, mode),
-    refetchInterval: (query) => query.state.status === "error" ? 30_000 : 60_000,
-  });
-  const regimeHistoryQuery = useQuery({
-    queryKey: ["regime-history"],
-    queryFn: fetchRegimeHistory,
-    refetchInterval: 60_000,
-  });
-  const wouldHaveWonQuery = useQuery({
-    queryKey: ["would-have-won", mode, days],
-    queryFn: () => fetchWouldHaveWon(days, mode),
-    refetchInterval: 60_000,
-  });
-  const pnlDistributionQuery = useQuery({
-    queryKey: ["pnl-distribution", mode, days],
-    queryFn: () => fetchPnlDistribution(days, mode),
-    refetchInterval: 60_000,
-  });
-  const dailyStatsQuery = useQuery(dailyStatsQueryOptions(days, mode));
-  const walletActivityQuery = useQuery({
-    queryKey: ["wallet-activity", 30],
-    queryFn: () => fetchWalletActivity(30),
-    staleTime: 30_000,
-    refetchInterval: 60_000,
-  });
-  const graduationStatsQuery = useQuery({
-    queryKey: ["graduation-stats", days],
-    queryFn: () => fetchGraduationStats(days),
-    staleTime: 60_000,
-  });
+  const strategiesQuery = useQuery(
+    strategyAnalyticsQueryOptions(days, effectiveMode, effectiveProfile, resolvedTradeSource),
+  );
+  const executionQualityQuery = useQuery(
+    executionQualityQueryOptions(days, effectiveMode, effectiveProfile, resolvedTradeSource),
+  );
+  const regimeHistoryQuery = useQuery(regimeHistoryQueryOptions());
+  const wouldHaveWonQuery = useQuery(wouldHaveWonQueryOptions(days, effectiveMode, effectiveProfile));
+  const pnlDistributionQuery = useQuery(
+    pnlDistributionQueryOptions(days, effectiveMode, effectiveProfile, resolvedTradeSource),
+  );
+  const dailyStatsQuery = useQuery(dailyStatsQueryOptions(days, effectiveMode, effectiveProfile));
+  const walletActivityQuery = useQuery(walletActivityQueryOptions(30));
+  const graduationStatsQuery = useQuery(graduationStatsQueryOptions(days));
 
   const strategies = useMemo(() => strategiesQuery.data ?? [], [strategiesQuery.data]);
+  const executionQuality = useMemo(
+    () => executionQualityQuery.data ?? [],
+    [executionQualityQuery.data],
+  );
   const wouldHaveWon = wouldHaveWonQuery.data;
   const pnlDist = useMemo(() => pnlDistributionQuery.data ?? [], [pnlDistributionQuery.data]);
   const dailyStats = useMemo(
@@ -121,8 +112,14 @@ export function AnalyticsPageClient() {
       { exits: 0, fees: 0, losses: 0, pnl: 0, wins: 0 },
     );
     const expectancy = totals.exits > 0 ? totals.pnl / totals.exits : 0;
-    const grossWins = pnlDist.filter((point) => point.pnlUsd > 0).reduce((sum, point) => sum + point.pnlUsd, 0);
-    const grossLosses = Math.abs(pnlDist.filter((point) => point.pnlUsd < 0).reduce((sum, point) => sum + point.pnlUsd, 0));
+    const grossWins = pnlDist
+      .filter((point) => point.pnlUsd > 0)
+      .reduce((sum, point) => sum + point.pnlUsd, 0);
+    const grossLosses = Math.abs(
+      pnlDist
+        .filter((point) => point.pnlUsd < 0)
+        .reduce((sum, point) => sum + point.pnlUsd, 0),
+    );
     const profitFactor = grossLosses > 0 ? grossWins / grossLosses : null;
     const bestDay = dailyStats.reduce<typeof dailyStats[number] | null>(
       (best, stat) => (best == null || stat.netPnlUsd > best.netPnlUsd ? stat : best),
@@ -133,9 +130,13 @@ export function AnalyticsPageClient() {
       null,
     );
     const topStrategy = [...strategies].sort((left, right) => right.totalPnlUsd - left.totalPnlUsd)[0] ?? null;
+    const aggregateManualShare = executionQuality.length > 0
+      ? executionQuality.reduce((sum, row) => sum + row.manualShare, 0) / executionQuality.length
+      : 0;
 
     return {
       ...totals,
+      aggregateManualShare,
       bestDay,
       expectancy,
       profitFactor,
@@ -143,13 +144,13 @@ export function AnalyticsPageClient() {
       winRate: totals.exits > 0 ? (totals.wins / totals.exits) * 100 : 0,
       worstDay,
     };
-  }, [dailyStats, pnlDist, strategies]);
+  }, [dailyStats, executionQuality, pnlDist, strategies]);
 
   const handleExportStats = () => {
     if (!dailyStatsQuery.data) return;
 
     exportCsv(
-      `daily-stats-${dateRange}`,
+      `daily-stats-${effectiveMode}-${effectiveProfile}-${dateRange}`,
       ["Date", "Trades", "Won", "Lost", "Win Rate", "Gross P&L", "Net P&L", "Capital", "Regime"],
       dailyStatsQuery.data
         .filter((stat) => stat.strategy === null)
@@ -179,7 +180,10 @@ export function AnalyticsPageClient() {
         <div>
           <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Expectancy Ledger</div>
           <div className="mt-1 text-sm text-text-secondary">
-            {mode === "LIVE" ? "Live" : "Simulation"} mode · {dateRange} lookback · edge, leakage, and regime drag
+            {activeScope ? `${activeScope.mode}/${activeScope.configProfile}` : "runtime pending"}
+            {" · "}analysis {effectiveMode}/{effectiveProfile}
+            {resolvedTradeSource ? ` · ${resolvedTradeSource.toLowerCase()} trades` : " · all trade sources"}
+            {" · "}{dateRange} lookback
           </div>
         </div>
 
@@ -237,11 +241,11 @@ export function AnalyticsPageClient() {
           valueClass={pnlClass(summary.bestDay?.netPnlUsd ?? 0)}
         />
         <SummaryTile
-          label="Leakage"
-          value={wouldHaveWon ? `${(wouldHaveWon.wouldHaveWonRate * 100).toFixed(0)}%` : "—"}
-          sub={wouldHaveWon ? `${wouldHaveWon.wouldHaveWon}/${wouldHaveWon.total} rejected` : "Awaiting reject audit"}
-          icon={<Eye className="h-3.5 w-3.5 text-accent-yellow" />}
-          tone={wouldHaveWon && wouldHaveWon.wouldHaveWonRate > 0.4 ? "warning" : "default"}
+          label="Manual Share"
+          value={`${(summary.aggregateManualShare * 100).toFixed(0)}%`}
+          sub={resolvedTradeSource ? "Scoped to selected source" : "Across execution telemetry"}
+          icon={<Gauge className="h-3.5 w-3.5 text-accent-yellow" />}
+          tone={summary.aggregateManualShare > 0.45 ? "warning" : "default"}
         />
       </motion.div>
 
@@ -251,9 +255,9 @@ export function AnalyticsPageClient() {
             <div className="mb-4 flex items-center gap-2">
               <TrendingUp className="h-4 w-4 text-accent-green" />
               <span className="stat-label">Capital Curve</span>
-              <span className="text-[11px] text-text-muted">{dateRange} window, not all time. Novel concept.</span>
+              <span className="text-[11px] text-text-muted">{dateRange} window, filtered to the current analysis lane.</span>
             </div>
-            <CapitalCurveChart days={days} />
+            <CapitalCurveChart days={days} mode={effectiveMode} profile={effectiveProfile} />
           </div>
         </ErrorBoundary>
       </motion.div>
@@ -280,6 +284,7 @@ export function AnalyticsPageClient() {
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               {strategies.map((strategy) => {
                 const expectancy = strategy.totalExits > 0 ? strategy.totalPnlUsd / strategy.totalExits : 0;
+                const quality = executionQuality.find((row) => row.strategy === strategy.strategy);
                 return (
                   <div
                     key={strategy.strategy}
@@ -296,11 +301,36 @@ export function AnalyticsPageClient() {
                     </div>
                     <div className="space-y-1.5 text-sm">
                       <MetricRow label="Exits" value={String(strategy.totalExits)} />
-                      <MetricRow label="Win rate" value={`${(strategy.winRate * 100).toFixed(0)}%`} valueClass={strategy.winRate >= 0.5 ? "pnl-positive" : strategy.winRate >= 0.4 ? "text-accent-yellow" : "pnl-negative"} />
-                      <MetricRow label="Net P&L" value={formatUsd(strategy.totalPnlUsd)} valueClass={pnlClass(strategy.totalPnlUsd)} />
-                      <MetricRow label="Expectancy" value={formatUsd(expectancy)} valueClass={pnlClass(expectancy)} />
+                      <MetricRow
+                        label="Win rate"
+                        value={`${(strategy.winRate * 100).toFixed(0)}%`}
+                        valueClass={
+                          strategy.winRate >= 0.5
+                            ? "pnl-positive"
+                            : strategy.winRate >= 0.4
+                              ? "text-accent-yellow"
+                              : "pnl-negative"
+                        }
+                      />
+                      <MetricRow
+                        label="Net P&L"
+                        value={formatUsd(strategy.totalPnlUsd)}
+                        valueClass={pnlClass(strategy.totalPnlUsd)}
+                      />
+                      <MetricRow
+                        label="Expectancy"
+                        value={formatUsd(expectancy)}
+                        valueClass={pnlClass(expectancy)}
+                      />
                       <MetricRow label="Avg win" value={formatUsd(strategy.avgWinUsd)} valueClass="pnl-positive" />
                       <MetricRow label="Avg loss" value={formatUsd(strategy.avgLossUsd)} valueClass="pnl-negative" />
+                      {quality ? (
+                        <MetricRow
+                          label="Entry slip"
+                          value={`${quality.avgEntrySlippageBps.toFixed(0)} bps`}
+                          valueClass={quality.avgEntrySlippageBps > 250 ? "text-accent-yellow" : "text-text-primary"}
+                        />
+                      ) : null}
                     </div>
                   </div>
                 );
@@ -312,6 +342,61 @@ export function AnalyticsPageClient() {
               ) : null}
             </div>
           )}
+        </ErrorBoundary>
+      </motion.div>
+
+      <motion.div variants={motionItem}>
+        <ErrorBoundary>
+          <div className="mb-3 flex items-center gap-2">
+            <Clock3 className="h-4 w-4 text-accent-yellow" />
+            <span className="stat-label">Execution Quality</span>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            {executionQuality.map((row) => (
+              <div
+                key={row.strategy}
+                className={`card border-l-2 ${
+                  row.strategy === "S1_COPY"
+                    ? "border-l-accent-blue"
+                    : row.strategy === "S2_GRADUATION"
+                      ? "border-l-accent-purple"
+                      : "border-l-accent-cyan"
+                }`}
+              >
+                <div className={`mb-3 text-base font-semibold ${strategyColor(row.strategy)}`}>
+                  {strategyLabel(row.strategy)}
+                </div>
+                <div className="space-y-1.5 text-sm">
+                  <MetricRow label="Entries" value={String(row.buyCount)} />
+                  <MetricRow label="Exits" value={String(row.sellCount)} />
+                  <MetricRow
+                    label="Entry slippage"
+                    value={`${row.avgEntrySlippageBps.toFixed(0)} bps`}
+                    valueClass={row.avgEntrySlippageBps > 250 ? "text-accent-yellow" : "text-text-primary"}
+                  />
+                  <MetricRow
+                    label="Exit slippage"
+                    value={`${row.avgExitSlippageBps.toFixed(0)} bps`}
+                    valueClass={row.avgExitSlippageBps > 250 ? "text-accent-yellow" : "text-text-primary"}
+                  />
+                  <MetricRow label="Avg fee" value={`${row.avgFeeSol.toFixed(4)} SOL`} />
+                  <MetricRow label="Entry latency" value={row.avgEntryLatencyMs > 0 ? `${row.avgEntryLatencyMs.toFixed(0)} ms` : "—"} />
+                  <MetricRow label="Copy lead" value={row.avgCopyLeadMs > 0 ? `${row.avgCopyLeadMs.toFixed(0)} ms` : "—"} />
+                  <MetricRow
+                    label="Manual share"
+                    value={`${(row.manualShare * 100).toFixed(0)}%`}
+                    valueClass={row.manualShare > 0.45 ? "text-accent-yellow" : "text-text-primary"}
+                  />
+                </div>
+              </div>
+            ))}
+            {!executionQuality.length ? (
+              <div className="card py-10 text-center text-sm text-text-muted md:col-span-3">
+                Execution telemetry hasn’t accumulated yet.
+              </div>
+            ) : null}
+          </div>
         </ErrorBoundary>
       </motion.div>
 
@@ -352,7 +437,11 @@ export function AnalyticsPageClient() {
                   <ReferenceLine y={0} stroke={chartColors.gridLine} />
                   <Scatter data={scatterData} isAnimationActive={false}>
                     {scatterData.map((point, index) => (
-                      <Cell key={`${point.index}-${index}`} fill={point.pnlUsd >= 0 ? chartColors.win : chartColors.loss} fillOpacity={0.72} />
+                      <Cell
+                        key={`${point.index}-${index}`}
+                        fill={point.pnlUsd >= 0 ? chartColors.win : chartColors.loss}
+                        fillOpacity={0.72}
+                      />
                     ))}
                   </Scatter>
                 </ScatterChart>
@@ -450,9 +539,12 @@ export function AnalyticsPageClient() {
         {walletActivity.length ? (
           <ErrorBoundary>
             <div className="card">
-              <div className="mb-4 flex items-center gap-2">
-                <Wallet className="h-4 w-4 text-accent-blue" />
-                <span className="stat-label">Copy-Trade Wallet Activity</span>
+              <div className="mb-4 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Wallet className="h-4 w-4 text-accent-blue" />
+                  <span className="stat-label">Copy-Trade Wallet Activity</span>
+                </div>
+                <span className="text-[11px] text-text-muted">Platform-wide feed</span>
               </div>
               <div className="space-y-2">
                 {walletActivity.slice(0, 8).map((walletTrade) => {

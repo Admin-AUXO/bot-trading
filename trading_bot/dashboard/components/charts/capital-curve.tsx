@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { chartColors } from "@/lib/chart-colors";
 import { capitalCurveQueryOptions } from "@/lib/dashboard-query-options";
-import { useDashboardStore } from "@/lib/store";
+import type { TradeMode } from "@/lib/api";
 import {
   AreaChart,
   Area,
@@ -14,10 +14,16 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-export function CapitalCurveChart({ days = 30 }: { days?: number }) {
-  const { mode } = useDashboardStore();
-
-  const { data: curve } = useQuery(capitalCurveQueryOptions(days, mode));
+export function CapitalCurveChart({
+  days = 30,
+  mode,
+  profile,
+}: {
+  days?: number;
+  mode?: TradeMode | null;
+  profile?: string | null;
+}) {
+  const { data: curve } = useQuery(capitalCurveQueryOptions(days, mode, profile));
 
   const chartData = useMemo(() => (curve ?? []).map((p) => ({
     date: new Date(p.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),

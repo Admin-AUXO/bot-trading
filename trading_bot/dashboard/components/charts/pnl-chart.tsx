@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { chartColors } from "@/lib/chart-colors";
 import { dailyStatsQueryOptions, overviewQueryOptions } from "@/lib/dashboard-query-options";
-import { useDashboardStore } from "@/lib/store";
+import type { TradeMode } from "@/lib/api";
 import {
   Bar,
   XAxis,
@@ -17,15 +17,22 @@ import {
   ComposedChart,
 } from "recharts";
 
-export function PnlChart() {
-  const { mode } = useDashboardStore();
-
-  const { data: stats } = useQuery(dailyStatsQueryOptions(30, mode));
-
-  const { data: overview } = useQuery(overviewQueryOptions(mode));
+export function PnlChart({
+  days = 30,
+  mode,
+  profile,
+  dailyLossLimit,
+}: {
+  days?: number;
+  mode?: TradeMode | null;
+  profile?: string | null;
+  dailyLossLimit?: number;
+}) {
+  const { data: stats } = useQuery(dailyStatsQueryOptions(days, mode, profile));
+  const { data: overview } = useQuery(overviewQueryOptions());
 
   const filtered = (stats ?? []).filter((s) => s.strategy === null);
-  const dailyLossLimit = overview?.dailyLossLimit ?? 10;
+  const lossGuardrail = dailyLossLimit ?? overview?.dailyLossLimit ?? 10;
 
   const chartData = useMemo(() => filtered.map((s, i) => {
     const d = new Date(s.date);
@@ -89,7 +96,7 @@ export function PnlChart() {
           }}
         />
         <ReferenceLine y={0} stroke={chartColors.gridLine} />
-        <ReferenceLine y={-dailyLossLimit} stroke={chartColors.loss} strokeDasharray="4 4" strokeOpacity={0.55} />
+        <ReferenceLine y={-lossGuardrail} stroke={chartColors.loss} strokeDasharray="4 4" strokeOpacity={0.55} />
         <Bar dataKey="pnl" radius={[3, 3, 0, 0]} isAnimationActive={false}>
           {chartData.map((entry, index) => (
             <Cell

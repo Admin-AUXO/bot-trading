@@ -5,6 +5,64 @@ import type { ApiBudgetManager } from "../../core/api-budget-manager.js";
 import type { RiskManager } from "../../core/risk-manager.js";
 import type { RegimeDetector } from "../../core/regime-detector.js";
 
+function parseDays(value: unknown, fallback: number, max: number): number {
+  return Math.min(Number(value) || fallback, max);
+}
+
+function serializeUsageRow(row: {
+  date: Date;
+  service: string;
+  budgetTotal: number;
+  monthlyCreditsUsed: number;
+  monthlyCreditsRemaining: number;
+  dailyBudget: number;
+  totalCredits: number;
+  dailyCreditsRemaining: number;
+  essentialCredits: number;
+  nonEssentialCredits: number;
+  cachedCalls: number;
+  totalCalls: number;
+  avgCreditsPerCall: number;
+  softLimitPct: number;
+  hardLimitPct: number;
+  quotaStatus: string;
+  quotaSource: string;
+  providerCycleStart: Date | null;
+  providerCycleEnd: Date | null;
+  providerReportedUsed: number | null;
+  providerReportedRemaining: number | null;
+  providerReportedOverage: number | null;
+  providerReportedOverageCost: unknown;
+  pauseReason: string | null;
+}) {
+  return {
+    service: row.service,
+    date: row.date.toISOString().slice(0, 10),
+    budgetTotal: row.budgetTotal,
+    monthlyUsed: row.monthlyCreditsUsed,
+    monthlyRemaining: row.monthlyCreditsRemaining,
+    dailyBudget: row.dailyBudget,
+    dailyUsed: row.totalCredits,
+    dailyRemaining: row.dailyCreditsRemaining,
+    essentialCredits: row.essentialCredits,
+    nonEssentialCredits: row.nonEssentialCredits,
+    cachedCalls: row.cachedCalls,
+    totalCalls: row.totalCalls,
+    avgCreditsPerCall: Number(row.avgCreditsPerCall),
+    softLimitPct: Number(row.softLimitPct),
+    hardLimitPct: Number(row.hardLimitPct),
+    quotaStatus: row.quotaStatus,
+    quotaSource: row.quotaSource,
+    providerCycleStart: row.providerCycleStart,
+    providerCycleEnd: row.providerCycleEnd,
+    providerReportedUsed: row.providerReportedUsed,
+    providerReportedRemaining: row.providerReportedRemaining,
+    providerReportedOverage: row.providerReportedOverage,
+    providerReportedOverageCost: row.providerReportedOverageCost == null ? null : Number(row.providerReportedOverageCost),
+    pauseReason: row.pauseReason,
+  };
+}
+
 export function overviewRouter(deps: { riskManager: unknown; regimeDetector: unknown; apiBudgetManager?: ApiBudgetManager }) {
   const router = Router();
   const riskManager = deps.riskManager as RiskManager;
@@ -53,8 +111,11 @@ export function overviewRouter(deps: { riskManager: unknown; regimeDetector: unk
     });
   });
 
-  router.get("/api-usage", cacheMiddleware(30_000), async (_req, res) => {
+  router.get("/api-usage", cacheMiddleware(30_000), async (req, res) => {
+    const days = parseDays(req.query.days, 14, 90);
     const today = new Date().toISOString().slice(0, 10);
+    const since = new Date();
+    since.setDate(since.getDate() - Math.max(0, days - 1));
     const usage = apiBudgetManager
       ? apiBudgetManager.getSnapshots()
       : await db.apiUsageDaily.findMany({
@@ -62,28 +123,66 @@ export function overviewRouter(deps: { riskManager: unknown; regimeDetector: unk
         });
 
     const monthStart = new Date(today.slice(0, 7) + "-01");
-    const [monthlyUsage, topEndpoints] = await Promise.all([
+    const [monthlyUsage, history, topEndpoints] = await Promise.all([
       db.apiUsageDaily.groupBy({
         by: ["service"],
         where: { date: { gte: monthStart } },
         _sum: { totalCredits: true, totalCalls: true, errorCount: true },
       }),
-      db.apiEndpointDaily.findMany({
-        where: { date: new Date(today) },
-        orderBy: [{ totalCredits: "desc" }, { totalCalls: "desc" }],
-        take: 12,
+      db.apiUsageDaily.findMany({
+        where: { date: { gte: since } },
+        orderBy: [{ date: "asc" }, { service: "asc" }],
+      }),
+      db.apiEndpointDaily.groupBy({
+        by: ["service", "endpoint", "strategy", "mode", "configProfile", "purpose", "essential"],
+        where: { date: { gte: since } },
+        _sum: {
+          totalCalls: true,
+          totalCredits: true,
+          cachedCalls: true,
+          errorCount: true,
+        },
+        _avg: {
+          avgCreditsPerCall: true,
+          avgLatencyMs: true,
+          avgBatchSize: true,
+        },
+        orderBy: {
+          _sum: {
+            totalCredits: "desc",
+          },
+        },
+        take: 20,
       }),
     ]);
 
     res.json({
       current: apiBudgetManager?.getSnapshots() ?? null,
-      daily: usage,
-      monthly: monthlyUsage,
-      topEndpoints: topEndpoints.map((entry) => ({
-        ...entry,
-        avgCreditsPerCall: Number(entry.avgCreditsPerCall),
-        avgBatchSize: Number(entry.avgBatchSize),
+      daily: apiBudgetManager?.getSnapshots() ?? usage.map((row) => serializeUsageRow(row)),
+      monthly: monthlyUsage.map((entry) => ({
+        service: entry.service,
+        totalCredits: Number(entry._sum.totalCredits ?? 0),
+        totalCalls: Number(entry._sum.totalCalls ?? 0),
+        totalErrors: Number(entry._sum.errorCount ?? 0),
       })),
+      history: history.map((row) => serializeUsageRow(row)),
+      topEndpoints: topEndpoints.map((entry) => ({
+        service: entry.service,
+        endpoint: entry.endpoint,
+        strategy: entry.strategy,
+        mode: entry.mode,
+        configProfile: entry.configProfile,
+        purpose: entry.purpose,
+        essential: entry.essential,
+        totalCalls: Number(entry._sum.totalCalls ?? 0),
+        totalCredits: Number(entry._sum.totalCredits ?? 0),
+        cachedCalls: Number(entry._sum.cachedCalls ?? 0),
+        errorCount: Number(entry._sum.errorCount ?? 0),
+        avgCreditsPerCall: Number(entry._avg.avgCreditsPerCall ?? 0),
+        avgLatencyMs: Number(entry._avg.avgLatencyMs ?? 0),
+        avgBatchSize: Number(entry._avg.avgBatchSize ?? 0),
+      })),
+      windowDays: days,
     });
   });
 

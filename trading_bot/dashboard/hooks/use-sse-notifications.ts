@@ -21,12 +21,17 @@ export function useSSENotifications() {
 
           const isRunning = d.isRunning as boolean;
           const capitalLevel = d.capitalLevel as string;
+          const pauseReasons = Array.isArray(d.pauseReasons)
+            ? d.pauseReasons.filter((value): value is string => typeof value === "string")
+            : [];
           const dailyLossUsd = Number(d.dailyLossUsd ?? 0);
           const dailyLossLimit = Number(d.dailyLossLimit ?? 10);
           const dailyPct = dailyLossLimit > 0 ? (dailyLossUsd / dailyLossLimit) * 100 : 0;
 
           if (prevState.current.isRunning === true && isRunning === false) {
-            toast.error("Bot paused", { description: String(d.pauseReason ?? "Unknown reason") });
+            toast.error("Bot paused", {
+              description: pauseReasons.length > 0 ? pauseReasons.join(" · ") : String(d.pauseReason ?? "Unknown reason"),
+            });
           }
 
           if (prevState.current.capitalLevel && prevState.current.capitalLevel !== capitalLevel) {

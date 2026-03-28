@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "motion/react";
-import { useDashboardStore } from "@/lib/store";
+import type { TradeMode, TradeSource } from "@/lib/api";
+import { useDashboardFilters } from "@/hooks/use-dashboard-filters";
 import { signalsQueryOptions, tradesQueryOptions } from "@/lib/dashboard-query-options";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { TableSkeleton } from "@/components/ui/skeleton";
@@ -33,12 +34,19 @@ import {
 } from "lucide-react";
 
 export default function TradesPage() {
-  const { mode, selectedStrategy } = useDashboardStore();
+  const {
+    effectiveMode,
+    effectiveProfile,
+    resolvedTradeSource,
+    selectedStrategy,
+  } = useDashboardFilters();
 
   return (
     <TradesPageContent
-      key={`${selectedStrategy ?? "all"}:${mode}`}
-      mode={mode}
+      key={`${selectedStrategy ?? "all"}:${effectiveMode}:${effectiveProfile}:${resolvedTradeSource ?? "all"}`}
+      mode={effectiveMode}
+      profile={effectiveProfile}
+      tradeSource={resolvedTradeSource}
       selectedStrategy={selectedStrategy}
     />
   );
@@ -46,9 +54,13 @@ export default function TradesPage() {
 
 function TradesPageContent({
   mode,
+  profile,
+  tradeSource,
   selectedStrategy,
 }: {
-  mode: "LIVE" | "DRY_RUN";
+  mode: TradeMode;
+  profile: string;
+  tradeSource: TradeSource | null;
   selectedStrategy: string | null;
 }) {
   const [tab, setTab] = useState<"trades" | "signals">("trades");
@@ -56,12 +68,12 @@ function TradesPageContent({
   const [signalPage, setSignalPage] = useState(1);
 
   const tradesQuery = useQuery({
-    ...tradesQueryOptions(page, selectedStrategy, mode),
+    ...tradesQueryOptions(page, selectedStrategy, mode, profile, tradeSource),
     enabled: tab === "trades",
   });
 
   const signalsQuery = useQuery({
-    ...signalsQueryOptions(signalPage, selectedStrategy, mode),
+    ...signalsQueryOptions(signalPage, selectedStrategy, mode, profile),
     enabled: tab === "signals",
   });
 
@@ -95,7 +107,8 @@ function TradesPageContent({
         <div>
           <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Execution Tape</div>
           <div className="mt-1 text-sm text-text-secondary">
-            {mode === "LIVE" ? "Live" : "Simulation"} mode · {focusLabel}
+            {mode === "LIVE" ? "Live" : "Simulation"} analysis · {profile} · {focusLabel}
+            {tradeSource ? ` · ${tradeSource.toLowerCase()} only` : ""}
             {tab === "trades"
               ? " · fills, exits, and fee drag"
               : " · strategy pass / reject flow"}
@@ -156,8 +169,8 @@ function TradesPageContent({
             />
             <SummaryTile
               label="Last Trade"
-              value={tradesQuery.data?.summary.lastExecutedAt ? timeAgo(tradesQuery.data.summary.lastExecutedAt) : "—"}
-              sub="Most recent execution"
+                value={tradesQuery.data?.summary.lastExecutedAt ? timeAgo(tradesQuery.data.summary.lastExecutedAt) : "—"}
+              sub={`${profile} · most recent execution`}
               icon={<Waves className="h-3.5 w-3.5 text-accent-cyan" />}
             />
           </div>
@@ -205,7 +218,9 @@ function TradesPageContent({
                               </td>
                               <td className="table-cell">
                                 <div className="font-medium text-text-primary">{trade.tokenSymbol}</div>
-                                <div className="text-[10px] text-text-muted">{trade.regime ?? "—"}</div>
+                                <div className="text-[10px] text-text-muted">
+                                  {trade.regime ?? "—"} · {trade.configProfile ?? profile}
+                                </div>
                               </td>
                               <td className="table-cell">
                                 <span className={trade.side === "BUY" ? "badge badge-green" : "badge badge-red"}>
@@ -230,6 +245,7 @@ function TradesPageContent({
                                 >
                                   {trade.tradeSource ?? "AUTO"}
                                 </span>
+                                <div className="mt-1 text-[10px] text-text-muted">{trade.mode ?? mode}</div>
                               </td>
                               <td className="table-cell">
                                 {isDryRun ? (

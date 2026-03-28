@@ -4,6 +4,7 @@ import { useTheme } from "next-themes";
 import { usePathname } from "next/navigation";
 import { motion } from "motion/react";
 import {
+  ChevronDown,
   Layers3,
   Moon,
   Radio,
@@ -12,10 +13,11 @@ import {
   ShieldOff,
   Sun,
 } from "lucide-react";
-import { useDashboardStore } from "@/lib/store";
+import { useDashboardFilters } from "@/hooks/use-dashboard-filters";
 import { useDashboardShell } from "@/hooks/use-dashboard-shell";
+import { ACTIVE_MODE_FILTER, ACTIVE_PROFILE_FILTER, ALL_TRADE_SOURCE_FILTER } from "@/lib/store";
 import { getDashboardPageMeta } from "@/lib/page-meta";
-import { cn, formatUsd, pnlClass, regimeBadge, strategyLabel, timeAgo } from "@/lib/utils";
+import { cn, formatPercent, formatUsd, pnlClass, regimeBadge, strategyLabel, timeAgo } from "@/lib/utils";
 
 const STRATEGY_FILTERS = [
   { value: "", label: "All strategies" },
@@ -24,13 +26,36 @@ const STRATEGY_FILTERS = [
   { value: "S3_MOMENTUM", label: strategyLabel("S3_MOMENTUM") },
 ] as const;
 
+const MODE_FILTERS = [
+  { value: ACTIVE_MODE_FILTER, label: "Active lane" },
+  { value: "LIVE", label: "Live data" },
+  { value: "DRY_RUN", label: "Simulation" },
+] as const;
+
+const TRADE_SOURCE_FILTERS = [
+  { value: ALL_TRADE_SOURCE_FILTER, label: "All sources" },
+  { value: "AUTO", label: "Auto only" },
+  { value: "MANUAL", label: "Manual only" },
+] as const;
+
 export function Header() {
   const pathname = usePathname();
   const { resolvedTheme, setTheme } = useTheme();
-  const { setMode, setSelectedStrategy } = useDashboardStore();
   const {
-    mode,
+    selectedMode,
+    setSelectedMode,
+    selectedProfile,
+    setSelectedProfile,
     selectedStrategy,
+    setSelectedStrategy,
+    selectedTradeSource,
+    setSelectedTradeSource,
+    activeScope,
+    effectiveMode,
+    effectiveProfile,
+    profileOptions,
+  } = useDashboardFilters();
+  const {
     overview,
     heartbeat,
     connectionState,
@@ -41,12 +66,21 @@ export function Header() {
     filteredPositions,
     deployedCapitalUsd,
     lastUpdatedAt,
+    maxOpenPositions,
+    worstQuota,
+    pauseReasons,
   } = useDashboardShell();
 
   const pageMeta = getDashboardPageMeta(pathname);
   const regime = overview?.regime ? regimeBadge(overview.regime.regime) : null;
   const isRunning = overview?.isRunning ?? heartbeat?.isRunning ?? false;
   const updatedLabel = lastUpdatedAt ? timeAgo(new Date(lastUpdatedAt)) : "awaiting sync";
+  const runtimeModeLabel = activeScope?.mode === "LIVE" ? "Live" : activeScope?.mode === "DRY_RUN" ? "Simulation" : "Runtime";
+  const analysisSummary = [
+    effectiveMode === "LIVE" ? "Live history" : "Simulation history",
+    effectiveProfile,
+    selectedTradeSource === ALL_TRADE_SOURCE_FILTER ? "all sources" : selectedTradeSource.toLowerCase(),
+  ].join(" · ");
 
   return (
     <header className="sticky top-0 z-40 border-b border-bg-border/80 bg-bg-secondary/85 backdrop-blur-xl">
@@ -54,13 +88,21 @@ export function Header() {
         <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
           <div className="min-w-0 flex-1 space-y-2">
             <div className="flex flex-wrap items-center gap-2">
-              <BotStateBadge isRunning={isRunning} pauseReason={overview?.pauseReason ?? null} />
+              <BotStateBadge isRunning={isRunning} pauseReasons={pauseReasons} />
               <StatusChip
                 icon={<Radio className="h-3.5 w-3.5" />}
                 label={connectionState === "online" ? "Realtime" : connectionState === "degraded" ? "Cached" : "Offline"}
                 tone={connectionState === "online" ? "positive" : connectionState === "degraded" ? "warning" : "danger"}
               />
               {regime ? <span className={`badge ${regime.class}`}>{regime.label}</span> : null}
+              {activeScope ? (
+                <StatusChip
+                  icon={<Layers3 className="h-3.5 w-3.5" />}
+                  label={`${runtimeModeLabel} / ${activeScope.configProfile}`}
+                  tone={activeScope.mode === "LIVE" ? "positive" : "warning"}
+                />
+              ) : null}
+              {worstQuota ? <QuotaChip service={worstQuota.service} status={worstQuota.quotaStatus} /> : null}
               <OperatorChip state={operatorAccess} />
             </div>
 
@@ -77,6 +119,8 @@ export function Header() {
               <span>Updated {updatedLabel}</span>
               <span>{allPositions.length} open positions</span>
               <span>{filteredPositions.length} in focus</span>
+              <span>{openSlots}/{maxOpenPositions} slots open</span>
+              <span>Analysis {analysisSummary}</span>
               {heartbeat?.lastTradeAt ? <span>Last trade {timeAgo(heartbeat.lastTradeAt)}</span> : null}
               {heartbeat?.lastSignalAt ? <span>Last signal {timeAgo(heartbeat.lastSignalAt)}</span> : null}
             </div>
@@ -108,48 +152,55 @@ export function Header() {
           </div>
         </div>
 
-        <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1 rounded-xl border border-bg-border bg-bg-card/70 p-1">
-              {(["LIVE", "DRY_RUN"] as const).map((value) => (
-                <button
-                  key={value}
-                  onClick={() => setMode(value)}
-                  className={cn(
-                    "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
-                    mode === value
-                      ? value === "LIVE"
-                        ? "bg-accent-green/15 text-accent-green"
-                        : "bg-accent-yellow/15 text-accent-yellow"
-                      : "text-text-muted hover:bg-bg-hover hover:text-text-primary",
-                  )}
-                >
-                  {value === "LIVE" ? "Live mode" : "Simulation"}
-                </button>
-              ))}
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex flex-1 flex-col gap-2">
+            <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Analysis Filters</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <FilterPillGroup
+                items={MODE_FILTERS.map((filter) => ({
+                  ...filter,
+                  onClick: () => setSelectedMode(filter.value),
+                  selected: selectedMode === filter.value,
+                }))}
+              />
+
+              <HeaderSelect
+                label="Profile"
+                value={selectedProfile}
+                onChange={(value) => setSelectedProfile(value)}
+                options={[
+                  {
+                    value: ACTIVE_PROFILE_FILTER,
+                    label: activeScope ? `Active profile (${activeScope.configProfile})` : "Active profile",
+                  },
+                  ...profileOptions.map((profile) => ({
+                    value: profile.name,
+                    label: profile.isActive ? `${profile.name} · active` : profile.name,
+                  })),
+                ]}
+              />
+
+              <FilterPillGroup
+                items={TRADE_SOURCE_FILTERS.map((filter) => ({
+                  ...filter,
+                  onClick: () => setSelectedTradeSource(filter.value),
+                  selected: selectedTradeSource === filter.value,
+                }))}
+              />
             </div>
 
-            <div className="flex flex-wrap items-center gap-1 rounded-xl border border-bg-border bg-bg-card/70 p-1">
-              {STRATEGY_FILTERS.map((filter) => (
-                <button
-                  key={filter.value}
-                  onClick={() => setSelectedStrategy(filter.value || null)}
-                  className={cn(
-                    "rounded-lg px-2.5 py-1.5 text-xs transition-colors",
-                    (selectedStrategy ?? "") === filter.value
-                      ? "bg-bg-hover text-text-primary"
-                      : "text-text-muted hover:bg-bg-hover hover:text-text-primary",
-                  )}
-                >
-                  {filter.label}
-                </button>
-              ))}
-            </div>
+            <FilterPillGroup
+              items={STRATEGY_FILTERS.map((filter) => ({
+                ...filter,
+                onClick: () => setSelectedStrategy(filter.value || null),
+                selected: (selectedStrategy ?? "") === filter.value,
+              }))}
+            />
           </div>
 
           <div className="flex items-center justify-between gap-3 xl:justify-end">
             <div className="text-right text-[11px] text-text-muted">
-              {overview?.regime ? `SOL ${formatUsd(overview.regime.solPrice)}` : "Awaiting regime feed"}
+              {overview?.regime ? `SOL ${formatUsd(overview.regime.solPrice)} · ${formatPercent(overview.regime.solChange1h)} 1h` : "Awaiting regime feed"}
             </div>
             <button
               onClick={() => setTheme(resolvedTheme === "light" ? "dark" : "light")}
@@ -166,13 +217,17 @@ export function Header() {
   );
 }
 
-function BotStateBadge({ isRunning, pauseReason }: { isRunning: boolean; pauseReason: string | null }) {
+function BotStateBadge({ isRunning, pauseReasons }: { isRunning: boolean; pauseReasons: string[] }) {
+  const primaryReason = pauseReasons[0] ?? "Bot paused";
+  const extraCount = Math.max(0, pauseReasons.length - 1);
+
   return (
     <span
       className={cn(
         "inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-xs font-medium",
         isRunning ? "bg-accent-green/12 text-accent-green" : "bg-accent-red/12 text-accent-red",
       )}
+      title={!isRunning && pauseReasons.length > 0 ? pauseReasons.join(" · ") : undefined}
     >
       <span className="relative flex h-2.5 w-2.5 items-center justify-center">
         {isRunning ? (
@@ -188,7 +243,7 @@ function BotStateBadge({ isRunning, pauseReason }: { isRunning: boolean; pauseRe
           <span className="inline-flex h-2.5 w-2.5 rounded-full bg-accent-red" />
         )}
       </span>
-      <span>{isRunning ? "Bot running" : pauseReason ?? "Bot paused"}</span>
+      <span>{isRunning ? "Bot running" : extraCount > 0 ? `${primaryReason} +${extraCount}` : primaryReason}</span>
     </span>
   );
 }
@@ -219,6 +274,19 @@ function OperatorChip({ state }: { state: "locked" | "unlocked" | "unavailable" 
       icon={<ShieldAlert className="h-3.5 w-3.5" />}
       label="Operator locked"
       tone="warning"
+    />
+  );
+}
+
+function QuotaChip({ service, status }: { service: string; status: "HEALTHY" | "SOFT_LIMIT" | "HARD_LIMIT" | "PAUSED" }) {
+  const tone = status === "HEALTHY" ? "positive" : status === "SOFT_LIMIT" ? "warning" : "danger";
+  const label = status === "HEALTHY" ? `${service} healthy` : `${service} ${status.toLowerCase().replace("_", " ")}`;
+
+  return (
+    <StatusChip
+      icon={<Layers3 className="h-3.5 w-3.5" />}
+      label={label}
+      tone={tone}
     />
   );
 }
@@ -259,15 +327,65 @@ function HeaderMetric({
   valueClass?: string;
 }) {
   return (
-    <div className="rounded-xl border border-bg-border bg-bg-card/70 px-3 py-2.5">
-      <div className="mb-1 text-[10px] uppercase tracking-wider text-text-muted">{label}</div>
-      <div className={cn("text-sm font-semibold tabular-nums text-text-primary lg:text-base", valueClass)}>
-        {value}
-      </div>
-      <div className="mt-0.5 flex items-center gap-1 text-[11px] text-text-muted">
-        <Layers3 className="h-3 w-3" />
-        <span>{sub}</span>
-      </div>
+    <div className="rounded-2xl border border-bg-border/80 bg-bg-card/65 px-3 py-3">
+      <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted">{label}</div>
+      <div className={cn("mt-1 text-sm font-semibold tabular-nums text-text-primary", valueClass)}>{value}</div>
+      <div className="mt-1 text-[11px] text-text-muted">{sub}</div>
     </div>
+  );
+}
+
+function FilterPillGroup({
+  items,
+}: {
+  items: Array<{ value: string; label: string; onClick: () => void; selected: boolean }>;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-1 rounded-xl border border-bg-border bg-bg-card/70 p-1">
+      {items.map((item) => (
+        <button
+          key={item.value}
+          onClick={item.onClick}
+          className={cn(
+            "rounded-lg px-2.5 py-1.5 text-xs transition-colors",
+            item.selected
+              ? "bg-bg-hover text-text-primary"
+              : "text-text-muted hover:bg-bg-hover hover:text-text-primary",
+          )}
+        >
+          {item.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function HeaderSelect({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+}) {
+  return (
+    <label className="relative inline-flex min-w-[210px] items-center rounded-xl border border-bg-border bg-bg-card/70 px-3 py-2 text-xs text-text-secondary">
+      <span className="pr-3 text-text-muted">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full appearance-none bg-transparent pr-5 text-right text-text-primary outline-none"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      <ChevronDown className="pointer-events-none absolute right-3 h-3.5 w-3.5 text-text-muted" />
+    </label>
   );
 }

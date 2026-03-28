@@ -14,6 +14,7 @@ export function tradesRouter(deps?: { scope?: ExecutionScope }) {
     const side = req.query.side as string | undefined;
     const mode = (req.query.mode as string | undefined) ?? defaultScope?.mode;
     const profile = (req.query.profile as string | undefined) ?? defaultScope?.configProfile;
+    const tradeSource = req.query.tradeSource as string | undefined;
 
     const tradeSide = side === "BUY" || side === "SELL" ? side : undefined;
 
@@ -22,6 +23,7 @@ export function tradesRouter(deps?: { scope?: ExecutionScope }) {
     if (tradeSide) where.side = tradeSide;
     if (mode) where.mode = mode;
     if (profile) where.configProfile = profile;
+    if (tradeSource) where.tradeSource = tradeSource;
 
     const exitsWhere: Record<string, unknown> = {
       ...where,

@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "motion/react";
 import { apiUsageQueryOptions, dailyStatsQueryOptions } from "@/lib/dashboard-query-options";
-import { useDashboardStore } from "@/lib/store";
+import { useDashboardFilters } from "@/hooks/use-dashboard-filters";
 import { useDashboardShell } from "@/hooks/use-dashboard-shell";
 import { PnlChart } from "@/components/charts/pnl-chart";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
@@ -34,9 +34,12 @@ import {
   Zap,
 } from "lucide-react";
 
+const EMPTY_LIST: never[] = [];
+
 export default function OverviewPage() {
-  const { mode, selectedStrategy } = useDashboardStore();
+  const { effectiveMode, effectiveProfile, selectedStrategy } = useDashboardFilters();
   const {
+    activeScope,
     overview,
     heartbeat,
     connectionState,
@@ -49,10 +52,13 @@ export default function OverviewPage() {
     openSlots,
     lastUpdatedAt,
     isLoadingShell,
+    maxOpenPositions,
+    apiUsage,
+    pauseReasons,
   } = useDashboardShell();
 
-  const apiUsageQuery = useQuery(apiUsageQueryOptions());
-  const recentStatsQuery = useQuery(dailyStatsQueryOptions(7, mode));
+  const apiUsageQuery = useQuery(apiUsageQueryOptions(7));
+  const recentStatsQuery = useQuery(dailyStatsQueryOptions(7, effectiveMode, effectiveProfile));
 
   const recentStats = useMemo(
     () => (recentStatsQuery.data ?? []).filter((stat) => stat.strategy === null),
@@ -109,20 +115,36 @@ export default function OverviewPage() {
     return Object.entries(strategies).sort((left, right) => right[1].deployedUsd - left[1].deployedUsd);
   }, [allPositions]);
 
+  const currentUsage = useMemo(
+    () => apiUsageQuery.data?.current ?? apiUsage?.current ?? EMPTY_LIST,
+    [apiUsage, apiUsageQuery.data],
+  );
+  const endpointRows = useMemo(
+    () => apiUsageQuery.data?.topEndpoints ?? EMPTY_LIST,
+    [apiUsageQuery.data],
+  );
+
   const usageHighlights = useMemo(() => {
-    return (apiUsageQuery.data?.monthly ?? [])
+    return currentUsage
       .map((usage) => {
-        const budget = usage.service === "HELIUS" ? 10_000_000 : 1_500_000;
-        const credits = usage._sum.totalCredits ?? 0;
+        const credits = usage.monthlyUsed;
         return {
           credits,
-          pct: budget > 0 ? (credits / budget) * 100 : 0,
+          pct: usage.budgetTotal > 0 ? (credits / usage.budgetTotal) * 100 : 0,
+          pauseReason: usage.pauseReason,
+          remaining: usage.monthlyRemaining,
           service: usage.service,
+          status: usage.quotaStatus,
         };
       })
       .sort((left, right) => right.pct - left.pct)
       .slice(0, 3);
-  }, [apiUsageQuery.data?.monthly]);
+  }, [currentUsage]);
+
+  const topEndpoints = useMemo(
+    () => endpointRows.slice(0, 4),
+    [endpointRows],
+  );
 
   const motionContainer = {
     hidden: {},
@@ -169,13 +191,18 @@ export default function OverviewPage() {
         <div>
           <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Operating Picture</div>
           <div className="mt-1 text-sm text-text-secondary">
-            {mode === "LIVE" ? "Live" : "Simulation"} mode · {selectedStrategy ? strategyLabel(selectedStrategy) : "All strategies"} · updated {updatedLabel}
+            {activeScope?.mode === "LIVE" ? "Live" : activeScope?.mode === "DRY_RUN" ? "Simulation" : "Runtime"} scope
+            {activeScope ? ` · ${activeScope.configProfile}` : ""}
+            {selectedStrategy ? ` · ${strategyLabel(selectedStrategy)}` : " · All strategies"}
+            {effectiveMode !== activeScope?.mode || effectiveProfile !== activeScope?.configProfile ? ` · analysis ${effectiveMode}/${effectiveProfile}` : ""}
+            {" · "}updated {updatedLabel}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-[11px] text-text-muted">
           <span>{activeStrategiesCount} strategies engaged</span>
           <span>{manualPositions} manual overrides</span>
-          <span>{openSlots} slots available</span>
+          <span>{openSlots} of {maxOpenPositions} slots available</span>
+          {pauseReasons.length > 0 ? <span>{pauseReasons.length} blockers active</span> : null}
         </div>
       </motion.div>
 
@@ -205,7 +232,7 @@ export default function OverviewPage() {
         <SummaryTile
           label="Capital Deployed"
           value={formatUsd(deployedCapitalUsd)}
-          sub={`${Math.max(0, 5 - openSlots)} slots used`}
+          sub={`${Math.max(0, maxOpenPositions - openSlots)} slots used`}
           icon={<Zap className="h-3.5 w-3.5 text-accent-purple" />}
         />
         <SummaryTile
@@ -240,9 +267,16 @@ export default function OverviewPage() {
               <MetricRow label="Rolling win rate" value={`${(overview.rollingWinRate * 100).toFixed(0)}%`} />
               <MetricRow label="SOL spot" value={formatUsd(overview.regime.solPrice)} />
               <MetricRow label="SOL 1h" value={formatPercent(overview.regime.solChange1h)} valueClass={pnlClass(overview.regime.solChange1h)} />
+              <MetricRow label="Profile" value={overview.configProfile} />
               <MetricRow label="Last trade" value={heartbeat?.lastTradeAt ? timeAgo(heartbeat.lastTradeAt) : "—"} />
               <MetricRow label="Last signal" value={heartbeat?.lastSignalAt ? timeAgo(heartbeat.lastSignalAt) : "—"} />
             </div>
+
+            {pauseReasons.length > 0 ? (
+              <div className="mt-4 space-y-2 rounded-xl border border-accent-yellow/20 bg-accent-yellow/8 p-3 text-xs text-accent-yellow">
+                {pauseReasons.map((reason) => <div key={reason}>{reason}</div>)}
+              </div>
+            ) : null}
 
             <div className="mt-4 grid grid-cols-2 gap-3 rounded-xl border border-bg-border/80 bg-bg-hover/30 p-3 text-xs text-text-secondary">
               <div>
@@ -353,29 +387,37 @@ export default function OverviewPage() {
             <div className="mb-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Database className="h-4 w-4 text-accent-green" />
-                <span className="stat-label">API Budget Drift</span>
+                <span className="stat-label">Quota Pulse</span>
               </div>
-              <span className="text-[11px] text-text-muted">Top monthly consumers</span>
+              <span className="text-[11px] text-text-muted">Worst services and top spenders</span>
             </div>
 
             {usageHighlights.length ? (
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {usageHighlights.map((usage) => (
                   <div key={usage.service} className="space-y-1.5">
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-text-secondary">{usage.service}</span>
                       <span className={cn(
                         "font-medium tabular-nums",
-                        usage.pct > 80 ? "text-accent-red" : usage.pct > 60 ? "text-accent-yellow" : "text-accent-green",
+                        usage.status === "PAUSED" || usage.status === "HARD_LIMIT"
+                          ? "text-accent-red"
+                          : usage.status === "SOFT_LIMIT"
+                            ? "text-accent-yellow"
+                            : "text-accent-green",
                       )}>
-                        {usage.pct.toFixed(1)}%
+                        {usage.status}
                       </span>
                     </div>
                     <div className="h-2 overflow-hidden rounded-full bg-bg-border">
                       <motion.div
                         className={cn(
                           "h-full rounded-full",
-                          usage.pct > 80 ? "bg-accent-red" : usage.pct > 60 ? "bg-accent-yellow" : "bg-accent-green",
+                          usage.status === "PAUSED" || usage.status === "HARD_LIMIT"
+                            ? "bg-accent-red"
+                            : usage.status === "SOFT_LIMIT"
+                              ? "bg-accent-yellow"
+                              : "bg-accent-green",
                         )}
                         initial={{ scaleX: 0 }}
                         animate={{ scaleX: Math.min(usage.pct, 100) / 100 }}
@@ -383,9 +425,33 @@ export default function OverviewPage() {
                         transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] as const }}
                       />
                     </div>
-                    <div className="text-[11px] text-text-muted">{formatNumber(usage.credits)} credits consumed</div>
+                    <div className="flex items-center justify-between text-[11px] text-text-muted">
+                      <span>{formatNumber(usage.credits)} credits consumed</span>
+                      <span>{formatNumber(usage.remaining)} remaining</span>
+                    </div>
+                    {usage.pauseReason ? <div className="text-[11px] text-accent-yellow">{usage.pauseReason}</div> : null}
                   </div>
                 ))}
+
+                {topEndpoints.length ? (
+                  <div className="rounded-xl border border-bg-border/80 bg-bg-hover/30 p-3">
+                    <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Top Endpoint Spenders</div>
+                    <div className="mt-3 space-y-2">
+                      {topEndpoints.map((endpoint) => (
+                        <div key={`${endpoint.service}:${endpoint.endpoint}:${endpoint.purpose}`} className="flex items-center justify-between gap-3 text-xs">
+                          <div className="min-w-0">
+                            <div className="truncate font-medium text-text-primary">{endpoint.service} · {endpoint.endpoint}</div>
+                            <div className="truncate text-text-muted">{endpoint.purpose} · {endpoint.configProfile ?? "all profiles"}</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="font-medium text-text-primary">{formatNumber(endpoint.totalCredits)} cr</div>
+                            <div className="text-text-muted">{formatNumber(endpoint.totalCalls)} calls</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ) : (
               <div className="text-sm text-text-muted">Budget telemetry hasn’t arrived yet.</div>
@@ -430,7 +496,7 @@ export default function OverviewPage() {
               <Activity className="h-4 w-4 text-accent-blue" />
               <span className="stat-label">Daily P&amp;L</span>
             </div>
-            <PnlChart />
+            <PnlChart days={30} mode={effectiveMode} profile={effectiveProfile} dailyLossLimit={overview.dailyLossLimit} />
           </div>
         </ErrorBoundary>
       </motion.div>
