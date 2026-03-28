@@ -4,44 +4,44 @@ This file applies to work inside `trading_bot/` and is more specific than the re
 
 ## Core Rules
 
-- Use `src/utils/logger.ts`; do not add `console.log`, `console.warn`, or `console.error`.
+- Use `backend/src/utils/logger.ts`; do not add `console.log`, `console.warn`, or `console.error`.
 - This is a TypeScript ESM codebase. Relative imports should use `.js` extensions.
-- Keep configuration in the existing config system under `src/config/`.
+- Keep configuration in the existing config system under `backend/src/config/`.
 - Preserve existing circuit breaker, retry, and rate-limit patterns around external APIs.
 - Avoid unnecessary code comments.
 - Prefer minimal, reversible changes over large refactors.
-- Do not create Prisma migration files. Keep schema changes in `prisma/schema.prisma` and DB rollout SQL in `prisma/views/create_views.sql`.
+- Do not create Prisma migration files. Keep schema changes in `backend/prisma/schema.prisma` and DB rollout SQL in `backend/prisma/views/create_views.sql`.
 - Control-plane writes must stay behind bearer auth. If a route mutates runtime behavior, positions, or profiles, assume auth is required unless a narrower rule is documented.
 - Manual control paths must obey the same capital, reserve, and sizing checks as automated entry paths. Never validate overrides against only the default size.
-- Workers must reuse the supported Prisma initialization path from `src/db/client.ts`; do not construct ad-hoc Prisma clients for background jobs.
+- Workers must reuse the supported Prisma initialization path from `backend/src/db/client.ts`; do not construct ad-hoc Prisma clients for background jobs.
 - Historical stats must be derived from immutable trade/snapshot history. Do not write past rows from current singleton runtime state.
 
 ## Safety-Critical Areas
 
 Be especially careful in:
 
-- `src/core/`: trade execution, exits, position tracking, risk, regime behavior
-- `src/strategies/`: entry logic, skip logic, sizing, exit rules
-- `src/services/`: exchange and data-provider integrations
-- `prisma/`: schema, SQL views, seed
+- `backend/src/core/`: trade execution, exits, position tracking, risk, regime behavior
+- `backend/src/strategies/`: entry logic, skip logic, sizing, exit rules
+- `backend/src/services/`: exchange and data-provider integrations
+- `backend/prisma/`: schema, SQL views, seed
 
 If a change can affect live trading behavior, validate the actual execution path and not just the immediate function.
 
 ## Working Map
 
-- `src/core/`: execution engine and portfolio lifecycle
-- `src/strategies/`: strategy-specific signal generation
-- `src/services/`: Helius, Birdeye, Jupiter, and related integrations
-- `src/api/`: Express routes and middleware
-- `src/workers/`: async workers and queue consumers
-- `src/db/`: Prisma client access
-- `src/utils/`: logger, rate limiter, circuit breaker, shared infra
+- `backend/src/core/`: execution engine and portfolio lifecycle
+- `backend/src/strategies/`: strategy-specific signal generation
+- `backend/src/services/`: Helius, Birdeye, Jupiter, and related integrations
+- `backend/src/api/`: Express routes and middleware
+- `backend/src/workers/`: async workers and queue consumers
+- `backend/src/db/`: Prisma client access
+- `backend/src/utils/`: logger, rate limiter, circuit breaker, shared infra
 - `dashboard/`: Next.js UI
-- `prisma/`: schema, views, seed
+- `backend/prisma/`: schema, views, seed
 
 ## Commands
 
-From `trading_bot/`:
+From `trading_bot/backend/`:
 
 ```bash
 npm run dev

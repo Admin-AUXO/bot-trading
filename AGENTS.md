@@ -22,8 +22,8 @@ Trading constraints:
 
 Almost all code changes belong under `trading_bot/`.
 
-- `trading_bot/src/`: backend, services, workers, API, strategies
-- `trading_bot/prisma/`: Prisma schema, SQL views, seed
+- `trading_bot/backend/src/`: backend, services, workers, API, strategies
+- `trading_bot/backend/prisma/`: Prisma schema, SQL views, seed
 - `trading_bot/dashboard/`: Next.js dashboard
 
 If a task does not clearly require root-level files, avoid touching files outside `trading_bot/`.
@@ -35,7 +35,7 @@ If a task does not clearly require root-level files, avoid touching files outsid
 - Fix root causes, not surface symptoms.
 - If a change touches live-trading behavior, optimize for safety and correctness over speed.
 - If scope expands beyond the original task, explicitly say why before continuing.
-- Do not create Prisma migration files. Keep DB shape changes in `trading_bot/prisma/schema.prisma` and operational SQL in `trading_bot/prisma/views/create_views.sql`.
+- Do not create Prisma migration files. Keep DB shape changes in `trading_bot/backend/prisma/schema.prisma` and operational SQL in `trading_bot/backend/prisma/views/create_views.sql`.
 - Treat control-plane write routes as authenticated surfaces by default. Read-only routes may be public; mutating routes must make the boundary explicit.
 - Keep dashboard proxy auth centralized. Do not rely on per-endpoint token hacks when a whole control subtree needs the same bearer token.
 - Keep analytics deterministic. Historical recomputes must derive from immutable records or persisted snapshots, not mutable singleton state.

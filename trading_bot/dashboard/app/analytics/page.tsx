@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { AnalyticsPageClient } from "@/app/analytics/analytics-page-client";
+import { AnalyticsPageClient } from "@/features/analytics/analytics-page-client";
 
 export default function AnalyticsPage() {
   return (

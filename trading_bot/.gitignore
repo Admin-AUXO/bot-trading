@@ -1,8 +1,8 @@
-node_modules/
-dist/
-.env
-*.log
-.next/
+backend/node_modules/
+backend/dist/
+backend/.env
+backend/.env.docker
 dashboard/node_modules/
 dashboard/.next/
 dashboard/out/
+*.log

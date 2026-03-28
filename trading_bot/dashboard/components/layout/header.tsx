@@ -8,14 +8,11 @@ import { fetchOverview, fetchHeartbeat } from "@/lib/api";
 import { useDashboardStore } from "@/lib/store";
 import { formatUsd, regimeBadge, pnlClass } from "@/lib/utils";
 import { Sun, Moon, Heart } from "lucide-react";
-import { useState, useEffect } from "react";
 
 export function Header() {
   const { mode, setMode, selectedStrategy, setSelectedStrategy } = useDashboardStore();
-  const { theme, setTheme } = useTheme();
+  const { resolvedTheme, setTheme } = useTheme();
   const pathname = usePathname();
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
 
   const PAGE_TITLES: Record<string, string> = {
     "/": "Overview",
@@ -154,15 +151,12 @@ export function Header() {
         <div className="h-4 w-px bg-bg-border" />
 
         <button
-          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+          onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
           className="p-1.5 rounded-lg hover:bg-bg-hover transition-colors"
           title="Toggle theme"
         >
-          {!mounted || theme === "dark" ? (
-            <Sun className="w-3.5 h-3.5 text-text-muted" />
-          ) : (
-            <Moon className="w-3.5 h-3.5 text-text-muted" />
-          )}
+          <Sun className="w-3.5 h-3.5 text-text-muted dark:hidden" />
+          <Moon className="hidden w-3.5 h-3.5 text-text-muted dark:block" />
         </button>
       </div>
     </header>

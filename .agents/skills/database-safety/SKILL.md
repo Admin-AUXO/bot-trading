@@ -12,7 +12,7 @@ Use this skill for schema, SQL, or data-access work.
 - Prefer read-first analysis before proposing writes.
 - Check performance, indexes, and data shape implications.
 - Surface rollback and compatibility concerns.
-- Never create standalone migration files in this repo. Keep schema changes in `prisma/schema.prisma` and rollout SQL in `prisma/views/create_views.sql`.
+- Never create standalone migration files in this repo. Keep schema changes in `trading_bot/backend/prisma/schema.prisma` and rollout SQL in `trading_bot/backend/prisma/views/create_views.sql`.
 
 ## Preferred Tools
 - `postgres` for schema inspection and read-only queries when configured.

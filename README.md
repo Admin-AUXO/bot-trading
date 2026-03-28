@@ -6,9 +6,11 @@ This repository is a workspace. The actual application lives in `trading_bot/`. 
 
 ## What is here
 
-- `trading_bot/src/`: backend, strategies, services, API routes, and workers
-- `trading_bot/prisma/`: Prisma schema, seed, and SQL views
+- `trading_bot/backend/src/`: backend, strategies, services, API routes, and workers
+- `trading_bot/backend/src/bootstrap/`: runtime assembly, startup orchestration, and interval wiring
+- `trading_bot/backend/prisma/`: Prisma schema, seed, and SQL views
 - `trading_bot/dashboard/`: Next.js dashboard
+- `trading_bot/dashboard/features/`: route-owned UI implementations separated from thin App Router entrypoints
 - `.codex/`, `.agents/`: local agent and workflow configuration
 
 ## Quick start
@@ -20,7 +22,7 @@ cd trading_bot
 docker compose up -d postgres redis
 ```
 
-2. Create `trading_bot/.env` from `trading_bot/.env.example`.
+2. Create `trading_bot/backend/.env` from `trading_bot/backend/.env.example`.
 
 3. Add the required API and wallet settings:
 
@@ -39,7 +41,7 @@ docker compose up -d postgres redis
 5. Install dependencies and start the backend:
 
 ```bash
-cd trading_bot
+cd trading_bot/backend
 npm install
 npm run db:generate
 npm run dev
@@ -55,9 +57,45 @@ npm run dev
 
 The backend runs on port `3001` by default. The dashboard runs on port `3000`.
 
+## Separate Docker Install
+
+For an isolated Docker-based stack that you can start from the terminal:
+
+1. Copy the Docker env template:
+
+```bash
+cd trading_bot/backend
+cp .env.docker.example .env.docker
+```
+
+PowerShell:
+
+```powershell
+cd trading_bot/backend
+Copy-Item .env.docker.example .env.docker
+```
+
+2. Fill in the required API keys, wallet values, and `CONTROL_API_SECRET` in `trading_bot/backend/.env.docker`.
+
+3. Start the full stack:
+
+```bash
+cd trading_bot/backend
+npm run docker:up
+```
+
+Useful terminal commands:
+
+```bash
+npm run docker:logs
+npm run docker:down
+```
+
+This Docker stack runs PostgreSQL, Redis, the backend, and the dashboard together. It is separate from the lightweight local `docker-compose.yml` that only starts Postgres and Redis.
+
 ## Useful commands
 
-From `trading_bot/`:
+From `trading_bot/backend/`:
 
 ```bash
 npm run typecheck
@@ -79,6 +117,6 @@ npm run lint
 - `LIVE` mode sends real trades. Treat it accordingly.
 - The current capital and risk defaults are tuned for a small account, around `$200`, with a maximum of `5` open positions.
 - Internal audit notes live in `trading_bot/docs/`.
-- Prisma changes are schema-and-views only here: update `trading_bot/prisma/schema.prisma` and `trading_bot/prisma/views/create_views.sql`, and do not create migration files.
+- Prisma changes are schema-and-views only here: update `trading_bot/backend/prisma/schema.prisma` and `trading_bot/backend/prisma/views/create_views.sql`, and do not create migration files.
 - Control-plane write actions are authenticated through the dashboard proxy; keep any new pause/resume/manual/profile mutations on that same protected path.
 - Analytics and dashboard filters must stay parameter-consistent: query keys, URL params, and backend filters should all vary together for `days`, `mode`, `configProfile`, and `tradeSource` when relevant.

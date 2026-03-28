@@ -32,11 +32,7 @@ export function PnlChart() {
     queryFn: () => fetchOverview(mode),
   });
 
-  if (!stats || stats.length === 0) {
-    return <div className="h-48 flex items-center justify-center text-text-muted text-sm">No data yet</div>;
-  }
-
-  const filtered = stats.filter((s) => s.strategy === null);
+  const filtered = (stats ?? []).filter((s) => s.strategy === null);
   const dailyLossLimit = overview?.dailyLossLimit ?? 10;
 
   const chartData = useMemo(() => filtered.map((s, i) => {
@@ -55,6 +51,10 @@ export function PnlChart() {
       ma7,
     };
   }), [filtered]);
+
+  if (chartData.length === 0) {
+    return <div className="h-48 flex items-center justify-center text-text-muted text-sm">No data yet</div>;
+  }
 
   return (
     <ResponsiveContainer width="100%" height={220}>
