@@ -28,6 +28,8 @@ This file applies to work inside `trading_bot/` and is more specific than the re
 - Profile activation UI should surface tracked result context when the API already exposes it.
 - Keep dashboard light/dark styling on semantic variables in `dashboard/app/globals.css` and `dashboard/lib/chart-colors.ts`; do not add page-local hard-coded chart or surface colors.
 - Manual control paths must obey the same capital, reserve, and sizing checks as automated entry paths. Never validate overrides against only the default size.
+- Follow-on buys and delayed tranches must obey the same pause, loss-limit, reserve, and capital-level checks as initial entries. Existing positions are not a bypass.
+- Keep strategy config coherent end to end. If a profile overrides size, stop loss, take profit, trailing stop, time stop, time limit, or slippage, entry filters, execution, exit monitoring, and control surfaces must all use that same runtime config.
 - Workers must reuse the supported Prisma initialization path from `backend/src/db/client.ts`; do not construct ad-hoc Prisma clients for background jobs.
 - Historical stats must be derived from immutable trade/snapshot history. Do not write past rows from current singleton runtime state.
 

@@ -33,6 +33,7 @@ Rules:
 - If a page mixes runtime-scope, lane-scoped, mode/profile-scoped, or global feeds, label that scope in the UI. A filtered header does not grant every card filtered semantics.
 - Do not add new header/footer/sidebar queries for overview, positions, heartbeat, or operator session when `use-dashboard-shell.ts` already exposes them.
 - `/api/overview` and `/api/control/*` are runtime-scope contracts. Do not pretend the user can ask them for arbitrary `mode/profile` lanes.
+- `/api/control/config` is the runtime truth for settings cards: it now exposes configured base size, current effective size after regime/capital adjustments, and the structured exit plan for each strategy. Do not hard-code those thresholds in the client.
 - `/api/overview` day counters are lane-scoped runtime truth. Reuse the backend lane-summary contract instead of recomputing those numbers ad hoc per page.
 - Connection state is derived from heartbeat plus available shell data. Do not reintroduce a manual `connected` flag in client state.
 - Keep compact metrics on `components/ui/summary-tile.tsx` unless a page has a stronger reason to diverge.
@@ -128,4 +129,5 @@ Browser verification should confirm:
 - analytics scope badges match the actual query/filter support for each card, and weighted rollups still read correctly
 - quota page shows global service totals, lane-focused endpoint concentration, and quota-specific blockers without assuming stale response shapes
 - settings surfaces current provider budget, pause reasons, top-endpoint usage widgets, and per-profile result context without assuming stale response shapes
+- settings strategy cards match `/api/control/config` for live size and exit thresholds instead of hard-coded labels
 - search-param hooks remain behind the required Suspense boundaries

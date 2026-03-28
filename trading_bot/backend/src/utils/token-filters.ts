@@ -67,13 +67,14 @@ export function runTradeDataChecks(
     return { pass: true, filterResults };
   }
 
-  filterResults.uniqueBuyers5m = tradeData.buy5m;
+  filterResults.buyCount5m = tradeData.buy5m;
+  filterResults.uniqueWallet5m = tradeData.uniqueWallet5m;
   filterResults.volume5m = tradeData.volume5m;
 
-  if (rules.minUniqueBuyers5m !== undefined && tradeData.buy5m < rules.minUniqueBuyers5m) {
+  if (rules.minUniqueBuyers5m !== undefined && tradeData.uniqueWallet5m < rules.minUniqueBuyers5m) {
     return {
       pass: false,
-      reason: `unique buyers ${tradeData.buy5m} < ${rules.minUniqueBuyers5m}`,
+      reason: `unique wallets ${tradeData.uniqueWallet5m} < ${rules.minUniqueBuyers5m}`,
       filterResults,
     };
   }

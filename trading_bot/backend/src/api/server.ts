@@ -20,6 +20,7 @@ import type { ApiBudgetManager } from "../core/api-budget-manager.js";
 import type { RiskManager } from "../core/risk-manager.js";
 import type { RegimeDetector } from "../core/regime-detector.js";
 import type { CapitalConfig, ExecutionScope } from "../utils/types.js";
+import type { StrategyConfigMap } from "../utils/strategy-config.js";
 
 const log = createChildLogger("api");
 
@@ -31,11 +32,7 @@ export function createApiServer(deps: {
   tradeExecutor?: unknown;
   dbClient?: typeof db;
   scope?: ExecutionScope;
-  strategyConfigs?: {
-    S1_COPY: { maxPositions: number; stopLossPercent: number; timeStopMinutes: number; maxSlippageBps: number; positionSizeSol: number };
-    S2_GRADUATION: { maxPositions: number; stopLossPercent: number; timeStopMinutes: number; timeLimitMinutes: number; maxSlippageBps: number; positionSizeSol: number };
-    S3_MOMENTUM: { maxPositions: number; stopLossPercent: number; timeStopMinutes: number; timeLimitMinutes: number; maxSlippageBps: number; positionSizeSol: number };
-  };
+  strategyConfigs?: StrategyConfigMap;
   capitalConfig?: CapitalConfig;
   apiBudgetManager?: ApiBudgetManager;
   walletReconciler?: () => Promise<number | null>;

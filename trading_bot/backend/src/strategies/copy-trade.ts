@@ -27,6 +27,14 @@ interface ScoringResult {
   age: number;
 }
 
+interface WalletTradeSample {
+  mint: string;
+  side: "BUY" | "SELL";
+  amountToken: number;
+  amountSol: number;
+  blockTime: number;
+}
+
 export class CopyTradeStrategy extends EventEmitter {
   private eliteWallets: string[] = [];
   private wsMessageHandler: ((data: unknown) => void) | null = null;
@@ -420,30 +428,63 @@ export class CopyTradeStrategy extends EventEmitter {
   private async scoreWallet(walletAddress: string): Promise<ScoringResult | null> {
     const txs = await this.helius.getTransactionsForAddress(
       walletAddress,
-      { limit: config.walletScorer.txFetchLimit },
+      { limit: config.walletScorer.txFetchLimit, tokenAccounts: "balanceChanged" },
       this.apiMeta("WALLET_SCORING"),
     );
-    if (txs.length < config.walletScorer.minTxCount) return null;
+    const walletTrades = (txs as Array<Record<string, unknown>>)
+      .map((tx) => this.extractWalletTrade(tx, walletAddress))
+      .filter((trade): trade is WalletTradeSample => trade !== null)
+      .sort((a, b) => a.blockTime - b.blockTime);
+
+    if (walletTrades.length < config.walletScorer.minTxCount) return null;
 
     let wins = 0;
     let losses = 0;
     let maxLoss = 0;
     const tokens = new Set<string>();
+    const redFlags = new Set<string>();
+    const inventory = new Map<string, { quantity: number; costSol: number }>();
 
-    for (const tx of txs as Array<Record<string, unknown>>) {
-      const transfers = tx.tokenTransfers as Array<Record<string, unknown>> | undefined;
-      if (!transfers) continue;
-      for (const transfer of transfers) {
-        if (typeof transfer.mint === "string") tokens.add(transfer.mint);
+    for (const trade of walletTrades) {
+      tokens.add(trade.mint);
+      const holding = inventory.get(trade.mint) ?? { quantity: 0, costSol: 0 };
+
+      if (trade.side === "BUY") {
+        holding.quantity += trade.amountToken;
+        holding.costSol += trade.amountSol;
+        inventory.set(trade.mint, holding);
+        continue;
       }
 
-      const nativeChange = (tx.nativeTransfers as Array<Record<string, unknown>> | undefined)?.[0];
-      if (!nativeChange) continue;
-      const amount = Number(nativeChange.amount ?? 0);
-      if (amount > 0) wins++;
-      else {
-        losses++;
-        maxLoss = Math.max(maxLoss, Math.abs(amount));
+      if (holding.quantity <= 0 || holding.costSol <= 0) {
+        redFlags.add("unmatched-sells");
+        continue;
+      }
+
+      const realizedQuantity = Math.min(trade.amountToken, holding.quantity);
+      if (realizedQuantity <= 0) {
+        redFlags.add("oversold-balance");
+        continue;
+      }
+
+      const avgCostPerToken = holding.costSol / holding.quantity;
+      const realizedCost = avgCostPerToken * realizedQuantity;
+      const realizedProceeds = trade.amountToken > 0
+        ? trade.amountSol * (realizedQuantity / trade.amountToken)
+        : 0;
+      const realizedPnlPct = realizedCost > 0 ? (realizedProceeds - realizedCost) / realizedCost : 0;
+
+      if (realizedPnlPct > 0) wins++;
+      else losses++;
+      maxLoss = Math.max(maxLoss, Math.abs(Math.min(realizedPnlPct, 0)));
+
+      holding.quantity -= realizedQuantity;
+      holding.costSol = Math.max(0, holding.costSol - realizedCost);
+      if (holding.quantity <= 1e-9 || holding.costSol <= 1e-9) inventory.delete(trade.mint);
+      else inventory.set(trade.mint, holding);
+
+      if (trade.amountToken > realizedQuantity + 1e-9) {
+        redFlags.add("oversold-balance");
       }
     }
 
@@ -451,15 +492,18 @@ export class CopyTradeStrategy extends EventEmitter {
     if (totalTrades === 0) return null;
 
     const winRate = wins / totalTrades;
-    const frequency = totalTrades;
+    const frequency = walletTrades.length;
     const diversity = tokens.size;
     const consistency = winRate * config.walletScorer.consistencyMultiplier;
-    const age = config.walletScorer.placeholderAgeDays;
+    const oldestTradeTime = walletTrades.find((trade) => trade.blockTime > 0)?.blockTime ?? 0;
+    const age = oldestTradeTime > 0
+      ? Math.max(1, Math.floor((Date.now() / 1000 - oldestTradeTime) / 86_400))
+      : 0;
     const weights = config.walletScorer.weights;
 
     const compositeScore =
       winRate * weights.winRate +
-      (1 - Math.min(maxLoss / 1e9, 1)) * weights.maxLoss +
+      (1 - Math.min(maxLoss, 1)) * weights.maxLoss +
       consistency * weights.consistency +
       (frequency >= config.walletScorer.freqMin && frequency <= config.walletScorer.freqMax ? 1 : 0.5) * weights.frequency +
       (diversity >= config.walletScorer.diversityMin ? 1 : diversity / config.walletScorer.diversityMin) * weights.diversity +
@@ -475,14 +519,14 @@ export class CopyTradeStrategy extends EventEmitter {
       data: {
         walletAddress,
         winRate,
-        maxLossPercent: maxLoss / 1e9,
+        maxLossPercent: maxLoss,
         pnlConsistency: consistency,
         tradeFrequency: frequency,
         tokenDiversity: diversity,
         walletAgeDays: age,
         compositeScore,
         isElite: false,
-        redFlags: [],
+        redFlags: [...redFlags],
         archetype,
       },
     });
@@ -498,6 +542,117 @@ export class CopyTradeStrategy extends EventEmitter {
       diversity,
       age,
     };
+  }
+
+  private extractWalletTrade(tx: Record<string, unknown>, walletAddress: string): WalletTradeSample | null {
+    const tokenTransfers = (tx.tokenTransfers as Array<Record<string, unknown>> | undefined) ?? [];
+    const nativeTransfers = (tx.nativeTransfers as Array<Record<string, unknown>> | undefined) ?? [];
+    if (tokenTransfers.length === 0 || nativeTransfers.length === 0) return null;
+
+    const tokenDeltas = new Map<string, number>();
+    for (const transfer of tokenTransfers) {
+      const mint = typeof transfer.mint === "string" ? transfer.mint : "";
+      if (!mint) continue;
+
+      const amount = this.parseTransferAmount(
+        transfer.tokenAmount
+          ?? transfer.amount
+          ?? transfer.uiAmount
+          ?? transfer.uiAmountString
+          ?? transfer.rawTokenAmount,
+      );
+      if (amount <= 0) continue;
+
+      const fromWallet = this.extractTransferWalletAddress(transfer, [
+        "fromUserAccount",
+        "fromWallet",
+        "fromOwner",
+        "from",
+      ]);
+      const toWallet = this.extractTransferWalletAddress(transfer, [
+        "toUserAccount",
+        "toWallet",
+        "toOwner",
+        "to",
+      ]);
+
+      let delta = tokenDeltas.get(mint) ?? 0;
+      if (fromWallet === walletAddress) delta -= amount;
+      if (toWallet === walletAddress) delta += amount;
+      if (delta !== 0) tokenDeltas.set(mint, delta);
+    }
+
+    const primary = [...tokenDeltas.entries()]
+      .filter(([, delta]) => delta !== 0)
+      .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))[0];
+    if (!primary) return null;
+
+    const lamportDelta = nativeTransfers.reduce((sum, transfer) => {
+      const amount = this.parseTransferAmount(transfer.amount);
+      if (amount <= 0) return sum;
+
+      const fromWallet = this.extractTransferWalletAddress(transfer, [
+        "fromUserAccount",
+        "fromWallet",
+        "fromOwner",
+        "from",
+      ]);
+      const toWallet = this.extractTransferWalletAddress(transfer, [
+        "toUserAccount",
+        "toWallet",
+        "toOwner",
+        "to",
+      ]);
+
+      let delta = sum;
+      if (fromWallet === walletAddress) delta -= amount;
+      if (toWallet === walletAddress) delta += amount;
+      return delta;
+    }, 0);
+
+    if (lamportDelta === 0) return null;
+
+    const [mint, tokenDelta] = primary;
+    const amountToken = Math.abs(tokenDelta);
+    const amountSol = Math.abs(lamportDelta) / 1e9;
+    const blockTime = Number(tx.timestamp ?? tx.blockTime ?? 0);
+
+    if (tokenDelta > 0 && lamportDelta < 0) {
+      return { mint, side: "BUY", amountToken, amountSol, blockTime };
+    }
+
+    if (tokenDelta < 0 && lamportDelta > 0) {
+      return { mint, side: "SELL", amountToken, amountSol, blockTime };
+    }
+
+    return null;
+  }
+
+  private parseTransferAmount(value: unknown): number {
+    if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+    if (typeof value === "string") {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+    if (value && typeof value === "object") {
+      const record = value as Record<string, unknown>;
+      const uiAmount = record.uiAmount ?? record.uiAmountString ?? record.tokenAmount;
+      if (uiAmount !== undefined) return this.parseTransferAmount(uiAmount);
+      const rawAmount = Number(record.tokenAmount ?? 0);
+      const decimals = Number(record.decimals ?? 0);
+      if (Number.isFinite(rawAmount) && Number.isFinite(decimals) && decimals >= 0) {
+        return rawAmount / Math.pow(10, decimals);
+      }
+    }
+    return 0;
+  }
+
+  private extractTransferWalletAddress(value: Record<string, unknown>, keys: string[]): string {
+    for (const key of keys) {
+      const candidate = value[key];
+      if (typeof candidate === "string") return candidate;
+    }
+    return "";
   }
 
   private async getCandidateWallets(): Promise<string[]> {

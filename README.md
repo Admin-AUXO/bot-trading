@@ -146,9 +146,13 @@ npm run lint
 
 - `LIVE` mode sends real trades. Treat it accordingly.
 - The current capital and risk defaults are tuned for a small account, around `$200`, with a maximum of `5` open positions.
+- Runtime strategy config is profile-aware all the way through entry and exit now. Active profile overrides for size, stop loss, take-profit targets, trailing stop, time stop, hard time limit, and slippage are applied consistently by execution, exit monitoring, and `/api/control/config`.
+- `/api/control/config` now reports both the configured base size and the current effective size after regime/capital adjustments, plus the structured exit plan shown on the settings page.
 - Helius and Birdeye quota are managed centrally in `trading_bot/backend/src/core/api-budget-manager.ts`. The current defaults in `trading_bot/backend/src/config/index.ts` assume Helius Developer (`10M` monthly credits) and Birdeye Lite (`1.5M` monthly CU). If your provider plan differs, update that config before trusting the budget dashboard.
 - Daily provider budget is derived from remaining monthly quota with a reserve. Non-essential work such as wallet scoring, wallet discovery, and backfills can be skipped under budget pressure. Hard-limit exhaustion pauses new entries, while exits, execution completion, and wallet reconciliation remain essential.
 - Provider spend and efficiency are persisted for later analysis in Prisma through `ApiCall`, `ApiUsageDaily`, and `ApiEndpointDaily`. The backend exposes the current budget snapshot and top endpoint consumers via `/api/overview/api-usage`, and execution-quality summaries via `/api/analytics/execution-quality`.
+- S2 graduation anti-bot filters now use a real 60-second signature window for `maxBotTxs60s`, and the unique-participant floor is enforced from `uniqueWallet5m` instead of raw buy count.
+- S1 wallet scoring now reconstructs observed wallet round-trips and wallet age from parsed transaction history instead of classifying wallets from a single native balance delta.
 - The dashboard shell now derives shared status from `trading_bot/dashboard/hooks/use-dashboard-shell.ts`; header, sidebar, footer, and page-level summaries should reuse that data instead of re-querying overview, positions, and heartbeat independently.
 - Dashboard chrome reflects the active runtime scope, while page-level analysis filters can inspect other `mode/configProfile` lanes through `trading_bot/dashboard/hooks/use-dashboard-filters.ts`. Do not conflate those two views.
 - `/api/overview` remains an active-lane contract. Today counters are derived from the shared backend lane-summary helper, and the overview headline now promotes the next forced exit instead of a soft win-rate tile.

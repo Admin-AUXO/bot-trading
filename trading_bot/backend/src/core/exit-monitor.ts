@@ -1,7 +1,13 @@
 import Decimal from "decimal.js";
 import { config } from "../config/index.js";
 import { createChildLogger } from "../utils/logger.js";
-import { getMaxSlippageBps, getTimeLimitMinutes, getTimeStopMinutes } from "../utils/strategy-config.js";
+import {
+  getExitPlan,
+  getMaxSlippageBps,
+  getTimeLimitMinutes,
+  getTimeStopMinutes,
+  type StrategyConfigMap,
+} from "../utils/strategy-config.js";
 import type { PositionTracker } from "./position-tracker.js";
 import type { ITradeExecutor } from "../utils/trade-executor-interface.js";
 import type { JupiterService } from "../services/jupiter.js";
@@ -12,13 +18,6 @@ const log = createChildLogger("exit-monitor");
 
 const BATCH_INTERVAL_MS = config.exitMonitor.batchIntervalMs;
 
-function getRegimeTimeLimit(strategy: string, regime: string): number {
-  if (strategy !== "S3_MOMENTUM") return getTimeLimitMinutes(strategy as any);
-  if (regime === "HOT") return 10;
-  if (regime === "CHOPPY") return 3;
-  return 5;
-}
-
 export class ExitMonitor {
   private monitoredIds: Set<string> = new Set();
   private batchHandle?: ReturnType<typeof setInterval>;
@@ -28,6 +27,7 @@ export class ExitMonitor {
     private tradeExecutor: ITradeExecutor,
     private jupiter: JupiterService,
     private birdeye: BirdeyeService,
+    private strategyConfigs: StrategyConfigMap,
   ) {}
 
   startMonitoring(position: PositionState): void {
@@ -98,7 +98,7 @@ export class ExitMonitor {
       const dropFromPeak = newPeakPrice > 0
         ? new Decimal(newPeakPrice).sub(currentPriceUsd).div(newPeakPrice).mul(100).toNumber()
         : 0;
-      const slippage = getMaxSlippageBps(pos.strategy);
+      const slippage = getMaxSlippageBps(pos.strategy, this.strategyConfigs);
 
       if (pnlPercent <= -pos.stopLossPercent) {
         exitPromises.push(this.executeFullExit(pos, "STOP_LOSS", slippage));
@@ -144,13 +144,13 @@ export class ExitMonitor {
   }
 
   private shouldTimeStop(pos: PositionState, holdMinutes: number, pnlPercent: number): boolean {
-    const timeStopMinutes = getTimeStopMinutes(pos.strategy);
+    const timeStopMinutes = getTimeStopMinutes(pos.strategy, this.strategyConfigs);
     const pnlThreshold = pos.strategy === "S3_MOMENTUM" ? config.exitMonitor.timeStopPnlS3Pct : config.exitMonitor.timeStopPnlDefaultPct;
     return holdMinutes >= timeStopMinutes && pnlPercent < pnlThreshold;
   }
 
   private shouldTimeLimit(pos: PositionState, holdMinutes: number): boolean {
-    const limitMinutes = getRegimeTimeLimit(pos.strategy, pos.regime);
+    const limitMinutes = getTimeLimitMinutes(pos.strategy, this.strategyConfigs);
     return holdMinutes >= limitMinutes;
   }
 
@@ -179,35 +179,37 @@ export class ExitMonitor {
     dropFromPeak: number,
     slippage: number,
   ): Promise<void> {
+    const exitPlan = getExitPlan(pos.strategy, this.strategyConfigs);
+
     if (pos.strategy === "S1_COPY") {
       const f = config.exitMonitor.exitFractions.s1;
-      if (!pos.exit1Done && pnlPercent >= config.strategies.s1.tp1Percent) {
+      if (!pos.exit1Done && pnlPercent >= exitPlan.tp1ThresholdPct) {
         await this.executePartialExit(pos, 1, f.tp1, "TAKE_PROFIT_T1", slippage);
-      } else if (!pos.exit2Done && pos.exit1Done && pnlPercent >= config.strategies.s1.tp2Percent) {
+      } else if (!pos.exit2Done && pos.exit1Done && pnlPercent >= exitPlan.tp2ThresholdPct) {
         await this.executePartialExit(pos, 2, f.tp2, "TAKE_PROFIT_T2", slippage);
-      } else if (pos.exit1Done && pos.exit2Done && dropFromPeak >= config.strategies.s1.trailingStopPercent) {
+      } else if (pos.exit1Done && pos.exit2Done && dropFromPeak >= exitPlan.trailingStopPercent) {
         await this.executeFullExit(pos, "TRAILING_STOP", slippage);
       }
     }
 
     if (pos.strategy === "S2_GRADUATION") {
       const f = config.exitMonitor.exitFractions.s2;
-      if (!pos.exit1Done && pnlPercent >= (config.strategies.s2.tp1Multiplier - 1) * 100) {
+      if (!pos.exit1Done && pnlPercent >= exitPlan.tp1ThresholdPct) {
         await this.executePartialExit(pos, 1, f.tp1, "TAKE_PROFIT_T1", slippage);
-      } else if (!pos.exit2Done && pos.exit1Done && pnlPercent >= (config.strategies.s2.tp2Multiplier - 1) * 100) {
+      } else if (!pos.exit2Done && pos.exit1Done && pnlPercent >= exitPlan.tp2ThresholdPct) {
         await this.executePartialExit(pos, 2, f.tp2, "TAKE_PROFIT_T2", slippage);
-      } else if (pos.exit1Done && pos.exit2Done && dropFromPeak >= config.strategies.s2.trailingStopPercent) {
+      } else if (pos.exit1Done && pos.exit2Done && dropFromPeak >= exitPlan.trailingStopPercent) {
         await this.executeFullExit(pos, "TRAILING_STOP", slippage);
       }
     }
 
     if (pos.strategy === "S3_MOMENTUM") {
       const f = config.exitMonitor.exitFractions.s3;
-      if (!pos.exit1Done && pnlPercent >= config.strategies.s3.tp1Percent) {
+      if (!pos.exit1Done && pnlPercent >= exitPlan.tp1ThresholdPct) {
         await this.executePartialExit(pos, 1, f.tp1, "TAKE_PROFIT_T1", slippage);
-      } else if (!pos.exit2Done && pos.exit1Done && pnlPercent >= config.strategies.s3.tp2Percent) {
+      } else if (!pos.exit2Done && pos.exit1Done && pnlPercent >= exitPlan.tp2ThresholdPct) {
         await this.executePartialExit(pos, 2, f.tp2, "TAKE_PROFIT_T2", slippage);
-      } else if (pos.exit1Done && pos.exit2Done && dropFromPeak >= config.strategies.s3.trailingStopPercent) {
+      } else if (pos.exit1Done && pos.exit2Done && dropFromPeak >= exitPlan.trailingStopPercent) {
         await this.executeFullExit(pos, "TRAILING_STOP", slippage);
       }
     }

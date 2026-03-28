@@ -275,6 +275,7 @@ export class GraduationStrategy extends EventEmitter {
 
   private async runFilters(token: MemeToken): Promise<SignalResult> {
     const filters: Record<string, JsonValue> = { source: token.source };
+    const nowSec = Date.now() / 1000;
 
     const [security, holders, overview, tradeData, sigs, creatorSigs] = await Promise.all([
       this.birdeye.getTokenSecurity(token.address, this.apiMeta("ENTRY_SCAN")),
@@ -302,18 +303,24 @@ export class GraduationStrategy extends EventEmitter {
       return { passed: false, tokenAddress: token.address, tokenSymbol: token.symbol, rejectReason: securityCheck.reason, filterResults: filters };
     }
 
-    filters.txCountFirst60s = sigs.length;
-    if (sigs.length > this.cfg.maxBotTxs60s) {
+    const recentTokenTxs = sigs.filter((s: unknown) => {
+      const sig = s as Record<string, unknown>;
+      const blockTime = Number(sig.blockTime ?? 0);
+      return blockTime > nowSec - 60;
+    });
+    filters.txCount60s = recentTokenTxs.length;
+    if (recentTokenTxs.length > this.cfg.maxBotTxs60s) {
       return { passed: false, tokenAddress: token.address, tokenSymbol: token.symbol, rejectReason: "bot swarm detected", filterResults: filters };
     }
 
     const recentCreatorTxs = creatorSigs.filter((s: unknown) => {
       const sig = s as Record<string, unknown>;
-      const blockTime = sig.blockTime as number;
-      return blockTime && blockTime > Date.now() / 1000 - this.cfg.serialDeployLookbackSeconds;
+      const blockTime = Number(sig.blockTime ?? 0);
+      return blockTime > nowSec - this.cfg.serialDeployLookbackSeconds;
     });
+    filters.creatorTxsLookback = recentCreatorTxs.length;
 
-    if (recentCreatorTxs.length > this.cfg.maxSerialDeploys7d * this.cfg.serialDeployMultiplier) {
+    if (recentCreatorTxs.length > this.cfg.maxSerialDeploys7d) {
       return { passed: false, tokenAddress: token.address, tokenSymbol: token.symbol, rejectReason: "serial deployer", filterResults: filters };
     }
 

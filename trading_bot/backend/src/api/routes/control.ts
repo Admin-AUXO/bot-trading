@@ -4,50 +4,17 @@ import { config } from "../../config/index.js";
 import { db } from "../../db/client.js";
 import { cacheMiddleware } from "../middleware/cache.js";
 import { requireBearerToken } from "../middleware/auth.js";
+import { defaultStrategyConfigs, getExitPlan, type StrategyConfigMap } from "../../utils/strategy-config.js";
 import type { RiskManager } from "../../core/risk-manager.js";
 import type { TradeExecutor } from "../../core/trade-executor.js";
 import type { CapitalConfig, ExecutionScope, Strategy } from "../../utils/types.js";
-
-type StrategyConfigs = {
-  S1_COPY: { maxPositions: number; positionSizeSol: number; stopLossPercent: number; maxSlippageBps: number; timeStopMinutes: number };
-  S2_GRADUATION: { maxPositions: number; positionSizeSol: number; stopLossPercent: number; maxSlippageBps: number; timeStopMinutes: number; timeLimitMinutes: number };
-  S3_MOMENTUM: { maxPositions: number; positionSizeSol: number; stopLossPercent: number; maxSlippageBps: number; timeStopMinutes: number; timeLimitMinutes: number };
-};
-
-function getDefaultStrategyConfigs(): StrategyConfigs {
-  return {
-    S1_COPY: {
-      maxPositions: config.strategies.s1.maxPositions,
-      positionSizeSol: config.strategies.s1.positionSizeSol,
-      stopLossPercent: config.strategies.s1.stopLossPercent,
-      maxSlippageBps: config.strategies.s1.maxSlippageBps,
-      timeStopMinutes: config.strategies.s1.timeStopMinutes,
-    },
-    S2_GRADUATION: {
-      maxPositions: config.strategies.s2.maxPositions,
-      positionSizeSol: config.strategies.s2.positionSizeSol,
-      stopLossPercent: config.strategies.s2.stopLossPercent,
-      maxSlippageBps: config.strategies.s2.maxSlippageBps,
-      timeStopMinutes: config.strategies.s2.timeStopMinutes,
-      timeLimitMinutes: config.strategies.s2.timeLimitMinutes,
-    },
-    S3_MOMENTUM: {
-      maxPositions: config.strategies.s3.maxPositions,
-      positionSizeSol: config.strategies.s3.positionSizeSol,
-      stopLossPercent: config.strategies.s3.stopLossPercent,
-      maxSlippageBps: config.strategies.s3.maxSlippageBps,
-      timeStopMinutes: config.strategies.s3.timeStopMinutes,
-      timeLimitMinutes: config.strategies.s3.timeLimitMinutes,
-    },
-  };
-}
 
 export function controlRouter(deps: {
   riskManager: unknown;
   tradeExecutor?: unknown;
   dbClient?: typeof db;
   scope?: ExecutionScope;
-  strategyConfigs?: StrategyConfigs;
+  strategyConfigs?: StrategyConfigMap;
   capitalConfig?: CapitalConfig;
   walletReconciler?: () => Promise<number | null>;
 }) {
@@ -123,32 +90,38 @@ export function controlRouter(deps: {
   router.get("/config", cacheMiddleware(config.api.controlConfigCacheTtlMs), async (_req, res) => {
     const snapshot = riskManager.getSnapshot();
     const scope = snapshotScope();
-    const configs = strategyConfigs ?? getDefaultStrategyConfigs();
+    const configs = strategyConfigs ?? defaultStrategyConfigs;
     res.json({
       scope,
       strategies: {
         S1_COPY: {
           maxPositions: configs.S1_COPY.maxPositions,
-          positionSize: configs.S1_COPY.positionSizeSol,
+          configuredPositionSize: configs.S1_COPY.positionSizeSol,
+          effectivePositionSize: riskManager.getPositionSize("S1_COPY"),
           stopLoss: configs.S1_COPY.stopLossPercent,
           maxSlippageBps: configs.S1_COPY.maxSlippageBps,
           timeStopMinutes: configs.S1_COPY.timeStopMinutes,
+          exitPlan: getExitPlan("S1_COPY", configs),
         },
         S2_GRADUATION: {
           maxPositions: configs.S2_GRADUATION.maxPositions,
-          positionSize: configs.S2_GRADUATION.positionSizeSol,
+          configuredPositionSize: configs.S2_GRADUATION.positionSizeSol,
+          effectivePositionSize: riskManager.getPositionSize("S2_GRADUATION"),
           stopLoss: configs.S2_GRADUATION.stopLossPercent,
           maxSlippageBps: configs.S2_GRADUATION.maxSlippageBps,
           timeStopMinutes: configs.S2_GRADUATION.timeStopMinutes,
           timeLimitMinutes: configs.S2_GRADUATION.timeLimitMinutes,
+          exitPlan: getExitPlan("S2_GRADUATION", configs),
         },
         S3_MOMENTUM: {
           maxPositions: configs.S3_MOMENTUM.maxPositions,
-          positionSize: configs.S3_MOMENTUM.positionSizeSol,
+          configuredPositionSize: configs.S3_MOMENTUM.positionSizeSol,
+          effectivePositionSize: riskManager.getPositionSize("S3_MOMENTUM"),
           stopLoss: configs.S3_MOMENTUM.stopLossPercent,
           maxSlippageBps: configs.S3_MOMENTUM.maxSlippageBps,
           timeStopMinutes: configs.S3_MOMENTUM.timeStopMinutes,
           timeLimitMinutes: configs.S3_MOMENTUM.timeLimitMinutes,
+          exitPlan: getExitPlan("S3_MOMENTUM", configs),
         },
       },
       risk: {
@@ -210,7 +183,7 @@ export function controlRouter(deps: {
       tokenAddress,
       tokenSymbol,
       amountSol: size,
-      maxSlippageBps: (strategyConfigs ?? getDefaultStrategyConfigs())[strategy].maxSlippageBps,
+      maxSlippageBps: (strategyConfigs ?? defaultStrategyConfigs)[strategy].maxSlippageBps,
       regime: snapshot.regime,
       tradeSource: "MANUAL",
     });

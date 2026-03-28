@@ -21,12 +21,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-const STRATEGY_EXIT_TARGETS: Record<string, { t1: string; t2: string; t3: string }> = {
-  S1_COPY:      { t1: "+30% (50%)", t2: "+60% (25%)", t3: "Trailing" },
-  S2_GRADUATION:{ t1: "2x (50%)",   t2: "3-4x (30%)", t3: "Trailing" },
-  S3_MOMENTUM:  { t1: "+20% (50%)", t2: "+40% (25%)", t3: "Trailing" },
-};
-
 const STRATEGY_LABELS: Record<string, string> = {
   S1_COPY: "S1 Copy Trade",
   S2_GRADUATION: "S2 Graduation",
@@ -412,7 +406,7 @@ export default function SettingsPage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {Object.entries(stratConfig.strategies).map(([key, cfg]) => {
                 const active = positionsByStrategy[key] ?? 0;
-                const exits = STRATEGY_EXIT_TARGETS[key];
+                const liveSizeChanged = Math.abs(cfg.effectivePositionSize - cfg.configuredPositionSize) > 0.0001;
                 return (
                   <div key={key} className={`card card-hover border-l-2 ${STRATEGY_BORDER[key] ?? ""}`}>
                     <div className={`font-bold text-base mb-3 ${STRATEGY_COLORS[key] ?? ""}`}>
@@ -441,29 +435,42 @@ export default function SettingsPage() {
 
                     <div className="space-y-1.5 text-xs">
                       <div className="grid grid-cols-2 gap-x-4">
-                        <Row label="Size" value={`${cfg.positionSize} SOL`} />
+                        <Row label="Base Size" value={`${cfg.configuredPositionSize} SOL`} />
+                        <Row
+                          label="Live Size"
+                          value={`${cfg.effectivePositionSize} SOL${liveSizeChanged ? " *" : ""}`}
+                        />
                         <Row label="Stop Loss" value={`${cfg.stopLoss}%`} />
                         <Row label="Time Stop" value={`${cfg.timeStopMinutes}m`} />
                         <Row label="Max Slip" value={`${cfg.maxSlippageBps} bps`} />
                         <Row label="Hard Limit" value={cfg.timeLimitMinutes ? `${cfg.timeLimitMinutes}m` : "—"} />
                       </div>
-                      {exits && (
-                        <div className="pt-2 mt-1 border-t border-bg-border space-y-1">
-                          <div className="text-text-muted font-medium text-[10px] uppercase tracking-wider mb-1">Exit Targets</div>
-                          <div className="flex justify-between">
-                            <span className="text-text-muted">T1</span>
-                            <span className="text-accent-green font-medium">{exits.t1}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-text-muted">T2</span>
-                            <span className="text-accent-green font-medium">{exits.t2}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-text-muted">T3</span>
-                            <span className="text-text-secondary">{exits.t3}</span>
-                          </div>
+                      <div className="pt-2 mt-1 border-t border-bg-border space-y-1">
+                        <div className="text-text-muted font-medium text-[10px] uppercase tracking-wider mb-1">Exit Targets</div>
+                        <div className="flex justify-between">
+                          <span className="text-text-muted">T1</span>
+                          <span className="text-accent-green font-medium">
+                            +{cfg.exitPlan.tp1ThresholdPct}% ({cfg.exitPlan.tp1SizePct.toFixed(1)}%)
+                          </span>
                         </div>
-                      )}
+                        <div className="flex justify-between">
+                          <span className="text-text-muted">T2</span>
+                          <span className="text-accent-green font-medium">
+                            +{cfg.exitPlan.tp2ThresholdPct}% ({cfg.exitPlan.tp2SizePct.toFixed(1)}%)
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-text-muted">Runner</span>
+                          <span className="text-text-secondary">
+                            Trail {cfg.exitPlan.trailingStopPercent}% ({cfg.exitPlan.runnerSizePct.toFixed(1)}%)
+                          </span>
+                        </div>
+                        {liveSizeChanged && (
+                          <div className="pt-1 text-[10px] text-text-muted">
+                            * Regime/capital adjusted from the configured base size.
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );

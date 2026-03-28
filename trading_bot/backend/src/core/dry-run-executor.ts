@@ -2,7 +2,7 @@ import { randomBytes } from "crypto";
 import { config } from "../config/index.js";
 import { db } from "../db/client.js";
 import { createChildLogger } from "../utils/logger.js";
-import { getStopLossPercent } from "../utils/strategy-config.js";
+import { getStopLossPercent, type StrategyConfigMap } from "../utils/strategy-config.js";
 import type { PositionTracker } from "./position-tracker.js";
 import type { RiskManager } from "./risk-manager.js";
 import type { JupiterService } from "../services/jupiter.js";
@@ -18,6 +18,7 @@ export class DryRunExecutor implements ITradeExecutor {
     private riskManager: RiskManager,
     private jupiter: JupiterService,
     private scope: ExecutionScope,
+    private strategyConfigs: StrategyConfigMap,
   ) {}
 
   private fakeTxSig(): string {
@@ -26,9 +27,11 @@ export class DryRunExecutor implements ITradeExecutor {
 
   async executeBuy(params: BuyParams): Promise<TradeResult> {
     const shouldTrackPending = !params.positionId;
+    const riskCheck = params.positionId
+      ? this.riskManager.canIncreasePosition(params.strategy, params.amountSol)
+      : this.riskManager.canOpenPosition(params.strategy, params.amountSol);
+    if (!riskCheck.allowed) return { success: false, error: riskCheck.reason };
     if (shouldTrackPending) {
-      const check = this.riskManager.canOpenPosition(params.strategy, params.amountSol);
-      if (!check.allowed) return { success: false, error: check.reason };
       this.riskManager.reservePosition(params.strategy);
     }
 
@@ -69,7 +72,7 @@ export class DryRunExecutor implements ITradeExecutor {
           entryPriceUsd: priceUsd ?? 0,
           amountSol: params.amountSol,
           amountToken,
-          stopLossPercent: getStopLossPercent(params.strategy),
+          stopLossPercent: getStopLossPercent(params.strategy, this.strategyConfigs),
           regime: params.regime,
           entryVolume5m: params.entryVolume5m,
           platform: params.platform,

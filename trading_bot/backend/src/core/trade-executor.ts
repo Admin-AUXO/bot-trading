@@ -1,7 +1,7 @@
 import { config } from "../config/index.js";
 import { db } from "../db/client.js";
 import { createChildLogger } from "../utils/logger.js";
-import { getStopLossPercent } from "../utils/strategy-config.js";
+import { getStopLossPercent, type StrategyConfigMap } from "../utils/strategy-config.js";
 import type { PositionTracker } from "./position-tracker.js";
 import type { RiskManager } from "./risk-manager.js";
 import type { JupiterService } from "../services/jupiter.js";
@@ -19,6 +19,7 @@ export class TradeExecutor implements ITradeExecutor {
     private jupiter: JupiterService,
     private helius: HeliusService,
     private scope: ExecutionScope,
+    private strategyConfigs: StrategyConfigMap,
   ) {}
 
   async executeBuy(params: BuyParams): Promise<TradeResult> {
@@ -32,10 +33,15 @@ export class TradeExecutor implements ITradeExecutor {
       essential: false,
     };
 
-    if (!params.positionId) {
-      const check = this.riskManager.canOpenPosition(params.strategy, params.amountSol);
-      if (!check.allowed) {
-        if (check.reason === "max 5 open positions reached" && params.tradeSource !== "MANUAL") {
+    const riskCheck = params.positionId
+      ? this.riskManager.canIncreasePosition(params.strategy, params.amountSol)
+      : this.riskManager.canOpenPosition(params.strategy, params.amountSol);
+    if (!riskCheck.allowed) {
+      if (
+        !params.positionId
+        && riskCheck.reason?.includes("open positions reached")
+        && params.tradeSource !== "MANUAL"
+      ) {
           await db.signal.create({
             data: {
               mode: this.scope.mode,
@@ -55,10 +61,9 @@ export class TradeExecutor implements ITradeExecutor {
               priceAtSignal: params.priceAtSignal ?? null,
             },
           }).catch((err) => { log.warn({ err }, "failed to log skipped signal"); });
-        }
-        log.info({ reason: check.reason }, "buy blocked by risk manager");
-        return { success: false, error: check.reason };
       }
+      log.info({ reason: riskCheck.reason }, "buy blocked by risk manager");
+      return { success: false, error: riskCheck.reason };
     }
 
     if (shouldTrackPending) this.riskManager.reservePosition(params.strategy);
@@ -136,7 +141,7 @@ export class TradeExecutor implements ITradeExecutor {
           entryPriceUsd: priceUsd ?? 0,
           amountSol: params.amountSol,
           amountToken,
-          stopLossPercent: getStopLossPercent(params.strategy),
+          stopLossPercent: getStopLossPercent(params.strategy, this.strategyConfigs),
           regime: params.regime,
           entryVolume5m: params.entryVolume5m,
           platform: params.platform,

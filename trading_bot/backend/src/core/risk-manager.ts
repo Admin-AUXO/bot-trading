@@ -206,7 +206,7 @@ export class RiskManager extends EventEmitter {
     else this.pendingByStrategy.set(strategy, current - 1);
   }
 
-  canOpenPosition(strategy: Strategy, requestedAmountSol?: number): { allowed: boolean; reason?: string } {
+  private checkStrategySafety(strategy: Strategy, requestedAmountSol?: number): { allowed: boolean; reason?: string } {
     const pauseReason = this.getPrimaryPauseReason();
     if (pauseReason) {
       return { allowed: false, reason: pauseReason };
@@ -226,17 +226,6 @@ export class RiskManager extends EventEmitter {
       return { allowed: false, reason: "weekly loss limit reached" };
     }
 
-    const pendingTotal = [...this.pendingByStrategy.values()].reduce((a, b) => a + b, 0);
-    if (this.positionTracker.openCount(this.scope) + pendingTotal >= this.capitalConfig.maxOpenPositions) {
-      return { allowed: false, reason: `max ${this.capitalConfig.maxOpenPositions} open positions reached` };
-    }
-
-    const stratConfig = this.strategyConfigs[strategy];
-    const stratPending = this.pendingByStrategy.get(strategy) ?? 0;
-    if (this.positionTracker.countByStrategy(strategy, this.scope) + stratPending >= stratConfig.maxPositions) {
-      return { allowed: false, reason: `max ${stratConfig.maxPositions} ${strategy} positions reached` };
-    }
-
     const size = requestedAmountSol ?? this.getPositionSize(strategy);
     if (this.walletBalance < size + this.capitalConfig.gasReserve) {
       return { allowed: false, reason: "insufficient balance (gas reserve protected)" };
@@ -252,6 +241,28 @@ export class RiskManager extends EventEmitter {
 
     if (regime === "CHOPPY" && strategy === "S1_COPY") {
       return { allowed: false, reason: "choppy regime — S1 paused" };
+    }
+
+    return { allowed: true };
+  }
+
+  canIncreasePosition(strategy: Strategy, requestedAmountSol?: number): { allowed: boolean; reason?: string } {
+    return this.checkStrategySafety(strategy, requestedAmountSol);
+  }
+
+  canOpenPosition(strategy: Strategy, requestedAmountSol?: number): { allowed: boolean; reason?: string } {
+    const safety = this.checkStrategySafety(strategy, requestedAmountSol);
+    if (!safety.allowed) return safety;
+
+    const pendingTotal = [...this.pendingByStrategy.values()].reduce((a, b) => a + b, 0);
+    if (this.positionTracker.openCount(this.scope) + pendingTotal >= this.capitalConfig.maxOpenPositions) {
+      return { allowed: false, reason: `max ${this.capitalConfig.maxOpenPositions} open positions reached` };
+    }
+
+    const stratConfig = this.strategyConfigs[strategy];
+    const stratPending = this.pendingByStrategy.get(strategy) ?? 0;
+    if (this.positionTracker.countByStrategy(strategy, this.scope) + stratPending >= stratConfig.maxPositions) {
+      return { allowed: false, reason: `max ${stratConfig.maxPositions} ${strategy} positions reached` };
     }
 
     return { allowed: true };

@@ -78,10 +78,10 @@ export async function startTradingBot(): Promise<void> {
   const birdeye = new BirdeyeService(apiBudgetManager);
 
   const executor: ITradeExecutor = isLive
-    ? new TradeExecutor(positionTracker, riskManager, jupiter, helius, scope)
-    : new DryRunExecutor(positionTracker, riskManager, jupiter, scope);
+    ? new TradeExecutor(positionTracker, riskManager, jupiter, helius, scope, strategyConfigs)
+    : new DryRunExecutor(positionTracker, riskManager, jupiter, scope, strategyConfigs);
 
-  const exitMonitor = new ExitMonitor(positionTracker, executor, jupiter, birdeye);
+  const exitMonitor = new ExitMonitor(positionTracker, executor, jupiter, birdeye, strategyConfigs);
   const outcomeTracker = new OutcomeTracker(birdeye, apiBudgetManager);
   const marketTickRecorder = new MarketTickRecorder(jupiter, birdeye, regimeDetector, apiBudgetManager);
 

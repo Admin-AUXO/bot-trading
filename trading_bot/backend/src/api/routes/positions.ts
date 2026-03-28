@@ -3,24 +3,19 @@ import { db } from "../../db/client.js";
 import { createChildLogger } from "../../utils/logger.js";
 import { cacheMiddleware } from "../middleware/cache.js";
 import { requireBearerToken } from "../middleware/auth.js";
+import type { StrategyConfigMap } from "../../utils/strategy-config.js";
 import type { TradeExecutor } from "../../core/trade-executor.js";
 import type { PositionTracker } from "../../core/position-tracker.js";
 import type { ExecutionScope } from "../../utils/types.js";
 
 const log = createChildLogger("positions");
 
-type StrategyConfigs = {
-  S1_COPY: { maxSlippageBps: number };
-  S2_GRADUATION: { maxSlippageBps: number };
-  S3_MOMENTUM: { maxSlippageBps: number };
-};
-
 export function positionsRouter(deps?: {
   tradeExecutor?: unknown;
   positionTracker?: unknown;
   dbClient?: typeof db;
   scope?: ExecutionScope;
-  strategyConfigs?: StrategyConfigs;
+  strategyConfigs?: StrategyConfigMap;
 }) {
   const router = Router();
   const tradeExecutor = deps?.tradeExecutor as TradeExecutor | undefined;

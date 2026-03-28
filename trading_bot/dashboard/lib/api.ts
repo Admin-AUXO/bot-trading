@@ -374,11 +374,20 @@ export interface StrategyConfigResponse {
   scope: ExecutionScope;
   strategies: Record<string, {
     maxPositions: number;
-    positionSize: number;
+    configuredPositionSize: number;
+    effectivePositionSize: number;
     stopLoss: number;
     maxSlippageBps: number;
     timeStopMinutes: number;
     timeLimitMinutes?: number;
+    exitPlan: {
+      tp1ThresholdPct: number;
+      tp2ThresholdPct: number;
+      tp1SizePct: number;
+      tp2SizePct: number;
+      runnerSizePct: number;
+      trailingStopPercent: number;
+    };
   }>;
   risk: {
     dailyLossLimit: number;

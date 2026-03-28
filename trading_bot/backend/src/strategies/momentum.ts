@@ -167,6 +167,13 @@ export class MomentumStrategy extends EventEmitter {
     const pos = this.positionTracker.getById(positionId);
     if (!pos || pos.status === "CLOSED") return;
 
+    const tranche2Size = fullSize * (this.cfg.tranche2Percent / 100);
+    const riskCheck = this.riskManager.canIncreasePosition("S3_MOMENTUM", tranche2Size);
+    if (!riskCheck.allowed) {
+      log.info({ token: tokenSymbol, reason: riskCheck.reason }, "tranche 2 skipped — risk manager blocked follow-on buy");
+      return;
+    }
+
     if (pos.currentPriceUsd < pos.entryPriceUsd) {
       log.info({ token: tokenSymbol }, "tranche 2 skipped — price below entry");
       return;
@@ -214,8 +221,6 @@ export class MomentumStrategy extends EventEmitter {
       return;
     }
 
-    const tranche2Size = fullSize * (this.cfg.tranche2Percent / 100);
-
     await this.tradeExecutor.executeBuy({
       strategy: "S3_MOMENTUM",
       tokenAddress,
@@ -236,9 +241,10 @@ export class MomentumStrategy extends EventEmitter {
       holders: candidate.holder,
     };
 
-    const [tradeData, security] = await Promise.all([
+    const [tradeData, security, holders] = await Promise.all([
       this.birdeye.getTradeData(candidate.address, this.apiMeta("ENTRY_SCAN")),
       this.birdeye.getTokenSecurity(candidate.address, this.apiMeta("ENTRY_SCAN")),
+      this.birdeye.getTokenHolders(candidate.address, 1, this.apiMeta("ENTRY_SCAN", false, 1)),
     ]);
 
     if (!tradeData) {
@@ -274,7 +280,7 @@ export class MomentumStrategy extends EventEmitter {
       return { passed: false, tokenAddress: candidate.address, tokenSymbol: candidate.symbol, rejectReason: `already pumped ${candidate.priceChange1h.toFixed(0)}%`, filterResults: filters };
     }
 
-    const securityCheck = runSecurityChecks(security, [], {
+    const securityCheck = runSecurityChecks(security, holders, {
       maxTop10HolderPercent: this.cfg.maxTop10HolderPercent,
       maxSingleHolderPercent: this.cfg.maxSingleHolderPercent,
     });
