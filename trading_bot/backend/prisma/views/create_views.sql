@@ -132,7 +132,9 @@ WHERE t."executedAt" >= CURRENT_DATE - INTERVAL '30 days'
 GROUP BY t.strategy, t.mode;
 
 -- API budget tracking
-CREATE OR REPLACE VIEW v_api_budget AS
+-- Drop first so view shape changes remain idempotent on existing Docker volumes.
+DROP VIEW IF EXISTS v_api_budget;
+CREATE VIEW v_api_budget AS
 SELECT
   a.service,
   SUM(a."totalCredits") AS credits_used_month,

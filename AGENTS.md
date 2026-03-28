@@ -37,7 +37,9 @@ If a task does not clearly require root-level files, avoid touching files outsid
 - If scope expands beyond the original task, explicitly say why before continuing.
 - Do not create Prisma migration files. Keep DB shape changes in `trading_bot/backend/prisma/schema.prisma` and operational SQL in `trading_bot/backend/prisma/views/create_views.sql`.
 - Treat `npm run db:setup` as the canonical local/bootstrap DB rollout command when schema and SQL views both matter. `db:push` alone is incomplete for this repo.
-- Docker production startup should preserve this sequence: backend applies DB bootstrap first, backend becomes healthy, dashboard starts after backend health.
+- Docker production startup should preserve this sequence: a one-shot `db-setup` service runs `npm run db:setup`, the backend becomes healthy, then the dashboard starts after backend health.
+- Keep Docker and local Node majors aligned when dependency locks change. The current Dockerfiles build on `node:24-alpine`, which matches the repo's current npm 11 lockfile expectations.
+- Keep SQL view rollout idempotent against existing Docker volumes. If a view shape changes, update `trading_bot/backend/prisma/views/create_views.sql` to drop and recreate that view instead of relying on `CREATE OR REPLACE VIEW` to rename columns.
 - Treat control-plane write routes as authenticated surfaces by default. Read-only routes may be public; mutating routes must make the boundary explicit.
 - Keep dashboard proxy auth centralized. Do not rely on per-endpoint token hacks when a whole control subtree needs the same bearer token.
 - Reuse the shared dashboard shell state in `trading_bot/dashboard/hooks/use-dashboard-shell.ts` for layout chrome and page summaries instead of re-querying overview, positions, heartbeat, and operator session in every component.

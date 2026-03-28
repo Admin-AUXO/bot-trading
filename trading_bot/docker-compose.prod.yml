@@ -1,8 +1,21 @@
+x-logging-defaults: &logging-defaults
+  logging:
+    driver: local
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+x-app-defaults: &app-defaults
+  <<: *logging-defaults
+  init: true
+
 services:
   postgres:
+    <<: *logging-defaults
     image: postgres:16-alpine
     container_name: trading-postgres
     restart: unless-stopped
+    shm_size: 128mb
     ports:
       - "5432:5432"
     environment:
@@ -13,11 +26,13 @@ services:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U botuser -d trading_bot"]
-      interval: 10s
+      interval: 30s
       timeout: 5s
       retries: 5
+      start_period: 5s
 
   redis:
+    <<: *logging-defaults
     image: redis:7-alpine
     container_name: trading-redis
     restart: unless-stopped
@@ -27,18 +42,18 @@ services:
       - redisdata:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
+      interval: 30s
       timeout: 5s
       retries: 5
+      start_period: 5s
 
-  bot:
+  db-setup:
+    <<: *app-defaults
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: trading-bot
-    restart: unless-stopped
-    ports:
-      - "${BOT_PORT:-3001}:3001"
+      target: migrator
+    restart: on-failure:3
     env_file:
       - ./backend/.env.docker
     depends_on:
@@ -46,6 +61,29 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+
+  bot:
+    <<: *app-defaults
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runner
+    container_name: trading-bot
+    restart: unless-stopped
+    stop_grace_period: 45s
+    ports:
+      - "${BOT_PORT:-3001}:3001"
+    env_file:
+      - ./backend/.env.docker
+    depends_on:
+      postgres:
+        condition: service_healthy
+        restart: true
+      redis:
+        condition: service_healthy
+        restart: true
+      db-setup:
+        condition: service_completed_successfully
     healthcheck:
       test:
         - CMD
@@ -55,19 +93,19 @@ services:
           fetch('http://127.0.0.1:3001/api/health').then((res) => {
             if (!res.ok) process.exit(1);
           }).catch(() => process.exit(1))
-      interval: 10s
+      interval: 30s
       timeout: 5s
       retries: 6
       start_period: 20s
-    command: >
-      sh -c "npm run db:setup && node dist/index.js"
 
   dashboard:
+    <<: *app-defaults
     build:
       context: ./dashboard
       dockerfile: Dockerfile
     container_name: trading-dashboard
     restart: unless-stopped
+    stop_grace_period: 20s
     ports:
       - "${DASHBOARD_PORT:-3000}:3000"
     environment:
@@ -76,6 +114,7 @@ services:
     depends_on:
       bot:
         condition: service_healthy
+        restart: true
 
 volumes:
   pgdata:

@@ -13,6 +13,8 @@ This file applies to work inside `trading_bot/` and is more specific than the re
 - Prefer minimal, reversible changes over large refactors.
 - Do not create Prisma migration files. Keep schema changes in `backend/prisma/schema.prisma` and DB rollout SQL in `backend/prisma/views/create_views.sql`.
 - Use `npm run db:setup` when you need the actual database bootstrap. `npm run db:push` syncs tables only; the dashboard views come from `backend/prisma/views/create_views.sql`.
+- Keep Docker and local Node majors aligned when dependency locks change. The current Dockerfiles use `node:24-alpine` so Docker builds match the repo's current npm 11 lockfile behavior.
+- If `backend/prisma/views/create_views.sql` changes a view's column layout, make the script idempotent for existing Docker volumes by dropping and recreating that view before `CREATE VIEW`.
 - Preserve quota classification. Exits, execution follow-through, and wallet reconciliation are essential traffic; discovery, wallet scoring, analytics enrichment, and backfills should degrade first.
 - Keep API-budget analytics dimensional. Service, endpoint, strategy, mode, config profile, purpose, essential/cache-hit state, and batch size must remain queryable.
 - Control-plane writes must stay behind bearer auth. If a route mutates runtime behavior, positions, or profiles, assume auth is required unless a narrower rule is documented.
@@ -92,4 +94,4 @@ Do not mark work complete until:
 - No new hardcoded secrets, unsafe defaults, or silent fallbacks were introduced
 - If provider budget behavior changed, the shared services, runtime intervals, API responses, and docs were updated together
 - Dashboard filters and analytics requests stay mode-aware and parameter-consistent end to end when the changed area touches UI data flow
-- Docker or startup changes still preserve backend-first DB bootstrap and dashboard-after-backend-health sequencing
+- Docker or startup changes still preserve the `db-setup` bootstrap service, backend health gate, and dashboard-after-backend-health sequencing

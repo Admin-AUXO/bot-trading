@@ -4,6 +4,8 @@ Solana memecoin trading bot with a TypeScript backend, a Next.js dashboard, Post
 
 This repository is a workspace. The actual application lives in `trading_bot/`. The root also contains Codex agent configuration used for development in this repo.
 
+Docker parity note: the current container images build on `node:24-alpine`. Keeping local work on Node 24 avoids npm lockfile drift between the host and Docker.
+
 ## What is here
 
 - `trading_bot/backend/src/`: backend, strategies, services, API routes, and workers
@@ -99,7 +101,8 @@ cd trading_bot/backend
 npm run docker:up
 ```
 
-The production compose flow now waits for Postgres and Redis health checks, starts the backend, runs `npm run db:setup`, waits for the backend `/api/health` endpoint to go healthy, and only then starts the dashboard.
+The production compose flow now waits for Postgres and Redis health checks, runs a one-shot `db-setup` service to apply `npm run db:setup`, starts the backend only after that bootstrap succeeds, waits for the backend `/api/health` endpoint to go healthy, and only then starts the dashboard.
+The Dockerfiles use BuildKit cache mounts for `npm ci`, so repeat builds are materially faster once the cache is warm.
 
 Useful terminal commands:
 
@@ -109,7 +112,14 @@ npm run docker:down
 ```
 
 This Docker stack runs PostgreSQL, Redis, the backend, and the dashboard together. It is separate from the lightweight local `docker-compose.yml` that only starts Postgres and Redis.
-On backend startup, the production compose flow now applies the Prisma schema and then executes `trading_bot/backend/prisma/views/create_views.sql`, so tables and SQL views are created automatically when `DATABASE_URL` is configured.
+On stack startup, the production compose flow applies the Prisma schema and then executes `trading_bot/backend/prisma/views/create_views.sql` through the dedicated `db-setup` container, so tables and SQL views are created automatically when `DATABASE_URL` is configured without re-running the bootstrap on every bot restart.
+`trading_bot/backend/prisma/views/create_views.sql` is expected to stay idempotent against existing Docker volumes. If a view changes shape, drop and recreate that view in the rollout SQL instead of depending on `CREATE OR REPLACE VIEW` to rename columns.
+
+Verified on Docker Desktop 4.64.0 with Engine 29.2.1:
+
+- Full `docker compose --env-file backend/.env.docker -f docker-compose.prod.yml build` completed in about `101s` after the Docker fixes and in about `11.5s` on a fully warm cache.
+- A backend-only rebuild (`bot` + `db-setup`) completed in about `25s` on a warm cache.
+- The verified startup order is `postgres/redis healthy` -> `db-setup exited 0` -> `bot healthy` -> `dashboard serving 200`.
 
 ## Useful commands
 
