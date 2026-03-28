@@ -56,13 +56,8 @@ required = false
 startup_timeout_ms = 20000
 
 [mcp_servers.filesystem]
-args = [
-    "-y",
-    "@modelcontextprotocol/server-filesystem",
-    "/Users/rukaiyahyusuf/Documents/Trading/bot-trading",
-]
-command = "npx"
-cwd = "/Users/rukaiyahyusuf/Documents/Trading/bot-trading"
+args = [".codex/scripts/start-filesystem-mcp.cjs"]
+command = "node"
 required = false
 
 [mcp_servers.memory]
@@ -113,7 +108,7 @@ model = "gpt-5.4"
 model_reasoning_effort = "high"
 
 [shell_environment_policy]
-inherit = "core"
+inherit = "all"
 
 [shell_environment_policy.set]
 CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = "80"

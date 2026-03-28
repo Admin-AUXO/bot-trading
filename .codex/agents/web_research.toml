@@ -9,7 +9,7 @@ sandbox_mode = "read-only"
 max_depth = 1
 
 [[skills.config]]
-path = "A:\\Trading Setup\\bot-trading\\.agents\\skills\\web-research-workflow"
+path = ".agents/skills/web-research-workflow"
 enabled = true
 
 [mcp_servers.context7]
