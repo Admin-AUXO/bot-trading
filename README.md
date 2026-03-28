@@ -44,6 +44,7 @@ docker compose up -d postgres redis
 cd trading_bot/backend
 npm install
 npm run db:generate
+npm run db:setup
 npm run dev
 ```
 
@@ -56,6 +57,7 @@ npm run dev
 ```
 
 The backend runs on port `3001` by default. The dashboard runs on port `3000`.
+For local development against Docker Postgres, `npm run db:setup` is the canonical bootstrap because it applies both the Prisma schema and the SQL views in `trading_bot/backend/prisma/views/create_views.sql`.
 
 ## Separate Docker Install
 
@@ -84,6 +86,8 @@ cd trading_bot/backend
 npm run docker:up
 ```
 
+The production compose flow now waits for Postgres and Redis health checks, starts the backend, runs `npm run db:setup`, waits for the backend `/api/health` endpoint to go healthy, and only then starts the dashboard.
+
 Useful terminal commands:
 
 ```bash
@@ -92,6 +96,7 @@ npm run docker:down
 ```
 
 This Docker stack runs PostgreSQL, Redis, the backend, and the dashboard together. It is separate from the lightweight local `docker-compose.yml` that only starts Postgres and Redis.
+On backend startup, the production compose flow now applies the Prisma schema and then executes `trading_bot/backend/prisma/views/create_views.sql`, so tables and SQL views are created automatically when `DATABASE_URL` is configured.
 
 ## Useful commands
 
@@ -101,6 +106,8 @@ From `trading_bot/backend/`:
 npm run typecheck
 npm run build
 npm run db:push
+npm run db:views
+npm run db:setup
 npm run db:seed
 npm run db:studio
 ```
@@ -118,5 +125,6 @@ npm run lint
 - The current capital and risk defaults are tuned for a small account, around `$200`, with a maximum of `5` open positions.
 - Internal audit notes live in `trading_bot/docs/`.
 - Prisma changes are schema-and-views only here: update `trading_bot/backend/prisma/schema.prisma` and `trading_bot/backend/prisma/views/create_views.sql`, and do not create migration files.
+- When you need the actual database bootstrap, use `npm run db:setup` instead of stopping at `npm run db:push`; `db:push` creates tables, while `db:views` applies the SQL views.
 - Control-plane write actions are authenticated through the dashboard proxy; keep any new pause/resume/manual/profile mutations on that same protected path.
 - Analytics and dashboard filters must stay parameter-consistent: query keys, URL params, and backend filters should all vary together for `days`, `mode`, `configProfile`, and `tradeSource` when relevant.

@@ -28,5 +28,6 @@ Treat schema, queries, and DB rollout SQL as high-risk.
 Prefer read-first analysis, trace callsites before changing DB behavior, and surface compatibility, lock, and rollback concerns.
 Use PostgreSQL MCP for inspection and docs only to confirm behavior, not to guess.
 Never create standalone migration files in this repo. Keep schema changes in `trading_bot/backend/prisma/schema.prisma` and rollout SQL in `trading_bot/backend/prisma/views/create_views.sql`.
+Treat `npm run db:setup` as the canonical bootstrap when verifying or describing database rollout in this repo; `db:push` alone does not apply SQL views.
 Do not make speculative schema changes without articulating the safety case, rollout impact, and verification plan.
 """

@@ -10,6 +10,8 @@
     "start": "node dist/index.js",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
+    "db:views": "prisma db execute --file prisma/views/create_views.sql",
+    "db:setup": "npm run db:push && npm run db:views",
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "docker:build": "docker compose --env-file .env.docker -f ../docker-compose.prod.yml build",

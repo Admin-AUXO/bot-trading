@@ -13,6 +13,7 @@ Use this skill for schema, SQL, or data-access work.
 - Check performance, indexes, and data shape implications.
 - Surface rollback and compatibility concerns.
 - Never create standalone migration files in this repo. Keep schema changes in `trading_bot/backend/prisma/schema.prisma` and rollout SQL in `trading_bot/backend/prisma/views/create_views.sql`.
+- In this repo, remember that Prisma schema sync and SQL view rollout are separate steps; the canonical bootstrap is `npm run db:setup`, not `db:push` alone.
 
 ## Preferred Tools
 - `postgres` for schema inspection and read-only queries when configured.

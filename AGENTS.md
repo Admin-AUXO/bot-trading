@@ -36,6 +36,8 @@ If a task does not clearly require root-level files, avoid touching files outsid
 - If a change touches live-trading behavior, optimize for safety and correctness over speed.
 - If scope expands beyond the original task, explicitly say why before continuing.
 - Do not create Prisma migration files. Keep DB shape changes in `trading_bot/backend/prisma/schema.prisma` and operational SQL in `trading_bot/backend/prisma/views/create_views.sql`.
+- Treat `npm run db:setup` as the canonical local/bootstrap DB rollout command when schema and SQL views both matter. `db:push` alone is incomplete for this repo.
+- Docker production startup should preserve this sequence: backend applies DB bootstrap first, backend becomes healthy, dashboard starts after backend health.
 - Treat control-plane write routes as authenticated surfaces by default. Read-only routes may be public; mutating routes must make the boundary explicit.
 - Keep dashboard proxy auth centralized. Do not rely on per-endpoint token hacks when a whole control subtree needs the same bearer token.
 - Keep analytics deterministic. Historical recomputes must derive from immutable records or persisted snapshots, not mutable singleton state.

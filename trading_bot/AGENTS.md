@@ -11,6 +11,7 @@ This file applies to work inside `trading_bot/` and is more specific than the re
 - Avoid unnecessary code comments.
 - Prefer minimal, reversible changes over large refactors.
 - Do not create Prisma migration files. Keep schema changes in `backend/prisma/schema.prisma` and DB rollout SQL in `backend/prisma/views/create_views.sql`.
+- Use `npm run db:setup` when you need the actual database bootstrap. `npm run db:push` syncs tables only; the dashboard views come from `backend/prisma/views/create_views.sql`.
 - Control-plane writes must stay behind bearer auth. If a route mutates runtime behavior, positions, or profiles, assume auth is required unless a narrower rule is documented.
 - Manual control paths must obey the same capital, reserve, and sizing checks as automated entry paths. Never validate overrides against only the default size.
 - Workers must reuse the supported Prisma initialization path from `backend/src/db/client.ts`; do not construct ad-hoc Prisma clients for background jobs.
@@ -48,6 +49,8 @@ npm run dev
 npm run build
 npm run typecheck
 npm run db:push
+npm run db:views
+npm run db:setup
 npm run db:studio
 ```
 
@@ -79,3 +82,4 @@ Do not mark work complete until:
 - Error handling still surfaces failures clearly
 - No new hardcoded secrets, unsafe defaults, or silent fallbacks were introduced
 - Dashboard filters and analytics requests stay mode-aware and parameter-consistent end to end when the changed area touches UI data flow
+- Docker or startup changes still preserve backend-first DB bootstrap and dashboard-after-backend-health sequencing
