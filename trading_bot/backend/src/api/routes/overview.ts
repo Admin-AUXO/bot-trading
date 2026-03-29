@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db } from "../../db/client.js";
 import { cacheMiddleware } from "../middleware/cache.js";
 import { serializeOpenPosition } from "../serializers/position.js";
+import { getLaneActivity } from "../lane-activity.js";
 import { getLaneTodaySummary } from "../lane-summary.js";
 import type { ApiBudgetManager } from "../../core/api-budget-manager.js";
 import type { RiskManager } from "../../core/risk-manager.js";
@@ -85,18 +86,24 @@ export function overviewRouter(deps: { riskManager: unknown; regimeDetector: unk
       mode: snapshot.scope.mode,
       configProfile: snapshot.scope.configProfile,
     };
-    const summary = await getLaneTodaySummary(database, laneWhere);
+    const [summary, laneActivity] = await Promise.all([
+      getLaneTodaySummary(database, laneWhere),
+      getLaneActivity(database, laneWhere),
+    ]);
 
     res.json({
       ...snapshot,
       openPositions: snapshot.openPositions.map((position) => serializeOpenPosition(position)),
       regime,
+      lastTradeAt: laneActivity.lastTradeAt,
+      lastSignalAt: laneActivity.lastSignalAt,
       todayTrades: summary.todayTrades,
       todayPnl: summary.todayPnl,
       todayWins: summary.todayWins,
       todayLosses: summary.todayLosses,
       mode: snapshot.scope.mode,
       configProfile: snapshot.scope.configProfile,
+      currentQuotaSnapshots: apiBudgetManager?.getSnapshots() ?? null,
     });
   });
 

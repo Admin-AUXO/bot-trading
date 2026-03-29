@@ -4,6 +4,7 @@ import { config } from "../../config/index.js";
 import { db } from "../../db/client.js";
 import { cacheMiddleware } from "../middleware/cache.js";
 import { requireBearerToken } from "../middleware/auth.js";
+import { getLaneActivity } from "../lane-activity.js";
 import { defaultStrategyConfigs, getExitPlan, type StrategyConfigMap } from "../../utils/strategy-config.js";
 import type { RuntimeState } from "../../core/runtime-state.js";
 import type { RiskManager } from "../../core/risk-manager.js";
@@ -69,19 +70,15 @@ export function controlRouter(deps: {
 
   router.get("/heartbeat", cacheMiddleware(config.api.heartbeatCacheTtlMs), async (_req, res) => {
     const scope = snapshotScope();
-    const laneWhere = { mode: scope.mode, configProfile: scope.configProfile };
     const snapshot = riskManager.getSnapshot();
-    const [lastTrade, lastSignal] = await Promise.all([
-      database.trade.findFirst({ where: laneWhere, orderBy: { executedAt: "desc" }, select: { executedAt: true } }),
-      database.signal.findFirst({ where: laneWhere, orderBy: { detectedAt: "desc" }, select: { detectedAt: true } }),
-    ]);
+    const laneActivity = await getLaneActivity(database, scope);
 
     res.json({
       scope,
       isRunning: snapshot.isRunning,
       uptime: process.uptime(),
-      lastTradeAt: lastTrade?.executedAt ?? null,
-      lastSignalAt: lastSignal?.detectedAt ?? null,
+      lastTradeAt: laneActivity.lastTradeAt,
+      lastSignalAt: laneActivity.lastSignalAt,
       memoryMb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
     });
   });

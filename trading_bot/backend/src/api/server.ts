@@ -9,6 +9,7 @@ import { config } from "../config/index.js";
 import { logger, createChildLogger } from "../utils/logger.js";
 import { db } from "../db/client.js";
 import { getLaneTodaySummary } from "./lane-summary.js";
+import { getLaneActivity } from "./lane-activity.js";
 import { serializeOpenPosition } from "./serializers/position.js";
 import { overviewRouter } from "./routes/overview.js";
 import { positionsRouter } from "./routes/positions.js";
@@ -105,17 +106,22 @@ export function createApiServer(deps: {
         const snapshot = riskManager.getSnapshot();
         const regime = regimeDetector.getState();
         const scope = deps.runtimeState?.scope ?? snapshot.scope;
-        const summary = await getLaneTodaySummary(database, scope);
-        const openPositions = snapshot.openPositions.map((position) => serializeOpenPosition(position));
+        const [summary, laneActivity] = await Promise.all([
+          getLaneTodaySummary(database, scope),
+          getLaneActivity(database, scope),
+        ]);
 
         res.write(`data: ${JSON.stringify({
           ...snapshot,
           regime,
+          currentQuotaSnapshots: deps.apiBudgetManager?.getSnapshots() ?? null,
+          lastTradeAt: laneActivity.lastTradeAt,
+          lastSignalAt: laneActivity.lastSignalAt,
           todayTrades: summary.todayTrades,
           todayPnl: summary.todayPnl,
           todayWins: summary.todayWins,
           todayLosses: summary.todayLosses,
-          openPositions,
+          openPositions: snapshot.openPositions.map((position) => serializeOpenPosition(position)),
         })}\n\n`);
       } catch (err) {
         log.warn({ err }, "sse stream send failed");
