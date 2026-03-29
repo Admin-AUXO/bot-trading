@@ -3,8 +3,14 @@ import { db } from "../../db/client.js";
 import { cacheMiddleware } from "../middleware/cache.js";
 import type { RuntimeState } from "../../core/runtime-state.js";
 
+const STRATEGIES = ["S1_COPY", "S2_GRADUATION", "S3_MOMENTUM"] as const;
+
 function parseDays(value: unknown, fallback: number, max: number): number {
   return Math.min(Number(value) || fallback, max);
+}
+
+function numberOrZero(value: unknown): number {
+  return Number(value ?? 0);
 }
 
 export function analyticsRouter(deps?: { runtimeState?: RuntimeState }) {
@@ -50,48 +56,60 @@ export function analyticsRouter(deps?: { runtimeState?: RuntimeState }) {
     const since = new Date();
     since.setDate(since.getDate() - days);
 
-    const where: Record<string, unknown> = {
-      strategy: { in: ["S1_COPY", "S2_GRADUATION", "S3_MOMENTUM"] },
+    const where = {
+      strategy: { in: STRATEGIES },
       side: "SELL",
       executedAt: { gte: since },
+      ...(mode ? { mode: mode as "LIVE" | "DRY_RUN" } : {}),
+      ...(profile ? { configProfile: profile } : {}),
+      ...(tradeSource ? { tradeSource: tradeSource as "AUTO" | "MANUAL" } : {}),
     };
-    if (mode) where.mode = mode;
-    if (profile) where.configProfile = profile;
-    if (tradeSource) where.tradeSource = tradeSource;
 
-    const trades = await db.trade.findMany({
-      where,
-      select: { strategy: true, pnlUsd: true, gasFee: true, jitoTip: true },
-    });
+    const [exitStats, winStats, lossStats] = await Promise.all([
+      db.trade.groupBy({
+        by: ["strategy"],
+        where,
+        _count: { _all: true },
+        _sum: { pnlUsd: true, gasFee: true, jitoTip: true },
+      }),
+      db.trade.groupBy({
+        by: ["strategy"],
+        where: { ...where, pnlUsd: { gt: 0 } },
+        _count: { _all: true },
+        _sum: { pnlUsd: true },
+      }),
+      db.trade.groupBy({
+        by: ["strategy"],
+        where: { ...where, pnlUsd: { lte: 0 } },
+        _count: { _all: true },
+        _sum: { pnlUsd: true },
+      }),
+    ]);
 
-    const byStrategy = trades.reduce(
-      (acc, t) => {
-        (acc[t.strategy] ??= []).push(t);
-        return acc;
-      },
-      {} as Record<string, typeof trades>
-    );
+    const exitStatsByStrategy = new Map(exitStats.map((row) => [row.strategy, row]));
+    const winStatsByStrategy = new Map(winStats.map((row) => [row.strategy, row]));
+    const lossStatsByStrategy = new Map(lossStats.map((row) => [row.strategy, row]));
 
-    const results = [];
-    for (const strategy of ["S1_COPY", "S2_GRADUATION", "S3_MOMENTUM"]) {
-      const sells = byStrategy[strategy] ?? [];
-      const wins = sells.filter((t) => Number(t.pnlUsd ?? 0) > 0);
-      const losses = sells.filter((t) => Number(t.pnlUsd ?? 0) <= 0);
+    res.json(STRATEGIES.map((strategy) => {
+      const exits = exitStatsByStrategy.get(strategy);
+      const wins = winStatsByStrategy.get(strategy);
+      const losses = lossStatsByStrategy.get(strategy);
+      const totalExits = exits?._count._all ?? 0;
+      const winCount = wins?._count._all ?? 0;
+      const lossCount = losses?._count._all ?? 0;
 
-      results.push({
+      return {
         strategy,
-        totalExits: sells.length,
-        wins: wins.length,
-        losses: losses.length,
-        winRate: sells.length > 0 ? wins.length / sells.length : 0,
-        totalPnlUsd: sells.reduce((s, t) => s + Number(t.pnlUsd ?? 0), 0),
-        avgWinUsd: wins.length > 0 ? wins.reduce((s, t) => s + Number(t.pnlUsd ?? 0), 0) / wins.length : 0,
-        avgLossUsd: losses.length > 0 ? losses.reduce((s, t) => s + Math.abs(Number(t.pnlUsd ?? 0)), 0) / losses.length : 0,
-        totalFeesSol: sells.reduce((s, t) => s + Number(t.gasFee) + Number(t.jitoTip), 0),
-      });
-    }
-
-    res.json(results);
+        totalExits,
+        wins: winCount,
+        losses: lossCount,
+        winRate: totalExits > 0 ? winCount / totalExits : 0,
+        totalPnlUsd: numberOrZero(exits?._sum.pnlUsd),
+        avgWinUsd: winCount > 0 ? numberOrZero(wins?._sum.pnlUsd) / winCount : 0,
+        avgLossUsd: lossCount > 0 ? Math.abs(numberOrZero(losses?._sum.pnlUsd)) / lossCount : 0,
+        totalFeesSol: numberOrZero(exits?._sum.gasFee) + numberOrZero(exits?._sum.jitoTip),
+      };
+    }));
   });
 
   router.get("/capital-curve", cacheMiddleware(60_000), async (req, res) => {
@@ -286,67 +304,116 @@ export function analyticsRouter(deps?: { runtimeState?: RuntimeState }) {
     const since = new Date();
     since.setDate(since.getDate() - days);
 
-    const tradeWhere: Record<string, unknown> = {
+    const tradeWhere = {
       executedAt: { gte: since },
+      ...(mode ? { mode: mode as "LIVE" | "DRY_RUN" } : {}),
+      ...(profile ? { configProfile: profile } : {}),
+      ...(tradeSource ? { tradeSource: tradeSource as "AUTO" | "MANUAL" } : {}),
     };
-    if (mode) tradeWhere.mode = mode;
-    if (profile) tradeWhere.configProfile = profile;
-    if (tradeSource) tradeWhere.tradeSource = tradeSource;
+    const positionWhere = {
+      openedAt: { gte: since },
+      ...(mode ? { mode: mode as "LIVE" | "DRY_RUN" } : {}),
+      ...(profile ? { configProfile: profile } : {}),
+      ...(tradeSource ? { tradeSource: tradeSource as "AUTO" | "MANUAL" } : {}),
+    };
+    const manualTradeCountsPromise = tradeSource === "AUTO"
+      ? Promise.resolve([] as Array<{ strategy: (typeof STRATEGIES)[number]; _count: { _all: number } }>)
+      : db.trade.groupBy({
+          by: ["strategy"],
+          where: { ...tradeWhere, tradeSource: "MANUAL" },
+          _count: { _all: true },
+        });
 
-    const [trades, positions] = await Promise.all([
-      db.trade.findMany({
+    const [
+      tradeTotals,
+      buyStats,
+      sellStats,
+      manualTradeCounts,
+      autoCopyLeadStats,
+      entryPositionStats,
+      entryLatencyStats,
+    ] = await Promise.all([
+      db.trade.groupBy({
+        by: ["strategy"],
         where: tradeWhere,
-        select: {
-          strategy: true,
-          side: true,
-          slippageBps: true,
-          gasFee: true,
-          jitoTip: true,
-          copyLeadMs: true,
-          tradeSource: true,
-        },
+        _count: { _all: true },
+        _sum: { gasFee: true, jitoTip: true },
       }),
-      db.position.findMany({
-        where: {
-          openedAt: { gte: since },
-          ...(mode ? { mode: mode as "LIVE" | "DRY_RUN" } : {}),
-          ...(profile ? { configProfile: profile } : {}),
-          ...(tradeSource ? { tradeSource: tradeSource as "AUTO" | "MANUAL" } : {}),
-        },
-        select: {
-          strategy: true,
-          entryLatencyMs: true,
-          entrySlippageBps: true,
-        },
+      db.trade.groupBy({
+        by: ["strategy"],
+        where: { ...tradeWhere, side: "BUY" },
+        _count: { _all: true },
+        _sum: { slippageBps: true },
+      }),
+      db.trade.groupBy({
+        by: ["strategy"],
+        where: { ...tradeWhere, side: "SELL" },
+        _count: { _all: true },
+        _sum: { slippageBps: true },
+      }),
+      manualTradeCountsPromise,
+      db.trade.groupBy({
+        by: ["strategy"],
+        where: { ...tradeWhere, tradeSource: "AUTO", copyLeadMs: { gt: 0 } },
+        _avg: { copyLeadMs: true },
+      }),
+      db.position.groupBy({
+        by: ["strategy"],
+        where: positionWhere,
+        _count: { _all: true },
+        _sum: { entrySlippageBps: true },
+      }),
+      db.position.groupBy({
+        by: ["strategy"],
+        where: { ...positionWhere, entryLatencyMs: { gt: 0 } },
+        _avg: { entryLatencyMs: true },
       }),
     ]);
 
-    const strategies = ["S1_COPY", "S2_GRADUATION", "S3_MOMENTUM"] as const;
-    const results = strategies.map((strategy) => {
-      const strategyTrades = trades.filter((trade) => trade.strategy === strategy);
-      const strategyPositions = positions.filter((position) => position.strategy === strategy);
-      const buys = strategyTrades.filter((trade) => trade.side === "BUY");
-      const sells = strategyTrades.filter((trade) => trade.side === "SELL");
-      const autoTrades = strategyTrades.filter((trade) => trade.tradeSource === "AUTO");
-      const avg = (values: number[]) => values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+    const tradeTotalsByStrategy = new Map(tradeTotals.map((row) => [row.strategy, row]));
+    const buyStatsByStrategy = new Map(buyStats.map((row) => [row.strategy, row]));
+    const sellStatsByStrategy = new Map(sellStats.map((row) => [row.strategy, row]));
+    const manualCountsByStrategy = new Map(manualTradeCounts.map((row) => [row.strategy, row]));
+    const autoCopyLeadByStrategy = new Map(autoCopyLeadStats.map((row) => [row.strategy, row]));
+    const entryPositionsByStrategy = new Map(entryPositionStats.map((row) => [row.strategy, row]));
+    const entryLatencyByStrategy = new Map(entryLatencyStats.map((row) => [row.strategy, row]));
+
+    res.json(STRATEGIES.map((strategy) => {
+      const totals = tradeTotalsByStrategy.get(strategy);
+      const buys = buyStatsByStrategy.get(strategy);
+      const sells = sellStatsByStrategy.get(strategy);
+      const manualTrades = manualCountsByStrategy.get(strategy)?._count._all ?? 0;
+      const entryPositions = entryPositionsByStrategy.get(strategy);
+      const totalTrades = totals?._count._all ?? 0;
+      const buyCount = buys?._count._all ?? 0;
+      const positionCount = entryPositions?._count._all ?? 0;
+      const entrySlippageDenominator = buyCount + positionCount;
+      const manualShare = tradeSource === "AUTO"
+        ? 0
+        : tradeSource === "MANUAL"
+          ? (totalTrades > 0 ? 1 : 0)
+          : totalTrades > 0
+            ? manualTrades / totalTrades
+            : 0;
 
       return {
         strategy,
-        buyCount: buys.length,
-        sellCount: sells.length,
-        avgEntrySlippageBps: avg([
-          ...strategyPositions.map((position) => position.entrySlippageBps ?? 0),
-          ...buys.map((trade) => trade.slippageBps ?? 0),
-        ]),
-        avgExitSlippageBps: avg(sells.map((trade) => trade.slippageBps ?? 0)),
-        avgFeeSol: avg(strategyTrades.map((trade) => Number(trade.gasFee) + Number(trade.jitoTip))),
-        avgEntryLatencyMs: avg(strategyPositions.map((position) => position.entryLatencyMs ?? 0).filter((latency) => latency > 0)),
-        avgCopyLeadMs: avg(autoTrades.map((trade) => trade.copyLeadMs ?? 0).filter((lead) => lead > 0)),
-        manualShare: strategyTrades.length > 0 ? strategyTrades.filter((trade) => trade.tradeSource === "MANUAL").length / strategyTrades.length : 0,
+        buyCount,
+        sellCount: sells?._count._all ?? 0,
+        avgEntrySlippageBps: entrySlippageDenominator > 0
+          ? (numberOrZero(entryPositions?._sum.entrySlippageBps) + numberOrZero(buys?._sum.slippageBps)) / entrySlippageDenominator
+          : 0,
+        avgExitSlippageBps: (sells?._count._all ?? 0) > 0
+          ? numberOrZero(sells?._sum.slippageBps) / (sells?._count._all ?? 1)
+          : 0,
+        avgFeeSol: totalTrades > 0
+          ? (numberOrZero(totals?._sum.gasFee) + numberOrZero(totals?._sum.jitoTip)) / totalTrades
+          : 0,
+        avgEntryLatencyMs: numberOrZero(entryLatencyByStrategy.get(strategy)?._avg.entryLatencyMs),
+        avgCopyLeadMs: numberOrZero(autoCopyLeadByStrategy.get(strategy)?._avg.copyLeadMs),
+        manualShare,
       };
-    });
-
-    res.json(results);
+    }));
   });
 
   return router;

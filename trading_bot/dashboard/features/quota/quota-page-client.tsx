@@ -8,7 +8,7 @@ import type { ApiService, ApiUsageResponse } from "@/lib/api";
 import { apiUsageQueryOptions } from "@/lib/dashboard-query-options";
 import { useDashboardFilters } from "@/hooks/use-dashboard-filters";
 import { useDashboardShell } from "@/hooks/use-dashboard-shell";
-import { decorateBudgetSnapshots, getApiUsageSnapshotRows } from "@/lib/api-usage";
+import { decorateBudgetSnapshots, formatApiEndpointUsageScope, getApiEndpointUsageKey, getApiUsageSnapshotRows } from "@/lib/api-usage";
 import { chartColors } from "@/lib/chart-colors";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { SummaryTile } from "@/components/ui/summary-tile";
@@ -421,7 +421,7 @@ export function QuotaPageClient() {
             <div className="space-y-2">
               {focusEndpoints.map((entry) => (
                 <div
-                  key={`${entry.service}:${entry.endpoint}:${entry.purpose}:${entry.configProfile ?? "all"}`}
+                  key={getApiEndpointUsageKey(entry)}
                   className="rounded-xl border border-bg-border/80 bg-bg-hover/35 p-3"
                 >
                   <div className="flex items-center justify-between gap-3">
@@ -430,7 +430,7 @@ export function QuotaPageClient() {
                         {entry.service} · {entry.endpoint}
                       </div>
                       <div className="truncate text-xs text-text-muted">
-                        {entry.purpose} · {entry.configProfile ?? "all profiles"} · {entry.mode ?? "all modes"}
+                        {formatApiEndpointUsageScope(entry)}
                       </div>
                     </div>
                     <div className="text-right text-xs">

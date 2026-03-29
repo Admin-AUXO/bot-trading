@@ -6,7 +6,8 @@ import { motion } from "motion/react";
 import { apiUsageQueryOptions, dailyStatsQueryOptions } from "@/lib/dashboard-query-options";
 import { useDashboardFilters } from "@/hooks/use-dashboard-filters";
 import { useDashboardShell } from "@/hooks/use-dashboard-shell";
-import { decorateBudgetSnapshots, getApiUsageSnapshotRows } from "@/lib/api-usage";
+import { decorateBudgetSnapshots, formatApiEndpointUsageScope, getApiEndpointUsageKey, getApiUsageSnapshotRows } from "@/lib/api-usage";
+import { isRealtimeHealthy, useRealtimeSyncState } from "@/lib/realtime-sync";
 import { PnlChart } from "@/components/charts/pnl-chart";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { ChartSkeleton, StatCardSkeleton } from "@/components/ui/skeleton";
@@ -60,8 +61,12 @@ export default function OverviewPage() {
   } = useDashboardShell();
 
   const apiUsageQuery = useQuery(apiUsageQueryOptions(7));
+  const realtimeHealthy = isRealtimeHealthy(useRealtimeSyncState())
+    && analysisScopeReady
+    && activeScope?.mode === effectiveMode
+    && activeScope?.configProfile === effectiveProfile;
   const recentStatsQuery = useQuery({
-    ...dailyStatsQueryOptions(7, effectiveMode, effectiveProfile),
+    ...dailyStatsQueryOptions(7, effectiveMode, effectiveProfile, realtimeHealthy),
     enabled: analysisScopeReady,
   });
 
@@ -458,13 +463,13 @@ export default function OverviewPage() {
                 {topEndpoints.length ? (
                   <div className="rounded-xl border border-bg-border/80 bg-bg-hover/30 p-3">
                     <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Global Top Endpoint Spenders</div>
-                    <div className="mt-3 space-y-2">
-                      {topEndpoints.map((endpoint) => (
-                        <div key={`${endpoint.service}:${endpoint.endpoint}:${endpoint.purpose}`} className="flex items-center justify-between gap-3 text-xs">
-                          <div className="min-w-0">
-                            <div className="truncate font-medium text-text-primary">{endpoint.service} · {endpoint.endpoint}</div>
-                            <div className="truncate text-text-muted">{endpoint.purpose} · {endpoint.configProfile ?? "all profiles"}</div>
-                          </div>
+                      <div className="mt-3 space-y-2">
+                        {topEndpoints.map((endpoint) => (
+                          <div key={getApiEndpointUsageKey(endpoint)} className="flex items-center justify-between gap-3 text-xs">
+                            <div className="min-w-0">
+                              <div className="truncate font-medium text-text-primary">{endpoint.service} · {endpoint.endpoint}</div>
+                              <div className="truncate text-text-muted">{formatApiEndpointUsageScope(endpoint)}</div>
+                            </div>
                           <div className="text-right">
                             <div className="font-medium text-text-primary">{formatNumber(endpoint.totalCredits)} cr</div>
                             <div className="text-text-muted">{formatNumber(endpoint.totalCalls)} calls</div>
@@ -518,7 +523,13 @@ export default function OverviewPage() {
               <Activity className="h-4 w-4 text-accent-blue" />
               <span className="stat-label">Daily P&amp;L</span>
             </div>
-            <PnlChart days={30} mode={effectiveMode} profile={effectiveProfile} dailyLossLimit={overview.dailyLossLimit} />
+            <PnlChart
+              days={30}
+              mode={effectiveMode}
+              profile={effectiveProfile}
+              dailyLossLimit={overview.dailyLossLimit}
+              realtimeHealthy={realtimeHealthy}
+            />
           </div>
         </ErrorBoundary>
       </motion.div>

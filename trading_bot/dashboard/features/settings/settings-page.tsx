@@ -12,7 +12,8 @@ import {
 import type { ConfigProfile, TradeMode } from "@/lib/api";
 import { apiUsageQueryOptions, dashboardQueryKeys, profileResultsSummariesQueryOptions, profilesQueryOptions } from "@/lib/dashboard-query-options";
 import { useDashboardShell } from "@/hooks/use-dashboard-shell";
-import { decorateBudgetSnapshots, getApiUsageSnapshotRows } from "@/lib/api-usage";
+import { decorateBudgetSnapshots, formatApiEndpointUsageScope, getApiEndpointUsageKey, getApiUsageSnapshotRows } from "@/lib/api-usage";
+import { invalidateProfileManagementQueries, invalidateRuntimeShellQueries } from "@/lib/query-invalidation";
 import { formatUsd, formatNumber, timeAgo } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import {
@@ -59,11 +60,7 @@ export default function SettingsPage() {
   const { data: profiles } = useQuery(profilesQueryOptions());
   const apiUsageQuery = useQuery(apiUsageQueryOptions(14));
   const invalidateRuntimeShell = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.overview }),
-      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.heartbeat }),
-      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.strategyConfig }),
-    ]);
+    await invalidateRuntimeShellQueries(queryClient);
   };
 
   const pauseMutation = useMutation({
@@ -630,7 +627,7 @@ export default function SettingsPage() {
                   <div className="mt-3 space-y-2">
                     {topQuotaEndpoints.map((endpoint) => (
                       <div
-                        key={`${endpoint.service}:${endpoint.endpoint}:${endpoint.purpose}:${endpoint.configProfile ?? "all"}`}
+                        key={getApiEndpointUsageKey(endpoint)}
                         className="flex items-center justify-between gap-3 text-xs"
                       >
                         <div className="min-w-0">
@@ -638,7 +635,7 @@ export default function SettingsPage() {
                             {endpoint.service} · {endpoint.endpoint}
                           </div>
                           <div className="truncate text-text-muted">
-                            {endpoint.purpose} · {endpoint.configProfile ?? "all profiles"}
+                            {formatApiEndpointUsageScope(endpoint)}
                           </div>
                         </div>
                         <div className="text-right">
@@ -856,16 +853,7 @@ function ProfilesSection({
     (profileResultsSummariesQuery.data ?? []).map((summary) => [`${summary.mode}:${summary.profile}`, summary]),
   );
   const invalidateProfileAndRuntimeState = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.profiles }),
-      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.profileResultsSummaries }),
-      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.overview }),
-      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.heartbeat }),
-      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.strategyConfig }),
-      queryClient.invalidateQueries({ queryKey: ["positions"] }),
-      queryClient.invalidateQueries({ queryKey: ["trades"] }),
-      queryClient.invalidateQueries({ queryKey: ["api-usage"] }),
-    ]);
+    await invalidateProfileManagementQueries(queryClient);
   };
 
   const createMut = useMutation({

@@ -1,4 +1,4 @@
-import type { ApiUsageResponse, BudgetSnapshot, OverviewResponse } from "@/lib/api";
+import type { ApiEndpointUsage, ApiUsageResponse, BudgetSnapshot, OverviewResponse } from "@/lib/api";
 
 type SnapshotSource =
   | Pick<ApiUsageResponse, "current" | "daily">
@@ -47,4 +47,26 @@ export function getWorstBudgetSnapshot(snapshots: BudgetSnapshot[] | null | unde
     if (severityDiff !== 0) return severityDiff;
     return right.monthlyPct - left.monthlyPct;
   })[0] ?? null;
+}
+
+export function getApiEndpointUsageKey(entry: ApiEndpointUsage): string {
+  return [
+    entry.service,
+    entry.endpoint,
+    entry.strategy ?? "all-strategies",
+    entry.mode ?? "all-modes",
+    entry.configProfile ?? "all-profiles",
+    entry.purpose,
+    entry.essential ? "essential" : "degradable",
+  ].join(":");
+}
+
+export function formatApiEndpointUsageScope(entry: ApiEndpointUsage): string {
+  return [
+    entry.purpose,
+    entry.strategy ?? "all strategies",
+    entry.configProfile ?? "all profiles",
+    entry.mode ?? "all modes",
+    entry.essential ? "essential" : "degradable",
+  ].join(" · ");
 }

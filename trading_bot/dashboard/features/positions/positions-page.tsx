@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  dashboardQueryKeys,
   operatorSessionQueryOptions,
   positionHistoryQueryOptions,
   positionsQueryOptions,
@@ -13,6 +12,8 @@ import {
 import { manualEntry, manualExit } from "@/lib/api";
 import { useDashboardFilters } from "@/hooks/use-dashboard-filters";
 import { useDashboardShell } from "@/hooks/use-dashboard-shell";
+import { invalidateTradeActivityQueries } from "@/lib/query-invalidation";
+import { isRealtimeHealthy, useRealtimeSyncState } from "@/lib/realtime-sync";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
@@ -120,8 +121,9 @@ export default function PositionsPage() {
     setSkippedPage(1);
   }, [selectedStrategy]);
 
+  const realtimeHealthy = isRealtimeHealthy(useRealtimeSyncState()) && isAnalysisOnActiveRuntime;
   const openPositionsQuery = useQuery({
-    ...positionsQueryOptions(effectiveMode, effectiveProfile, resolvedTradeSource),
+    ...positionsQueryOptions(effectiveMode, effectiveProfile, resolvedTradeSource, realtimeHealthy),
     enabled: analysisScopeReady,
   });
   const historyQuery = useQuery({
@@ -147,21 +149,11 @@ export default function PositionsPage() {
   const analysisStrategyConfig = isAnalysisOnActiveRuntime ? strategyConfig : undefined;
 
   const invalidateDashboardAfterManualAction = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.overview }),
-      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.heartbeat }),
-      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.positions() }),
-      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.positions(effectiveMode, effectiveProfile, resolvedTradeSource) }),
-      queryClient.invalidateQueries({ queryKey: ["position-history"] }),
-      queryClient.invalidateQueries({ queryKey: ["trades"] }),
-      queryClient.invalidateQueries({ queryKey: ["skipped-signals"] }),
-      queryClient.invalidateQueries({ queryKey: ["signals-paginated"] }),
-      queryClient.invalidateQueries({ queryKey: ["daily-stats"] }),
-      queryClient.invalidateQueries({ queryKey: ["strategy-analytics"] }),
-      queryClient.invalidateQueries({ queryKey: ["execution-quality"] }),
-      queryClient.invalidateQueries({ queryKey: ["pnl-distribution"] }),
-      queryClient.invalidateQueries({ queryKey: ["api-usage"] }),
-    ]);
+    await invalidateTradeActivityQueries(queryClient, {
+      mode: effectiveMode,
+      profile: effectiveProfile,
+      tradeSource: resolvedTradeSource,
+    });
   };
 
   const entryMutation = useMutation({

@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { chartColors } from "@/lib/chart-colors";
-import { dailyStatsQueryOptions, overviewQueryOptions } from "@/lib/dashboard-query-options";
+import { dailyStatsQueryOptions } from "@/lib/dashboard-query-options";
 import type { TradeMode } from "@/lib/api";
 import {
   Bar,
@@ -22,20 +22,21 @@ export function PnlChart({
   mode,
   profile,
   dailyLossLimit,
+  realtimeHealthy = false,
 }: {
   days?: number;
   mode?: TradeMode | null;
   profile?: string | null;
   dailyLossLimit?: number;
+  realtimeHealthy?: boolean;
 }) {
   const analysisScopeReady = mode != null && profile != null;
   const { data: stats } = useQuery({
-    ...dailyStatsQueryOptions(days, mode, profile),
+    ...dailyStatsQueryOptions(days, mode, profile, realtimeHealthy),
     enabled: analysisScopeReady,
   });
-  const { data: overview } = useQuery(overviewQueryOptions());
   const filtered = (stats ?? []).filter((s) => s.strategy === null);
-  const lossGuardrail = dailyLossLimit ?? overview?.dailyLossLimit ?? 10;
+  const lossGuardrail = dailyLossLimit ?? 10;
 
   const chartData = useMemo(() => filtered.map((s, i) => {
     const d = new Date(s.date);

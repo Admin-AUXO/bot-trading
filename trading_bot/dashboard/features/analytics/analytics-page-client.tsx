@@ -26,6 +26,7 @@ import {
   strategyLabel,
   timeAgo,
 } from "@/lib/utils";
+import { isRealtimeHealthy, useRealtimeSyncState } from "@/lib/realtime-sync";
 import { chartColors } from "@/lib/chart-colors";
 import { CapitalCurveChart } from "@/components/charts/capital-curve";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
@@ -60,6 +61,10 @@ export function AnalyticsPageClient() {
   const { activeScope } = useDashboardShell();
   const { effectiveMode, effectiveProfile, resolvedTradeSource } = useDashboardFilters();
   const analysisScopeReady = effectiveMode != null && effectiveProfile != null;
+  const realtimeHealthy = isRealtimeHealthy(useRealtimeSyncState())
+    && analysisScopeReady
+    && activeScope?.mode === effectiveMode
+    && activeScope?.configProfile === effectiveProfile;
   const [dateRange, setDateRange] = useQueryState(
     "dateRange",
     parseAsStringLiteral(DATE_RANGES).withDefault("30d"),
@@ -67,11 +72,11 @@ export function AnalyticsPageClient() {
   const days = dateRangeToDays(dateRange);
 
   const strategiesQuery = useQuery({
-    ...strategyAnalyticsQueryOptions(days, effectiveMode, effectiveProfile, resolvedTradeSource),
+    ...strategyAnalyticsQueryOptions(days, effectiveMode, effectiveProfile, resolvedTradeSource, realtimeHealthy),
     enabled: analysisScopeReady,
   });
   const executionQualityQuery = useQuery({
-    ...executionQualityQueryOptions(days, effectiveMode, effectiveProfile, resolvedTradeSource),
+    ...executionQualityQueryOptions(days, effectiveMode, effectiveProfile, resolvedTradeSource, realtimeHealthy),
     enabled: analysisScopeReady,
   });
   const regimeHistoryQuery = useQuery(regimeHistoryQueryOptions());
@@ -80,11 +85,11 @@ export function AnalyticsPageClient() {
     enabled: analysisScopeReady,
   });
   const pnlDistributionQuery = useQuery({
-    ...pnlDistributionQueryOptions(days, effectiveMode, effectiveProfile, resolvedTradeSource),
+    ...pnlDistributionQueryOptions(days, effectiveMode, effectiveProfile, resolvedTradeSource, realtimeHealthy),
     enabled: analysisScopeReady,
   });
   const dailyStatsQuery = useQuery({
-    ...dailyStatsQueryOptions(days, effectiveMode, effectiveProfile),
+    ...dailyStatsQueryOptions(days, effectiveMode, effectiveProfile, realtimeHealthy),
     enabled: analysisScopeReady,
   });
   const walletActivityQuery = useQuery(walletActivityQueryOptions(30));

@@ -45,6 +45,7 @@ Rules:
 - Keep compact metrics on `components/ui/summary-tile.tsx` unless a page has a stronger reason to diverge.
 - `/api/overview/api-usage?days=N` is a compound contract now: current snapshots, persisted daily rows, monthly aggregates, and top endpoint spenders. Do not assume the old `{ daily, monthly }` shape.
 - `/api/overview/api-usage?days=N&mode=...&profile=...` only narrows endpoint rows. Service totals and quota history stay global provider truth by design.
+- Endpoint spender rows are keyed and labeled by the full backend identity: service, endpoint, strategy, mode, config profile, purpose, and essential status.
 - Capacity widgets on `/positions` must distinguish actual portfolio slots from filtered rows. Filtered `positions.length` is not bot-wide availability.
 - Rejected or skipped signal surfaces should carry `rejectReason` plus attached `filterResults` when the backend provides them; timestamps alone are not an explanation.
 - Aggregate ratios from already-aggregated strategy rows must be weighted by the underlying counts. `manualShare` is weighted by `buyCount + sellCount`.
@@ -79,7 +80,7 @@ Operational rules:
 - Backend mutating routes still require the backend control secret.
 - The dashboard server must know the same secret if you want pause/resume/manual/profile actions to work through the proxy.
 - Read-only routes may stay public. Mutating routes should go through the centralized proxy boundary instead of ad-hoc headers in client code.
-- SSE payloads from `app/api/stream` should hydrate shared overview, heartbeat activity timestamps, and active-lane position caches immediately. Keep polling as a backstop for reconnects and missed invalidations, not as the primary state sync path.
+- SSE payloads from `app/api/stream` should hydrate shared overview, heartbeat activity timestamps, and active-lane position caches immediately, including trade-source filtered position caches. Shared query polling should stand down while SSE is healthy and only resume as a reconnect backstop.
 
 ## Theme And Motion
 

@@ -35,6 +35,20 @@ function cacheKey(scope: ExecutionScope, today: string): string {
   return `${today}:${scope.mode}:${scope.configProfile}`;
 }
 
+export function invalidateLaneTodaySummary(scope?: ExecutionScope): void {
+  if (!scope) {
+    summaryCache.clear();
+    return;
+  }
+
+  const scopeSuffix = `:${scope.mode}:${scope.configProfile}`;
+  for (const key of summaryCache.keys()) {
+    if (key.endsWith(scopeSuffix)) {
+      summaryCache.delete(key);
+    }
+  }
+}
+
 export async function getLaneTodaySummary(
   database: DatabaseClient,
   scope: ExecutionScope,

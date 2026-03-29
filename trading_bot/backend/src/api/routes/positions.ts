@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "../../db/client.js";
 import { createChildLogger } from "../../utils/logger.js";
+import { invalidateDashboardReadCaches } from "../cache-invalidation.js";
 import { cacheMiddleware } from "../middleware/cache.js";
 import { requireBearerToken } from "../middleware/auth.js";
 import { serializeOpenPosition } from "../serializers/position.js";
@@ -138,6 +139,10 @@ export function positionsRouter(deps?: {
     });
 
     if (result.success) {
+      invalidateDashboardReadCaches({
+        mode: position.mode,
+        configProfile: position.configProfile,
+      });
       res.json({ success: true, txSignature: result.txSignature });
     } else {
       log.error({ positionId: position.id, error: result.error }, "manual exit failed");

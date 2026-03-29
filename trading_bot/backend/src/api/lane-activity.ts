@@ -9,11 +9,20 @@ export interface LaneActivitySnapshot {
   lastSignalAt: Date | null;
 }
 
-const LANE_ACTIVITY_TTL_MS = config.api.heartbeatCacheTtlMs;
+const LANE_ACTIVITY_TTL_MS = config.api.laneActivityTtlMs;
 const laneActivityCache = new Map<string, { expiresAt: number; value: LaneActivitySnapshot }>();
 
 function laneActivityKey(scope: ExecutionScope): string {
   return `${scope.mode}:${scope.configProfile}`;
+}
+
+export function invalidateLaneActivity(scope?: ExecutionScope): void {
+  if (!scope) {
+    laneActivityCache.clear();
+    return;
+  }
+
+  laneActivityCache.delete(laneActivityKey(scope));
 }
 
 export async function getLaneActivity(

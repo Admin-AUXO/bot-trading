@@ -2,6 +2,7 @@ import { Router } from "express";
 import { PublicKey } from "@solana/web3.js";
 import { config } from "../../config/index.js";
 import { db } from "../../db/client.js";
+import { invalidateDashboardReadCaches } from "../cache-invalidation.js";
 import { cacheMiddleware } from "../middleware/cache.js";
 import { requireBearerToken } from "../middleware/auth.js";
 import { getLaneActivity } from "../lane-activity.js";
@@ -28,6 +29,7 @@ export function controlRouter(deps: {
   router.post("/pause", requireBearerToken, async (_req, res) => {
     riskManager.pause("manual pause");
     await riskManager.saveState();
+    invalidateDashboardReadCaches(snapshotScope());
     res.json({ status: "paused" });
   });
 
@@ -36,6 +38,7 @@ export function controlRouter(deps: {
       return res.status(409).json({ error: "bot is not manually paused" });
     }
     await riskManager.saveState();
+    invalidateDashboardReadCaches(snapshotScope());
     res.json({ status: "running" });
   });
 
@@ -65,6 +68,7 @@ export function controlRouter(deps: {
   router.post("/reset-daily", requireBearerToken, async (_req, res) => {
     riskManager.checkDailyReset();
     await riskManager.saveState();
+    invalidateDashboardReadCaches(snapshotScope());
     res.json({ status: "daily counters reset" });
   });
 
@@ -185,6 +189,7 @@ export function controlRouter(deps: {
     });
 
     if (result.success) {
+      invalidateDashboardReadCaches(snapshotScope());
       res.json({ success: true, txSignature: result.txSignature });
     } else {
       res.status(400).json({ success: false, error: result.error });
@@ -202,6 +207,7 @@ export function controlRouter(deps: {
     }
 
     await riskManager.saveState();
+    invalidateDashboardReadCaches(snapshotScope());
     res.json({
       scope: snapshotScope(),
       balanceSol,

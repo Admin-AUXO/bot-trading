@@ -5,12 +5,16 @@ import { useEffect, useRef } from "react";
 import {
   createSSEConnection,
   normalizeOverviewResponse,
+  type TradeSource,
   type HeartbeatResponse,
   type OverviewResponse,
   type TradeMode,
 } from "@/lib/api";
 import { dashboardQueryKeys } from "@/lib/dashboard-query-options";
+import { markRealtimeDisconnected, noteRealtimeMessage } from "@/lib/realtime-sync";
 import { toast } from "sonner";
+
+const TRADE_SOURCES: TradeSource[] = ["AUTO", "MANUAL"];
 
 export function useSSENotifications() {
   const queryClient = useQueryClient();
@@ -34,6 +38,7 @@ export function useSSENotifications() {
           if (!isOverviewStreamPayload(data)) return;
 
           const overview = normalizeOverviewResponse(data);
+          noteRealtimeMessage();
           const {
             capitalLevel,
             isRunning,
@@ -67,6 +72,12 @@ export function useSSENotifications() {
               dashboardQueryKeys.positions(scope.mode, scope.configProfile, null),
               openPositions,
             );
+            for (const tradeSource of TRADE_SOURCES) {
+              queryClient.setQueryData(
+                dashboardQueryKeys.positions(scope.mode, scope.configProfile, tradeSource),
+                openPositions.filter((position) => position.tradeSource === tradeSource),
+              );
+            }
           }
 
           if (prevState.current.isRunning === true && isRunning === false) {
@@ -143,10 +154,13 @@ export function useSSENotifications() {
           void error;
         }
       },
-      () => undefined,
+      () => {
+        markRealtimeDisconnected();
+      },
     );
 
     return () => {
+      markRealtimeDisconnected();
       es.close();
     };
   }, [queryClient]);

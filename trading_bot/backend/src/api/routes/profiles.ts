@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { db } from "../../db/client.js";
+import { invalidateDashboardReadCaches } from "../cache-invalidation.js";
 import { cacheMiddleware } from "../middleware/cache.js";
 import { requireBearerToken } from "../middleware/auth.js";
 import type { RuntimeState } from "../../core/runtime-state.js";
@@ -148,6 +149,7 @@ export function profilesRouter(deps: {
       mode: mode ?? "DRY_RUN",
       settings,
     });
+    invalidateDashboardReadCaches();
     res.json({ status: "created", name, active: false });
   });
 
@@ -156,6 +158,7 @@ export function profilesRouter(deps: {
     if (!settings) return res.status(400).json({ error: "settings required" });
     const profileName = String(req.params.name);
     await manager.updateProfile(profileName, settings);
+    invalidateDashboardReadCaches();
     res.json({ status: "updated" });
   });
 
@@ -178,6 +181,7 @@ export function profilesRouter(deps: {
       }
 
       await manager.toggleProfile(profileName, false);
+      invalidateDashboardReadCaches(runtimeScope);
       return res.json({ status: "deactivated" });
     }
 
@@ -188,6 +192,7 @@ export function profilesRouter(deps: {
 
       try {
         const result = await deps.applyRuntimeProfile(profileName);
+        invalidateDashboardReadCaches(result.scope);
         return res.json({ status: result.status, runtimeApplied: true, scope: result.scope });
       } catch (error) {
         const message = error instanceof Error ? error.message : "runtime profile switch failed";
@@ -197,6 +202,7 @@ export function profilesRouter(deps: {
     }
 
     await manager.toggleProfile(profileName, true);
+    invalidateDashboardReadCaches(runtimeScope);
     return res.json({ status: "activated", runtimeApplied: false });
   });
 
@@ -216,6 +222,7 @@ export function profilesRouter(deps: {
       return res.status(409).json({ error: "cannot delete an active profile; activate another profile first" });
     }
     await manager.deleteProfile(profileName);
+    invalidateDashboardReadCaches();
     res.json({ status: "deleted" });
   });
 

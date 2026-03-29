@@ -9,6 +9,7 @@ import {
   strategyConfigQueryOptions,
 } from "@/lib/dashboard-query-options";
 import { getWorstBudgetSnapshot } from "@/lib/api-usage";
+import { isRealtimeHealthy, useRealtimeSyncState } from "@/lib/realtime-sync";
 import type { Position, StrategyConfigResponse } from "@/lib/api";
 
 function getStrategyTimeStopMinutes(strategyConfig: StrategyConfigResponse | undefined, strategy: string) {
@@ -35,6 +36,8 @@ function scorePositionUrgency(position: Position, strategyConfig?: StrategyConfi
 }
 
 function useDashboardShellValue() {
+  const realtimeSyncState = useRealtimeSyncState();
+  const realtimeHealthy = isRealtimeHealthy(realtimeSyncState);
   const [
     overviewQuery,
     heartbeatQuery,
@@ -42,8 +45,8 @@ function useDashboardShellValue() {
     strategyConfigQuery,
   ] = useQueries({
     queries: [
-      overviewQueryOptions(),
-      heartbeatQueryOptions(),
+      overviewQueryOptions(realtimeHealthy),
+      heartbeatQueryOptions(realtimeHealthy),
       operatorSessionQueryOptions(),
       strategyConfigQueryOptions(),
     ],

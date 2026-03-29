@@ -30,6 +30,10 @@ function withErrorBackoff(intervalMs: number, errorMs: number = 30_000) {
     query.state.status === "error" ? errorMs : intervalMs;
 }
 
+function withRealtimeBackstop(intervalMs: number, realtimeHealthy: boolean, errorMs: number = 30_000) {
+  return realtimeHealthy ? false : withErrorBackoff(intervalMs, errorMs);
+}
+
 export const dashboardQueryKeys = {
   apiUsage: (days: number, mode?: TradeMode | null, profile?: string | null) =>
     ["api-usage", days, mode ?? null, profile ?? null] as const,
@@ -105,12 +109,12 @@ export function apiUsageQueryOptions(days: number = 14, mode?: TradeMode | null,
   });
 }
 
-export function heartbeatQueryOptions() {
+export function heartbeatQueryOptions(realtimeHealthy: boolean = false) {
   return queryOptions({
     queryKey: dashboardQueryKeys.heartbeat,
     queryFn: fetchHeartbeat,
     staleTime: 10_000,
-    refetchInterval: withErrorBackoff(60_000),
+    refetchInterval: withRealtimeBackstop(60_000, realtimeHealthy),
   });
 }
 
@@ -122,21 +126,26 @@ export function operatorSessionQueryOptions() {
   });
 }
 
-export function overviewQueryOptions() {
+export function overviewQueryOptions(realtimeHealthy: boolean = false) {
   return queryOptions({
     queryKey: dashboardQueryKeys.overview,
     queryFn: fetchOverview,
     staleTime: 5_000,
-    refetchInterval: withErrorBackoff(30_000),
+    refetchInterval: withRealtimeBackstop(30_000, realtimeHealthy),
   });
 }
 
-export function positionsQueryOptions(mode?: TradeMode | null, profile?: string | null, tradeSource?: TradeSource | null) {
+export function positionsQueryOptions(
+  mode?: TradeMode | null,
+  profile?: string | null,
+  tradeSource?: TradeSource | null,
+  realtimeHealthy: boolean = false,
+) {
   return queryOptions({
     queryKey: dashboardQueryKeys.positions(mode, profile, tradeSource),
     queryFn: () => fetchPositions(mode ?? undefined, profile ?? undefined, tradeSource ?? undefined),
     staleTime: 5_000,
-    refetchInterval: withErrorBackoff(30_000),
+    refetchInterval: withRealtimeBackstop(30_000, realtimeHealthy),
   });
 }
 
@@ -204,12 +213,17 @@ export function skippedSignalsQueryOptions(
   });
 }
 
-export function dailyStatsQueryOptions(days: number, mode?: TradeMode | null, profile?: string | null) {
+export function dailyStatsQueryOptions(
+  days: number,
+  mode?: TradeMode | null,
+  profile?: string | null,
+  realtimeHealthy: boolean = false,
+) {
   return queryOptions({
     queryKey: dashboardQueryKeys.dailyStats(days, mode, profile),
     queryFn: () => fetchDailyStats(days, mode ?? undefined, profile ?? undefined),
     staleTime: 30_000,
-    refetchInterval: 60_000,
+    refetchInterval: withRealtimeBackstop(60_000, realtimeHealthy),
   });
 }
 
@@ -218,6 +232,7 @@ export function strategyAnalyticsQueryOptions(
   mode?: TradeMode | null,
   profile?: string | null,
   tradeSource?: TradeSource | null,
+  realtimeHealthy: boolean = false,
 ) {
   return queryOptions({
     queryKey: dashboardQueryKeys.strategyAnalytics(days, mode, profile, tradeSource),
@@ -228,7 +243,7 @@ export function strategyAnalyticsQueryOptions(
       tradeSource ?? undefined,
     ),
     staleTime: 30_000,
-    refetchInterval: 60_000,
+    refetchInterval: withRealtimeBackstop(60_000, realtimeHealthy),
   });
 }
 
@@ -237,6 +252,7 @@ export function executionQualityQueryOptions(
   mode?: TradeMode | null,
   profile?: string | null,
   tradeSource?: TradeSource | null,
+  realtimeHealthy: boolean = false,
 ) {
   return queryOptions({
     queryKey: dashboardQueryKeys.executionQuality(days, mode, profile, tradeSource),
@@ -247,7 +263,7 @@ export function executionQualityQueryOptions(
       tradeSource ?? undefined,
     ),
     staleTime: 30_000,
-    refetchInterval: 60_000,
+    refetchInterval: withRealtimeBackstop(60_000, realtimeHealthy),
   });
 }
 
@@ -283,6 +299,7 @@ export function pnlDistributionQueryOptions(
   mode?: TradeMode | null,
   profile?: string | null,
   tradeSource?: TradeSource | null,
+  realtimeHealthy: boolean = false,
 ) {
   return queryOptions({
     queryKey: dashboardQueryKeys.pnlDistribution(days, mode, profile, tradeSource),
@@ -293,7 +310,7 @@ export function pnlDistributionQueryOptions(
       tradeSource ?? undefined,
     ),
     staleTime: 60_000,
-    refetchInterval: 60_000,
+    refetchInterval: withRealtimeBackstop(60_000, realtimeHealthy),
   });
 }
 
