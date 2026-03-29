@@ -7,6 +7,14 @@ description: "General dashboard workflow for data fetching, UI wiring, query deb
 
 Use this skill for non-specialist dashboard changes.
 
+## Required Pre-Read
+- `docs/README.md`
+- `docs/dashboard/overview.md`
+- `docs/dashboard/pages.md`
+- `docs/workflows/control-and-auth.md`
+- `docs/workflows/profiles-and-runtime-scope.md`
+- `docs/workflows/quota-and-provider-budgets.md` when quota UI or budget semantics matter
+
 ## Goals
 - Respect the existing design system and product conventions.
 - Focus on data flow, hooks, charts, filters, and state wiring.
@@ -17,6 +25,7 @@ Use this skill for non-specialist dashboard changes.
 - Treat `/quota` service totals as global provider budgets. Only endpoint drill-downs should narrow by lane metadata, and only when that metadata exists.
 - Centralize control-plane auth in the dashboard proxy rather than scattering token handling through callers.
 - When using `useSearchParams`, `useQueryState`, or similar client-side search-param hooks at page level, put the client subtree behind the required Suspense boundary.
+- If dashboard behavior, scope labeling, auth flow, or page features change, update the matching docs in the same pass.
 
 ## Preferred Tools
 - `filesystem` for local code inspection.

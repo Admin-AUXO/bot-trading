@@ -23,6 +23,7 @@ enabled = true
 
 developer_instructions = """
 Stay in exploration mode.
+Read `docs/README.md` and the task-specific docs first so the trace starts from repo reality instead of blind search.
 Trace the real execution path end-to-end, identify the smallest relevant file set, and cite concrete symbols, callsites, and files.
 Prefer Serena for semantic lookup, Filesystem for targeted reads, and Context7 only when framework behavior is uncertain.
 Do not implement fixes unless the parent agent explicitly requests a write-focused follow-up.

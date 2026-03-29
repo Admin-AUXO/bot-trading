@@ -1,109 +1,85 @@
 # bot-trading Codex Guide
 
-Use this repository root file to orient Codex. Most implementation work happens in `trading_bot/`; when working there, also apply the more specific [trading_bot/AGENTS.md](/A:/Trading%20Setup/bot-trading/trading_bot/AGENTS.md).
+Use this root guide to orient yourself. Most code changes belong under `trading_bot/`; once you are there, also follow `trading_bot/AGENTS.md`.
 
-## What This Repo Is
+## Repo Reality
 
-Solana memecoin algorithmic trading bot with:
+- Backend: TypeScript/Node, Express API, Prisma 7, PostgreSQL 16
+- Dashboard: Next.js 16 App Router
+- Runtime state: in-process runtime wiring plus interval-driven background work
+- Redis is still provisioned in compose and env files, but the checked-in app code does not currently instantiate a Redis client path
+- Market integrations: Helius, Birdeye, Jupiter, plus Jito tip/config accounting
+- Simulation mode is `TRADE_MODE="DRY_RUN"`, not `DRY_RUN=true`
 
-- TypeScript/Node.js backend
-- Next.js 16 dashboard
-- Prisma 7 + PostgreSQL 16
-- Redis + BullMQ
-- Helius, Birdeye, Jupiter, and Jito integrations
-
-Trading constraints:
+Trading defaults:
 
 - Capital target is about `$200`
-- Maximum `5` open positions
-- `DRY_RUN=true` means simulation mode
+- Maximum open positions is `5`
 
 ## Where To Work
 
-Almost all code changes belong under `trading_bot/`.
+Default to `trading_bot/` unless the task is root docs or Codex tooling.
 
-- `trading_bot/backend/src/`: backend, services, workers, API, strategies
-- `trading_bot/backend/prisma/`: Prisma schema, SQL views, seed
-- `trading_bot/dashboard/`: Next.js dashboard
+- `trading_bot/backend/src/`: backend runtime, services, API, strategies, workers
+- `trading_bot/backend/prisma/`: Prisma schema, seed, SQL views
+- `trading_bot/dashboard/`: dashboard app, features, hooks, shared UI
 
-If a task does not clearly require root-level files, avoid touching files outside `trading_bot/`.
+## Hard Rules
 
-## Project Defaults
-
+- Before touching code, read `docs/README.md` and the most relevant task docs it points to. Use those docs to narrow the file set, then verify the claims against code.
 - Read existing patterns before editing.
 - Prefer the smallest correct change.
-- Fix root causes, not surface symptoms.
-- If a change touches live-trading behavior, optimize for safety and correctness over speed.
-- If scope expands beyond the original task, explicitly say why before continuing.
-- Do not create Prisma migration files. Keep DB shape changes in `trading_bot/backend/prisma/schema.prisma` and operational SQL in `trading_bot/backend/prisma/views/create_views.sql`.
-- Treat `npm run db:setup` as the canonical local/bootstrap DB rollout command when schema and SQL views both matter. `db:push` alone is incomplete for this repo.
-- Docker production startup should preserve this sequence: a one-shot `db-setup` service runs `npm run db:setup`, the backend becomes healthy, then the dashboard starts after backend health.
-- Keep Docker and local Node majors aligned when dependency locks change. The current Dockerfiles build on `node:24-alpine`, which matches the repo's current npm 11 lockfile expectations.
-- Keep SQL view rollout idempotent against existing Docker volumes. If a view shape changes, update `trading_bot/backend/prisma/views/create_views.sql` to drop and recreate that view instead of relying on `CREATE OR REPLACE VIEW` to rename columns.
-- Treat control-plane write routes as authenticated surfaces by default. Read-only routes may be public; mutating routes must make the boundary explicit.
-- Keep dashboard proxy auth centralized. Do not rely on per-endpoint token hacks when a whole control subtree needs the same bearer token.
-- Reuse the shared dashboard shell state in `trading_bot/dashboard/hooks/use-dashboard-shell.ts` for layout chrome and page summaries instead of re-querying overview, positions, heartbeat, and operator session in every component.
-- Keep active runtime scope separate from analysis filters. Header, sidebar, footer, overview, and control surfaces reflect runtime truth; `trading_bot/dashboard/hooks/use-dashboard-filters.ts` owns analysis-lane inspection for positions, trades, analytics, and quota drill-downs.
-- If a dashboard page mixes lane-scoped, mode/profile-scoped, or global data, label that scope explicitly in the UI instead of letting a filtered header imply everything is filtered.
-- Keep runtime portfolio capacity separate from filtered page subsets. A filtered `positions.length` is not portfolio-wide slot availability.
-- Quota blockers must come from provider quota state, not generic operator pause reasons reused under a different label.
-- Aggregate percentages derived from per-strategy analytics must be weighted by the underlying trade counts, not averaged as already-finished ratios.
-- When settings/profile controls can show tracked performance context before activation, surface it.
-- Keep analytics deterministic. Historical recomputes must derive from immutable records or persisted snapshots, not mutable singleton state.
-- Treat Helius and Birdeye quota as first-class runtime constraints. Daily budget, soft-limit degradation, and hard-limit entry pauses are part of normal operation, not optional extras.
-- Route provider calls through the shared services under `trading_bot/backend/src/services/`. Do not add raw provider fetches, side workers, or ad-hoc clients that bypass quota accounting, batching, caching, or auth.
-- Keep frontend query keys, URL params, and backend filters aligned. If the key varies by `days`, `mode`, `configProfile`, or `tradeSource`, the request must vary too.
-- Keep dashboard theme and chart styling on semantic CSS variables. Do not hard-code dark/light chart colors when `trading_bot/dashboard/app/globals.css` and `trading_bot/dashboard/lib/chart-colors.ts` already define the contract.
+- Treat live-trading paths as safety-critical.
+- Do not create Prisma migration files. Use `trading_bot/backend/prisma/schema.prisma` and `trading_bot/backend/prisma/views/create_views.sql`.
+- Use `npm run db:setup` when schema and SQL views both matter. `db:push` alone is incomplete.
+- Keep Docker and local Node majors aligned. Current Dockerfiles use `node:24-alpine`.
+- If a SQL view changes shape, make `create_views.sql` drop and recreate that view so existing Docker volumes stay safe.
+- Provider calls belong in `trading_bot/backend/src/services/`; do not add quota-blind fetch paths around them.
+- Control-plane writes are authenticated surfaces. Keep dashboard auth centralized in `trading_bot/dashboard/app/api/[...path]/route.ts` and `trading_bot/dashboard/app/api/operator-session/route.ts`.
+- Reuse `trading_bot/dashboard/hooks/use-dashboard-shell.ts` for runtime chrome state and `trading_bot/dashboard/hooks/use-dashboard-filters.ts` for page-level analysis filters.
+- Keep runtime scope separate from analysis scope. Label mixed-scope UI explicitly.
+- Capacity widgets must use runtime portfolio truth, not filtered row counts.
+- Quota blockers come from provider quota state, not generic pause reasons relabeled after the fact.
+- Weighted percentages must use underlying counts, not averages of already-aggregated ratios.
+- Historical analytics must come from immutable trades, positions, or snapshots, not mutable singleton runtime state.
+- Keep query keys, URL params, and backend filters aligned when they vary by `days`, `mode`, `profile`, or `tradeSource`.
+- Keep dashboard colors on semantic CSS variables from `trading_bot/dashboard/app/globals.css` and `trading_bot/dashboard/lib/chart-colors.ts`.
+- If code changes behavior, contracts, workflows, setup, or operator expectations, update the matching docs in the same pass even if the prompt only asked for code.
 
 ## Main References
 
-Use these as the source of truth for project-specific patterns:
+- Start at `docs/README.md`, then read the task-specific docs before code inspection.
+- `README.md`
+- `docs/README.md`
+- `trading_bot/AGENTS.md`
+- `trading_bot/dashboard/README.md`
+- `.agents/skills/docs-editor/SKILL.md`
+- `.agents/skills/database-safety/SKILL.md`
+- `.agents/skills/strategy-safety/SKILL.md`
+- `.agents/skills/performance-investigation/SKILL.md`
+- `.agents/skills/analytics-advice/SKILL.md`
+- `.agents/skills/trading-research-workflow/SKILL.md`
 
-- `AGENTS.md` and `trading_bot/AGENTS.md` for Codex operating guidance
-- `README.md` for repo layout, bootstrap, and operational notes
-- `trading_bot/dashboard/README.md` for dashboard data flow, shared shell/query patterns, control/auth boundaries, and theme guidance
-- `.agents/skills/docs-editor/SKILL.md` for documentation workflow
-- `.agents/skills/database-safety/SKILL.md` for schema, SQL, and rollout rules
-- `.agents/skills/strategy-safety/SKILL.md` for trading-path safety rules
-- `.agents/skills/performance-investigation/SKILL.md` for bottleneck analysis
-- `.agents/skills/analytics-advice/SKILL.md` for metric interpretation
-- `.agents/skills/trading-research-workflow/SKILL.md` for current provider-plan and API research
-
-For domain-heavy work, consult the configured Codex agent under `.codex/agents/`.
+For domain-heavy work, check `.codex/agents/`.
 
 ## Codex MCP Defaults
 
-Prefer the MCPs that are actually configured for this repository's Codex agents instead of generic or stale tool names.
+Configured repo MCPs live in `.codex/config.toml`. Preferred pairings:
 
-- `filesystem`: direct repo reads, targeted file inspection, and config lookup
-- `desktop_commander`: broader local-ops MCP for process execution, richer search, session interaction, and file operations beyond simple repo reads
-- `serena`: semantic code navigation, symbol tracing, callsite discovery, and impact analysis
-- `postgres`: read-first database inspection, query tracing, schema/view validation, and DB safety checks
-- `context7`: primary-source library and framework documentation lookup
-- `sequential_thinking`: complex debugging, architecture decisions, and multi-step reasoning that needs explicit backtracking
-- `chrome_devtools` and `browsermcp`: dashboard verification, browser interaction, rendering checks, and external-doc pages that need real navigation
-- `fetch`: lightweight retrieval of current external docs, changelogs, and API references when full browser interaction is unnecessary
-- `memory`: preserving useful cross-task entities, relationships, and observations for longer-running investigations
-- `time`: exact current-time or timezone-aware checks for research and recency-sensitive work
-
-Default MCP selection by task:
-
-- Codebase tracing: `serena` + `filesystem`
-- Database and Prisma safety: `postgres` + `filesystem`
-- Dashboard work: `filesystem` + `serena`, then `chrome_devtools` or `browsermcp` for verification
-- External research: `context7` first for library docs, then `fetch` or browser MCPs for current vendor docs and changelogs
-- Non-obvious investigations: add `sequential_thinking`
-
-Use `filesystem` as the default file-reading MCP.
-Use `desktop_commander` only when the task needs local process execution, interactive command/session work, stronger directory search, or file operations that go beyond straightforward repo inspection.
+- Code tracing: `filesystem` + `serena`
+- Docs and setup verification: `filesystem` + `desktop_commander`
+- DB and Prisma safety: `postgres` + `filesystem`
+- Dashboard verification: `chrome_devtools` or `browsermcp`
+- External docs: `context7` first, then `fetch`
+- Multi-step investigations: add `sequential_thinking`
 
 ## Verification
 
 Before finishing:
 
-- Run the relevant checks for the area changed
-- Make sure no unused imports, dead code, or placeholder fixes remain
-- Verify behavior, not just syntax
-- If Prisma schema or generated client surface changed, run the Prisma generate step before trusting TypeScript output
-- If runtime behavior, route contracts, or operator controls changed, update the corresponding docs and agent guidance in the same pass
-- For dashboard work, prove the actual build path is green and confirm any search-param client hooks sit behind the required Suspense boundary.
+- Run the relevant checks for the area changed.
+- Verify behavior, not just syntax.
+- Remove dead imports, dead code, and placeholder fixes.
+- If Prisma changed, run the Prisma generate step before trusting TypeScript output.
+- If routes, runtime behavior, or operator controls changed, update the matching docs and guidance in the same pass.
+- For dashboard work, prove the build path is green and make sure search-param hooks still sit behind the required Suspense boundary.

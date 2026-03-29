@@ -1,29 +1,24 @@
 ---
 name: "docs-editor"
-description: "Workflow for researching, editing, and validating repository documentation, READMEs, runbooks, and developer notes so docs match actual code behavior."
+description: "Workflow for researching, editing, and validating repository docs so guidance matches the current code."
 ---
 
 # Docs Editor
 
-Use this skill for documentation work.
+Use this skill for READMEs, AGENTS guides, runbooks, and developer notes.
 
-## Goals
-- Keep docs aligned with actual code and commands.
-- Remove stale guidance and vague wording.
-- Prefer concise task-oriented docs over long narrative text.
-- Link to canonical sources when possible.
-- Capture operational invariants that recent incidents or audits made explicit, such as auth boundaries, deterministic analytics, and no-migration repo rules.
-- When provider integrations are documented, verify current quota assumptions, daily-budget behavior, and which traffic stays essential when budget pressure rises.
+## Rules
+
+- Start at `docs/README.md`, then open only the task-specific docs you need before inspecting code.
+- Verify commands, paths, env vars, ports, and route names against code before editing.
+- Do not invent commands, routes, or startup behavior.
+- Keep setup and verification steps short and executable.
+- When auth boundaries, DB rollout, quota behavior, or filter contracts change, update every matching doc in the same pass.
+- Prefer one canonical statement over repeating the same repo rule in five files.
 
 ## Preferred Tools
-- `filesystem` for local docs and command references.
-- `fetch` for product and external documentation.
-- `context7` for framework-specific details.
-- `serena` when docs depend on code ownership or symbol behavior.
 
-## Editing Rules
-- Do not invent commands or paths.
-- Verify examples against the current repo layout.
-- Keep operational instructions precise and short.
-- When docs mention verification or control paths, make sure they reflect the real build, lint, auth, and proxy behavior in the codebase.
-- If a route or schema contract changed, update the matching README, AGENTS guidance, and specialist notes in the same pass.
+- `filesystem` for local docs and manifests
+- `serena` for ownership and callsite tracing
+- `context7` for framework details
+- `fetch` only when external docs are required

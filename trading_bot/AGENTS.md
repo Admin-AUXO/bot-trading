@@ -1,89 +1,82 @@
 # trading_bot Codex Guide
 
-This file applies to work inside `trading_bot/` and is more specific than the repo-root guide.
+This guide applies to work inside `trading_bot/` and overrides the root guide where it is more specific.
 
 ## Core Rules
 
-- Use `backend/src/utils/logger.ts`; do not add `console.log`, `console.warn`, or `console.error`.
-- This is a TypeScript ESM codebase. Relative imports should use `.js` extensions.
-- Keep configuration in the existing config system under `backend/src/config/`.
-- Provider calls must go through `backend/src/services/helius.ts` and `backend/src/services/birdeye.ts`; do not bolt on raw provider fetches or quota-blind side workers.
-- Preserve existing circuit breaker, retry, and rate-limit patterns around external APIs.
-- Avoid unnecessary code comments.
-- Prefer minimal, reversible changes over large refactors.
-- Do not create Prisma migration files. Keep schema changes in `backend/prisma/schema.prisma` and DB rollout SQL in `backend/prisma/views/create_views.sql`.
-- Use `npm run db:setup` when you need the actual database bootstrap. `npm run db:push` syncs tables only; the dashboard views come from `backend/prisma/views/create_views.sql`.
-- Keep Docker and local Node majors aligned when dependency locks change. The current Dockerfiles use `node:24-alpine` so Docker builds match the repo's current npm 11 lockfile behavior.
-- If `backend/prisma/views/create_views.sql` changes a view's column layout, make the script idempotent for existing Docker volumes by dropping and recreating that view before `CREATE VIEW`.
-- Preserve quota classification. Exits, execution follow-through, and wallet reconciliation are essential traffic; discovery, wallet scoring, analytics enrichment, and backfills should degrade first.
-- Keep API-budget analytics dimensional. Service, endpoint, strategy, mode, config profile, purpose, essential/cache-hit state, and batch size must remain queryable.
-- Control-plane writes must stay behind bearer auth. If a route mutates runtime behavior, positions, or profiles, assume auth is required unless a narrower rule is documented.
-- Dashboard control auth stays centralized in `dashboard/app/api/[...path]/route.ts` and `dashboard/app/api/operator-session/route.ts`. New mutating dashboard actions should use that same boundary.
-- Reuse `dashboard/lib/dashboard-query-options.ts` and `dashboard/hooks/use-dashboard-shell.ts` when changing dashboard data flow so query keys, request params, shared shell state, and layout chrome stay aligned.
-- Keep active runtime scope separate from analysis filters. Chrome and control surfaces reflect the live runtime lane; `dashboard/hooks/use-dashboard-filters.ts` owns cross-lane inspection for positions, trades, analytics, and quota drill-downs.
-- Dashboard views that mix lane-scoped, mode/profile-scoped, and global feeds must label that scope explicitly. Do not let a filtered page header imply every card obeys the same filters.
-- Dashboard capacity UI must keep runtime portfolio slot truth separate from filtered subsets. Filtered row counts are not capacity.
-- Quota UI must derive blockers from provider quota state, not from generic operator pause reasons with a convenient new label.
-- When rolling up per-strategy percentages such as manual share, weight by the underlying trade counts instead of averaging the pre-aggregated ratios.
-- Profile activation UI should surface tracked result context when the API already exposes it.
-- Keep dashboard light/dark styling on semantic variables in `dashboard/app/globals.css` and `dashboard/lib/chart-colors.ts`; do not add page-local hard-coded chart or surface colors.
-- Manual control paths must obey the same capital, reserve, and sizing checks as automated entry paths. Never validate overrides against only the default size.
-- Follow-on buys and delayed tranches must obey the same pause, loss-limit, reserve, and capital-level checks as initial entries. Existing positions are not a bypass.
-- Keep strategy config coherent end to end. If a profile overrides size, stop loss, take profit, trailing stop, time stop, time limit, or slippage, entry filters, execution, exit monitoring, and control surfaces must all use that same runtime config.
-- Workers must reuse the supported Prisma initialization path from `backend/src/db/client.ts`; do not construct ad-hoc Prisma clients for background jobs.
-- Historical stats must be derived from immutable trade/snapshot history. Do not write past rows from current singleton runtime state.
-
-## Safety-Critical Areas
-
-Be especially careful in:
-
-- `backend/src/core/`: trade execution, exits, position tracking, risk, regime behavior
-- `backend/src/strategies/`: entry logic, skip logic, sizing, exit rules
-- `backend/src/services/`: exchange and data-provider integrations
-- `backend/prisma/`: schema, SQL views, seed
-
-If a change can affect live trading behavior, validate the actual execution path and not just the immediate function.
+- Before editing code, read `../docs/README.md` and the most relevant docs for the area first:
+  strategy work -> `../docs/strategies/`
+  dashboard work -> `../docs/dashboard/` and `../docs/workflows/`
+  backend/runtime/API work -> `../docs/architecture/` and `../docs/backend/`
+  schema/DB work -> `../docs/data/` and `../docs/operations/`
+- Use `backend/src/utils/logger.ts`; do not add new `console.*` logging in runtime code.
+- This is a TypeScript ESM codebase. Relative imports use `.js` extensions.
+- Keep configuration in `backend/src/config/`.
+- Provider calls belong in the shared services under `backend/src/services/`, including Jupiter. Do not bolt on raw provider fetches or quota-blind side paths.
+- Preserve existing retry, rate-limit, cache, and circuit-breaker patterns around external APIs.
+- Prefer minimal, reversible changes.
+- Do not create Prisma migration files. Use `backend/prisma/schema.prisma` and `backend/prisma/views/create_views.sql`.
+- Use `npm run db:setup` for real DB bootstrap. `db:push` syncs tables only; views are separate.
+- Keep Docker and local Node majors aligned with the current `node:24-alpine` images.
+- If `backend/prisma/views/create_views.sql` changes a view shape, drop and recreate that view before `CREATE VIEW`.
+- Preserve quota classification. Exits, execution follow-through, and wallet reconciliation stay essential. Discovery, scoring, analytics enrichment, and backfills degrade first.
+- Control-plane writes stay behind bearer auth. Keep dashboard proxy auth centralized in `dashboard/app/api/[...path]/route.ts` and `dashboard/app/api/operator-session/route.ts`.
+- `/api/overview` rejects non-active scope requests. `/api/control/*` reads are always runtime-scope. `/api/overview/api-usage` only narrows endpoint rows by `mode/profile`.
+- Reuse `dashboard/hooks/use-dashboard-shell.ts` for runtime chrome state and `dashboard/hooks/use-dashboard-filters.ts` for page-level analysis filters.
+- Keep runtime scope separate from analysis filters. Chrome and control surfaces reflect the live lane; analysis pages may inspect other lanes.
+- Capacity, quota, and weighted analytics rules are safety rules, not cosmetic preferences.
+- Manual entry, manual exit, follow-on buys, and delayed tranches must obey the same capital, reserve, pause, and sizing checks as automated paths.
+- Keep strategy config coherent end to end. Profile overrides must flow through entry, execution, exits, and control surfaces together.
+- Workers must use the shared Prisma path in `backend/src/db/client.ts`; do not construct ad-hoc Prisma clients.
+- Historical stats must come from immutable trade or snapshot history, not current singleton runtime state.
+- `reconcile-wallet` only exists in LIVE mode.
+- If a code change affects behavior, contracts, or workflow, update the matching docs in `../docs/` in the same pass.
 
 ## Working Map
 
-- `backend/src/core/`: execution engine and portfolio lifecycle
-- `backend/src/core/api-budget-manager.ts`: provider budget accounting, daily quota policy, and runtime pause semantics
-- `backend/src/strategies/`: strategy-specific signal generation
-- `backend/src/services/`: Helius, Birdeye, Jupiter, and related integrations
-- `backend/src/api/`: Express routes and middleware
-- `backend/src/workers/`: async workers and queue consumers
-- `backend/src/db/`: Prisma client access
-- `backend/src/utils/`: logger, rate limiter, circuit breaker, shared infra
-- `dashboard/`: Next.js UI
-- `backend/prisma/`: schema, views, seed
+- `backend/src/index.ts`: thin process entrypoint
+- `backend/src/bootstrap/runtime.ts`: runtime assembly, service wiring, API startup, shutdown
+- `backend/src/bootstrap/intervals.ts`: periodic tasks, quota sync/persist, wallet scoring, backfills
+- `backend/src/api/routes/`: route groups for overview, positions, trades, analytics, control, profiles
+- `backend/src/core/`: risk, execution, exits, runtime state, API budgets
+- `backend/src/services/`: Helius, Birdeye, Jupiter, market ticks, outcomes
+- `backend/src/strategies/`: entry logic for S1/S2/S3
+- `backend/src/workers/` and `backend/src/core/stats-aggregator.ts`: background aggregation worker path
+- `backend/prisma/`: schema, seed, views
+- `dashboard/features/`: route-owned UI implementations
+- `dashboard/hooks/`: shared shell, filters, SSE, shortcuts
+- `dashboard/lib/`: API contracts, query options, theme helpers, server helpers
 
 ## Commands
 
 From `trading_bot/backend/`:
 
-```bash
+```powershell
 npm run dev
 npm run build
 npm run typecheck
+npm run db:generate
 npm run db:push
 npm run db:views
 npm run db:setup
+npm run db:seed
 npm run db:studio
 ```
 
 From `trading_bot/dashboard/`:
 
-```bash
+```powershell
 npm run dev
 npm run build
+npm run lint
+npm run start
 ```
 
 ## Required References
 
-Use the matching rule doc before making non-trivial changes:
-
 - `../AGENTS.md`
 - `../README.md`
+- `../docs/README.md`
 - `dashboard/README.md`
 - `../.agents/skills/docs-editor/SKILL.md`
 - `../.agents/skills/database-safety/SKILL.md`
@@ -96,9 +89,9 @@ Use the matching rule doc before making non-trivial changes:
 
 Do not mark work complete until:
 
-- The changed area has been verified with the relevant command or behavior check
-- Error handling still surfaces failures clearly
-- No new hardcoded secrets, unsafe defaults, or silent fallbacks were introduced
-- If provider budget behavior changed, the shared services, runtime intervals, API responses, and docs were updated together
-- Dashboard filters and analytics requests stay mode-aware and parameter-consistent end to end when the changed area touches UI data flow
-- Docker or startup changes still preserve the `db-setup` bootstrap service, backend health gate, and dashboard-after-backend-health sequencing
+- The changed area has been verified with the relevant command or behavior check.
+- Error handling still exposes failures clearly.
+- No hardcoded secrets, unsafe defaults, or silent fallbacks were introduced.
+- If provider budget behavior changed, shared services, intervals, API responses, and docs were updated together.
+- If dashboard data flow changed, query keys, request params, and backend filters still agree end to end.
+- Docker/startup changes still preserve `db-setup -> backend healthy -> dashboard starts`.

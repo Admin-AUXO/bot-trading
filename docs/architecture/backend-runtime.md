@@ -1,0 +1,59 @@
+# Backend Runtime
+
+The backend is assembled in one place. Start there before touching strategy, API, or lifecycle behavior.
+
+## Primary Files
+
+- `trading_bot/backend/src/index.ts`
+- `trading_bot/backend/src/bootstrap/runtime.ts`
+- `trading_bot/backend/src/bootstrap/intervals.ts`
+- `trading_bot/backend/src/api/server.ts`
+
+## Startup Order
+
+1. Load env-backed config from `backend/src/config/index.ts`.
+2. Build core runtime services in `bootstrap/runtime.ts`:
+   `PositionTracker`, `RegimeDetector`, `ConfigProfileManager`, `RiskManager`, `ApiBudgetManager`.
+3. Load profiles, resolve the active runtime scope, then load persisted risk/quota state.
+4. Create shared provider clients:
+   `HeliusService`, `BirdeyeService`, `JupiterService`.
+5. Pick the executor by `TRADE_MODE`:
+   `TradeExecutor` for `LIVE`, `DryRunExecutor` for `DRY_RUN`.
+6. Create `ExitMonitor`, `OutcomeTracker`, `MarketTickRecorder`, and strategies `S1`, `S2`, `S3`.
+7. Load open positions for the active runtime lane and re-arm exit monitoring.
+8. Start regime evaluation, reconcile wallet balance in `LIVE`, and start strategies.
+9. Start the Express API server.
+10. Register periodic intervals for regime updates, daily reset checks, risk/quota persistence, wallet scoring, daily stats aggregation, and would-have-won backfill.
+
+## Runtime Invariants
+
+- Runtime scope lives in `runtimeState.scope` and drives API/control truth.
+- `DRY_RUN` still writes trades, positions, signals, and analytics rows; it just uses the dry-run executor.
+- Strategy position sizes come from `RiskManager`, not directly from config constants.
+- Profile switching for the active mode pauses the bot, stops strategies, reloads scope/config, reloads open positions, and restarts the runtime.
+- Failed runtime profile switches can leave the switch pause reason in place. Read the switch path before "simplifying" it.
+- Wallet reconciliation exists only in `LIVE`.
+- Risk persistence is `LIVE`-only. `DRY_RUN` runtime truth stays in memory for the process lifetime.
+
+## Periodic Work
+
+- Regime refresh: Jupiter SOL price + Birdeye trending sample
+- Daily reset check: `RiskManager.checkDailyReset()`
+- State persistence: risk state + quota state
+- Quota sync: provider-reported Birdeye credits usage
+- Wallet scoring: S1-only maintenance task, skipped when Helius non-essential budget should degrade
+- Stats aggregation: hourly daily-stats recompute
+- Would-have-won backfill: skipped when Birdeye non-essential budget should degrade
+
+## Shutdown
+
+Shutdown stops strategies, exit monitoring, regime detector, outcome tracker, market tick recorder, stats worker, provider connections, intervals, and DB access. State is persisted before exit.
+
+## Change Rules
+
+- If runtime scope behavior changes, update:
+  `workflows/profiles-and-runtime-scope.md`
+- If control/auth behavior changes, update:
+  `workflows/control-and-auth.md`
+- If provider budgeting changes, update:
+  `workflows/quota-and-provider-budgets.md`

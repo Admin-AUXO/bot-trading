@@ -1,145 +1,84 @@
 # Dashboard Guide
 
-This dashboard is the operator surface for the trading bot. It is a Next.js 16 App Router app with a centralized proxy/auth layer, shared shell state, page-owned feature modules, and semantic theming for both dark and light mode.
+This is the operator surface for the trading bot. It is a Next.js 16 App Router app with a centralized proxy/auth layer, shared runtime shell state, page-owned feature modules, and semantic theme tokens.
 
-## Page Map
+## Structure
 
-- `/`: overview of capital, exposure, regime, quota pressure, lane-day performance, and the next forced exit
-- `/positions`: open risk, close history, runtime portfolio capacity versus filtered subsets, skipped-capacity review with block reasons, and manual entry/exit controls
-- `/trades`: trade tape plus signal pass/reject flow with reject reasons and filter evidence
-- `/analytics`: expectancy, capital curve, execution quality, weighted manual share, distribution, reject leakage, regime history, wallet activity, and explicit scope badges for every section
-- `/quota`: provider runway, daily burn history, monthly trajectory, quota-driven blockers, and endpoint concentration
-- `/settings`: bot controls, operator session, strategy config, risk limits, current quota pressure, pause reasons, wallet reconciliation, and config profiles with recent results context
+- `app/*`: thin route wrappers
+- `features/*`: route-owned page implementations
+- `app/providers.tsx`: theme, query client, dashboard shell, dashboard filters
+- `components/layout/keyboard-provider.tsx`: mounts SSE notifications and keyboard shortcuts
+- `hooks/use-dashboard-shell.ts`: runtime shell truth for chrome and shell summaries
+- `hooks/use-dashboard-filters.ts`: page-level analysis filters
+- `lib/dashboard-query-options.ts`: canonical query keys and query functions
+- `lib/api.ts`: request/response contracts plus `createSSEConnection()`
+- `lib/page-meta.ts`: page titles and descriptions
 
-Page titles and descriptions live in `lib/page-meta.ts`. Keep those descriptions aligned with what the page actually answers.
+## Pages
 
-## Data Flow
+- `/`: runtime overview, quota pressure, regime, and next forced exit
+- `/positions`: open positions, close history, capacity truth, manual controls
+- `/trades`: fills, signals, rejections, and filter evidence
+- `/analytics`: expectancy, execution quality, capital curve, distributions, scope badges
+- `/quota`: provider runway, endpoint concentration, quota-specific blockers
+- `/settings`: bot controls, operator session, strategy config, reconciliation, profile management
 
-Use these files as the dashboard data contract:
+## Data And Scope Rules
 
-- `lib/dashboard-query-options.ts`
-  Defines canonical TanStack Query keys and query functions for shared resources.
-- `hooks/use-dashboard-shell.ts`
-  Aggregates overview, heartbeat, operator session, runtime positions, and lightweight quota snapshots into one shared shell model for header, sidebar, footer, and shell-level banners.
-- `hooks/use-dashboard-filters.ts`
-  Separates active runtime scope from page-level analysis filters so layout chrome can stay truthful while analytics can inspect other lanes.
-- `app/providers.tsx`
-  Installs the shared shell/filter providers so chrome and pages consume one query-backed dashboard state graph instead of rebuilding it component by component.
-- `lib/api.ts`
-  Owns the request shapes returned from the backend proxy. If a backend route response changes, update the types here first.
+- `useDashboardShell()` queries `overview`, `heartbeat`, `operatorSession`, and `strategyConfig`. Shell positions and quota state are derived from overview data; do not add duplicate shell-level queries for the same truth.
+- `useDashboardFilters()` separates analysis filters from the active runtime lane. Chrome and controls reflect runtime truth; analysis pages may inspect other `mode/profile` lanes.
+- Request params use `profile`; persisted/runtime fields are `configProfile`. Keep the terminology straight.
+- If a query key varies by `days`, `mode`, `profile`, or `tradeSource`, the request and backend route must vary by the same dimensions.
+- `tradeSource` applies to fills and analytics, not raw signal rows.
+- `/api/overview`, `/api/control/*`, and `/api/stream` are active-runtime contracts.
+- `/api/overview/api-usage` keeps service totals and quota history global. Only endpoint rows narrow by lane metadata.
+- Capacity widgets must use runtime portfolio truth, not filtered row counts.
+- Aggregate percentages from strategy rows must be weighted by the underlying counts.
+- Profile activation is a runtime action for the active mode and must stay blocked while that mode still has open positions.
 
-Rules:
+## Auth And Transport
 
-- If a filter varies by `days`, `mode`, `profile`, or `tradeSource`, the query key, request params, and backend route must all vary by the same fields.
-- Do not imply a filter applies where the backend has no matching dimension. Signal feeds are `mode/profile` scoped today; `tradeSource` applies to executed fills and analytics, not raw signal rows.
-- If operator state can contain multiple blockers, surface `pauseReasons` instead of collapsing everything to one string too early.
-- If a page mixes runtime-scope, lane-scoped, mode/profile-scoped, or global feeds, label that scope in the UI. A filtered header does not grant every card filtered semantics.
-- Do not add new header/footer/sidebar queries for overview, positions, heartbeat, or operator session when `use-dashboard-shell.ts` already exposes them.
-- `/api/overview` and `/api/control/*` are runtime-scope contracts. Do not pretend the user can ask them for arbitrary `mode/profile` lanes.
-- Manual entry and exit are runtime-lane actions. If the operator is inspecting another `mode/profile` lane, keep the read path available but disable the write path explicitly.
-- `/api/control/config` is the runtime truth for settings cards: it now exposes configured base size, current effective size after regime/capital adjustments, and the structured exit plan for each strategy. Do not hard-code those thresholds in the client.
-- `/api/overview` day counters are lane-scoped runtime truth. Reuse the backend lane-summary contract instead of recomputing those numbers ad hoc per page.
-- `/api/overview` also carries the lightweight runtime quota snapshot used by shell chrome. Do not pull `/api/overview/api-usage` into header, footer, sidebar, or other shell-level status just to rank current provider pressure.
-- Connection state is derived from heartbeat plus available shell data. Do not reintroduce a manual `connected` flag in client state.
-- Process health in settings is backend reachability, not bot trading state. Show paused/running separately instead of translating `heartbeat.isRunning` into an uptime verdict.
-- Keep compact metrics on `components/ui/summary-tile.tsx` unless a page has a stronger reason to diverge.
-- `/api/overview/api-usage?days=N` is a compound contract now: current snapshots, persisted daily rows, monthly aggregates, and top endpoint spenders. Do not assume the old `{ daily, monthly }` shape.
-- `/api/overview/api-usage?days=N&mode=...&profile=...` only narrows endpoint rows. Service totals and quota history stay global provider truth by design.
-- Endpoint spender rows are keyed and labeled by the full backend identity: service, endpoint, strategy, mode, config profile, purpose, and essential status.
-- Capacity widgets on `/positions` must distinguish actual portfolio slots from filtered rows. Filtered `positions.length` is not bot-wide availability.
-- Rejected or skipped signal surfaces should carry `rejectReason` plus attached `filterResults` when the backend provides them; timestamps alone are not an explanation.
-- Aggregate ratios from already-aggregated strategy rows must be weighted by the underlying counts. `manualShare` is weighted by `buyCount + sellCount`.
-- Service totals on `/quota` are global provider budgets. Only the endpoint table should be narrowed by analysis lane metadata, and only when that metadata exists.
-- Quota blockers come from quota snapshot pause metadata or hard-limit state. Generic operator `pauseReasons` are broader and should not be relabeled as provider blockers.
-- Profile lists should fetch and show tracked result context when activation decisions benefit from historical performance.
-- Config-profile performance context should come from aggregate profile summaries, not capped recent-sample payloads pretending to be totals.
-- New profiles should be presented as inactive until the operator activates them deliberately. Switching the active profile for the currently running mode is a runtime action and must be blocked while that runtime mode still has open positions.
-- `/api/analytics/execution-quality` summarizes entry/exit slippage, fees, latency, and copy lag by strategy. Keep types in `lib/api.ts` aligned before using it in UI code.
+- Browser traffic goes through `app/api/[...path]/route.ts`.
+- The proxy injects backend bearer auth for every non-read request and for `GET /api/stream`.
+- Non-read requests also require an authenticated operator-session cookie from `app/api/operator-session/route.ts`.
+- The dashboard secret fallback chain is:
+  - `DASHBOARD_OPERATOR_SECRET`
+  - `CONTROL_API_SECRET`
+  - `CONTROL_SECRET`
+  - `API_CONTROL_SECRET`
+  - `DASHBOARD_CONTROL_SECRET`
+- SSE is opened by `createSSEConnection()` at `/api/stream`, proxied upstream by the catch-all route, and mounted from `components/layout/keyboard-provider.tsx`.
+- Only queries wired through the realtime backstop logic stand down while SSE is healthy. Do not assume every query stops polling.
 
-## Control And Auth
+## Theme
 
-The dashboard never talks to the backend directly from the browser. It goes through the Next.js proxy:
-
-- `app/api/[...path]/route.ts`
-  Central proxy to the backend. It injects bearer auth for privileged routes and rejects non-read methods without an authenticated operator session.
-- `app/api/operator-session/route.ts`
-  Issues and clears the httpOnly operator-session cookie used by the proxy.
-- `lib/server/operator-session.ts`
-  Reads the dashboard control secret and validates the session cookie.
-
-Dashboard control secret env fallbacks:
-
-- `DASHBOARD_OPERATOR_SECRET`
-- `CONTROL_API_SECRET`
-- `CONTROL_SECRET`
-- `API_CONTROL_SECRET`
-- `DASHBOARD_CONTROL_SECRET`
-
-Operational rules:
-
-- Backend mutating routes still require the backend control secret.
-- The dashboard server must know the same secret if you want pause/resume/manual/profile actions to work through the proxy.
-- Read-only routes may stay public. Mutating routes should go through the centralized proxy boundary instead of ad-hoc headers in client code.
-- SSE payloads from `app/api/stream` should hydrate shared overview, heartbeat activity timestamps, and active-lane position caches immediately, including trade-source filtered position caches. Shared query polling should stand down while SSE is healthy and only resume as a reconnect backstop.
-
-## Theme And Motion
-
-Theme tokens live in `app/globals.css` and chart color aliases live in `lib/chart-colors.ts`.
-
-Rules:
-
-- Use semantic CSS variables for surfaces, text, borders, and charts.
-- Do not hard-code dark-only chart colors or tooltip colors in components.
-- Light mode should be a first-class theme, not a partial override.
-- Motion should clarify hierarchy and state changes. Dense tables should not animate every row gratuitously.
-- Respect reduced motion through `components/layout/page-transition.tsx` and similar motion surfaces.
-
-## Layout
-
-Shell layout lives in:
-
-- `components/layout/header.tsx`
-- `components/layout/sidebar.tsx`
-- `components/layout/footer.tsx`
-- `components/ui/connection-banner.tsx`
-
-Shell priorities:
-
-- one shared source of truth for mode, freshness, operator access, open exposure, and bot state
-- runtime scope in the chrome, analysis scope in the page filters, and no pretending those are the same thing
-- compact operator context at the top of every page
-- useful page descriptions instead of generic dashboard copy
-- no duplicated status bands that disagree with each other
+- Semantic surface and text tokens live in `app/globals.css`.
+- Chart aliases live in `lib/chart-colors.ts`.
+- Use those tokens instead of page-local light/dark literals.
 
 ## Verification
 
-For dashboard changes:
+Run:
 
-```bash
+```powershell
 cd trading_bot/dashboard
 npm run lint
 npm run build
 ```
 
-If a dashboard change also modifies backend route contracts, run:
+If route contracts changed, also run:
 
-```bash
+```powershell
 cd trading_bot/backend
 npm run build
 ```
 
 Browser verification should confirm:
 
-- page renders for `/`, `/positions`, `/trades`, `/analytics`, `/quota`, and `/settings`
-- header, sidebar, and footer agree on mode, operator state, and connection state
-- selected analysis filters are reflected in the actual requests where the backend supports them
-- overview and control surfaces stay pinned to the active runtime scope even when analytics filters diverge
-- manual entry and exit stay disabled whenever the inspected `mode/profile` lane is not the active runtime lane
-- overview headline surfaces the next forced exit without drifting off the active lane
-- positions keep runtime capacity separate from filtered rows and show block reasons or filter evidence where available
-- trades render reject reasons plus filter evidence for rejected signals
-- analytics scope badges match the actual query/filter support for each card, and weighted rollups still read correctly
-- quota page shows global service totals, lane-focused endpoint dominance with an explicitly matching denominator, and quota-specific blockers without assuming stale response shapes
-- settings surfaces current provider budget, pause reasons, top-endpoint usage widgets, and per-profile result context without assuming stale response shapes
-- settings strategy cards match `/api/control/config` for live size and exit thresholds instead of hard-coded labels
-- search-param hooks remain behind the required Suspense boundaries
+- all six routes render
+- shell chrome agrees on runtime mode, operator access, and connection state
+- analysis filters only affect requests where the backend supports those dimensions
+- overview and control surfaces stay pinned to the active runtime lane
+- manual controls disable cleanly when the inspected lane is not the active runtime lane
+- quota pages keep global service totals separate from lane-filtered endpoint rows
+- search-param hooks stay behind the required Suspense boundaries

@@ -7,6 +7,13 @@ description: "Trading strategy workflow focused on entry and exit logic, positio
 
 Use this skill for strategy changes.
 
+## Required Pre-Read
+- `docs/README.md`
+- `docs/strategies/overview.md`
+- the relevant file in `docs/strategies/`
+- `docs/workflows/quota-and-provider-budgets.md` when provider usage or degradation behavior matters
+- `docs/workflows/profiles-and-runtime-scope.md` when runtime lane or control behavior matters
+
 ## Goals
 - Protect capital before chasing upside.
 - Make strategy logic explainable from signal to exit.
@@ -15,6 +22,7 @@ Use this skill for strategy changes.
 - Ensure manual entry or override paths obey the same reserve, sizing, and capital checks as automated entries.
 - Never let quota throttling disable exits, execution completion, or wallet reconciliation; degrade non-essential scans, scoring, and backfills first.
 - New provider-heavy logic must flow through the shared services so essentiality, purpose, caching, and batching remain visible to the budget manager.
+- If entry, exit, tranche, or safety behavior changes, update the corresponding strategy docs in the same pass.
 
 ## Review Order
 - Entry conditions.

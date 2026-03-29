@@ -1,24 +1,26 @@
 ---
 name: "performance-investigation"
-description: "Workflow for identifying bottlenecks across backend, database, queue, and dashboard layers with measurement-first reasoning and targeted fixes."
+description: "Workflow for identifying bottlenecks across backend, database, background workers, provider usage, and dashboard layers."
 ---
 
 # Performance Investigation
 
-Use this skill for latency, throughput, or resource issues.
+Use this skill for latency, throughput, or resource problems.
 
-## Goals
-- Measure before changing.
+## Rules
+
+- Before tracing code, read `docs/README.md` plus the relevant runtime, dashboard, and quota docs for the suspected hotspot.
+- Measure before changing anything.
 - Trace the hottest path first.
-- Distinguish CPU, IO, DB, queue, and browser bottlenecks.
-- Prefer the smallest change with measurable impact.
-- Question redundant polling when SSE or another push path already exists, and prefer cache hydration over duplicate hot-path reads.
-- Push stable hot aggregates closer to SQL when repeated Node-side recomputation is the bottleneck.
-- Treat provider credit/CU burn as a bottleneck dimension alongside latency; batch, cache, dedupe, and classify traffic before increasing scan frequency.
-- Use endpoint-level usage evidence before blaming “the network” in the abstract.
+- Separate CPU, IO, DB, cache, provider-budget, browser, and background-worker bottlenecks.
+- Question duplicate polling when SSE or cache hydration already exists.
+- Prefer batching, caching, dedupe, and shared-service fixes before increasing scan frequency.
+- Use endpoint-level usage evidence before blaming “the network.”
+- If the bottleneck analysis changes runtime behavior or operator guidance, update the matching docs in the same pass.
 
 ## Preferred Tools
-- `serena` and `filesystem` for tracing hot paths.
-- `chrome_devtools` for frontend performance.
-- `postgres` for expensive read-path inspection when available.
-- `sequential_thinking` for multi-layer bottlenecks.
+
+- `serena` and `filesystem` for hot-path tracing
+- `postgres` for expensive read paths
+- `chrome_devtools` for frontend performance
+- `sequential_thinking` for multi-layer bottlenecks

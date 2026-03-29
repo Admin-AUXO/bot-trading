@@ -7,6 +7,13 @@ description: "Workflow for evaluating trading outcomes, regime performance, stra
 
 Use this skill for metrics and performance interpretation.
 
+## Required Pre-Read
+- `docs/README.md`
+- `docs/data/prisma-and-views.md`
+- `docs/strategies/overview.md`
+- `docs/workflows/profiles-and-runtime-scope.md`
+- `docs/workflows/quota-and-provider-budgets.md` when spend or provider degradation affects the analysis
+
 ## Goals
 - Separate descriptive analysis from proposed strategy changes.
 - Prefer repeatable metrics over anecdotes.
