@@ -30,6 +30,7 @@ Jupiter and Jito are used by execution paths, but the current `ApiBudgetManager`
 - monthly reserve comes from the configured `20%` budget reserve
 - non-essential traffic is blocked before it consumes the protected daily reserve
 - `shouldRunNonEssential()` only returns true in `HEALTHY`, so soft-limit state already degrades work
+- Helius historical RPC methods are not cheap: `getSignaturesForAddress` and `getTransaction` must be accounted at `10` credits each
 
 ## Dashboard Semantics
 

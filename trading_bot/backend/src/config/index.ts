@@ -203,6 +203,8 @@ export const config = {
       monthly: 10_000_000,
       credits: {
         default: 1,
+        getSignaturesForAddress: 10,
+        getTransaction: 10,
         getTransactionsForAddress: 100,
         getAssetsByOwner: 10,
         getAssetBatch: 10,

@@ -1,9 +1,10 @@
 import { Router } from "express";
+import type { Prisma, Strategy } from "@prisma/client";
 import { db } from "../../db/client.js";
 import { cacheMiddleware } from "../middleware/cache.js";
 import type { RuntimeState } from "../../core/runtime-state.js";
 
-const STRATEGIES = ["S1_COPY", "S2_GRADUATION", "S3_MOMENTUM"] as const;
+const STRATEGIES: Strategy[] = ["S1_COPY", "S2_GRADUATION", "S3_MOMENTUM"];
 
 function parseDays(value: unknown, fallback: number, max: number): number {
   return Math.min(Number(value) || fallback, max);
@@ -56,7 +57,7 @@ export function analyticsRouter(deps?: { runtimeState?: RuntimeState }) {
     const since = new Date();
     since.setDate(since.getDate() - days);
 
-    const where = {
+    const where: Prisma.TradeWhereInput = {
       strategy: { in: STRATEGIES },
       side: "SELL",
       executedAt: { gte: since },
@@ -317,7 +318,7 @@ export function analyticsRouter(deps?: { runtimeState?: RuntimeState }) {
       ...(tradeSource ? { tradeSource: tradeSource as "AUTO" | "MANUAL" } : {}),
     };
     const manualTradeCountsPromise = tradeSource === "AUTO"
-      ? Promise.resolve([] as Array<{ strategy: (typeof STRATEGIES)[number]; _count: { _all: number } }>)
+      ? Promise.resolve([] as Array<{ strategy: Strategy; _count: { _all: number } }>)
       : db.trade.groupBy({
           by: ["strategy"],
           where: { ...tradeWhere, tradeSource: "MANUAL" },

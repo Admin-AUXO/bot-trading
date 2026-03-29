@@ -203,7 +203,7 @@ export class HeliusService {
     await this.rateLimiter.waitForSlot();
     const result = await this.rpc("getSignaturesForAddress", [
       address, { limit },
-    ], config.apiBudgets.helius.credits.default, meta) as unknown[];
+    ], config.apiBudgets.helius.credits.getSignaturesForAddress, meta) as unknown[];
     return result ?? [];
   }
 
@@ -221,7 +221,7 @@ export class HeliusService {
 
     const result = await this.rpc("getSignaturesForAddress", [
       address, params,
-    ], config.apiBudgets.helius.credits.default, meta) as Array<Record<string, unknown>>;
+    ], config.apiBudgets.helius.credits.getSignaturesForAddress, meta) as Array<Record<string, unknown>>;
 
     if (result?.length > 0) {
       const maxSlot = Math.max(...result.map((r) => (r.slot as number) ?? 0));
@@ -427,7 +427,7 @@ export class HeliusService {
       const result = await this.rpc("getTransaction", [
         signature,
         { commitment: "confirmed", encoding: "jsonParsed", maxSupportedTransactionVersion: 0 },
-      ], config.apiBudgets.helius.credits.default, meta) as Record<string, unknown> | null;
+      ], config.apiBudgets.helius.credits.getTransaction, meta) as Record<string, unknown> | null;
       return result;
     } catch (err) {
       log.warn({ err, signature }, "getTransaction failed");
