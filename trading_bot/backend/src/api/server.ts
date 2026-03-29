@@ -9,6 +9,7 @@ import { config } from "../config/index.js";
 import { logger, createChildLogger } from "../utils/logger.js";
 import { db } from "../db/client.js";
 import { getLaneTodaySummary } from "./lane-summary.js";
+import { serializeOpenPosition } from "./serializers/position.js";
 import { overviewRouter } from "./routes/overview.js";
 import { positionsRouter } from "./routes/positions.js";
 import { tradesRouter } from "./routes/trades.js";
@@ -19,8 +20,7 @@ import { requireBearerToken } from "./middleware/auth.js";
 import type { ApiBudgetManager } from "../core/api-budget-manager.js";
 import type { RiskManager } from "../core/risk-manager.js";
 import type { RegimeDetector } from "../core/regime-detector.js";
-import type { CapitalConfig, ExecutionScope } from "../utils/types.js";
-import type { StrategyConfigMap } from "../utils/strategy-config.js";
+import type { RuntimeState } from "../core/runtime-state.js";
 
 const log = createChildLogger("api");
 
@@ -31,11 +31,10 @@ export function createApiServer(deps: {
   configProfileManager: unknown;
   tradeExecutor?: unknown;
   dbClient?: typeof db;
-  scope?: ExecutionScope;
-  strategyConfigs?: StrategyConfigMap;
-  capitalConfig?: CapitalConfig;
+  runtimeState?: RuntimeState;
   apiBudgetManager?: ApiBudgetManager;
   walletReconciler?: () => Promise<number | null>;
+  applyRuntimeProfile?: (profileName: string) => Promise<{ scope: { mode: "LIVE" | "DRY_RUN"; configProfile: string }; status: "active" | "activated" }>;
 }) {
   const app = express();
   const database = deps.dbClient ?? db;
@@ -62,23 +61,22 @@ export function createApiServer(deps: {
     tradeExecutor: deps.tradeExecutor,
     positionTracker: deps.positionTracker,
     dbClient: deps.dbClient,
-    scope: deps.scope,
-    strategyConfigs: deps.strategyConfigs,
+    runtimeState: deps.runtimeState,
   }));
-  app.use("/api/trades", tradesRouter({ scope: deps.scope }));
-  app.use("/api/analytics", analyticsRouter({ scope: deps.scope }));
+  app.use("/api/trades", tradesRouter({ runtimeState: deps.runtimeState }));
+  app.use("/api/analytics", analyticsRouter({ runtimeState: deps.runtimeState }));
   app.use("/api/control", controlLimiter, controlRouter({
     riskManager: deps.riskManager,
     tradeExecutor: deps.tradeExecutor,
     dbClient: deps.dbClient,
-    scope: deps.scope,
-    strategyConfigs: deps.strategyConfigs,
-    capitalConfig: deps.capitalConfig,
+    runtimeState: deps.runtimeState,
     walletReconciler: deps.walletReconciler,
   }));
   app.use("/api/profiles", profilesRouter({
     configProfileManager: deps.configProfileManager,
     dbClient: deps.dbClient,
+    runtimeState: deps.runtimeState,
+    applyRuntimeProfile: deps.applyRuntimeProfile,
   }));
 
   app.get("/api/health", (_req, res) => {
@@ -106,35 +104,9 @@ export function createApiServer(deps: {
       try {
         const snapshot = riskManager.getSnapshot();
         const regime = regimeDetector.getState();
-        const scope = deps.scope ?? snapshot.scope;
+        const scope = deps.runtimeState?.scope ?? snapshot.scope;
         const summary = await getLaneTodaySummary(database, scope);
-        const positions = snapshot.openPositions.map((p) => ({
-          id: p.id,
-          strategy: p.strategy,
-          tokenSymbol: p.tokenSymbol,
-          tokenAddress: p.tokenAddress,
-          entryPriceUsd: Number(p.entryPriceUsd),
-          currentPriceUsd: Number(p.currentPriceUsd),
-          amountSol: Number(p.amountSol),
-          remainingToken: Number(p.remainingToken),
-          peakPriceUsd: Number(p.peakPriceUsd),
-          stopLossPercent: Number(p.stopLossPercent),
-          tranche1Filled: p.tranche1Filled,
-          tranche2Filled: p.tranche2Filled,
-          exit1Done: p.exit1Done,
-          exit2Done: p.exit2Done,
-          exit3Done: p.exit3Done,
-          pnlPercent: p.entryPriceUsd > 0
-            ? ((p.currentPriceUsd - p.entryPriceUsd) / p.entryPriceUsd) * 100
-            : 0,
-          holdMinutes: (Date.now() - p.openedAt.getTime()) / 60_000,
-          status: p.status,
-          regime: p.regime,
-          mode: p.mode,
-          platform: p.platform,
-          walletSource: p.walletSource,
-          openedAt: p.openedAt,
-        }));
+        const openPositions = snapshot.openPositions.map((position) => serializeOpenPosition(position));
 
         res.write(`data: ${JSON.stringify({
           ...snapshot,
@@ -143,7 +115,7 @@ export function createApiServer(deps: {
           todayPnl: summary.todayPnl,
           todayWins: summary.todayWins,
           todayLosses: summary.todayLosses,
-          positions,
+          openPositions,
         })}\n\n`);
       } catch (err) {
         log.warn({ err }, "sse stream send failed");

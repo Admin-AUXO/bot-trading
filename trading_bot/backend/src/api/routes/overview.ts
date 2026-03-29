@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "../../db/client.js";
 import { cacheMiddleware } from "../middleware/cache.js";
+import { serializeOpenPosition } from "../serializers/position.js";
 import { getLaneTodaySummary } from "../lane-summary.js";
 import type { ApiBudgetManager } from "../../core/api-budget-manager.js";
 import type { RiskManager } from "../../core/risk-manager.js";
@@ -88,6 +89,7 @@ export function overviewRouter(deps: { riskManager: unknown; regimeDetector: unk
 
     res.json({
       ...snapshot,
+      openPositions: snapshot.openPositions.map((position) => serializeOpenPosition(position)),
       regime,
       todayTrades: summary.todayTrades,
       todayPnl: summary.todayPnl,
@@ -100,6 +102,8 @@ export function overviewRouter(deps: { riskManager: unknown; regimeDetector: unk
 
   router.get("/api-usage", cacheMiddleware(30_000), async (req, res) => {
     const days = parseDays(req.query.days, 14, 90);
+    const endpointMode = req.query.mode as string | undefined;
+    const endpointProfile = req.query.profile as string | undefined;
     const today = new Date().toISOString().slice(0, 10);
     const since = new Date();
     since.setDate(since.getDate() - Math.max(0, days - 1));
@@ -123,7 +127,11 @@ export function overviewRouter(deps: { riskManager: unknown; regimeDetector: unk
       }),
       database.apiEndpointDaily.groupBy({
         by: ["service", "endpoint", "strategy", "mode", "configProfile", "purpose", "essential"],
-        where: { date: { gte: since } },
+        where: {
+          date: { gte: since },
+          ...(endpointMode ? { mode: endpointMode as "LIVE" | "DRY_RUN" } : {}),
+          ...(endpointProfile ? { configProfile: endpointProfile } : {}),
+        },
         _sum: {
           totalCalls: true,
           totalCredits: true,
@@ -154,6 +162,10 @@ export function overviewRouter(deps: { riskManager: unknown; regimeDetector: unk
         totalErrors: Number(entry._sum.errorCount ?? 0),
       })),
       history: history.map((row) => serializeUsageRow(row)),
+      endpointFilter: {
+        mode: endpointMode ?? null,
+        profile: endpointProfile ?? null,
+      },
       topEndpoints: topEndpoints.map((entry) => ({
         service: entry.service,
         endpoint: entry.endpoint,

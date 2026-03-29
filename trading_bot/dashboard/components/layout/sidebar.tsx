@@ -171,7 +171,7 @@ export function Sidebar() {
                 <div className={cn("font-medium tabular-nums", pnlClass(openPnlUsd))}>{formatUsd(openPnlUsd)}</div>
               </div>
               <div>
-                <div className="text-text-muted">Deployed</div>
+                <div className="text-text-muted">Live exposure</div>
                 <div className="font-medium tabular-nums text-text-primary">{formatUsd(deployedCapitalUsd)}</div>
               </div>
             </div>

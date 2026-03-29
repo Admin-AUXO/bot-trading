@@ -3,6 +3,7 @@ import pLimit from "p-limit";
 import { config } from "../config/index.js";
 import { db } from "../db/client.js";
 import { createChildLogger } from "../utils/logger.js";
+import type { RuntimeState } from "../core/runtime-state.js";
 import type { RiskManager } from "../core/risk-manager.js";
 import type { PositionTracker } from "../core/position-tracker.js";
 import type { ITradeExecutor } from "../utils/trade-executor-interface.js";
@@ -35,13 +36,16 @@ interface WalletTradeSample {
   blockTime: number;
 }
 
+type S1RuntimeConfig = RuntimeState["strategyConfigs"]["S1_COPY"];
+
 export class CopyTradeStrategy extends EventEmitter {
   private eliteWallets: string[] = [];
   private wsMessageHandler: ((data: unknown) => void) | null = null;
   private processingTokens: Set<string> = new Set();
   private recentWalletSignatures: Set<string> = new Set();
-  private readonly cfg: typeof config.strategies.s1;
-  private readonly scope: ExecutionScope;
+  private readonly runtimeState?: RuntimeState;
+  private readonly fallbackConfig: S1RuntimeConfig;
+  private readonly fallbackScope: ExecutionScope;
 
   constructor(
     private riskManager: RiskManager,
@@ -52,13 +56,23 @@ export class CopyTradeStrategy extends EventEmitter {
     private helius: HeliusService,
     private birdeye: BirdeyeService,
     options?: {
+      runtimeState?: RuntimeState;
       scope?: ExecutionScope;
       strategyConfig?: typeof config.strategies.s1;
     },
   ) {
     super();
-    this.scope = options?.scope ?? DEFAULT_SCOPE;
-    this.cfg = options?.strategyConfig ?? config.strategies.s1;
+    this.runtimeState = options?.runtimeState;
+    this.fallbackScope = options?.scope ?? DEFAULT_SCOPE;
+    this.fallbackConfig = options?.strategyConfig ?? config.strategies.s1;
+  }
+
+  private get scope(): ExecutionScope {
+    return this.runtimeState?.scope ?? this.fallbackScope;
+  }
+
+  private get cfg(): S1RuntimeConfig {
+    return this.runtimeState?.strategyConfigs.S1_COPY ?? this.fallbackConfig;
   }
 
   async start(): Promise<void> {

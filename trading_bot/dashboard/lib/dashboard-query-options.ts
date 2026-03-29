@@ -31,7 +31,8 @@ function withErrorBackoff(intervalMs: number, errorMs: number = 30_000) {
 }
 
 export const dashboardQueryKeys = {
-  apiUsage: (days: number) => ["api-usage", days] as const,
+  apiUsage: (days: number, mode?: TradeMode | null, profile?: string | null) =>
+    ["api-usage", days, mode ?? null, profile ?? null] as const,
   heartbeat: ["heartbeat"] as const,
   operatorSession: ["operator-session"] as const,
   overview: ["overview"] as const,
@@ -95,12 +96,12 @@ export const dashboardQueryKeys = {
   strategyConfig: ["strategy-config"] as const,
 };
 
-export function apiUsageQueryOptions(days: number = 14) {
+export function apiUsageQueryOptions(days: number = 14, mode?: TradeMode | null, profile?: string | null) {
   return queryOptions({
-    queryKey: dashboardQueryKeys.apiUsage(days),
-    queryFn: () => fetchApiUsage(days),
+    queryKey: dashboardQueryKeys.apiUsage(days, mode, profile),
+    queryFn: () => fetchApiUsage(days, mode ?? undefined, profile ?? undefined),
     staleTime: 30_000,
-    refetchInterval: 30_000,
+    refetchInterval: withErrorBackoff(60_000),
   });
 }
 
@@ -109,7 +110,7 @@ export function heartbeatQueryOptions() {
     queryKey: dashboardQueryKeys.heartbeat,
     queryFn: fetchHeartbeat,
     staleTime: 10_000,
-    refetchInterval: withErrorBackoff(15_000),
+    refetchInterval: withErrorBackoff(60_000),
   });
 }
 
@@ -126,7 +127,7 @@ export function overviewQueryOptions() {
     queryKey: dashboardQueryKeys.overview,
     queryFn: fetchOverview,
     staleTime: 5_000,
-    refetchInterval: withErrorBackoff(5_000),
+    refetchInterval: withErrorBackoff(30_000),
   });
 }
 
@@ -135,7 +136,7 @@ export function positionsQueryOptions(mode?: TradeMode | null, profile?: string 
     queryKey: dashboardQueryKeys.positions(mode, profile, tradeSource),
     queryFn: () => fetchPositions(mode ?? undefined, profile ?? undefined, tradeSource ?? undefined),
     staleTime: 5_000,
-    refetchInterval: withErrorBackoff(5_000),
+    refetchInterval: withErrorBackoff(30_000),
   });
 }
 
@@ -186,7 +187,7 @@ export function signalsQueryOptions(
   return queryOptions({
     queryKey: dashboardQueryKeys.signals(page, strategy, mode, profile),
     queryFn: () => fetchSignalsPaginated(page, strategy ?? undefined, mode ?? undefined, profile ?? undefined),
-    refetchInterval: withErrorBackoff(15_000),
+    refetchInterval: withErrorBackoff(30_000),
   });
 }
 
@@ -199,7 +200,7 @@ export function skippedSignalsQueryOptions(
   return queryOptions({
     queryKey: dashboardQueryKeys.skippedSignals(page, strategy, mode, profile),
     queryFn: () => fetchSkippedSignals(page, strategy ?? undefined, mode ?? undefined, profile ?? undefined),
-    refetchInterval: withErrorBackoff(15_000),
+    refetchInterval: withErrorBackoff(30_000),
   });
 }
 
@@ -334,6 +335,6 @@ export function strategyConfigQueryOptions() {
     queryKey: dashboardQueryKeys.strategyConfig,
     queryFn: fetchStrategyConfig,
     staleTime: 60_000,
-    refetchInterval: 60_000,
+    refetchInterval: withErrorBackoff(120_000),
   });
 }

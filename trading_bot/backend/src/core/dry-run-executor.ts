@@ -2,7 +2,8 @@ import { randomBytes } from "crypto";
 import { config } from "../config/index.js";
 import { db } from "../db/client.js";
 import { createChildLogger } from "../utils/logger.js";
-import { getStopLossPercent, type StrategyConfigMap } from "../utils/strategy-config.js";
+import { defaultStrategyConfigs, getStopLossPercent, type StrategyConfigMap } from "../utils/strategy-config.js";
+import type { RuntimeState } from "./runtime-state.js";
 import type { PositionTracker } from "./position-tracker.js";
 import type { RiskManager } from "./risk-manager.js";
 import type { JupiterService } from "../services/jupiter.js";
@@ -13,13 +14,23 @@ import type { BuyParams, ITradeExecutor, SellParams } from "../utils/trade-execu
 const log = createChildLogger("dry-run");
 
 export class DryRunExecutor implements ITradeExecutor {
+  private runtimeState: RuntimeState;
+
   constructor(
     private positionTracker: PositionTracker,
     private riskManager: RiskManager,
     private jupiter: JupiterService,
-    private scope: ExecutionScope,
-    private strategyConfigs: StrategyConfigMap,
-  ) {}
+    runtimeStateOrScope: RuntimeState | ExecutionScope,
+    strategyConfigs?: StrategyConfigMap,
+  ) {
+    this.runtimeState = isRuntimeState(runtimeStateOrScope)
+      ? runtimeStateOrScope
+      : {
+          scope: runtimeStateOrScope,
+          strategyConfigs: strategyConfigs ?? defaultStrategyConfigs,
+          capitalConfig: config.capital,
+        };
+  }
 
   private fakeTxSig(): string {
     return `dryrun_${randomBytes(32).toString("hex")}`;
@@ -72,13 +83,13 @@ export class DryRunExecutor implements ITradeExecutor {
           entryPriceUsd: priceUsd ?? 0,
           amountSol: params.amountSol,
           amountToken,
-          stopLossPercent: getStopLossPercent(params.strategy, this.strategyConfigs),
+          stopLossPercent: getStopLossPercent(params.strategy, this.runtimeState.strategyConfigs),
           regime: params.regime,
           entryVolume5m: params.entryVolume5m,
           platform: params.platform,
           walletSource: params.walletSource,
-          mode: this.scope.mode,
-          configProfile: this.scope.configProfile,
+          mode: this.runtimeState.scope.mode,
+          configProfile: this.runtimeState.scope.configProfile,
           entryLiquidity: params.entryLiquidity,
           entryMcap: params.entryMcap,
           entryHolders: params.entryHolders,
@@ -99,8 +110,8 @@ export class DryRunExecutor implements ITradeExecutor {
 
       await db.trade.create({
         data: {
-          mode: this.scope.mode,
-          configProfile: this.scope.configProfile,
+          mode: this.runtimeState.scope.mode,
+          configProfile: this.runtimeState.scope.configProfile,
           strategy: params.strategy,
           tokenAddress: params.tokenAddress,
           tokenSymbol: params.tokenSymbol,
@@ -124,7 +135,7 @@ export class DryRunExecutor implements ITradeExecutor {
       this.riskManager.recordBuyExecution(params.amountSol, config.capital.gasFee);
 
       log.info({
-        profile: this.scope.configProfile,
+        profile: this.runtimeState.scope.configProfile,
         strategy: params.strategy,
         token: params.tokenSymbol,
         amountSol: params.amountSol,
@@ -184,8 +195,8 @@ export class DryRunExecutor implements ITradeExecutor {
 
     await db.trade.create({
       data: {
-        mode: this.scope.mode,
-        configProfile: this.scope.configProfile,
+        mode: this.runtimeState.scope.mode,
+        configProfile: this.runtimeState.scope.configProfile,
         strategy: params.strategy,
         tokenAddress: params.tokenAddress,
         tokenSymbol: params.tokenSymbol,
@@ -229,7 +240,7 @@ export class DryRunExecutor implements ITradeExecutor {
     }
 
     log.info({
-      profile: this.scope.configProfile,
+      profile: this.runtimeState.scope.configProfile,
       strategy: params.strategy,
       token: params.tokenSymbol,
       exitReason: params.exitReason,
@@ -247,4 +258,8 @@ export class DryRunExecutor implements ITradeExecutor {
     };
   }
 
+}
+
+function isRuntimeState(value: RuntimeState | ExecutionScope): value is RuntimeState {
+  return "capitalConfig" in value;
 }

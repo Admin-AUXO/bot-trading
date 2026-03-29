@@ -1,7 +1,8 @@
 import { config } from "../config/index.js";
 import { db } from "../db/client.js";
 import { createChildLogger } from "../utils/logger.js";
-import { getStopLossPercent, type StrategyConfigMap } from "../utils/strategy-config.js";
+import { defaultStrategyConfigs, getStopLossPercent, type StrategyConfigMap } from "../utils/strategy-config.js";
+import type { RuntimeState } from "./runtime-state.js";
 import type { PositionTracker } from "./position-tracker.js";
 import type { RiskManager } from "./risk-manager.js";
 import type { JupiterService } from "../services/jupiter.js";
@@ -13,22 +14,32 @@ import type { BuyParams, ITradeExecutor, SellParams } from "../utils/trade-execu
 const log = createChildLogger("trade-executor");
 
 export class TradeExecutor implements ITradeExecutor {
+  private runtimeState: RuntimeState;
+
   constructor(
     private positionTracker: PositionTracker,
     private riskManager: RiskManager,
     private jupiter: JupiterService,
     private helius: HeliusService,
-    private scope: ExecutionScope,
-    private strategyConfigs: StrategyConfigMap,
-  ) {}
+    runtimeStateOrScope: RuntimeState | ExecutionScope,
+    strategyConfigs?: StrategyConfigMap,
+  ) {
+    this.runtimeState = isRuntimeState(runtimeStateOrScope)
+      ? runtimeStateOrScope
+      : {
+          scope: runtimeStateOrScope,
+          strategyConfigs: strategyConfigs ?? defaultStrategyConfigs,
+          capitalConfig: config.capital,
+        };
+  }
 
   async executeBuy(params: BuyParams): Promise<TradeResult> {
     const entryStart = Date.now();
     const shouldTrackPending = !params.positionId;
     const executionMeta = {
       strategy: params.strategy,
-      mode: this.scope.mode,
-      configProfile: this.scope.configProfile,
+      mode: this.runtimeState.scope.mode,
+      configProfile: this.runtimeState.scope.configProfile,
       purpose: "EXECUTION" as const,
       essential: false,
     };
@@ -44,8 +55,8 @@ export class TradeExecutor implements ITradeExecutor {
       ) {
           await db.signal.create({
             data: {
-              mode: this.scope.mode,
-              configProfile: this.scope.configProfile,
+              mode: this.runtimeState.scope.mode,
+              configProfile: this.runtimeState.scope.configProfile,
               strategy: params.strategy,
               tokenAddress: params.tokenAddress,
               tokenSymbol: params.tokenSymbol,
@@ -132,8 +143,8 @@ export class TradeExecutor implements ITradeExecutor {
       let positionId = params.positionId;
       if (!positionId) {
         const pos = await this.positionTracker.openPosition({
-          mode: this.scope.mode,
-          configProfile: this.scope.configProfile,
+          mode: this.runtimeState.scope.mode,
+          configProfile: this.runtimeState.scope.configProfile,
           strategy: params.strategy,
           tokenAddress: params.tokenAddress,
           tokenSymbol: params.tokenSymbol,
@@ -141,7 +152,7 @@ export class TradeExecutor implements ITradeExecutor {
           entryPriceUsd: priceUsd ?? 0,
           amountSol: params.amountSol,
           amountToken,
-          stopLossPercent: getStopLossPercent(params.strategy, this.strategyConfigs),
+          stopLossPercent: getStopLossPercent(params.strategy, this.runtimeState.strategyConfigs),
           regime: params.regime,
           entryVolume5m: params.entryVolume5m,
           platform: params.platform,
@@ -167,8 +178,8 @@ export class TradeExecutor implements ITradeExecutor {
 
       await db.trade.create({
         data: {
-          mode: this.scope.mode,
-          configProfile: this.scope.configProfile,
+          mode: this.runtimeState.scope.mode,
+          configProfile: this.runtimeState.scope.configProfile,
           strategy: params.strategy,
           tokenAddress: params.tokenAddress,
           tokenSymbol: params.tokenSymbol,
@@ -344,4 +355,8 @@ export class TradeExecutor implements ITradeExecutor {
     };
   }
 
+}
+
+function isRuntimeState(value: RuntimeState | ExecutionScope): value is RuntimeState {
+  return "capitalConfig" in value;
 }

@@ -82,10 +82,12 @@ function useDashboardShellValue() {
   const worstQuota = rankQuotaSnapshots(getApiUsageSnapshotRows(apiUsageQuery.data));
 
   const metrics = useMemo(() => {
-    const solPrice = overviewQuery.data?.regime?.solPrice ?? 0;
-    const openPnlUsd = allPositions.reduce((sum, position) => sum + (position.pnlUsd ?? 0), 0);
+    const openPnlUsd = allPositions.reduce(
+      (sum, position) => sum + (position.pnlUsd ?? ((position.currentPriceUsd - position.entryPriceUsd) * position.remainingToken)),
+      0,
+    );
     const deployedCapitalUsd = allPositions.reduce(
-      (sum, position) => sum + position.amountSol * solPrice,
+      (sum, position) => sum + (position.remainingValueUsd ?? (position.currentPriceUsd * position.remainingToken)),
       0,
     );
     const manualPositions = allPositions.filter((position) => position.tradeSource === "MANUAL").length;
@@ -108,7 +110,7 @@ function useDashboardShellValue() {
       partialClosures,
       urgentPositions,
     };
-  }, [allPositions, maxOpenPositions, overviewQuery.data?.regime?.solPrice, strategyConfig]);
+  }, [allPositions, maxOpenPositions, strategyConfig]);
 
   const lastUpdatedAt = Math.max(
     overviewQuery.dataUpdatedAt,

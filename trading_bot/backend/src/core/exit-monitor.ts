@@ -2,12 +2,14 @@ import Decimal from "decimal.js";
 import { config } from "../config/index.js";
 import { createChildLogger } from "../utils/logger.js";
 import {
+  defaultStrategyConfigs,
   getExitPlan,
   getMaxSlippageBps,
   getTimeLimitMinutes,
   getTimeStopMinutes,
   type StrategyConfigMap,
 } from "../utils/strategy-config.js";
+import type { RuntimeState } from "./runtime-state.js";
 import type { PositionTracker } from "./position-tracker.js";
 import type { ITradeExecutor } from "../utils/trade-executor-interface.js";
 import type { JupiterService } from "../services/jupiter.js";
@@ -21,14 +23,23 @@ const BATCH_INTERVAL_MS = config.exitMonitor.batchIntervalMs;
 export class ExitMonitor {
   private monitoredIds: Set<string> = new Set();
   private batchHandle?: ReturnType<typeof setInterval>;
+  private runtimeState: RuntimeState;
 
   constructor(
     private positionTracker: PositionTracker,
     private tradeExecutor: ITradeExecutor,
     private jupiter: JupiterService,
     private birdeye: BirdeyeService,
-    private strategyConfigs: StrategyConfigMap,
-  ) {}
+    runtimeStateOrConfigs: RuntimeState | StrategyConfigMap,
+  ) {
+    this.runtimeState = isRuntimeState(runtimeStateOrConfigs)
+      ? runtimeStateOrConfigs
+      : {
+          scope: { mode: config.tradeMode, configProfile: "default" },
+          strategyConfigs: runtimeStateOrConfigs ?? defaultStrategyConfigs,
+          capitalConfig: config.capital,
+        };
+  }
 
   startMonitoring(position: PositionState): void {
     if (this.monitoredIds.has(position.id)) return;
@@ -98,7 +109,7 @@ export class ExitMonitor {
       const dropFromPeak = newPeakPrice > 0
         ? new Decimal(newPeakPrice).sub(currentPriceUsd).div(newPeakPrice).mul(100).toNumber()
         : 0;
-      const slippage = getMaxSlippageBps(pos.strategy, this.strategyConfigs);
+      const slippage = getMaxSlippageBps(pos.strategy, this.runtimeState.strategyConfigs);
 
       if (pnlPercent <= -pos.stopLossPercent) {
         exitPromises.push(this.executeFullExit(pos, "STOP_LOSS", slippage));
@@ -144,13 +155,13 @@ export class ExitMonitor {
   }
 
   private shouldTimeStop(pos: PositionState, holdMinutes: number, pnlPercent: number): boolean {
-    const timeStopMinutes = getTimeStopMinutes(pos.strategy, this.strategyConfigs);
+    const timeStopMinutes = getTimeStopMinutes(pos.strategy, this.runtimeState.strategyConfigs);
     const pnlThreshold = pos.strategy === "S3_MOMENTUM" ? config.exitMonitor.timeStopPnlS3Pct : config.exitMonitor.timeStopPnlDefaultPct;
     return holdMinutes >= timeStopMinutes && pnlPercent < pnlThreshold;
   }
 
   private shouldTimeLimit(pos: PositionState, holdMinutes: number): boolean {
-    const limitMinutes = getTimeLimitMinutes(pos.strategy, this.strategyConfigs);
+    const limitMinutes = getTimeLimitMinutes(pos.strategy, this.runtimeState.strategyConfigs);
     return holdMinutes >= limitMinutes;
   }
 
@@ -179,7 +190,7 @@ export class ExitMonitor {
     dropFromPeak: number,
     slippage: number,
   ): Promise<void> {
-    const exitPlan = getExitPlan(pos.strategy, this.strategyConfigs);
+    const exitPlan = getExitPlan(pos.strategy, this.runtimeState.strategyConfigs);
 
     if (pos.strategy === "S1_COPY") {
       const f = config.exitMonitor.exitFractions.s1;
@@ -255,4 +266,8 @@ export class ExitMonitor {
     log.warn({ id: pos.id, exitReason, error: result.error }, "full exit failed; keeping position monitored");
   }
 
+}
+
+function isRuntimeState(value: RuntimeState | StrategyConfigMap): value is RuntimeState {
+  return "capitalConfig" in value;
 }

@@ -103,8 +103,8 @@ export default function OverviewPage() {
       (acc, position) => {
         const entry = acc[position.strategy] ?? { count: 0, deployedUsd: 0, pnlUsd: 0 };
         entry.count += 1;
-        entry.deployedUsd += position.amountSol * position.entryPriceUsd;
-        entry.pnlUsd += position.pnlUsd ?? 0;
+        entry.deployedUsd += position.remainingValueUsd ?? (position.currentPriceUsd * position.remainingToken);
+        entry.pnlUsd += position.pnlUsd ?? ((position.currentPriceUsd - position.entryPriceUsd) * position.remainingToken);
         acc[position.strategy] = entry;
         return acc;
       },
@@ -230,7 +230,7 @@ export default function OverviewPage() {
           tone={openPnlUsd < 0 ? "danger" : "default"}
         />
         <SummaryTile
-          label="Capital Deployed"
+          label="Live Exposure"
           value={formatUsd(deployedCapitalUsd)}
           sub={`${Math.max(0, maxOpenPositions - openSlots)} slots used`}
           icon={<Zap className="h-3.5 w-3.5 text-accent-purple" />}
@@ -376,7 +376,7 @@ export default function OverviewPage() {
                       <span className="text-xs text-text-muted">{exposure.count} positions</span>
                     </div>
                     <div className="mt-2 flex items-center justify-between text-xs text-text-secondary">
-                      <span>Entry deployed {formatUsd(exposure.deployedUsd)}</span>
+                      <span>Live exposure {formatUsd(exposure.deployedUsd)}</span>
                       <span className={cn("tabular-nums", pnlClass(exposure.pnlUsd))}>{formatUsd(exposure.pnlUsd)}</span>
                     </div>
                   </div>
@@ -445,7 +445,7 @@ export default function OverviewPage() {
 
                 {topEndpoints.length ? (
                   <div className="rounded-xl border border-bg-border/80 bg-bg-hover/30 p-3">
-                    <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Top Endpoint Spenders</div>
+                    <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Global Top Endpoint Spenders</div>
                     <div className="mt-3 space-y-2">
                       {topEndpoints.map((endpoint) => (
                         <div key={`${endpoint.service}:${endpoint.endpoint}:${endpoint.purpose}`} className="flex items-center justify-between gap-3 text-xs">

@@ -4,6 +4,7 @@ import { config } from "../config/index.js";
 import { db } from "../db/client.js";
 import { createChildLogger } from "../utils/logger.js";
 import { runSecurityChecks, runTradeDataChecks, runLiquidityMarketCapChecks } from "../utils/token-filters.js";
+import type { RuntimeState } from "../core/runtime-state.js";
 import type { RiskManager } from "../core/risk-manager.js";
 import type { PositionTracker } from "../core/position-tracker.js";
 import type { ITradeExecutor } from "../utils/trade-executor-interface.js";
@@ -15,6 +16,7 @@ import type { ApiCallPurpose, ExecutionScope, SignalResult, MemeToken, JsonValue
 
 const log = createChildLogger("s2-graduation");
 const DEFAULT_SCOPE: ExecutionScope = { mode: config.tradeMode, configProfile: "default" };
+type S2RuntimeConfig = RuntimeState["strategyConfigs"]["S2_GRADUATION"];
 
 export class GraduationStrategy extends EventEmitter {
   private scanInterval?: ReturnType<typeof setInterval>;
@@ -24,8 +26,9 @@ export class GraduationStrategy extends EventEmitter {
   private pendingEntryDelays: Map<string, ReturnType<typeof setTimeout>> = new Map();
   private scanInFlight = false;
   private fallbackInFlight = false;
-  private readonly cfg: typeof config.strategies.s2;
-  private readonly scope: ExecutionScope;
+  private readonly runtimeState?: RuntimeState;
+  private readonly fallbackConfig: S2RuntimeConfig;
+  private readonly fallbackScope: ExecutionScope;
 
   constructor(
     private riskManager: RiskManager,
@@ -36,13 +39,23 @@ export class GraduationStrategy extends EventEmitter {
     private helius: HeliusService,
     private birdeye: BirdeyeService,
     options?: {
+      runtimeState?: RuntimeState;
       scope?: ExecutionScope;
       strategyConfig?: typeof config.strategies.s2;
     },
   ) {
     super();
-    this.scope = options?.scope ?? DEFAULT_SCOPE;
-    this.cfg = options?.strategyConfig ?? config.strategies.s2;
+    this.runtimeState = options?.runtimeState;
+    this.fallbackScope = options?.scope ?? DEFAULT_SCOPE;
+    this.fallbackConfig = options?.strategyConfig ?? config.strategies.s2;
+  }
+
+  private get scope(): ExecutionScope {
+    return this.runtimeState?.scope ?? this.fallbackScope;
+  }
+
+  private get cfg(): S2RuntimeConfig {
+    return this.runtimeState?.strategyConfigs.S2_GRADUATION ?? this.fallbackConfig;
   }
 
   async start(): Promise<void> {

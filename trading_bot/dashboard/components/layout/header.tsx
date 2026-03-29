@@ -150,7 +150,7 @@ export function Header() {
               sub={`${allPositions.length} active positions`}
             />
             <HeaderMetric
-              label="Capital Deployed"
+              label="Live Exposure"
               value={overview ? formatUsd(deployedCapitalUsd) : "—"}
               sub={overview ? `${Math.min(100, (deployedCapitalUsd / Math.max(overview.capitalUsd, 1)) * 100).toFixed(0)}% at work` : "No capital snapshot"}
             />

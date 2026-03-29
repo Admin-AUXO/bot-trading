@@ -76,25 +76,38 @@ export class ConfigProfileManager {
     description?: string;
     mode: TradeMode;
     settings: ConfigProfileSettings;
+    activate?: boolean;
   }): Promise<void> {
-    await db.$transaction(async (tx) => {
-      await tx.configProfile.updateMany({
-        where: { mode: params.mode, isActive: true },
-        data: { isActive: false },
-      });
+    if (params.activate) {
+      await db.$transaction(async (tx) => {
+        await tx.configProfile.updateMany({
+          where: { mode: params.mode, isActive: true },
+          data: { isActive: false },
+        });
 
-      await tx.configProfile.create({
+        await tx.configProfile.create({
+          data: {
+            name: params.name,
+            description: params.description ?? "",
+            mode: params.mode,
+            isActive: true,
+            settings: params.settings as object,
+          },
+        });
+      });
+      await this.loadProfiles();
+    } else {
+      await db.configProfile.create({
         data: {
           name: params.name,
           description: params.description ?? "",
           mode: params.mode,
-          isActive: true,
+          isActive: false,
           settings: params.settings as object,
         },
       });
-    });
-    await this.loadProfiles();
-    log.info({ name: params.name, mode: params.mode }, "profile created");
+    }
+    log.info({ name: params.name, mode: params.mode, activate: params.activate ?? false }, "profile created");
   }
 
   async updateProfile(name: string, settings: ConfigProfileSettings): Promise<void> {

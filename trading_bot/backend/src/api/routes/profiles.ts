@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db } from "../../db/client.js";
 import { cacheMiddleware } from "../middleware/cache.js";
 import { requireBearerToken } from "../middleware/auth.js";
+import type { RuntimeState } from "../../core/runtime-state.js";
 import type { ConfigProfileManager } from "../../core/config-profile.js";
 import type { TradeMode } from "../../utils/types.js";
 
@@ -106,7 +107,12 @@ async function buildProfileResultsSummaries(
   return summaries;
 }
 
-export function profilesRouter(deps: { configProfileManager: unknown; dbClient?: typeof db }) {
+export function profilesRouter(deps: {
+  configProfileManager: unknown;
+  dbClient?: typeof db;
+  runtimeState?: RuntimeState;
+  applyRuntimeProfile?: (profileName: string) => Promise<{ scope: { mode: "LIVE" | "DRY_RUN"; configProfile: string }; status: "active" | "activated" }>;
+}) {
   const router = Router();
   const manager = deps.configProfileManager as ConfigProfileManager;
   const database = deps.dbClient ?? db;
@@ -142,7 +148,7 @@ export function profilesRouter(deps: { configProfileManager: unknown; dbClient?:
       mode: mode ?? "DRY_RUN",
       settings,
     });
-    res.json({ status: "created", name });
+    res.json({ status: "created", name, active: false });
   });
 
   router.put("/:name", requireBearerToken, async (req, res) => {
@@ -154,16 +160,60 @@ export function profilesRouter(deps: { configProfileManager: unknown; dbClient?:
   });
 
   router.post("/:name/toggle", requireBearerToken, async (req, res) => {
-    const { active } = req.body;
+    const active = Boolean(req.body?.active);
     const profileName = String(req.params.name);
-    await manager.toggleProfile(profileName, active ?? false);
-    res.json({ status: active ? "activated" : "deactivated" });
+    const profile = await database.configProfile.findUnique({
+      where: { name: profileName },
+      select: { mode: true, isActive: true },
+    });
+    if (!profile) {
+      return res.status(404).json({ error: "profile not found" });
+    }
+
+    const runtimeScope = deps.runtimeState?.scope;
+
+    if (!active) {
+      if (runtimeScope && profile.mode === runtimeScope.mode && profileName === runtimeScope.configProfile) {
+        return res.status(409).json({ error: "activate another profile before deactivating the current runtime profile" });
+      }
+
+      await manager.toggleProfile(profileName, false);
+      return res.json({ status: "deactivated" });
+    }
+
+    if (runtimeScope && profile.mode === runtimeScope.mode) {
+      if (!deps.applyRuntimeProfile) {
+        return res.status(503).json({ error: "runtime profile switching unavailable" });
+      }
+
+      try {
+        const result = await deps.applyRuntimeProfile(profileName);
+        return res.json({ status: result.status, runtimeApplied: true, scope: result.scope });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "runtime profile switch failed";
+        const status = message.includes("close all") ? 409 : 500;
+        return res.status(status).json({ error: message });
+      }
+    }
+
+    await manager.toggleProfile(profileName, true);
+    return res.json({ status: "activated", runtimeApplied: false });
   });
 
   router.delete("/:name", requireBearerToken, async (req, res) => {
     const profileName = String(req.params.name);
     if (profileName === "default") {
       return res.status(400).json({ error: "cannot delete default profile" });
+    }
+    const profile = await database.configProfile.findUnique({
+      where: { name: profileName },
+      select: { isActive: true },
+    });
+    if (!profile) {
+      return res.status(404).json({ error: "profile not found" });
+    }
+    if (profile.isActive) {
+      return res.status(409).json({ error: "cannot delete an active profile; activate another profile first" });
     }
     await manager.deleteProfile(profileName);
     res.json({ status: "deleted" });

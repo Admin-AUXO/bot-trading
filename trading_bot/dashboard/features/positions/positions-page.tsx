@@ -177,8 +177,11 @@ export default function PositionsPage() {
 
   const openSummary = useMemo(() => {
     const positions = filteredPositions ?? [];
-    const openPnlUsd = positions.reduce((sum, position) => sum + (position.pnlUsd ?? 0), 0);
-    const deployedSol = positions.reduce((sum, position) => sum + position.amountSol, 0);
+    const openPnlUsd = positions.reduce(
+      (sum, position) => sum + (position.pnlUsd ?? ((position.currentPriceUsd - position.entryPriceUsd) * position.remainingToken)),
+      0,
+    );
+    const deployedSol = positions.reduce((sum, position) => sum + (position.remainingAmountSol ?? position.amountSol), 0);
     const urgentCount = positions.filter((position) => {
       const stopDistance = getStopDistance(position);
       const timeRemaining = getTimeRemainingMinutes(position, analysisStrategyConfig);
@@ -283,7 +286,7 @@ export default function PositionsPage() {
               tone={openSummary.openPnlUsd < 0 ? "danger" : "default"}
             />
             <SummaryTile
-              label="Capital Deployed"
+              label="Remaining Size"
               value={formatSol(openSummary.deployedSol)}
               sub="Filtered lane only"
             />
@@ -354,7 +357,7 @@ export default function PositionsPage() {
                                 {position.configProfile ?? effectiveProfile} · {position.walletSource ? `${position.walletSource.slice(0, 6)}…${position.walletSource.slice(-4)}` : "Tracked position"}
                               </div>
                             </td>
-                            <td className="table-cell tabular-nums">{formatSol(position.amountSol)}</td>
+                            <td className="table-cell tabular-nums">{formatSol(position.remainingAmountSol ?? position.amountSol)}</td>
                             <td className="table-cell tabular-nums text-text-muted">{formatUsd(position.entryPriceUsd)}</td>
                             <td className="table-cell tabular-nums">{formatUsd(position.currentPriceUsd)}</td>
                             <td className={cn("table-cell font-medium tabular-nums", pnlClass(position.pnlUsd ?? 0))}>

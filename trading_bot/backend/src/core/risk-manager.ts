@@ -3,6 +3,7 @@ import { EventEmitter } from "events";
 import { db } from "../db/client.js";
 import { config } from "../config/index.js";
 import { createChildLogger } from "../utils/logger.js";
+import type { RuntimeState } from "./runtime-state.js";
 import type { PositionTracker } from "./position-tracker.js";
 import type { RegimeDetector } from "./regime-detector.js";
 import type { Strategy, CapitalLevel, BotStateSnapshot, CapitalConfig, ExecutionScope } from "../utils/types.js";
@@ -15,12 +16,16 @@ type StrategyRiskConfig = {
 };
 
 type StrategyRiskConfigMap = Record<Strategy, StrategyRiskConfig>;
+type RiskRuntimeState = Omit<RuntimeState, "strategyConfigs"> & {
+  strategyConfigs: StrategyRiskConfigMap;
+};
 
 interface RiskManagerOptions {
   capitalConfig?: CapitalConfig;
   persistState?: boolean;
   scope?: ExecutionScope;
   strategyConfigs?: StrategyRiskConfigMap;
+  runtimeState?: RiskRuntimeState;
 }
 
 export class RiskManager extends EventEmitter {
@@ -36,10 +41,8 @@ export class RiskManager extends EventEmitter {
   private lastWeeklyReset: Date;
   private recentResults: boolean[] = [];
   private pendingByStrategy: Map<Strategy, number> = new Map();
-  private readonly capitalConfig: CapitalConfig;
   private readonly persistState: boolean;
-  private readonly scope: ExecutionScope;
-  private readonly strategyConfigs: StrategyRiskConfigMap;
+  private readonly runtimeState: RiskRuntimeState;
 
   constructor(
     private positionTracker: PositionTracker,
@@ -47,26 +50,28 @@ export class RiskManager extends EventEmitter {
     options?: RiskManagerOptions,
   ) {
     super();
-    this.capitalConfig = options?.capitalConfig ?? config.capital;
     this.persistState = options?.persistState ?? true;
-    this.scope = options?.scope ?? { mode: config.tradeMode, configProfile: "default" };
-    this.strategyConfigs = options?.strategyConfigs ?? {
-      S1_COPY: {
-        maxPositions: config.strategies.s1.maxPositions,
-        positionSizeSol: config.strategies.s1.positionSizeSol,
-      },
-      S2_GRADUATION: {
-        maxPositions: config.strategies.s2.maxPositions,
-        positionSizeSol: config.strategies.s2.positionSizeSol,
-      },
-      S3_MOMENTUM: {
-        maxPositions: config.strategies.s3.maxPositions,
-        positionSizeSol: config.strategies.s3.positionSizeSol,
+    this.runtimeState = options?.runtimeState ?? {
+      scope: options?.scope ?? { mode: config.tradeMode, configProfile: "default" },
+      capitalConfig: options?.capitalConfig ?? config.capital,
+      strategyConfigs: options?.strategyConfigs ?? {
+        S1_COPY: {
+          maxPositions: config.strategies.s1.maxPositions,
+          positionSizeSol: config.strategies.s1.positionSizeSol,
+        },
+        S2_GRADUATION: {
+          maxPositions: config.strategies.s2.maxPositions,
+          positionSizeSol: config.strategies.s2.positionSizeSol,
+        },
+        S3_MOMENTUM: {
+          maxPositions: config.strategies.s3.maxPositions,
+          positionSizeSol: config.strategies.s3.positionSizeSol,
+        },
       },
     };
-    this.capitalUsd = this.capitalConfig.startingUsd;
-    this.capitalSol = this.capitalConfig.startingSol;
-    this.walletBalance = this.capitalConfig.startingSol;
+    this.capitalUsd = this.runtimeState.capitalConfig.startingUsd;
+    this.capitalSol = this.runtimeState.capitalConfig.startingSol;
+    this.walletBalance = this.runtimeState.capitalConfig.startingSol;
     this.lastDailyReset = new Date();
     this.lastWeeklyReset = new Date();
   }
@@ -133,11 +138,11 @@ export class RiskManager extends EventEmitter {
   }
 
   getDailyLossLimit(): number {
-    return new Decimal(this.capitalUsd).mul(this.capitalConfig.dailyLossPercent).toNumber();
+    return new Decimal(this.capitalUsd).mul(this.runtimeState.capitalConfig.dailyLossPercent).toNumber();
   }
 
   getWeeklyLossLimit(): number {
-    return new Decimal(this.capitalUsd).mul(this.capitalConfig.weeklyLossPercent).toNumber();
+    return new Decimal(this.capitalUsd).mul(this.runtimeState.capitalConfig.weeklyLossPercent).toNumber();
   }
 
   getRollingWinRate(): number {
@@ -169,7 +174,7 @@ export class RiskManager extends EventEmitter {
   getPositionSize(strategy: Strategy): number {
     const regime = this.regimeDetector.getRegime();
     const tier = this.getScalingTier();
-    const configuredBase = this.strategyConfigs[strategy].positionSizeSol;
+    const configuredBase = this.runtimeState.strategyConfigs[strategy].positionSizeSol;
     const defaultBase = strategy === "S3_MOMENTUM"
       ? config.strategies.s3.positionSizeSol
       : strategy === "S2_GRADUATION"
@@ -227,7 +232,7 @@ export class RiskManager extends EventEmitter {
     }
 
     const size = requestedAmountSol ?? this.getPositionSize(strategy);
-    if (this.walletBalance < size + this.capitalConfig.gasReserve) {
+    if (this.walletBalance < size + this.runtimeState.capitalConfig.gasReserve) {
       return { allowed: false, reason: "insufficient balance (gas reserve protected)" };
     }
 
@@ -255,13 +260,13 @@ export class RiskManager extends EventEmitter {
     if (!safety.allowed) return safety;
 
     const pendingTotal = [...this.pendingByStrategy.values()].reduce((a, b) => a + b, 0);
-    if (this.positionTracker.openCount(this.scope) + pendingTotal >= this.capitalConfig.maxOpenPositions) {
-      return { allowed: false, reason: `max ${this.capitalConfig.maxOpenPositions} open positions reached` };
+    if (this.positionTracker.openCount(this.runtimeState.scope) + pendingTotal >= this.runtimeState.capitalConfig.maxOpenPositions) {
+      return { allowed: false, reason: `max ${this.runtimeState.capitalConfig.maxOpenPositions} open positions reached` };
     }
 
-    const stratConfig = this.strategyConfigs[strategy];
+    const stratConfig = this.runtimeState.strategyConfigs[strategy];
     const stratPending = this.pendingByStrategy.get(strategy) ?? 0;
-    if (this.positionTracker.countByStrategy(strategy, this.scope) + stratPending >= stratConfig.maxPositions) {
+    if (this.positionTracker.countByStrategy(strategy, this.runtimeState.scope) + stratPending >= stratConfig.maxPositions) {
       return { allowed: false, reason: `max ${stratConfig.maxPositions} ${strategy} positions reached` };
     }
 
@@ -282,7 +287,7 @@ export class RiskManager extends EventEmitter {
   recordTradeResult(pnlUsd: number, isWin: boolean): void {
     this.totalTradesCount++;
     this.recentResults.push(isWin);
-    if (this.recentResults.length > this.capitalConfig.rollingWindowSize) this.recentResults.shift();
+    if (this.recentResults.length > this.runtimeState.capitalConfig.rollingWindowSize) this.recentResults.shift();
 
     if (!isWin) {
       this.dailyLossUsd += Math.abs(pnlUsd);
@@ -312,11 +317,11 @@ export class RiskManager extends EventEmitter {
   }
 
   getScope(): ExecutionScope {
-    return { ...this.scope };
+    return { ...this.runtimeState.scope };
   }
 
   private updateCapitalLevel(): void {
-    const startingCapital = this.capitalConfig.startingUsd;
+    const startingCapital = this.runtimeState.capitalConfig.startingUsd;
     const ratio = new Decimal(this.capitalUsd).div(startingCapital).toNumber();
     const prev = this.capitalLevel;
 
@@ -370,7 +375,7 @@ export class RiskManager extends EventEmitter {
       isRunning: this.pauseReasons.size === 0,
       pauseReason: this.getPrimaryPauseReason(),
       pauseReasons: this.getPauseReasons(),
-      openPositions: this.positionTracker.getOpen(this.scope),
+      openPositions: this.positionTracker.getOpen(this.runtimeState.scope),
     };
   }
 }

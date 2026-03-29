@@ -3,10 +3,10 @@ import { db } from "../../db/client.js";
 import { createChildLogger } from "../../utils/logger.js";
 import { cacheMiddleware } from "../middleware/cache.js";
 import { requireBearerToken } from "../middleware/auth.js";
-import type { StrategyConfigMap } from "../../utils/strategy-config.js";
+import { serializeOpenPosition } from "../serializers/position.js";
+import type { RuntimeState } from "../../core/runtime-state.js";
 import type { TradeExecutor } from "../../core/trade-executor.js";
 import type { PositionTracker } from "../../core/position-tracker.js";
-import type { ExecutionScope } from "../../utils/types.js";
 
 const log = createChildLogger("positions");
 
@@ -14,18 +14,18 @@ export function positionsRouter(deps?: {
   tradeExecutor?: unknown;
   positionTracker?: unknown;
   dbClient?: typeof db;
-  scope?: ExecutionScope;
-  strategyConfigs?: StrategyConfigMap;
+  runtimeState?: RuntimeState;
 }) {
   const router = Router();
   const tradeExecutor = deps?.tradeExecutor as TradeExecutor | undefined;
   const positionTracker = deps?.positionTracker as PositionTracker | undefined;
   const database = deps?.dbClient ?? db;
-  const defaultScope = deps?.scope;
+  const defaultScope = () => deps?.runtimeState?.scope;
 
   router.get("/", cacheMiddleware(5_000), async (req, res) => {
-    const mode = (req.query.mode as string | undefined) ?? defaultScope?.mode;
-    const profile = (req.query.profile as string | undefined) ?? defaultScope?.configProfile;
+    const scope = defaultScope();
+    const mode = (req.query.mode as string | undefined) ?? scope?.mode;
+    const profile = (req.query.profile as string | undefined) ?? scope?.configProfile;
     const tradeSource = req.query.tradeSource as string | undefined;
     const includeTrades = req.query.includeTrades === "true";
 
@@ -42,29 +42,16 @@ export function positionsRouter(deps?: {
       include: includeTrades ? { trades: { orderBy: { executedAt: "desc" }, take: 5 } } : undefined,
     });
 
-    res.json(positions.map((p) => ({
-      ...p,
-      entryPriceSol: Number(p.entryPriceSol),
-      entryPriceUsd: Number(p.entryPriceUsd),
-      currentPriceSol: Number(p.currentPriceSol),
-      currentPriceUsd: Number(p.currentPriceUsd),
-      amountSol: Number(p.amountSol),
-      amountToken: Number(p.amountToken),
-      remainingToken: Number(p.remainingToken),
-      peakPriceUsd: Number(p.peakPriceUsd),
-      pnlPercent: p.entryPriceUsd && Number(p.entryPriceUsd) > 0
-        ? ((Number(p.currentPriceUsd) - Number(p.entryPriceUsd)) / Number(p.entryPriceUsd)) * 100
-        : 0,
-      holdMinutes: (Date.now() - p.openedAt.getTime()) / 60_000,
-    })));
+    res.json(positions.map((p) => serializeOpenPosition(p)));
   });
 
   router.get("/history", async (req, res) => {
     const page = Number(req.query.page) || 1;
     const limit = Math.min(Number(req.query.limit) || 20, 100);
     const strategy = req.query.strategy as string | undefined;
-    const mode = (req.query.mode as string | undefined) ?? defaultScope?.mode;
-    const profile = (req.query.profile as string | undefined) ?? defaultScope?.configProfile;
+    const scope = defaultScope();
+    const mode = (req.query.mode as string | undefined) ?? scope?.mode;
+    const profile = (req.query.profile as string | undefined) ?? scope?.configProfile;
     const tradeSource = req.query.tradeSource as string | undefined;
 
     const where: Record<string, unknown> = { status: "CLOSED" };
@@ -144,7 +131,7 @@ export function positionsRouter(deps?: {
       tokenSymbol: position.tokenSymbol,
       strategy: position.strategy,
       amountToken: position.remainingToken,
-      maxSlippageBps: deps?.strategyConfigs?.[position.strategy]?.maxSlippageBps ?? 500,
+      maxSlippageBps: deps?.runtimeState?.strategyConfigs[position.strategy]?.maxSlippageBps ?? 500,
       exitReason: "MANUAL",
       trancheNumber,
       tradeSource: "MANUAL",

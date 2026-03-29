@@ -1,20 +1,21 @@
 import { Router } from "express";
 import { db } from "../../db/client.js";
 import { cacheMiddleware } from "../middleware/cache.js";
-import type { ExecutionScope } from "../../utils/types.js";
+import type { RuntimeState } from "../../core/runtime-state.js";
 
 function parseDays(value: unknown, fallback: number, max: number): number {
   return Math.min(Number(value) || fallback, max);
 }
 
-export function analyticsRouter(deps?: { scope?: ExecutionScope }) {
+export function analyticsRouter(deps?: { runtimeState?: RuntimeState }) {
   const router = Router();
-  const defaultScope = deps?.scope;
+  const defaultScope = () => deps?.runtimeState?.scope;
 
   router.get("/daily", cacheMiddleware(30_000), async (req, res) => {
     const days = parseDays(req.query.days, 30, 90);
-    const mode = (req.query.mode as string | undefined) ?? defaultScope?.mode;
-    const profile = (req.query.profile as string | undefined) ?? defaultScope?.configProfile;
+    const scope = defaultScope();
+    const mode = (req.query.mode as string | undefined) ?? scope?.mode;
+    const profile = (req.query.profile as string | undefined) ?? scope?.configProfile;
     const since = new Date();
     since.setDate(since.getDate() - days);
 
@@ -42,8 +43,9 @@ export function analyticsRouter(deps?: { scope?: ExecutionScope }) {
 
   router.get("/strategy", cacheMiddleware(30_000), async (req, res) => {
     const days = parseDays(req.query.days, 30, 90);
-    const mode = (req.query.mode as string | undefined) ?? defaultScope?.mode;
-    const profile = (req.query.profile as string | undefined) ?? defaultScope?.configProfile;
+    const scope = defaultScope();
+    const mode = (req.query.mode as string | undefined) ?? scope?.mode;
+    const profile = (req.query.profile as string | undefined) ?? scope?.configProfile;
     const tradeSource = req.query.tradeSource as string | undefined;
     const since = new Date();
     since.setDate(since.getDate() - days);
@@ -94,8 +96,9 @@ export function analyticsRouter(deps?: { scope?: ExecutionScope }) {
 
   router.get("/capital-curve", cacheMiddleware(60_000), async (req, res) => {
     const days = parseDays(req.query.days, 30, 365);
-    const mode = (req.query.mode as string | undefined) ?? defaultScope?.mode;
-    const profile = (req.query.profile as string | undefined) ?? defaultScope?.configProfile;
+    const scope = defaultScope();
+    const mode = (req.query.mode as string | undefined) ?? scope?.mode;
+    const profile = (req.query.profile as string | undefined) ?? scope?.configProfile;
     const since = new Date();
     since.setDate(since.getDate() - days);
 
@@ -144,8 +147,9 @@ export function analyticsRouter(deps?: { scope?: ExecutionScope }) {
 
   router.get("/would-have-won", cacheMiddleware(60_000), async (req, res) => {
     const days = parseDays(req.query.days, 7, 30);
-    const mode = (req.query.mode as string | undefined) ?? defaultScope?.mode;
-    const profile = (req.query.profile as string | undefined) ?? defaultScope?.configProfile;
+    const scope = defaultScope();
+    const mode = (req.query.mode as string | undefined) ?? scope?.mode;
+    const profile = (req.query.profile as string | undefined) ?? scope?.configProfile;
     const since = new Date();
     since.setDate(since.getDate() - days);
 
@@ -238,8 +242,9 @@ export function analyticsRouter(deps?: { scope?: ExecutionScope }) {
 
   router.get("/pnl-distribution", cacheMiddleware(30_000), async (req, res) => {
     const days = parseDays(req.query.days, 30, 90);
-    const mode = (req.query.mode as string | undefined) ?? defaultScope?.mode;
-    const profile = (req.query.profile as string | undefined) ?? defaultScope?.configProfile;
+    const scope = defaultScope();
+    const mode = (req.query.mode as string | undefined) ?? scope?.mode;
+    const profile = (req.query.profile as string | undefined) ?? scope?.configProfile;
     const tradeSource = req.query.tradeSource as string | undefined;
     const since = new Date();
     since.setDate(since.getDate() - days);
@@ -274,8 +279,9 @@ export function analyticsRouter(deps?: { scope?: ExecutionScope }) {
 
   router.get("/execution-quality", cacheMiddleware(30_000), async (req, res) => {
     const days = parseDays(req.query.days, 14, 90);
-    const mode = (req.query.mode as string | undefined) ?? defaultScope?.mode;
-    const profile = (req.query.profile as string | undefined) ?? defaultScope?.configProfile;
+    const scope = defaultScope();
+    const mode = (req.query.mode as string | undefined) ?? scope?.mode;
+    const profile = (req.query.profile as string | undefined) ?? scope?.configProfile;
     const tradeSource = req.query.tradeSource as string | undefined;
     const since = new Date();
     since.setDate(since.getDate() - days);

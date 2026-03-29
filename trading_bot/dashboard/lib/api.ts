@@ -26,7 +26,9 @@ export interface Position {
   entryPriceUsd: number;
   currentPriceUsd: number;
   amountSol: number;
+  remainingAmountSol?: number;
   remainingToken: number;
+  remainingValueUsd?: number;
   peakPriceUsd: number;
   stopLossPercent: number;
   tranche1Filled: boolean;
@@ -213,6 +215,10 @@ export interface ApiUsageResponse {
   daily: BudgetSnapshot[];
   monthly: ApiUsageMonthlySummary[];
   history: BudgetSnapshot[];
+  endpointFilter: {
+    mode: TradeMode | null;
+    profile: string | null;
+  };
   topEndpoints: ApiEndpointUsage[];
   windowDays: number;
 }
@@ -421,8 +427,10 @@ export async function fetchOverview() {
   return api.get("api/overview").json<OverviewResponse>();
 }
 
-export async function fetchApiUsage(days: number = 14) {
+export async function fetchApiUsage(days: number = 14, mode?: TradeMode, profile?: string) {
   const params = new URLSearchParams({ days: String(days) });
+  if (mode) params.set("mode", mode);
+  if (profile) params.set("profile", profile);
   return api.get(withParams("api/overview/api-usage", params)).json<ApiUsageResponse>();
 }
 

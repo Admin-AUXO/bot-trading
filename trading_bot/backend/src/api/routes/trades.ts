@@ -1,19 +1,20 @@
 import { Router } from "express";
 import { db } from "../../db/client.js";
 import { cacheMiddleware } from "../middleware/cache.js";
-import type { ExecutionScope } from "../../utils/types.js";
+import type { RuntimeState } from "../../core/runtime-state.js";
 
-export function tradesRouter(deps?: { scope?: ExecutionScope }) {
+export function tradesRouter(deps?: { runtimeState?: RuntimeState }) {
   const router = Router();
-  const defaultScope = deps?.scope;
+  const defaultScope = () => deps?.runtimeState?.scope;
 
   router.get("/", cacheMiddleware(10_000), async (req, res) => {
     const page = Number(req.query.page) || 1;
     const limit = Math.min(Number(req.query.limit) || 30, 100);
     const strategy = req.query.strategy as string | undefined;
     const side = req.query.side as string | undefined;
-    const mode = (req.query.mode as string | undefined) ?? defaultScope?.mode;
-    const profile = (req.query.profile as string | undefined) ?? defaultScope?.configProfile;
+    const scope = defaultScope();
+    const mode = (req.query.mode as string | undefined) ?? scope?.mode;
+    const profile = (req.query.profile as string | undefined) ?? scope?.configProfile;
     const tradeSource = req.query.tradeSource as string | undefined;
 
     const tradeSide = side === "BUY" || side === "SELL" ? side : undefined;
@@ -100,8 +101,9 @@ export function tradesRouter(deps?: { scope?: ExecutionScope }) {
     const page = Number(req.query.page) || 1;
     const limit = Math.min(Number(req.query.limit) || 50, 200);
     const strategy = req.query.strategy as string | undefined;
-    const mode = (req.query.mode as string | undefined) ?? defaultScope?.mode;
-    const profile = (req.query.profile as string | undefined) ?? defaultScope?.configProfile;
+    const scope = defaultScope();
+    const mode = (req.query.mode as string | undefined) ?? scope?.mode;
+    const profile = (req.query.profile as string | undefined) ?? scope?.configProfile;
 
     const where: Record<string, unknown> = {};
     if (strategy) where.strategy = strategy;

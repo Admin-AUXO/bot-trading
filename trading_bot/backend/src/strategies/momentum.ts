@@ -3,6 +3,7 @@ import { config } from "../config/index.js";
 import { db } from "../db/client.js";
 import { createChildLogger } from "../utils/logger.js";
 import { runSecurityChecks } from "../utils/token-filters.js";
+import type { RuntimeState } from "../core/runtime-state.js";
 import type { RiskManager } from "../core/risk-manager.js";
 import type { PositionTracker } from "../core/position-tracker.js";
 import type { ITradeExecutor } from "../utils/trade-executor-interface.js";
@@ -13,14 +14,16 @@ import type { ApiCallPurpose, ExecutionScope, SignalResult, TokenOverview, JsonV
 
 const log = createChildLogger("s3-momentum");
 const DEFAULT_SCOPE: ExecutionScope = { mode: config.tradeMode, configProfile: "default" };
+type S3RuntimeConfig = RuntimeState["strategyConfigs"]["S3_MOMENTUM"];
 
 export class MomentumStrategy extends EventEmitter {
   private scanInterval?: ReturnType<typeof setInterval>;
   private processingTokens: Set<string> = new Set();
   private pendingTranche2: Map<string, ReturnType<typeof setTimeout>> = new Map();
   private scanInFlight = false;
-  private readonly cfg: typeof config.strategies.s3;
-  private readonly scope: ExecutionScope;
+  private readonly runtimeState?: RuntimeState;
+  private readonly fallbackConfig: S3RuntimeConfig;
+  private readonly fallbackScope: ExecutionScope;
 
   constructor(
     private riskManager: RiskManager,
@@ -30,13 +33,23 @@ export class MomentumStrategy extends EventEmitter {
     private regimeDetector: RegimeDetector,
     private birdeye: BirdeyeService,
     options?: {
+      runtimeState?: RuntimeState;
       scope?: ExecutionScope;
       strategyConfig?: typeof config.strategies.s3;
     },
   ) {
     super();
-    this.scope = options?.scope ?? DEFAULT_SCOPE;
-    this.cfg = options?.strategyConfig ?? config.strategies.s3;
+    this.runtimeState = options?.runtimeState;
+    this.fallbackScope = options?.scope ?? DEFAULT_SCOPE;
+    this.fallbackConfig = options?.strategyConfig ?? config.strategies.s3;
+  }
+
+  private get scope(): ExecutionScope {
+    return this.runtimeState?.scope ?? this.fallbackScope;
+  }
+
+  private get cfg(): S3RuntimeConfig {
+    return this.runtimeState?.strategyConfigs.S3_MOMENTUM ?? this.fallbackConfig;
   }
 
   start(): void {

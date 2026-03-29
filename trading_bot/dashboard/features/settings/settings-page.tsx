@@ -614,7 +614,7 @@ export default function SettingsPage() {
               })}
               {topQuotaEndpoints.length ? (
                 <div className="rounded-xl border border-bg-border/80 bg-bg-hover/25 p-3">
-                  <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Top Endpoint Spenders</div>
+                  <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Global Top Endpoint Spenders</div>
                   <div className="mt-3 space-y-2">
                     {topQuotaEndpoints.map((endpoint) => (
                       <div
@@ -650,6 +650,8 @@ export default function SettingsPage() {
             profiles={profiles ?? []}
             controlsLocked={controlsLocked}
             controlsUnavailable={controlsUnavailable}
+            activeScope={activeScope ?? null}
+            openPositionCount={openPositions?.length ?? 0}
           />
         </ErrorBoundary>
       </motion.div>
@@ -823,10 +825,14 @@ function ProfilesSection({
   profiles,
   controlsLocked,
   controlsUnavailable,
+  activeScope,
+  openPositionCount,
 }: {
   profiles: ConfigProfile[];
   controlsLocked: boolean;
   controlsUnavailable: boolean;
+  activeScope: { mode: TradeMode; configProfile: string } | null;
+  openPositionCount: number;
 }) {
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
@@ -844,6 +850,9 @@ function ProfilesSection({
       queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.overview }),
       queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.heartbeat }),
       queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.strategyConfig }),
+      queryClient.invalidateQueries({ queryKey: ["positions"] }),
+      queryClient.invalidateQueries({ queryKey: ["trades"] }),
+      queryClient.invalidateQueries({ queryKey: ["api-usage"] }),
     ]);
   };
 
@@ -867,6 +876,7 @@ function ProfilesSection({
     mutationFn: (name: string) => deleteProfile(name),
     onSuccess: invalidateProfileAndRuntimeState,
   });
+  const runtimeSwitchBlocked = activeScope != null && openPositionCount > 0;
 
   return (
     <div className="card h-full">
@@ -893,6 +903,11 @@ function ProfilesSection({
             : "Profile changes are locked until operator access is unlocked."}
         </div>
       )}
+      {!controlsLocked && !controlsUnavailable && runtimeSwitchBlocked ? (
+        <div className="mb-3 rounded-lg border border-accent-yellow/20 bg-accent-yellow/8 px-3 py-2 text-[11px] text-accent-yellow">
+          Runtime profile switching stays disabled while {activeScope?.mode}/{activeScope?.configProfile} still has {openPositionCount} open position{openPositionCount === 1 ? "" : "s"}.
+        </div>
+      ) : null}
 
       <AnimatePresence>
         {showCreate && !controlsLocked && !controlsUnavailable && (
@@ -930,7 +945,11 @@ function ProfilesSection({
                     if (!newName.trim()) return;
                     toast.promise(
                       createMut.mutateAsync({ name: newName.trim(), description: newDesc, mode: newMode, settings: {} }),
-                      { loading: "Creating profile…", success: "Profile created", error: "Failed to create profile" },
+                      {
+                        loading: "Creating profile…",
+                        success: "Profile created inactive",
+                        error: "Failed to create profile",
+                      },
                     );
                   }}
                   disabled={controlsLocked || controlsUnavailable || !newName.trim() || createMut.isPending}
@@ -958,6 +977,21 @@ function ProfilesSection({
             >
               {(() => {
                 const results = profileResultsByKey.get(`${p.mode}:${p.name}`);
+                const isRuntimeModeProfile = activeScope != null && p.mode === activeScope.mode;
+                const isRuntimeProfile = isRuntimeModeProfile && p.name === activeScope.configProfile;
+                const activationBlocked = !p.isActive && isRuntimeModeProfile && runtimeSwitchBlocked;
+                const toggleDisabled =
+                  controlsLocked
+                  || controlsUnavailable
+                  || isRuntimeProfile
+                  || activationBlocked;
+                const toggleTitle = isRuntimeProfile
+                  ? "Runtime active profile"
+                  : activationBlocked
+                    ? "Close runtime positions before switching profiles"
+                    : p.isActive
+                      ? "Deactivate"
+                      : "Activate";
                 return (
                   <>
                     <div className="flex items-start gap-2.5 min-w-0">
@@ -975,6 +1009,11 @@ function ProfilesSection({
                           }`}>
                             {p.mode}
                           </span>
+                          {isRuntimeProfile ? (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 bg-accent-blue/20 text-accent-blue">
+                              runtime
+                            </span>
+                          ) : null}
                         </div>
                         {p.description && (
                           <div className="text-xs text-text-muted truncate">{p.description}</div>
@@ -1000,10 +1039,26 @@ function ProfilesSection({
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0">
                       <button
-                        onClick={() => toggleMut.mutate({ name: p.name, active: !p.isActive })}
-                        disabled={controlsLocked || controlsUnavailable}
+                        onClick={() => {
+                          const nextActive = !p.isActive;
+                          const loadingLabel = nextActive ? "Activating profile…" : "Deactivating profile…";
+                          const successLabel = nextActive ? "Profile activated" : "Profile deactivated";
+                          const fallbackError = nextActive ? "Failed to activate profile" : "Failed to deactivate profile";
+
+                          toast.promise(
+                            toggleMut.mutateAsync({ name: p.name, active: nextActive }).catch(async (error) => {
+                              throw new Error(await extractApiErrorMessage(error, fallbackError));
+                            }),
+                            {
+                              loading: loadingLabel,
+                              success: successLabel,
+                              error: (error) => error instanceof Error ? error.message : fallbackError,
+                            },
+                          );
+                        }}
+                        disabled={toggleDisabled}
                         className="btn-ghost p-1.5"
-                        title={p.isActive ? "Deactivate" : "Activate"}
+                        title={toggleTitle}
                       >
                         {p.isActive
                           ? <ToggleRight className="w-4 h-4 text-accent-green" />
@@ -1013,12 +1068,18 @@ function ProfilesSection({
                       {p.name !== "default" && (
                         <button
                           onClick={() => toast.promise(
-                            deleteMut.mutateAsync(p.name),
-                            { loading: "Deleting…", success: "Profile deleted", error: "Failed to delete profile" },
+                            deleteMut.mutateAsync(p.name).catch(async (error) => {
+                              throw new Error(await extractApiErrorMessage(error, "Failed to delete profile"));
+                            }),
+                            {
+                              loading: "Deleting…",
+                              success: "Profile deleted",
+                              error: (error) => error instanceof Error ? error.message : "Failed to delete profile",
+                            },
                           )}
-                          disabled={controlsLocked || controlsUnavailable}
+                          disabled={controlsLocked || controlsUnavailable || p.isActive}
                           className="btn-ghost p-1.5 text-accent-red/60 hover:text-accent-red"
-                          title="Delete"
+                          title={p.isActive ? "Activate another profile before deleting this one" : "Delete"}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -1045,6 +1106,24 @@ function Row({ label, value }: { label: string; value: string }) {
       <span className="font-medium tabular-nums">{value}</span>
     </div>
   );
+}
+
+async function extractApiErrorMessage(error: unknown, fallback: string): Promise<string> {
+  if (error && typeof error === "object" && "response" in error) {
+    const response = (error as { response?: Response }).response;
+    if (response) {
+      const payload = await response.clone().json().catch(() => null) as { error?: unknown } | null;
+      if (payload && typeof payload.error === "string" && payload.error.length > 0) {
+        return payload.error;
+      }
+    }
+  }
+
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return fallback;
 }
 
 function formatUptime(seconds: number): string {

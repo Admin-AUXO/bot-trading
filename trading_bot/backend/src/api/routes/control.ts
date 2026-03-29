@@ -5,25 +5,24 @@ import { db } from "../../db/client.js";
 import { cacheMiddleware } from "../middleware/cache.js";
 import { requireBearerToken } from "../middleware/auth.js";
 import { defaultStrategyConfigs, getExitPlan, type StrategyConfigMap } from "../../utils/strategy-config.js";
+import type { RuntimeState } from "../../core/runtime-state.js";
 import type { RiskManager } from "../../core/risk-manager.js";
 import type { TradeExecutor } from "../../core/trade-executor.js";
-import type { CapitalConfig, ExecutionScope, Strategy } from "../../utils/types.js";
+import type { Strategy } from "../../utils/types.js";
 
 export function controlRouter(deps: {
   riskManager: unknown;
   tradeExecutor?: unknown;
   dbClient?: typeof db;
-  scope?: ExecutionScope;
-  strategyConfigs?: StrategyConfigMap;
-  capitalConfig?: CapitalConfig;
+  runtimeState?: RuntimeState;
   walletReconciler?: () => Promise<number | null>;
 }) {
   const router = Router();
   const riskManager = deps.riskManager as RiskManager;
   const tradeExecutor = deps.tradeExecutor as TradeExecutor | undefined;
   const database = deps.dbClient ?? db;
-  const snapshotScope = () => deps.scope ?? riskManager.getSnapshot().scope;
-  const strategyConfigs = deps.strategyConfigs;
+  const snapshotScope = () => deps.runtimeState?.scope ?? riskManager.getSnapshot().scope;
+  const strategyConfigs = () => deps.runtimeState?.strategyConfigs ?? defaultStrategyConfigs;
 
   router.post("/pause", requireBearerToken, async (_req, res) => {
     riskManager.pause("manual pause");
@@ -90,7 +89,7 @@ export function controlRouter(deps: {
   router.get("/config", cacheMiddleware(config.api.controlConfigCacheTtlMs), async (_req, res) => {
     const snapshot = riskManager.getSnapshot();
     const scope = snapshotScope();
-    const configs = strategyConfigs ?? defaultStrategyConfigs;
+    const configs = strategyConfigs();
     res.json({
       scope,
       strategies: {
@@ -128,8 +127,8 @@ export function controlRouter(deps: {
         dailyLossLimit: snapshot.dailyLossLimit,
         weeklyLossLimit: snapshot.weeklyLossLimit,
         walletBalance: snapshot.walletBalance,
-        maxOpenPositions: deps.capitalConfig?.maxOpenPositions ?? config.capital.maxOpenPositions,
-        gasReserve: deps.capitalConfig?.gasReserve ?? config.capital.gasReserve,
+        maxOpenPositions: deps.runtimeState?.capitalConfig.maxOpenPositions ?? config.capital.maxOpenPositions,
+        gasReserve: deps.runtimeState?.capitalConfig.gasReserve ?? config.capital.gasReserve,
         capitalLevel: snapshot.capitalLevel,
         pauseReason: snapshot.pauseReason,
         pauseReasons: snapshot.pauseReasons,
@@ -183,7 +182,7 @@ export function controlRouter(deps: {
       tokenAddress,
       tokenSymbol,
       amountSol: size,
-      maxSlippageBps: (strategyConfigs ?? defaultStrategyConfigs)[strategy].maxSlippageBps,
+      maxSlippageBps: strategyConfigs()[strategy].maxSlippageBps,
       regime: snapshot.regime,
       tradeSource: "MANUAL",
     });

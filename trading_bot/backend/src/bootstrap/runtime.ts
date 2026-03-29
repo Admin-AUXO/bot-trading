@@ -10,6 +10,7 @@ import { TradeExecutor } from "../core/trade-executor.js";
 import { DryRunExecutor } from "../core/dry-run-executor.js";
 import { ExitMonitor } from "../core/exit-monitor.js";
 import { ConfigProfileManager } from "../core/config-profile.js";
+import { resolveRuntimeState } from "../core/runtime-state.js";
 import { terminateStatsWorker } from "../core/stats-aggregator.js";
 import { ApiBudgetManager } from "../core/api-budget-manager.js";
 import { HeliusService } from "../services/helius.js";
@@ -22,7 +23,6 @@ import { GraduationStrategy } from "../strategies/graduation.js";
 import { MomentumStrategy } from "../strategies/momentum.js";
 import { registerRuntimeIntervals } from "./intervals.js";
 import type { ITradeExecutor } from "../utils/trade-executor-interface.js";
-import type { ExecutionScope } from "../utils/types.js";
 
 const log = createChildLogger("main");
 
@@ -38,39 +38,13 @@ export async function startTradingBot(): Promise<void> {
   const configProfileManager = new ConfigProfileManager();
 
   await configProfileManager.loadProfiles();
-  const activeProfile = configProfileManager.getActiveProfile(config.tradeMode);
-  const scope: ExecutionScope = {
-    mode: config.tradeMode,
-    configProfile: activeProfile?.name ?? "default",
-  };
-  const strategyConfigs = {
-    S1_COPY: configProfileManager.getStrategyConfig(scope.configProfile, "s1"),
-    S2_GRADUATION: configProfileManager.getStrategyConfig(scope.configProfile, "s2"),
-    S3_MOMENTUM: configProfileManager.getStrategyConfig(scope.configProfile, "s3"),
-  };
-  const capitalConfig = configProfileManager.getCapitalConfig(scope.configProfile);
+  const runtimeState = resolveRuntimeState(configProfileManager, config.tradeMode);
   const riskManager = new RiskManager(positionTracker, regimeDetector, {
-    capitalConfig,
     persistState: isLive,
-    scope,
-    strategyConfigs: {
-      S1_COPY: {
-        maxPositions: strategyConfigs.S1_COPY.maxPositions,
-        positionSizeSol: strategyConfigs.S1_COPY.positionSizeSol,
-      },
-      S2_GRADUATION: {
-        maxPositions: strategyConfigs.S2_GRADUATION.maxPositions,
-        positionSizeSol: strategyConfigs.S2_GRADUATION.positionSizeSol,
-      },
-      S3_MOMENTUM: {
-        maxPositions: strategyConfigs.S3_MOMENTUM.maxPositions,
-        positionSizeSol: strategyConfigs.S3_MOMENTUM.positionSizeSol,
-      },
-    },
+    runtimeState,
   });
   const apiBudgetManager = new ApiBudgetManager(apiCallBuffer, riskManager);
 
-  await positionTracker.loadOpenPositions(scope);
   await riskManager.loadState();
   await apiBudgetManager.loadState();
 
@@ -78,37 +52,39 @@ export async function startTradingBot(): Promise<void> {
   const birdeye = new BirdeyeService(apiBudgetManager);
 
   const executor: ITradeExecutor = isLive
-    ? new TradeExecutor(positionTracker, riskManager, jupiter, helius, scope, strategyConfigs)
-    : new DryRunExecutor(positionTracker, riskManager, jupiter, scope, strategyConfigs);
+    ? new TradeExecutor(positionTracker, riskManager, jupiter, helius, runtimeState)
+    : new DryRunExecutor(positionTracker, riskManager, jupiter, runtimeState);
 
-  const exitMonitor = new ExitMonitor(positionTracker, executor, jupiter, birdeye, strategyConfigs);
+  const exitMonitor = new ExitMonitor(positionTracker, executor, jupiter, birdeye, runtimeState);
   const outcomeTracker = new OutcomeTracker(birdeye, apiBudgetManager);
   const marketTickRecorder = new MarketTickRecorder(jupiter, birdeye, regimeDetector, apiBudgetManager);
 
   const s1 = new CopyTradeStrategy(riskManager, positionTracker, executor, exitMonitor, regimeDetector, helius, birdeye, {
-    scope,
-    strategyConfig: strategyConfigs.S1_COPY,
+    runtimeState,
   });
   const s2 = new GraduationStrategy(riskManager, positionTracker, executor, exitMonitor, regimeDetector, helius, birdeye, {
-    scope,
-    strategyConfig: strategyConfigs.S2_GRADUATION,
+    runtimeState,
   });
   const s3 = new MomentumStrategy(riskManager, positionTracker, executor, exitMonitor, regimeDetector, birdeye, {
-    scope,
-    strategyConfig: strategyConfigs.S3_MOMENTUM,
+    runtimeState,
   });
 
-  for (const position of positionTracker.getOpen(scope)) {
-    exitMonitor.startMonitoring(position);
-  }
+  const loadRuntimeScopePositions = async (): Promise<void> => {
+    exitMonitor.stopAll();
+    await positionTracker.loadOpenPositions(runtimeState.scope);
+    for (const position of positionTracker.getOpen(runtimeState.scope)) {
+      exitMonitor.startMonitoring(position);
+    }
+  };
+  await loadRuntimeScopePositions();
 
   regimeDetector.startPeriodicEvaluation();
 
   const reconcileWalletBalance = async (): Promise<number | null> => {
     if (!isLive) return null;
     const balanceSol = await helius.getWalletBalanceSol(config.solana.publicKey, {
-      mode: scope.mode,
-      configProfile: scope.configProfile,
+      mode: runtimeState.scope.mode,
+      configProfile: runtimeState.scope.configProfile,
       purpose: "RECONCILIATION",
       essential: true,
     });
@@ -118,12 +94,69 @@ export async function startTradingBot(): Promise<void> {
   };
   await reconcileWalletBalance();
 
-  await s1.start();
-  await s2.start();
-  await s3.start();
+  const startStrategies = async (): Promise<void> => {
+    await s1.start();
+    await s2.start();
+    await s3.start();
+  };
+
+  const stopStrategies = (): void => {
+    s1.stop();
+    s2.stop();
+    s3.stop();
+  };
+
+  await startStrategies();
 
   outcomeTracker.start();
   marketTickRecorder.start();
+
+  const applyRuntimeProfile = async (profileName: string) => {
+    if (profileName === runtimeState.scope.configProfile) {
+      await configProfileManager.toggleProfile(profileName, true);
+      return { scope: { ...runtimeState.scope }, status: "active" as const };
+    }
+
+    const blockedOpenPositions = await db.position.count({
+      where: {
+        mode: runtimeState.scope.mode,
+        configProfile: { not: profileName },
+        status: { in: ["OPEN", "PARTIALLY_CLOSED"] },
+      },
+    });
+
+    if (blockedOpenPositions > 0) {
+      throw new Error(`close all ${runtimeState.scope.mode} positions before switching profiles`);
+    }
+
+    const switchPauseReason = "profile switch in progress";
+    let switched = false;
+    riskManager.pause(switchPauseReason);
+    await riskManager.saveState();
+    stopStrategies();
+    exitMonitor.stopAll();
+
+    try {
+      await configProfileManager.toggleProfile(profileName, true);
+      const nextRuntimeState = resolveRuntimeState(configProfileManager, runtimeState.scope.mode, profileName);
+      runtimeState.scope = nextRuntimeState.scope;
+      runtimeState.strategyConfigs = nextRuntimeState.strategyConfigs;
+      runtimeState.capitalConfig = nextRuntimeState.capitalConfig;
+
+      await loadRuntimeScopePositions();
+      await reconcileWalletBalance();
+      await startStrategies();
+      switched = true;
+
+      log.info({ mode: runtimeState.scope.mode, profile: runtimeState.scope.configProfile }, "runtime profile switched");
+      return { scope: { ...runtimeState.scope }, status: "activated" as const };
+    } finally {
+      if (switched) {
+        riskManager.unpause(switchPauseReason);
+      }
+      await riskManager.saveState();
+    }
+  };
 
   startApiServer({
     riskManager,
@@ -131,11 +164,10 @@ export async function startTradingBot(): Promise<void> {
     regimeDetector,
     configProfileManager,
     tradeExecutor: executor,
-    scope,
-    strategyConfigs,
-    capitalConfig,
+    runtimeState,
     apiBudgetManager,
     walletReconciler: isLive ? reconcileWalletBalance : undefined,
+    applyRuntimeProfile,
   });
 
   const intervals = registerRuntimeIntervals({
@@ -155,13 +187,11 @@ export async function startTradingBot(): Promise<void> {
   if (!isLive) {
     log.info("DRY-RUN MODE — no real transactions will be submitted");
   }
-  log.info({ mode: config.tradeMode, profile: scope.configProfile }, "trading bot running — all strategies active");
+  log.info({ mode: config.tradeMode, profile: runtimeState.scope.configProfile }, "trading bot running — all strategies active");
 
   const shutdown = async () => {
     log.info("shutting down...");
-    s1.stop();
-    s2.stop();
-    s3.stop();
+    stopStrategies();
     exitMonitor.stopAll();
     regimeDetector.stop();
     outcomeTracker.stop();

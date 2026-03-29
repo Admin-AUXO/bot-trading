@@ -54,7 +54,7 @@ export function QuotaPageClient() {
     parseAsStringLiteral(DATE_RANGES).withDefault("14d"),
   );
   const days = dateRangeToDays(dateRange);
-  const apiUsageQuery = useQuery(apiUsageQueryOptions(days));
+  const apiUsageQuery = useQuery(apiUsageQueryOptions(days, effectiveMode, effectiveProfile));
 
   const current = useMemo(() => {
     const rows = getApiUsageSnapshotRows(apiUsageQuery.data);
@@ -109,15 +109,7 @@ export function QuotaPageClient() {
     [monthly],
   );
 
-  const focusEndpoints = useMemo(() => {
-    const filtered = topEndpoints.filter((entry) => {
-      const modeMatches = entry.mode == null || entry.mode === effectiveMode;
-      const profileMatches = entry.configProfile == null || entry.configProfile === effectiveProfile;
-      return modeMatches && profileMatches;
-    });
-
-    return filtered.length > 0 ? filtered : topEndpoints;
-  }, [effectiveMode, effectiveProfile, topEndpoints]);
+  const focusEndpoints = useMemo(() => topEndpoints, [topEndpoints]);
 
   const totals = useMemo(() => {
     const totalCredits = history.reduce((sum, row) => sum + row.dailyUsed, 0);
@@ -412,7 +404,7 @@ export function QuotaPageClient() {
                 <span className="stat-label">Endpoint Concentration</span>
               </div>
               <span className="text-[11px] text-text-muted">
-                Focused on {effectiveMode}/{effectiveProfile} where telemetry carries lane metadata
+                Focused on {effectiveMode}/{effectiveProfile} when endpoint telemetry carries lane metadata
               </span>
             </div>
             <div className="space-y-2">
@@ -446,7 +438,7 @@ export function QuotaPageClient() {
                 </div>
               ))}
               {!focusEndpoints.length ? (
-                <div className="text-sm text-text-muted">No endpoint telemetry yet.</div>
+                <div className="text-sm text-text-muted">No lane-specific endpoint telemetry in this window.</div>
               ) : null}
             </div>
           </div>

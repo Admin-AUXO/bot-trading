@@ -42,6 +42,7 @@ Rules:
 - Connection state is derived from heartbeat plus available shell data. Do not reintroduce a manual `connected` flag in client state.
 - Keep compact metrics on `components/ui/summary-tile.tsx` unless a page has a stronger reason to diverge.
 - `/api/overview/api-usage?days=N` is a compound contract now: current snapshots, persisted daily rows, monthly aggregates, and top endpoint spenders. Do not assume the old `{ daily, monthly }` shape.
+- `/api/overview/api-usage?days=N&mode=...&profile=...` only narrows endpoint rows. Service totals and quota history stay global provider truth by design.
 - Capacity widgets on `/positions` must distinguish actual portfolio slots from filtered rows. Filtered `positions.length` is not bot-wide availability.
 - Rejected or skipped signal surfaces should carry `rejectReason` plus attached `filterResults` when the backend provides them; timestamps alone are not an explanation.
 - Aggregate ratios from already-aggregated strategy rows must be weighted by the underlying counts. `manualShare` is weighted by `buyCount + sellCount`.
@@ -49,6 +50,7 @@ Rules:
 - Quota blockers come from quota snapshot pause metadata or hard-limit state. Generic operator `pauseReasons` are broader and should not be relabeled as provider blockers.
 - Profile lists should fetch and show tracked result context when activation decisions benefit from historical performance.
 - Config-profile performance context should come from aggregate profile summaries, not capped recent-sample payloads pretending to be totals.
+- New profiles should be presented as inactive until the operator activates them deliberately. Switching the active profile for the currently running mode is a runtime action and must be blocked while that runtime mode still has open positions.
 - `/api/analytics/execution-quality` summarizes entry/exit slippage, fees, latency, and copy lag by strategy. Keep types in `lib/api.ts` aligned before using it in UI code.
 
 ## Control And Auth
@@ -75,6 +77,7 @@ Operational rules:
 - Backend mutating routes still require the backend control secret.
 - The dashboard server must know the same secret if you want pause/resume/manual/profile actions to work through the proxy.
 - Read-only routes may stay public. Mutating routes should go through the centralized proxy boundary instead of ad-hoc headers in client code.
+- SSE payloads from `app/api/stream` should hydrate shared overview and active-lane position caches immediately. Keep polling as a backstop for reconnects and missed invalidations, not as the primary state sync path.
 
 ## Theme And Motion
 
