@@ -48,7 +48,7 @@ export function Footer() {
         </div>
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 lg:justify-end">
-          <span>Analysis {effectiveMode} / {effectiveProfile}</span>
+          <span>Analysis {effectiveMode ?? "ACTIVE"} / {effectiveProfile ?? "pending"}</span>
           <span>{selectedTradeSource === "ALL" ? "all sources" : selectedTradeSource.toLowerCase()}</span>
           {heartbeat?.lastTradeAt ? <span>Trade {timeAgo(heartbeat.lastTradeAt)}</span> : null}
           {heartbeat?.lastSignalAt ? <span>Signal {timeAgo(heartbeat.lastSignalAt)}</span> : null}

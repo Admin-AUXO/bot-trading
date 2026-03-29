@@ -369,6 +369,9 @@ export interface OverviewResponse {
   isRunning: boolean;
   pauseReason: string | null;
   pauseReasons: string[];
+  quotaSnapshots: BudgetSnapshot[];
+  lastTradeAt: string | null;
+  lastSignalAt: string | null;
   openPositions: Position[];
   todayTrades: number;
   todayPnl: number;
@@ -376,6 +379,18 @@ export interface OverviewResponse {
   todayLosses: number;
   mode: TradeMode;
   configProfile: string;
+}
+
+type RawOverviewResponse = Omit<OverviewResponse, "quotaSnapshots"> & {
+  quotaSnapshots?: BudgetSnapshot[] | null;
+  currentQuotaSnapshots?: BudgetSnapshot[] | null;
+};
+
+export function normalizeOverviewResponse(payload: RawOverviewResponse): OverviewResponse {
+  return {
+    ...payload,
+    quotaSnapshots: payload.quotaSnapshots ?? payload.currentQuotaSnapshots ?? [],
+  };
 }
 
 export interface HeartbeatResponse {
@@ -424,7 +439,8 @@ function withParams(path: string, params?: URLSearchParams): string {
 }
 
 export async function fetchOverview() {
-  return api.get("api/overview").json<OverviewResponse>();
+  const payload = await api.get("api/overview").json<RawOverviewResponse>();
+  return normalizeOverviewResponse(payload);
 }
 
 export async function fetchApiUsage(days: number = 14, mode?: TradeMode, profile?: string) {

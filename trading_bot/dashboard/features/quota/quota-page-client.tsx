@@ -8,7 +8,7 @@ import type { ApiService, ApiUsageResponse } from "@/lib/api";
 import { apiUsageQueryOptions } from "@/lib/dashboard-query-options";
 import { useDashboardFilters } from "@/hooks/use-dashboard-filters";
 import { useDashboardShell } from "@/hooks/use-dashboard-shell";
-import { getApiUsageSnapshotRows } from "@/lib/api-usage";
+import { decorateBudgetSnapshots, getApiUsageSnapshotRows } from "@/lib/api-usage";
 import { chartColors } from "@/lib/chart-colors";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { SummaryTile } from "@/components/ui/summary-tile";
@@ -41,25 +41,28 @@ const SERVICE_COLORS = {
   JUPITER: chartColors.s2,
   JITO: chartColors.warning,
 } as const;
-const EMPTY_CURRENT: NonNullable<ApiUsageResponse["current"]> = [];
 const EMPTY_HISTORY: ApiUsageResponse["history"] = [];
 const EMPTY_MONTHLY: ApiUsageResponse["monthly"] = [];
 const EMPTY_ENDPOINTS: ApiUsageResponse["topEndpoints"] = [];
 
 export function QuotaPageClient() {
-  const { activeScope, worstQuota } = useDashboardShell();
+  const { activeScope, quotaSnapshots, worstQuota } = useDashboardShell();
   const { effectiveMode, effectiveProfile } = useDashboardFilters();
+  const analysisScopeReady = effectiveMode != null && effectiveProfile != null;
   const [dateRange, setDateRange] = useQueryState(
     "dateRange",
     parseAsStringLiteral(DATE_RANGES).withDefault("14d"),
   );
   const days = dateRangeToDays(dateRange);
-  const apiUsageQuery = useQuery(apiUsageQueryOptions(days, effectiveMode, effectiveProfile));
+  const apiUsageQuery = useQuery({
+    ...apiUsageQueryOptions(days, effectiveMode, effectiveProfile),
+    enabled: analysisScopeReady,
+  });
 
   const current = useMemo(() => {
     const rows = getApiUsageSnapshotRows(apiUsageQuery.data);
-    return rows.length > 0 ? rows : EMPTY_CURRENT;
-  }, [apiUsageQuery.data]);
+    return rows.length > 0 ? decorateBudgetSnapshots(rows) : decorateBudgetSnapshots(quotaSnapshots);
+  }, [apiUsageQuery.data, quotaSnapshots]);
   const history = apiUsageQuery.data?.history ?? EMPTY_HISTORY;
   const monthly = apiUsageQuery.data?.monthly ?? EMPTY_MONTHLY;
   const topEndpoints = apiUsageQuery.data?.topEndpoints ?? EMPTY_ENDPOINTS;
@@ -115,12 +118,14 @@ export function QuotaPageClient() {
     const totalCredits = history.reduce((sum, row) => sum + row.dailyUsed, 0);
     const totalCalls = history.reduce((sum, row) => sum + row.totalCalls, 0);
     const totalCached = history.reduce((sum, row) => sum + row.cachedCalls, 0);
-    const endpointCredits = focusEndpoints
+    const topFiveEndpointCredits = focusEndpoints
       .slice(0, 5)
       .reduce((sum, entry) => sum + entry.totalCredits, 0);
+    const endpointWindowCredits = focusEndpoints.reduce((sum, entry) => sum + entry.totalCredits, 0);
 
     return {
-      endpointConcentration: totalCredits > 0 ? endpointCredits / totalCredits : 0,
+      endpointConcentration: endpointWindowCredits > 0 ? topFiveEndpointCredits / endpointWindowCredits : 0,
+      endpointWindowCredits,
       totalCached,
       totalCalls,
       totalCredits,
@@ -151,7 +156,7 @@ export function QuotaPageClient() {
           <div className="mt-1 text-sm text-text-secondary">
             {activeScope ? `${activeScope.mode}/${activeScope.configProfile}` : "runtime pending"}
             {" · "}service budgets are global
-            {" · "}endpoint focus below narrows to {effectiveMode}/{effectiveProfile}
+            {" · "}endpoint focus below narrows to {analysisScopeReady ? `${effectiveMode}/${effectiveProfile}` : "pending"}
             {" · "}{dateRange} window
           </div>
         </div>
@@ -167,6 +172,12 @@ export function QuotaPageClient() {
           ))}
         </div>
       </motion.div>
+
+      {!analysisScopeReady ? (
+        <motion.div variants={motionItem} className="rounded-xl border border-bg-border/80 bg-bg-hover/35 px-3 py-2 text-xs text-text-muted">
+          Waiting for the active runtime lane before loading mode/profile-scoped endpoint telemetry.
+        </motion.div>
+      ) : null}
 
       <motion.div variants={motionItem} className="grid grid-cols-2 gap-3 xl:grid-cols-6">
         <SummaryTile
@@ -189,9 +200,9 @@ export function QuotaPageClient() {
           icon={<Layers className="h-3.5 w-3.5 text-accent-cyan" />}
         />
         <SummaryTile
-          label="Endpoint Concentration"
+          label="Endpoint Dominance"
           value={`${(totals.endpointConcentration * 100).toFixed(0)}%`}
-          sub="Top 5 endpoints share of burn"
+          sub="Top 5 share of visible endpoint spend"
           icon={<Gauge className="h-3.5 w-3.5 text-accent-yellow" />}
           tone={totals.endpointConcentration > 0.65 ? "warning" : "default"}
         />
@@ -404,7 +415,7 @@ export function QuotaPageClient() {
                 <span className="stat-label">Endpoint Concentration</span>
               </div>
               <span className="text-[11px] text-text-muted">
-                Focused on {effectiveMode}/{effectiveProfile} when endpoint telemetry carries lane metadata
+                Focused on {analysisScopeReady ? `${effectiveMode}/${effectiveProfile}` : "pending"} when endpoint telemetry carries lane metadata
               </span>
             </div>
             <div className="space-y-2">
@@ -439,6 +450,11 @@ export function QuotaPageClient() {
               ))}
               {!focusEndpoints.length ? (
                 <div className="text-sm text-text-muted">No lane-specific endpoint telemetry in this window.</div>
+              ) : null}
+              {focusEndpoints.length ? (
+                <div className="text-[11px] text-text-muted">
+                  Visible endpoint window: {formatNumber(totals.endpointWindowCredits)} credits across the top {focusEndpoints.length} endpoint rows.
+                </div>
               ) : null}
             </div>
           </div>

@@ -6,7 +6,7 @@ import { motion } from "motion/react";
 import { apiUsageQueryOptions, dailyStatsQueryOptions } from "@/lib/dashboard-query-options";
 import { useDashboardFilters } from "@/hooks/use-dashboard-filters";
 import { useDashboardShell } from "@/hooks/use-dashboard-shell";
-import { getApiUsageSnapshotRows } from "@/lib/api-usage";
+import { decorateBudgetSnapshots, getApiUsageSnapshotRows } from "@/lib/api-usage";
 import { PnlChart } from "@/components/charts/pnl-chart";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { ChartSkeleton, StatCardSkeleton } from "@/components/ui/skeleton";
@@ -39,6 +39,7 @@ const EMPTY_LIST: never[] = [];
 
 export default function OverviewPage() {
   const { effectiveMode, effectiveProfile } = useDashboardFilters();
+  const analysisScopeReady = effectiveMode != null && effectiveProfile != null;
   const {
     activeScope,
     overview,
@@ -54,12 +55,15 @@ export default function OverviewPage() {
     lastUpdatedAt,
     isLoadingShell,
     maxOpenPositions,
-    apiUsage,
+    quotaSnapshots,
     pauseReasons,
   } = useDashboardShell();
 
   const apiUsageQuery = useQuery(apiUsageQueryOptions(7));
-  const recentStatsQuery = useQuery(dailyStatsQueryOptions(7, effectiveMode, effectiveProfile));
+  const recentStatsQuery = useQuery({
+    ...dailyStatsQueryOptions(7, effectiveMode, effectiveProfile),
+    enabled: analysisScopeReady,
+  });
 
   const recentStats = useMemo(
     () => (recentStatsQuery.data ?? []).filter((stat) => stat.strategy === null),
@@ -68,6 +72,9 @@ export default function OverviewPage() {
   const regime = overview?.regime ? regimeBadge(overview.regime.regime) : null;
   const updatedLabel = lastUpdatedAt ? timeAgo(new Date(lastUpdatedAt)) : "awaiting sync";
   const topUrgentPosition = urgentPositions[0] ?? null;
+  const analysisLabel = analysisScopeReady
+    ? `${effectiveMode === "LIVE" ? "live" : "simulation"} ${effectiveProfile}`
+    : "analysis lane pending";
 
   const recentFlow = useMemo(() => {
     const totals = recentStats.reduce(
@@ -115,10 +122,11 @@ export default function OverviewPage() {
   }, [allPositions]);
 
   const currentUsage = useMemo(
-    () => getApiUsageSnapshotRows(apiUsageQuery.data).length > 0
-      ? getApiUsageSnapshotRows(apiUsageQuery.data)
-      : getApiUsageSnapshotRows(apiUsage),
-    [apiUsage, apiUsageQuery.data],
+    () => {
+      const detailedRows = getApiUsageSnapshotRows(apiUsageQuery.data);
+      return decorateBudgetSnapshots(detailedRows.length > 0 ? detailedRows : quotaSnapshots);
+    },
+    [apiUsageQuery.data, quotaSnapshots],
   );
   const endpointRows = useMemo(
     () => apiUsageQuery.data?.topEndpoints ?? EMPTY_LIST,
@@ -194,7 +202,11 @@ export default function OverviewPage() {
           <div className="mt-1 text-sm text-text-secondary">
             {activeScope?.mode === "LIVE" ? "Live" : activeScope?.mode === "DRY_RUN" ? "Simulation" : "Runtime"} scope
             {activeScope ? ` · ${activeScope.configProfile}` : ""}
-            {effectiveMode !== activeScope?.mode || effectiveProfile !== activeScope?.configProfile ? ` · analysis ${effectiveMode}/${effectiveProfile}` : ""}
+            {analysisScopeReady && (effectiveMode !== activeScope?.mode || effectiveProfile !== activeScope?.configProfile)
+              ? ` · analysis ${analysisLabel}`
+              : !analysisScopeReady
+                ? ` · ${analysisLabel}`
+                : ""}
             {" · "}updated {updatedLabel}
           </div>
         </div>
@@ -272,8 +284,8 @@ export default function OverviewPage() {
               <MetricRow label="SOL spot" value={formatUsd(overview.regime.solPrice)} />
               <MetricRow label="SOL 1h" value={formatPercent(overview.regime.solChange1h)} valueClass={pnlClass(overview.regime.solChange1h)} />
               <MetricRow label="Profile" value={overview.configProfile} />
-              <MetricRow label="Last trade" value={heartbeat?.lastTradeAt ? timeAgo(heartbeat.lastTradeAt) : "—"} />
-              <MetricRow label="Last signal" value={heartbeat?.lastSignalAt ? timeAgo(heartbeat.lastSignalAt) : "—"} />
+              <MetricRow label="Last trade" value={heartbeat?.lastTradeAt ? timeAgo(heartbeat.lastTradeAt) : overview.lastTradeAt ? timeAgo(overview.lastTradeAt) : "—"} />
+              <MetricRow label="Last signal" value={heartbeat?.lastSignalAt ? timeAgo(heartbeat.lastSignalAt) : overview.lastSignalAt ? timeAgo(overview.lastSignalAt) : "—"} />
             </div>
 
             {pauseReasons.length > 0 ? (

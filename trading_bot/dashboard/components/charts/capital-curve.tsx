@@ -23,13 +23,20 @@ export function CapitalCurveChart({
   mode?: TradeMode | null;
   profile?: string | null;
 }) {
-  const { data: curve } = useQuery(capitalCurveQueryOptions(days, mode, profile));
-
+  const analysisScopeReady = mode != null && profile != null;
+  const { data: curve } = useQuery({
+    ...capitalCurveQueryOptions(days, mode, profile),
+    enabled: analysisScopeReady,
+  });
   const chartData = useMemo(() => (curve ?? []).map((p) => ({
     date: new Date(p.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
     capital: p.capital,
     pnl: p.cumulativePnl,
   })), [curve]);
+
+  if (!analysisScopeReady) {
+    return <div className="flex h-48 items-center justify-center text-sm text-text-muted">Waiting for the active analysis lane.</div>;
+  }
 
   if (chartData.length === 0) {
     return <div className="h-48 flex items-center justify-center text-text-muted text-sm">No data yet</div>;

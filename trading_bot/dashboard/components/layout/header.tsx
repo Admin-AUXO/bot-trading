@@ -76,8 +76,12 @@ export function Header() {
   const updatedLabel = lastUpdatedAt ? timeAgo(new Date(lastUpdatedAt)) : "awaiting sync";
   const runtimeModeLabel = activeScope?.mode === "LIVE" ? "Live" : activeScope?.mode === "DRY_RUN" ? "Simulation" : "Runtime";
   const analysisSummary = [
-    effectiveMode === "LIVE" ? "Live history" : "Simulation history",
-    effectiveProfile,
+    effectiveMode === "LIVE"
+      ? "Live history"
+      : effectiveMode === "DRY_RUN"
+        ? "Simulation history"
+        : "Active lane pending",
+    effectiveProfile ?? "runtime profile pending",
     selectedTradeSource === ALL_TRADE_SOURCE_FILTER ? "all sources" : `${selectedTradeSource.toLowerCase()} focus`,
   ].join(" · ");
   const selectedStrategyRuntimeCount = selectedStrategy

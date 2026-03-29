@@ -40,6 +40,15 @@ export default function TradesPage() {
     resolvedTradeSource,
     selectedStrategy,
   } = useDashboardFilters();
+  const analysisScopeReady = effectiveMode != null && effectiveProfile != null;
+
+  if (!analysisScopeReady) {
+    return (
+      <div className="flex h-40 items-center justify-center rounded-2xl border border-bg-border bg-bg-card/70 text-sm text-text-secondary">
+        Waiting for the active analysis lane before loading fills and signals.
+      </div>
+    );
+  }
 
   return (
     <TradesPageContent
@@ -177,7 +186,7 @@ function TradesPageContent({
             />
             <SummaryTile
               label="Last Trade"
-                value={tradesQuery.data?.summary.lastExecutedAt ? timeAgo(tradesQuery.data.summary.lastExecutedAt) : "—"}
+              value={tradesQuery.data?.summary.lastExecutedAt ? timeAgo(tradesQuery.data.summary.lastExecutedAt) : "—"}
               sub={`${profile} · most recent execution`}
               icon={<Waves className="h-3.5 w-3.5 text-accent-cyan" />}
             />

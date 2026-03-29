@@ -105,6 +105,7 @@ export default function PositionsPage() {
     selectedStrategy,
     isAnalysisOnActiveRuntime,
   } = useDashboardFilters();
+  const analysisScopeReady = effectiveMode != null && effectiveProfile != null;
   const queryClient = useQueryClient();
   const {
     activeScope: runtimeScope,
@@ -119,14 +120,17 @@ export default function PositionsPage() {
     setSkippedPage(1);
   }, [selectedStrategy]);
 
-  const openPositionsQuery = useQuery(positionsQueryOptions(effectiveMode, effectiveProfile, resolvedTradeSource));
+  const openPositionsQuery = useQuery({
+    ...positionsQueryOptions(effectiveMode, effectiveProfile, resolvedTradeSource),
+    enabled: analysisScopeReady,
+  });
   const historyQuery = useQuery({
     ...positionHistoryQueryOptions(page, selectedStrategy, effectiveMode, effectiveProfile, resolvedTradeSource),
-    enabled: tab === "history",
+    enabled: analysisScopeReady && tab === "history",
   });
   const skippedSignalsQuery = useQuery({
     ...skippedSignalsQueryOptions(skippedPage, selectedStrategy, effectiveMode, effectiveProfile),
-    enabled: tab === "skipped",
+    enabled: analysisScopeReady && tab === "skipped",
   });
   const operatorSessionQuery = useQuery(operatorSessionQueryOptions());
 
@@ -221,7 +225,10 @@ export default function PositionsPage() {
         <div>
           <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Position Risk</div>
           <div className="mt-1 text-sm text-text-secondary">
-            {effectiveMode === "LIVE" ? "Live" : "Simulation"} analysis · {effectiveProfile} · {selectedStrategy ? strategyLabel(selectedStrategy) : "All strategies"}
+            {analysisScopeReady
+              ? `${effectiveMode === "LIVE" ? "Live" : "Simulation"} analysis · ${effectiveProfile}`
+              : "Analysis lane pending"}
+            {" · "}{selectedStrategy ? strategyLabel(selectedStrategy) : "All strategies"}
             {resolvedTradeSource ? ` · ${resolvedTradeSource.toLowerCase()} only` : ""}
             {!isAnalysisOnActiveRuntime && activeScope ? ` · manual actions stay on ${activeScope.mode}/${activeScope.configProfile}` : ""}
           </div>
@@ -264,13 +271,19 @@ export default function PositionsPage() {
         </div>
       ) : null}
 
+      {!analysisScopeReady ? (
+        <div className="rounded-xl border border-bg-border/80 bg-bg-hover/35 px-3 py-2 text-xs text-text-muted">
+          Waiting for the active runtime lane before loading filtered positions, history, and skipped entries.
+        </div>
+      ) : null}
+
       {tab === "open" ? (
         <>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
             <SummaryTile
               label="Filtered Open"
               value={String(filteredPositions?.length ?? 0)}
-              sub={`${focusLabel} · ${effectiveProfile}`}
+              sub={`${focusLabel} · ${effectiveProfile ?? "pending"}`}
               icon={<Crosshair className="h-3.5 w-3.5 text-accent-blue" />}
             />
             <SummaryTile
@@ -354,7 +367,7 @@ export default function PositionsPage() {
                             <td className="table-cell">
                               <div className="font-medium text-text-primary">{position.tokenSymbol}</div>
                               <div className="text-[10px] text-text-muted">
-                                {position.configProfile ?? effectiveProfile} · {position.walletSource ? `${position.walletSource.slice(0, 6)}…${position.walletSource.slice(-4)}` : "Tracked position"}
+                                {position.configProfile ?? effectiveProfile ?? "pending"} · {position.walletSource ? `${position.walletSource.slice(0, 6)}…${position.walletSource.slice(-4)}` : "Tracked position"}
                               </div>
                             </td>
                             <td className="table-cell tabular-nums">{formatSol(position.remainingAmountSol ?? position.amountSol)}</td>

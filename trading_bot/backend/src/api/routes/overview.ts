@@ -103,7 +103,7 @@ export function overviewRouter(deps: { riskManager: unknown; regimeDetector: unk
       todayLosses: summary.todayLosses,
       mode: snapshot.scope.mode,
       configProfile: snapshot.scope.configProfile,
-      currentQuotaSnapshots: apiBudgetManager?.getSnapshots() ?? null,
+      quotaSnapshots: apiBudgetManager?.getSnapshots() ?? null,
     });
   });
 

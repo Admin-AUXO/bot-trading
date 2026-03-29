@@ -59,24 +59,34 @@ const DATE_RANGES = ["7d", "14d", "30d", "60d", "90d"] as const;
 export function AnalyticsPageClient() {
   const { activeScope } = useDashboardShell();
   const { effectiveMode, effectiveProfile, resolvedTradeSource } = useDashboardFilters();
+  const analysisScopeReady = effectiveMode != null && effectiveProfile != null;
   const [dateRange, setDateRange] = useQueryState(
     "dateRange",
     parseAsStringLiteral(DATE_RANGES).withDefault("30d"),
   );
   const days = dateRangeToDays(dateRange);
 
-  const strategiesQuery = useQuery(
-    strategyAnalyticsQueryOptions(days, effectiveMode, effectiveProfile, resolvedTradeSource),
-  );
-  const executionQualityQuery = useQuery(
-    executionQualityQueryOptions(days, effectiveMode, effectiveProfile, resolvedTradeSource),
-  );
+  const strategiesQuery = useQuery({
+    ...strategyAnalyticsQueryOptions(days, effectiveMode, effectiveProfile, resolvedTradeSource),
+    enabled: analysisScopeReady,
+  });
+  const executionQualityQuery = useQuery({
+    ...executionQualityQueryOptions(days, effectiveMode, effectiveProfile, resolvedTradeSource),
+    enabled: analysisScopeReady,
+  });
   const regimeHistoryQuery = useQuery(regimeHistoryQueryOptions());
-  const wouldHaveWonQuery = useQuery(wouldHaveWonQueryOptions(days, effectiveMode, effectiveProfile));
-  const pnlDistributionQuery = useQuery(
-    pnlDistributionQueryOptions(days, effectiveMode, effectiveProfile, resolvedTradeSource),
-  );
-  const dailyStatsQuery = useQuery(dailyStatsQueryOptions(days, effectiveMode, effectiveProfile));
+  const wouldHaveWonQuery = useQuery({
+    ...wouldHaveWonQueryOptions(days, effectiveMode, effectiveProfile),
+    enabled: analysisScopeReady,
+  });
+  const pnlDistributionQuery = useQuery({
+    ...pnlDistributionQueryOptions(days, effectiveMode, effectiveProfile, resolvedTradeSource),
+    enabled: analysisScopeReady,
+  });
+  const dailyStatsQuery = useQuery({
+    ...dailyStatsQueryOptions(days, effectiveMode, effectiveProfile),
+    enabled: analysisScopeReady,
+  });
   const walletActivityQuery = useQuery(walletActivityQueryOptions(30));
   const graduationStatsQuery = useQuery(graduationStatsQueryOptions(days));
 
@@ -154,10 +164,10 @@ export function AnalyticsPageClient() {
   }, [dailyStats, executionQuality, pnlDist, strategies]);
 
   const handleExportStats = () => {
-    if (!dailyStatsQuery.data) return;
+    if (!analysisScopeReady || !dailyStatsQuery.data) return;
 
     exportCsv(
-      `daily-stats-${effectiveMode}-${effectiveProfile}-${dateRange}`,
+      `daily-stats-${effectiveMode ?? "pending"}-${effectiveProfile ?? "pending"}-${dateRange}`,
       ["Date", "Trades", "Won", "Lost", "Win Rate", "Gross P&L", "Net P&L", "Capital", "Regime"],
       dailyStatsQuery.data
         .filter((stat) => stat.strategy === null)
@@ -188,7 +198,7 @@ export function AnalyticsPageClient() {
           <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Expectancy Ledger</div>
           <div className="mt-1 text-sm text-text-secondary">
             {activeScope ? `${activeScope.mode}/${activeScope.configProfile}` : "runtime pending"}
-            {" · "}analysis {effectiveMode}/{effectiveProfile}
+            {" · "}analysis {analysisScopeReady ? `${effectiveMode}/${effectiveProfile}` : "pending"}
             {resolvedTradeSource ? ` · ${resolvedTradeSource.toLowerCase()} trades` : " · all trade sources"}
             {" · "}{dateRange} lookback
             {" · "}scope badges below tell you what is filtered and what is global
@@ -207,12 +217,18 @@ export function AnalyticsPageClient() {
               </button>
             ))}
           </div>
-          <button onClick={handleExportStats} className="btn-ghost flex items-center gap-1 text-xs">
+          <button onClick={handleExportStats} disabled={!analysisScopeReady} className="btn-ghost flex items-center gap-1 text-xs disabled:opacity-40">
             <Download className="h-3.5 w-3.5" />
             Export
           </button>
         </div>
       </motion.div>
+
+      {!analysisScopeReady ? (
+        <motion.div variants={motionItem} className="rounded-xl border border-bg-border/80 bg-bg-hover/35 px-3 py-2 text-xs text-text-muted">
+          Waiting for the active runtime lane before loading mode/profile-scoped analytics.
+        </motion.div>
+      ) : null}
 
       <motion.div variants={motionItem} className="grid grid-cols-2 gap-3 xl:grid-cols-6">
         <SummaryTile

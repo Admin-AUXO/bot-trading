@@ -9,15 +9,15 @@ import { DashboardShellProvider } from "@/hooks/use-dashboard-shell";
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(() => {
     return new QueryClient({
-      defaultOptions: {
-        queries: {
-          staleTime: 5000,
-          gcTime: 5 * 60 * 1000,
-          retry: false,
-          refetchOnWindowFocus: true,
+        defaultOptions: {
+          queries: {
+            staleTime: 5000,
+            gcTime: 5 * 60 * 1000,
+            retry: false,
+            refetchOnWindowFocus: false,
+          },
         },
-      },
-    });
+      });
   });
 
   return (

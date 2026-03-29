@@ -20,7 +20,7 @@ Use these files as the dashboard data contract:
 - `lib/dashboard-query-options.ts`
   Defines canonical TanStack Query keys and query functions for shared resources.
 - `hooks/use-dashboard-shell.ts`
-  Aggregates overview, positions, heartbeat, and operator session into one shared shell model for header, sidebar, footer, and shell-level banners.
+  Aggregates overview, heartbeat, operator session, runtime positions, and lightweight quota snapshots into one shared shell model for header, sidebar, footer, and shell-level banners.
 - `hooks/use-dashboard-filters.ts`
   Separates active runtime scope from page-level analysis filters so layout chrome can stay truthful while analytics can inspect other lanes.
 - `app/providers.tsx`
@@ -39,7 +39,9 @@ Rules:
 - Manual entry and exit are runtime-lane actions. If the operator is inspecting another `mode/profile` lane, keep the read path available but disable the write path explicitly.
 - `/api/control/config` is the runtime truth for settings cards: it now exposes configured base size, current effective size after regime/capital adjustments, and the structured exit plan for each strategy. Do not hard-code those thresholds in the client.
 - `/api/overview` day counters are lane-scoped runtime truth. Reuse the backend lane-summary contract instead of recomputing those numbers ad hoc per page.
+- `/api/overview` also carries the lightweight runtime quota snapshot used by shell chrome. Do not pull `/api/overview/api-usage` into header, footer, sidebar, or other shell-level status just to rank current provider pressure.
 - Connection state is derived from heartbeat plus available shell data. Do not reintroduce a manual `connected` flag in client state.
+- Process health in settings is backend reachability, not bot trading state. Show paused/running separately instead of translating `heartbeat.isRunning` into an uptime verdict.
 - Keep compact metrics on `components/ui/summary-tile.tsx` unless a page has a stronger reason to diverge.
 - `/api/overview/api-usage?days=N` is a compound contract now: current snapshots, persisted daily rows, monthly aggregates, and top endpoint spenders. Do not assume the old `{ daily, monthly }` shape.
 - `/api/overview/api-usage?days=N&mode=...&profile=...` only narrows endpoint rows. Service totals and quota history stay global provider truth by design.
@@ -77,7 +79,7 @@ Operational rules:
 - Backend mutating routes still require the backend control secret.
 - The dashboard server must know the same secret if you want pause/resume/manual/profile actions to work through the proxy.
 - Read-only routes may stay public. Mutating routes should go through the centralized proxy boundary instead of ad-hoc headers in client code.
-- SSE payloads from `app/api/stream` should hydrate shared overview and active-lane position caches immediately. Keep polling as a backstop for reconnects and missed invalidations, not as the primary state sync path.
+- SSE payloads from `app/api/stream` should hydrate shared overview, heartbeat activity timestamps, and active-lane position caches immediately. Keep polling as a backstop for reconnects and missed invalidations, not as the primary state sync path.
 
 ## Theme And Motion
 
@@ -136,7 +138,7 @@ Browser verification should confirm:
 - positions keep runtime capacity separate from filtered rows and show block reasons or filter evidence where available
 - trades render reject reasons plus filter evidence for rejected signals
 - analytics scope badges match the actual query/filter support for each card, and weighted rollups still read correctly
-- quota page shows global service totals, lane-focused endpoint concentration, and quota-specific blockers without assuming stale response shapes
+- quota page shows global service totals, lane-focused endpoint dominance with an explicitly matching denominator, and quota-specific blockers without assuming stale response shapes
 - settings surfaces current provider budget, pause reasons, top-endpoint usage widgets, and per-profile result context without assuming stale response shapes
 - settings strategy cards match `/api/control/config` for live size and exit thresholds instead of hard-coded labels
 - search-param hooks remain behind the required Suspense boundaries

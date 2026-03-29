@@ -28,9 +28,12 @@ export function PnlChart({
   profile?: string | null;
   dailyLossLimit?: number;
 }) {
-  const { data: stats } = useQuery(dailyStatsQueryOptions(days, mode, profile));
+  const analysisScopeReady = mode != null && profile != null;
+  const { data: stats } = useQuery({
+    ...dailyStatsQueryOptions(days, mode, profile),
+    enabled: analysisScopeReady,
+  });
   const { data: overview } = useQuery(overviewQueryOptions());
-
   const filtered = (stats ?? []).filter((s) => s.strategy === null);
   const lossGuardrail = dailyLossLimit ?? overview?.dailyLossLimit ?? 10;
 
@@ -50,6 +53,10 @@ export function PnlChart({
       ma7,
     };
   }), [filtered]);
+
+  if (!analysisScopeReady) {
+    return <div className="flex h-48 items-center justify-center text-sm text-text-muted">Waiting for the active analysis lane.</div>;
+  }
 
   if (chartData.length === 0) {
     return <div className="h-48 flex items-center justify-center text-text-muted text-sm">No data yet</div>;

@@ -2,7 +2,7 @@
 
 import { createContext, createElement, useContext, useEffect, useMemo, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { TradeSource } from "@/lib/api";
+import type { TradeMode, TradeSource } from "@/lib/api";
 import { profilesQueryOptions } from "@/lib/dashboard-query-options";
 import {
   ACTIVE_MODE_FILTER,
@@ -27,14 +27,14 @@ function useDashboardFiltersValue() {
   const profilesQuery = useQuery(profilesQueryOptions());
   const profiles = useMemo(() => profilesQuery.data ?? [], [profilesQuery.data]);
 
-  const effectiveMode = (
+  const effectiveMode: TradeMode | null = (
     selectedMode === ACTIVE_MODE_FILTER
       ? activeScope?.mode
       : selectedMode
-  ) ?? "LIVE";
+  ) ?? null;
 
-  const effectiveProfile = selectedProfile === ACTIVE_PROFILE_FILTER
-    ? activeScope?.configProfile ?? "default"
+  const effectiveProfile: string | null = selectedProfile === ACTIVE_PROFILE_FILTER
+    ? activeScope?.configProfile ?? null
     : selectedProfile;
 
   useEffect(() => {
@@ -46,6 +46,7 @@ function useDashboardFiltersValue() {
   }, [effectiveMode, profiles, selectedProfile, setSelectedProfile]);
 
   const profileOptions = useMemo(() => {
+    if (!effectiveMode) return [];
     return profiles
       .filter((profile) => profile.mode === effectiveMode)
       .sort((left, right) => {

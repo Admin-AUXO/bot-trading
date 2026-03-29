@@ -10,9 +10,9 @@ import {
   reconcileWallet, unlockOperatorSession, clearOperatorSession,
 } from "@/lib/api";
 import type { ConfigProfile, TradeMode } from "@/lib/api";
-import { dashboardQueryKeys, profileResultsSummariesQueryOptions, profilesQueryOptions } from "@/lib/dashboard-query-options";
+import { apiUsageQueryOptions, dashboardQueryKeys, profileResultsSummariesQueryOptions, profilesQueryOptions } from "@/lib/dashboard-query-options";
 import { useDashboardShell } from "@/hooks/use-dashboard-shell";
-import { getApiUsageSnapshotRows } from "@/lib/api-usage";
+import { decorateBudgetSnapshots, getApiUsageSnapshotRows } from "@/lib/api-usage";
 import { formatUsd, formatNumber, timeAgo } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import {
@@ -44,18 +44,20 @@ export default function SettingsPage() {
   const queryClient = useQueryClient();
   const {
     activeScope,
+    connectionState,
     overview,
     heartbeat,
     allPositions: openPositions,
     operatorSession,
     strategyConfig: stratConfig,
-    apiUsage,
+    quotaSnapshots,
     maxOpenPositions,
     pauseReasons,
     worstQuota,
   } = useDashboardShell();
   const [operatorSecret, setOperatorSecret] = useState("");
   const { data: profiles } = useQuery(profilesQueryOptions());
+  const apiUsageQuery = useQuery(apiUsageQueryOptions(14));
   const invalidateRuntimeShell = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.overview }),
@@ -112,22 +114,27 @@ export default function SettingsPage() {
 
   const dailyLossPct = overview ? (overview.dailyLossUsd / overview.dailyLossLimit) * 100 : 0;
   const weeklyLossPct = overview ? (overview.weeklyLossUsd / overview.weeklyLossLimit) * 100 : 0;
-  const currentQuota = getApiUsageSnapshotRows(apiUsage)
-    .map((snapshot) => ({
-      ...snapshot,
-      dailyPct: snapshot.dailyBudget > 0 ? (snapshot.dailyUsed / snapshot.dailyBudget) * 100 : 0,
-      monthlyPct: snapshot.budgetTotal > 0 ? (snapshot.monthlyUsed / snapshot.budgetTotal) * 100 : 0,
-    }))
-    .sort((left, right) => right.monthlyPct - left.monthlyPct);
+  const detailedQuotaRows = getApiUsageSnapshotRows(apiUsageQuery.data);
+  const currentQuota = decorateBudgetSnapshots(detailedQuotaRows.length > 0 ? detailedQuotaRows : quotaSnapshots);
   const monthlySummaryByService = new Map(
-    (apiUsage?.monthly ?? []).map((entry) => [entry.service, entry]),
+    (apiUsageQuery.data?.monthly ?? []).map((entry) => [entry.service, entry]),
   );
-  const topQuotaEndpoints = apiUsage?.topEndpoints.slice(0, 4) ?? [];
+  const topQuotaEndpoints = apiUsageQuery.data?.topEndpoints.slice(0, 4) ?? [];
   const todayApiCalls = currentQuota.length > 0
     ? currentQuota.reduce((sum, snapshot) => sum + snapshot.totalCalls, 0)
-    : apiUsage?.daily?.reduce((sum, d) => sum + (d.totalCalls ?? 0), 0) ?? 0;
+    : apiUsageQuery.data?.daily?.reduce((sum, d) => sum + (d.totalCalls ?? 0), 0) ?? 0;
   const controlsLocked = operatorSession?.configured !== false && !operatorSession?.authenticated;
   const controlsUnavailable = operatorSession?.configured === false;
+  const processHealthTone = connectionState === "online"
+    ? "bg-accent-green/15 text-accent-green"
+    : connectionState === "degraded"
+      ? "bg-accent-yellow/15 text-accent-yellow"
+      : "bg-accent-red/15 text-accent-red";
+  const processHealthLabel = connectionState === "online"
+    ? "ONLINE"
+    : connectionState === "degraded"
+      ? "DEGRADED"
+      : "OFFLINE";
 
   const sectionItem = {
     hidden: { opacity: 0, y: 10 },
@@ -339,16 +346,19 @@ export default function SettingsPage() {
             <div className="flex items-center gap-2 mb-4">
               <Heart className="w-4 h-4 text-accent-red" />
               <span className="stat-label">Process Health</span>
-              {heartbeat && (
-                <span className={`ml-auto text-[10px] px-2 py-0.5 rounded-full ${
-                  heartbeat.isRunning ? "bg-accent-green/15 text-accent-green" : "bg-text-muted/20 text-text-muted"
-                }`}>
-                  {heartbeat.isRunning ? "ALIVE" : "DOWN"}
-                </span>
-              )}
+              <span className={`ml-auto text-[10px] px-2 py-0.5 rounded-full ${processHealthTone}`}>
+                {processHealthLabel}
+              </span>
             </div>
             {heartbeat ? (
               <div className="space-y-2 text-sm">
+                <HealthRow
+                  icon={<Power className="w-3.5 h-3.5 text-text-muted" />}
+                  label="Bot State"
+                  value={heartbeat.isRunning ? "Running" : "Paused"}
+                  sub={heartbeat.isRunning ? undefined : "trading paused"}
+                  subClass={heartbeat.isRunning ? "text-accent-green" : "text-accent-yellow"}
+                />
                 <HealthRow
                   icon={<Clock className="w-3.5 h-3.5 text-text-muted" />}
                   label="Uptime"
@@ -364,12 +374,12 @@ export default function SettingsPage() {
                 <HealthRow
                   icon={<Activity className="w-3.5 h-3.5 text-text-muted" />}
                   label="Last Trade"
-                  value={heartbeat.lastTradeAt ? timeAgo(heartbeat.lastTradeAt) : "None"}
+                  value={heartbeat.lastTradeAt ? timeAgo(heartbeat.lastTradeAt) : overview?.lastTradeAt ? timeAgo(overview.lastTradeAt) : "None"}
                 />
                 <HealthRow
                   icon={<Target className="w-3.5 h-3.5 text-text-muted" />}
                   label="Last Signal"
-                  value={heartbeat.lastSignalAt ? timeAgo(heartbeat.lastSignalAt) : "None"}
+                  value={heartbeat.lastSignalAt ? timeAgo(heartbeat.lastSignalAt) : overview?.lastSignalAt ? timeAgo(overview.lastSignalAt) : "None"}
                 />
                 <HealthRow
                   icon={<Layers className="w-3.5 h-3.5 text-text-muted" />}
@@ -393,7 +403,9 @@ export default function SettingsPage() {
                 </div>
               </div>
             ) : (
-              <div className="text-text-muted text-sm">Loading…</div>
+              <div className="text-text-muted text-sm">
+                {connectionState === "offline" ? "Backend unavailable." : "Loading…"}
+              </div>
             )}
           </div>
         </ErrorBoundary>

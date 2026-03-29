@@ -3,14 +3,13 @@
 import { createContext, createElement, useContext, useMemo, type ReactNode } from "react";
 import { useQueries } from "@tanstack/react-query";
 import {
-  apiUsageQueryOptions,
   heartbeatQueryOptions,
   operatorSessionQueryOptions,
   overviewQueryOptions,
   strategyConfigQueryOptions,
 } from "@/lib/dashboard-query-options";
-import { getApiUsageSnapshotRows } from "@/lib/api-usage";
-import type { BudgetSnapshot, Position, StrategyConfigResponse } from "@/lib/api";
+import { getWorstBudgetSnapshot } from "@/lib/api-usage";
+import type { Position, StrategyConfigResponse } from "@/lib/api";
 
 function getStrategyTimeStopMinutes(strategyConfig: StrategyConfigResponse | undefined, strategy: string) {
   return strategyConfig?.strategies[strategy]?.timeStopMinutes ?? null;
@@ -35,26 +34,18 @@ function scorePositionUrgency(position: Position, strategyConfig?: StrategyConfi
   };
 }
 
-function rankQuotaSnapshots(snapshots: BudgetSnapshot[] | null | undefined) {
-  if (!snapshots?.length) return null;
-  const rank = { PAUSED: 3, HARD_LIMIT: 2, SOFT_LIMIT: 1, HEALTHY: 0 } as const;
-  return [...snapshots].sort((left, right) => rank[right.quotaStatus] - rank[left.quotaStatus])[0] ?? null;
-}
-
 function useDashboardShellValue() {
   const [
     overviewQuery,
     heartbeatQuery,
     operatorSessionQuery,
     strategyConfigQuery,
-    apiUsageQuery,
   ] = useQueries({
     queries: [
       overviewQueryOptions(),
       heartbeatQueryOptions(),
       operatorSessionQueryOptions(),
       strategyConfigQueryOptions(),
-      apiUsageQueryOptions(14),
     ],
   });
 
@@ -62,9 +53,10 @@ function useDashboardShellValue() {
     () => overviewQuery.data?.openPositions ?? [],
     [overviewQuery.data?.openPositions],
   );
+  const quotaSnapshots = overviewQuery.data?.quotaSnapshots ?? [];
 
   const connectionState: "online" | "degraded" | "offline" = heartbeatQuery.isError
-    ? (overviewQuery.data || strategyConfigQuery.data || apiUsageQuery.data ? "degraded" : "offline")
+    ? (overviewQuery.data || strategyConfigQuery.data ? "degraded" : "offline")
     : "online";
 
   const operatorAccess: "locked" | "unlocked" | "unavailable" = operatorSessionQuery.data?.configured === false
@@ -79,7 +71,7 @@ function useDashboardShellValue() {
   const pauseReasons = overviewQuery.data?.pauseReasons
     ?? strategyConfig?.risk.pauseReasons
     ?? [];
-  const worstQuota = rankQuotaSnapshots(getApiUsageSnapshotRows(apiUsageQuery.data));
+  const worstQuota = getWorstBudgetSnapshot(quotaSnapshots);
 
   const metrics = useMemo(() => {
     const openPnlUsd = allPositions.reduce(
@@ -117,7 +109,6 @@ function useDashboardShellValue() {
     heartbeatQuery.dataUpdatedAt,
     operatorSessionQuery.dataUpdatedAt,
     strategyConfigQuery.dataUpdatedAt,
-    apiUsageQuery.dataUpdatedAt,
   );
 
   const isLoadingShell = !overviewQuery.data && [
@@ -125,7 +116,6 @@ function useDashboardShellValue() {
     heartbeatQuery,
     operatorSessionQuery,
     strategyConfigQuery,
-    apiUsageQuery,
   ].some((query) => query.isLoading);
 
   return {
@@ -134,7 +124,7 @@ function useDashboardShellValue() {
     heartbeat: heartbeatQuery.data,
     operatorSession: operatorSessionQuery.data,
     strategyConfig,
-    apiUsage: apiUsageQuery.data,
+    quotaSnapshots,
     worstQuota,
     pauseReasons,
     allPositions,

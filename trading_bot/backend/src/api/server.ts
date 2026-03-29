@@ -114,7 +114,7 @@ export function createApiServer(deps: {
         res.write(`data: ${JSON.stringify({
           ...snapshot,
           regime,
-          currentQuotaSnapshots: deps.apiBudgetManager?.getSnapshots() ?? null,
+          quotaSnapshots: deps.apiBudgetManager?.getSnapshots() ?? null,
           lastTradeAt: laneActivity.lastTradeAt,
           lastSignalAt: laneActivity.lastSignalAt,
           todayTrades: summary.todayTrades,

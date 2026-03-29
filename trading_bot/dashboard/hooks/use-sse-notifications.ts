@@ -2,7 +2,13 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
-import { createSSEConnection, type OverviewResponse, type TradeMode } from "@/lib/api";
+import {
+  createSSEConnection,
+  normalizeOverviewResponse,
+  type HeartbeatResponse,
+  type OverviewResponse,
+  type TradeMode,
+} from "@/lib/api";
 import { dashboardQueryKeys } from "@/lib/dashboard-query-options";
 import { toast } from "sonner";
 
@@ -15,6 +21,8 @@ export function useSSENotifications() {
     scopeKey?: string;
     openPositions?: number;
     todayTrades?: number;
+    lastTradeAt?: string | null;
+    lastSignalAt?: string | null;
   }>({});
 
   // TODO: Add handlers for trade_executed and position_closed events when backend SSE stream supports them
@@ -25,8 +33,16 @@ export function useSSENotifications() {
         try {
           if (!isOverviewStreamPayload(data)) return;
 
-          const overview = data;
-          const { capitalLevel, isRunning, openPositions, scope, todayTrades } = overview;
+          const overview = normalizeOverviewResponse(data);
+          const {
+            capitalLevel,
+            isRunning,
+            lastSignalAt,
+            lastTradeAt,
+            openPositions,
+            scope,
+            todayTrades,
+          } = overview;
           const pauseReasons = Array.isArray(overview.pauseReasons) ? overview.pauseReasons : [];
           const dailyLossUsd = Number(overview.dailyLossUsd ?? 0);
           const dailyLossLimit = Number(overview.dailyLossLimit ?? 10);
@@ -35,6 +51,18 @@ export function useSSENotifications() {
 
           queryClient.setQueryData<OverviewResponse>(dashboardQueryKeys.overview, overview);
           if (scope?.mode && scope.configProfile) {
+            queryClient.setQueryData<HeartbeatResponse | undefined>(
+              dashboardQueryKeys.heartbeat,
+              (prev) => prev
+                ? {
+                    ...prev,
+                    scope,
+                    isRunning,
+                    lastTradeAt,
+                    lastSignalAt,
+                  }
+                : prev,
+            );
             queryClient.setQueryData(
               dashboardQueryKeys.positions(scope.mode, scope.configProfile, null),
               openPositions,
@@ -80,6 +108,7 @@ export function useSSENotifications() {
             prevState.current.todayTrades !== undefined &&
             prevState.current.todayTrades !== todayTrades
           ) {
+            void queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.heartbeat });
             void queryClient.invalidateQueries({ queryKey: ["position-history"] });
             void queryClient.invalidateQueries({ queryKey: ["trades"] });
             void queryClient.invalidateQueries({ queryKey: ["daily-stats"] });
@@ -90,10 +119,21 @@ export function useSSENotifications() {
             void queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.profileResultsSummaries });
           }
 
+          if (
+            prevState.current.lastSignalAt !== undefined &&
+            prevState.current.lastSignalAt !== lastSignalAt
+          ) {
+            void queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.heartbeat });
+            void queryClient.invalidateQueries({ queryKey: ["signals-paginated"] });
+            void queryClient.invalidateQueries({ queryKey: ["skipped-signals"] });
+          }
+
           prevState.current = {
             isRunning,
             capitalLevel,
             dailyLossPercent: dailyPct,
+            lastSignalAt,
+            lastTradeAt,
             scopeKey,
             openPositions: openPositions.length,
             todayTrades,
@@ -128,6 +168,7 @@ function isOverviewStreamPayload(value: unknown): value is OverviewResponse {
     typeof record.dailyLossUsd === "number" &&
     typeof record.dailyLossLimit === "number" &&
     typeof record.todayTrades === "number" &&
+    ("quotaSnapshots" in record || "currentQuotaSnapshots" in record) &&
     Array.isArray(record.openPositions)
   );
 }

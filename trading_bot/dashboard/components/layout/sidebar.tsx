@@ -255,7 +255,7 @@ export function Sidebar() {
               {selectedStrategy ? strategyLabel(selectedStrategy) : "All strategies"}
             </div>
             <div className="mt-1 text-[11px] text-text-muted">
-              {effectiveMode} / {effectiveProfile}
+              {effectiveMode ?? "ACTIVE"} / {effectiveProfile ?? "pending"}
             </div>
             <div className="mt-1 text-[11px] text-text-muted">
               {activeStrategiesCount} strategies active · operator {operatorAccess}
