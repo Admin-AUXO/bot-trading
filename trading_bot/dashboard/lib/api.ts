@@ -241,6 +241,17 @@ export interface ProfileResults {
   positions: Position[];
 }
 
+export interface ProfileResultsSummary {
+  profile: string;
+  mode: TradeMode;
+  totalTrades: number;
+  totalExits: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  totalPnlUsd: number;
+}
+
 export interface WouldHaveWonSignal {
   id: string;
   strategy: string;
@@ -569,6 +580,10 @@ export async function fetchProfileResults(name: string, mode?: TradeMode) {
   const params = new URLSearchParams();
   if (mode) params.set("mode", mode);
   return api.get(withParams(`api/profiles/${name}/results`, params)).json<ProfileResults>();
+}
+
+export async function fetchProfileResultsSummaries() {
+  return api.get("api/profiles/results-summary").json<ProfileResultsSummary[]>();
 }
 
 export async function manualEntry(payload: { tokenAddress: string; tokenSymbol: string; strategy: string; amountSol?: number }) {

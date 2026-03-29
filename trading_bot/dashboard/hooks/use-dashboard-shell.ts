@@ -7,39 +7,25 @@ import {
   heartbeatQueryOptions,
   operatorSessionQueryOptions,
   overviewQueryOptions,
-  positionsQueryOptions,
   strategyConfigQueryOptions,
 } from "@/lib/dashboard-query-options";
+import { getApiUsageSnapshotRows } from "@/lib/api-usage";
 import type { BudgetSnapshot, Position, StrategyConfigResponse } from "@/lib/api";
 
-const FALLBACK_STOP_LOSS: Record<string, number> = {
-  S1_COPY: 20,
-  S2_GRADUATION: 25,
-  S3_MOMENTUM: 10,
-};
-
-const FALLBACK_TIME_STOP: Record<string, number> = {
-  S1_COPY: 120,
-  S2_GRADUATION: 15,
-  S3_MOMENTUM: 5,
-};
-
-function getStrategyRiskConfig(strategyConfig: StrategyConfigResponse | undefined, strategy: string) {
-  const config = strategyConfig?.strategies[strategy];
-  return {
-    stopLoss: config?.stopLoss ?? FALLBACK_STOP_LOSS[strategy] ?? 20,
-    timeStopMinutes: config?.timeStopMinutes ?? FALLBACK_TIME_STOP[strategy] ?? 30,
-  };
+function getStrategyTimeStopMinutes(strategyConfig: StrategyConfigResponse | undefined, strategy: string) {
+  return strategyConfig?.strategies[strategy]?.timeStopMinutes ?? null;
 }
 
 function scorePositionUrgency(position: Position, strategyConfig?: StrategyConfigResponse) {
-  const config = getStrategyRiskConfig(strategyConfig, position.strategy);
-  const stopDistance = position.pnlPercent + config.stopLoss;
   const holdMinutes = position.holdMinutes ?? 0;
-  const timeRemaining = Math.max(0, config.timeStopMinutes - holdMinutes);
+  const timeStopMinutes = getStrategyTimeStopMinutes(strategyConfig, position.strategy);
+  const stopDistance = position.pnlPercent + position.stopLossPercent;
+  const timeRemaining = timeStopMinutes == null
+    ? null
+    : Math.max(0, timeStopMinutes - holdMinutes);
 
   const stopRisk = stopDistance <= 5 ? 0 : stopDistance <= 10 ? 1 : 2;
-  const timeRisk = timeRemaining <= 3 ? 0 : timeRemaining <= 10 ? 1 : 2;
+  const timeRisk = timeRemaining == null ? 2 : timeRemaining <= 3 ? 0 : timeRemaining <= 10 ? 1 : 2;
 
   return {
     holdMinutes,
@@ -58,7 +44,6 @@ function rankQuotaSnapshots(snapshots: BudgetSnapshot[] | null | undefined) {
 function useDashboardShellValue() {
   const [
     overviewQuery,
-    positionsQuery,
     heartbeatQuery,
     operatorSessionQuery,
     strategyConfigQuery,
@@ -66,7 +51,6 @@ function useDashboardShellValue() {
   ] = useQueries({
     queries: [
       overviewQueryOptions(),
-      positionsQueryOptions(),
       heartbeatQueryOptions(),
       operatorSessionQueryOptions(),
       strategyConfigQueryOptions(),
@@ -74,10 +58,13 @@ function useDashboardShellValue() {
     ],
   });
 
-  const allPositions = useMemo(() => positionsQuery.data ?? [], [positionsQuery.data]);
+  const allPositions = useMemo(
+    () => overviewQuery.data?.openPositions ?? [],
+    [overviewQuery.data?.openPositions],
+  );
 
   const connectionState: "online" | "degraded" | "offline" = heartbeatQuery.isError
-    ? (overviewQuery.data || positionsQuery.data ? "degraded" : "offline")
+    ? (overviewQuery.data || strategyConfigQuery.data || apiUsageQuery.data ? "degraded" : "offline")
     : "online";
 
   const operatorAccess: "locked" | "unlocked" | "unavailable" = operatorSessionQuery.data?.configured === false
@@ -92,7 +79,7 @@ function useDashboardShellValue() {
   const pauseReasons = overviewQuery.data?.pauseReasons
     ?? strategyConfig?.risk.pauseReasons
     ?? [];
-  const worstQuota = rankQuotaSnapshots(apiUsageQuery.data?.current ?? apiUsageQuery.data?.daily);
+  const worstQuota = rankQuotaSnapshots(getApiUsageSnapshotRows(apiUsageQuery.data));
 
   const metrics = useMemo(() => {
     const solPrice = overviewQuery.data?.regime?.solPrice ?? 0;
@@ -125,7 +112,6 @@ function useDashboardShellValue() {
 
   const lastUpdatedAt = Math.max(
     overviewQuery.dataUpdatedAt,
-    positionsQuery.dataUpdatedAt,
     heartbeatQuery.dataUpdatedAt,
     operatorSessionQuery.dataUpdatedAt,
     strategyConfigQuery.dataUpdatedAt,
@@ -134,7 +120,6 @@ function useDashboardShellValue() {
 
   const isLoadingShell = !overviewQuery.data && [
     overviewQuery,
-    positionsQuery,
     heartbeatQuery,
     operatorSessionQuery,
     strategyConfigQuery,

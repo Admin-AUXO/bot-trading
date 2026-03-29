@@ -8,6 +8,7 @@ import type { ApiService, ApiUsageResponse } from "@/lib/api";
 import { apiUsageQueryOptions } from "@/lib/dashboard-query-options";
 import { useDashboardFilters } from "@/hooks/use-dashboard-filters";
 import { useDashboardShell } from "@/hooks/use-dashboard-shell";
+import { getApiUsageSnapshotRows } from "@/lib/api-usage";
 import { chartColors } from "@/lib/chart-colors";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { SummaryTile } from "@/components/ui/summary-tile";
@@ -55,7 +56,10 @@ export function QuotaPageClient() {
   const days = dateRangeToDays(dateRange);
   const apiUsageQuery = useQuery(apiUsageQueryOptions(days));
 
-  const current = apiUsageQuery.data?.current ?? EMPTY_CURRENT;
+  const current = useMemo(() => {
+    const rows = getApiUsageSnapshotRows(apiUsageQuery.data);
+    return rows.length > 0 ? rows : EMPTY_CURRENT;
+  }, [apiUsageQuery.data]);
   const history = apiUsageQuery.data?.history ?? EMPTY_HISTORY;
   const monthly = apiUsageQuery.data?.monthly ?? EMPTY_MONTHLY;
   const topEndpoints = apiUsageQuery.data?.topEndpoints ?? EMPTY_ENDPOINTS;

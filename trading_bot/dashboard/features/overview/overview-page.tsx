@@ -6,6 +6,7 @@ import { motion } from "motion/react";
 import { apiUsageQueryOptions, dailyStatsQueryOptions } from "@/lib/dashboard-query-options";
 import { useDashboardFilters } from "@/hooks/use-dashboard-filters";
 import { useDashboardShell } from "@/hooks/use-dashboard-shell";
+import { getApiUsageSnapshotRows } from "@/lib/api-usage";
 import { PnlChart } from "@/components/charts/pnl-chart";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { ChartSkeleton, StatCardSkeleton } from "@/components/ui/skeleton";
@@ -37,7 +38,7 @@ import {
 const EMPTY_LIST: never[] = [];
 
 export default function OverviewPage() {
-  const { effectiveMode, effectiveProfile, selectedStrategy } = useDashboardFilters();
+  const { effectiveMode, effectiveProfile } = useDashboardFilters();
   const {
     activeScope,
     overview,
@@ -114,7 +115,9 @@ export default function OverviewPage() {
   }, [allPositions]);
 
   const currentUsage = useMemo(
-    () => apiUsageQuery.data?.current ?? apiUsage?.current ?? EMPTY_LIST,
+    () => getApiUsageSnapshotRows(apiUsageQuery.data).length > 0
+      ? getApiUsageSnapshotRows(apiUsageQuery.data)
+      : getApiUsageSnapshotRows(apiUsage),
     [apiUsage, apiUsageQuery.data],
   );
   const endpointRows = useMemo(
@@ -191,7 +194,6 @@ export default function OverviewPage() {
           <div className="mt-1 text-sm text-text-secondary">
             {activeScope?.mode === "LIVE" ? "Live" : activeScope?.mode === "DRY_RUN" ? "Simulation" : "Runtime"} scope
             {activeScope ? ` · ${activeScope.configProfile}` : ""}
-            {selectedStrategy ? ` · ${strategyLabel(selectedStrategy)}` : " · All strategies"}
             {effectiveMode !== activeScope?.mode || effectiveProfile !== activeScope?.configProfile ? ` · analysis ${effectiveMode}/${effectiveProfile}` : ""}
             {" · "}updated {updatedLabel}
           </div>
@@ -235,7 +237,9 @@ export default function OverviewPage() {
         />
         <SummaryTile
           label="Next Forced Exit"
-          value={topUrgentPosition ? `${topUrgentPosition.tokenSymbol} · ${Math.max(0, topUrgentPosition.timeRemaining).toFixed(0)}m` : "Clear"}
+          value={topUrgentPosition
+            ? `${topUrgentPosition.tokenSymbol} · ${topUrgentPosition.timeRemaining == null ? "config pending" : `${Math.max(0, topUrgentPosition.timeRemaining).toFixed(0)}m`}`
+            : "Clear"}
           sub={topUrgentPosition
             ? `${strategyLabel(topUrgentPosition.strategy)} · ${Math.max(0, topUrgentPosition.stopDistance).toFixed(1)}% stop cushion`
             : "Stops and time budgets are clear"}
@@ -331,8 +335,14 @@ export default function OverviewPage() {
                       />
                       <MetricStack
                         label="Time left"
-                        value={`${Math.max(0, position.timeRemaining).toFixed(0)}m`}
-                        valueClass={position.timeRemaining <= 3 ? "text-accent-red" : position.timeRemaining <= 10 ? "text-accent-yellow" : "text-text-primary"}
+                        value={position.timeRemaining == null ? "—" : `${Math.max(0, position.timeRemaining).toFixed(0)}m`}
+                        valueClass={position.timeRemaining == null
+                          ? "text-text-primary"
+                          : position.timeRemaining <= 3
+                            ? "text-accent-red"
+                            : position.timeRemaining <= 10
+                              ? "text-accent-yellow"
+                              : "text-text-primary"}
                       />
                       <MetricStack label="Held" value={`${position.holdMinutes.toFixed(0)}m`} />
                     </div>

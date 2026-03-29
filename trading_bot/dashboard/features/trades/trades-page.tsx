@@ -108,7 +108,9 @@ function TradesPageContent({
           <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Execution Tape</div>
           <div className="mt-1 text-sm text-text-secondary">
             {mode === "LIVE" ? "Live" : "Simulation"} analysis · {profile} · {focusLabel}
-            {tradeSource ? ` · ${tradeSource.toLowerCase()} only` : ""}
+            {tab === "trades"
+              ? tradeSource ? ` · ${tradeSource.toLowerCase()} only` : ""
+              : tradeSource ? " · source filter applies to fills only" : ""}
             {tab === "trades"
               ? " · fills, exits, and fee drag"
               : " · strategy pass / reject flow"}
@@ -137,6 +139,12 @@ function TradesPageContent({
           ) : null}
         </div>
       </div>
+
+      {tab === "signals" && tradeSource ? (
+        <div className="rounded-xl border border-accent-yellow/20 bg-accent-yellow/8 px-3 py-2 text-xs text-accent-yellow">
+          Signal rows do not carry trade-source metadata. The source filter still applies to executed fills, not this signal tape.
+        </div>
+      ) : null}
 
       {tab === "trades" ? (
         <>

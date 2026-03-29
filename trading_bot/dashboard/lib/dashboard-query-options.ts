@@ -12,6 +12,7 @@ import {
   fetchPositionHistory,
   fetchPositions,
   fetchProfiles,
+  fetchProfileResultsSummaries,
   fetchRegimeHistory,
   fetchSignalsPaginated,
   fetchSkippedSignals,
@@ -90,6 +91,7 @@ export const dashboardQueryKeys = {
   walletActivity: (limit: number) => ["wallet-activity", limit] as const,
   graduationStats: (days: number) => ["graduation-stats", days] as const,
   profiles: ["profiles"] as const,
+  profileResultsSummaries: ["profile-results-summaries"] as const,
   strategyConfig: ["strategy-config"] as const,
 };
 
@@ -316,6 +318,14 @@ export function profilesQueryOptions() {
     queryKey: dashboardQueryKeys.profiles,
     queryFn: fetchProfiles,
     staleTime: 60_000,
+  });
+}
+
+export function profileResultsSummariesQueryOptions() {
+  return queryOptions({
+    queryKey: dashboardQueryKeys.profileResultsSummaries,
+    queryFn: fetchProfileResultsSummaries,
+    staleTime: 30_000,
   });
 }
 

@@ -78,7 +78,7 @@ export function Header() {
   const analysisSummary = [
     effectiveMode === "LIVE" ? "Live history" : "Simulation history",
     effectiveProfile,
-    selectedTradeSource === ALL_TRADE_SOURCE_FILTER ? "all sources" : selectedTradeSource.toLowerCase(),
+    selectedTradeSource === ALL_TRADE_SOURCE_FILTER ? "all sources" : `${selectedTradeSource.toLowerCase()} focus`,
   ].join(" · ");
   const selectedStrategyRuntimeCount = selectedStrategy
     ? allPositions.filter((position) => position.strategy === selectedStrategy).length
@@ -131,6 +131,7 @@ export function Header() {
               <span>{openSlots}/{maxOpenPositions} slots open</span>
               <span>Analysis {analysisSummary}</span>
               {analysisDiffersFromRuntime ? <span>Runtime metrics stay on the active lane</span> : null}
+              {selectedTradeSource !== ALL_TRADE_SOURCE_FILTER ? <span>Source filter applies only where telemetry carries it</span> : null}
               {heartbeat?.lastTradeAt ? <span>Last trade {timeAgo(heartbeat.lastTradeAt)}</span> : null}
               {heartbeat?.lastSignalAt ? <span>Last signal {timeAgo(heartbeat.lastSignalAt)}</span> : null}
             </div>

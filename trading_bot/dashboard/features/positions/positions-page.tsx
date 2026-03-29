@@ -43,29 +43,49 @@ import {
   Timer,
 } from "lucide-react";
 
-const STRATEGY_TIME_STOPS: Record<string, number> = { S1_COPY: 120, S2_GRADUATION: 15, S3_MOMENTUM: 5 };
-const STRATEGY_STOP_LOSS: Record<string, number> = { S1_COPY: 20, S2_GRADUATION: 25, S3_MOMENTUM: 10 };
-
-function getTimeBudget(strategy: string, strategyConfig?: ReturnType<typeof useDashboardShell>["strategyConfig"]) {
-  return strategyConfig?.strategies[strategy]?.timeStopMinutes ?? STRATEGY_TIME_STOPS[strategy] ?? 30;
+function getTimeBudgetMinutes(
+  strategy: string,
+  strategyConfig?: ReturnType<typeof useDashboardShell>["strategyConfig"],
+) {
+  return strategyConfig?.strategies[strategy]?.timeStopMinutes ?? null;
 }
 
-function getStopLoss(strategy: string, strategyConfig?: ReturnType<typeof useDashboardShell>["strategyConfig"]) {
-  return strategyConfig?.strategies[strategy]?.stopLoss ?? STRATEGY_STOP_LOSS[strategy] ?? 20;
+function getStopDistance(position: { pnlPercent: number; stopLossPercent: number }) {
+  return position.pnlPercent + position.stopLossPercent;
 }
 
-function getNextExit(position: { exit1Done: boolean; exit2Done: boolean; exit3Done: boolean; strategy: string }) {
+function getTimeRemainingMinutes(
+  position: { holdMinutes?: number; strategy: string },
+  strategyConfig?: ReturnType<typeof useDashboardShell>["strategyConfig"],
+) {
+  const timeBudget = getTimeBudgetMinutes(position.strategy, strategyConfig);
+  if (timeBudget == null) return null;
+  return Math.max(0, timeBudget - (position.holdMinutes ?? 0));
+}
+
+function formatExitThreshold(percent: number) {
+  const rounded = Number.isInteger(percent) ? percent.toFixed(0) : percent.toFixed(1);
+  return `${percent >= 0 ? "+" : ""}${rounded}%`;
+}
+
+function getNextExitLabel(
+  position: { exit1Done: boolean; exit2Done: boolean; exit3Done: boolean; strategy: string },
+  strategyConfig?: ReturnType<typeof useDashboardShell>["strategyConfig"],
+) {
+  const config = strategyConfig?.strategies[position.strategy];
+  if (!config) {
+    return "Config pending";
+  }
+
   if (!position.exit1Done) {
-    if (position.strategy === "S3_MOMENTUM") return "+20% (50%)";
-    if (position.strategy === "S2_GRADUATION") return "2x (50%)";
-    return "+30% (50%)";
+    return `${formatExitThreshold(config.exitPlan.tp1ThresholdPct)} (${config.exitPlan.tp1SizePct.toFixed(1)}%)`;
   }
   if (!position.exit2Done) {
-    if (position.strategy === "S3_MOMENTUM") return "+40% (25%)";
-    if (position.strategy === "S2_GRADUATION") return "3-4x (30%)";
-    return "+60% (25%)";
+    return `${formatExitThreshold(config.exitPlan.tp2ThresholdPct)} (${config.exitPlan.tp2SizePct.toFixed(1)}%)`;
   }
-  if (!position.exit3Done) return "Trailing";
+  if (!position.exit3Done) {
+    return `Trail ${config.exitPlan.trailingStopPercent}% (${config.exitPlan.runnerSizePct.toFixed(1)}%)`;
+  }
   return "Done";
 }
 
@@ -120,6 +140,7 @@ export default function PositionsPage() {
         ? `Manual controls only execute on the active runtime lane (${runtimeScope.mode}/${runtimeScope.configProfile}).`
         : "Manual controls are unavailable until the runtime scope is known.";
   const manualControlsReady = !controlsLocked && !controlsUnavailable && isAnalysisOnActiveRuntime;
+  const analysisStrategyConfig = isAnalysisOnActiveRuntime ? strategyConfig : undefined;
 
   const invalidateDashboardAfterManualAction = async () => {
     await Promise.all([
@@ -159,18 +180,15 @@ export default function PositionsPage() {
     const openPnlUsd = positions.reduce((sum, position) => sum + (position.pnlUsd ?? 0), 0);
     const deployedSol = positions.reduce((sum, position) => sum + position.amountSol, 0);
     const urgentCount = positions.filter((position) => {
-      const stopDistance = position.pnlPercent + getStopLoss(position.strategy, strategyConfig);
-      const timeRemaining = Math.max(
-        0,
-        getTimeBudget(position.strategy, strategyConfig) - (position.holdMinutes ?? 0),
-      );
-      return stopDistance <= 5 || timeRemaining <= 5;
+      const stopDistance = getStopDistance(position);
+      const timeRemaining = getTimeRemainingMinutes(position, analysisStrategyConfig);
+      return stopDistance <= 5 || (timeRemaining != null && timeRemaining <= 5);
     }).length;
     const manualCount = positions.filter((position) => position.tradeSource === "MANUAL").length;
     const partialCount = positions.filter((position) => position.status === "PARTIALLY_CLOSED").length;
 
     return { deployedSol, manualCount, openPnlUsd, partialCount, urgentCount };
-  }, [filteredPositions, strategyConfig]);
+  }, [analysisStrategyConfig, filteredPositions]);
 
   const historySummary = historyQuery.data?.summary;
   const skippedSummary = skippedSignalsQuery.data?.summary;
@@ -234,6 +252,12 @@ export default function PositionsPage() {
         <div className="flex items-center gap-2 rounded-xl border border-accent-yellow/20 bg-accent-yellow/8 px-3 py-2 text-xs text-accent-yellow">
           <ShieldAlert className="h-3.5 w-3.5" />
           {manualControlsHint}
+        </div>
+      ) : null}
+
+      {!isAnalysisOnActiveRuntime && activeScope ? (
+        <div className="rounded-xl border border-bg-border/80 bg-bg-hover/35 px-3 py-2 text-xs text-text-muted">
+          Stop distance comes from each position. Time budgets and staged exit targets only resolve on the active runtime lane.
         </div>
       ) : null}
 
@@ -306,11 +330,10 @@ export default function PositionsPage() {
                   <motion.tbody layout>
                     <AnimatePresence mode="popLayout">
                       {filteredPositions?.map((position, index) => {
-                        const stopDistance = position.pnlPercent + getStopLoss(position.strategy, strategyConfig);
-                        const timeBudget = getTimeBudget(position.strategy, strategyConfig);
+                        const stopDistance = getStopDistance(position);
                         const holdMinutes = position.holdMinutes ?? 0;
-                        const timeRemaining = Math.max(0, timeBudget - holdMinutes);
-                        const nextExit = getNextExit(position);
+                        const timeRemaining = getTimeRemainingMinutes(position, analysisStrategyConfig);
+                        const nextExit = getNextExitLabel(position, analysisStrategyConfig);
 
                         return (
                           <motion.tr
@@ -345,10 +368,21 @@ export default function PositionsPage() {
                               <div className="text-[10px] text-text-muted">to stop</div>
                             </td>
                             <td className="table-cell">
-                              <div className={cn("font-medium", timeRemaining <= 3 ? "text-accent-red" : timeRemaining <= 10 ? "text-accent-yellow" : "text-text-secondary")}>
-                                {timeRemaining.toFixed(0)}m
+                              <div className={cn(
+                                "font-medium",
+                                timeRemaining == null
+                                  ? "text-text-secondary"
+                                  : timeRemaining <= 3
+                                    ? "text-accent-red"
+                                    : timeRemaining <= 10
+                                      ? "text-accent-yellow"
+                                      : "text-text-secondary",
+                              )}>
+                                {timeRemaining == null ? "—" : `${timeRemaining.toFixed(0)}m`}
                               </div>
-                              <div className="text-[10px] text-text-muted">{holdMinutes.toFixed(0)}m held</div>
+                              <div className="text-[10px] text-text-muted">
+                                {timeRemaining == null ? "config pending" : `${holdMinutes.toFixed(0)}m held`}
+                              </div>
                             </td>
                             <td className="table-cell text-xs text-text-secondary">{nextExit}</td>
                             <td className="table-cell">

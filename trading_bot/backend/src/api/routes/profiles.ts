@@ -3,9 +3,108 @@ import { db } from "../../db/client.js";
 import { cacheMiddleware } from "../middleware/cache.js";
 import { requireBearerToken } from "../middleware/auth.js";
 import type { ConfigProfileManager } from "../../core/config-profile.js";
+import type { TradeMode } from "../../utils/types.js";
 
 type Trade = Awaited<ReturnType<typeof db.trade.findMany>>[number];
 type Position = Awaited<ReturnType<typeof db.position.findMany>>[number];
+type ProfileResultsSummary = {
+  profile: string;
+  mode: TradeMode;
+  totalTrades: number;
+  totalExits: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  totalPnlUsd: number;
+};
+
+function getSummaryKey(profile: string, mode: TradeMode) {
+  return `${mode}:${profile}`;
+}
+
+function getOrCreateSummary(
+  summaries: Map<string, ProfileResultsSummary>,
+  profile: string,
+  mode: TradeMode,
+): ProfileResultsSummary {
+  const key = getSummaryKey(profile, mode);
+  const existing = summaries.get(key);
+  if (existing) return existing;
+
+  const created: ProfileResultsSummary = {
+    profile,
+    mode,
+    totalTrades: 0,
+    totalExits: 0,
+    wins: 0,
+    losses: 0,
+    winRate: 0,
+    totalPnlUsd: 0,
+  };
+  summaries.set(key, created);
+  return created;
+}
+
+async function buildProfileResultsSummaries(
+  database: typeof db,
+  filters?: { profile?: string; mode?: TradeMode },
+): Promise<Map<string, ProfileResultsSummary>> {
+  const where = {
+    ...(filters?.profile ? { configProfile: filters.profile } : {}),
+    ...(filters?.mode ? { mode: filters.mode } : {}),
+  };
+  const [tradeCounts, exitStats, winCounts, lossCounts] = await Promise.all([
+    database.trade.groupBy({
+      by: ["configProfile", "mode"],
+      where,
+      _count: { _all: true },
+    }),
+    database.trade.groupBy({
+      by: ["configProfile", "mode"],
+      where: { ...where, side: "SELL" },
+      _count: { _all: true },
+      _sum: { pnlUsd: true },
+    }),
+    database.trade.groupBy({
+      by: ["configProfile", "mode"],
+      where: { ...where, side: "SELL", pnlUsd: { gt: 0 } },
+      _count: { _all: true },
+    }),
+    database.trade.groupBy({
+      by: ["configProfile", "mode"],
+      where: { ...where, side: "SELL", pnlUsd: { lte: 0 } },
+      _count: { _all: true },
+    }),
+  ]);
+  const summaries = new Map<string, ProfileResultsSummary>();
+
+  for (const row of tradeCounts) {
+    const summary = getOrCreateSummary(summaries, row.configProfile, row.mode);
+    summary.totalTrades = row._count._all;
+  }
+
+  for (const row of exitStats) {
+    const summary = getOrCreateSummary(summaries, row.configProfile, row.mode);
+    summary.totalExits = row._count._all;
+    summary.totalPnlUsd = Number(row._sum.pnlUsd ?? 0);
+  }
+
+  for (const row of winCounts) {
+    const summary = getOrCreateSummary(summaries, row.configProfile, row.mode);
+    summary.wins = row._count._all;
+  }
+
+  for (const row of lossCounts) {
+    const summary = getOrCreateSummary(summaries, row.configProfile, row.mode);
+    summary.losses = row._count._all;
+  }
+
+  for (const summary of summaries.values()) {
+    summary.winRate = summary.totalExits > 0 ? summary.wins / summary.totalExits : 0;
+  }
+
+  return summaries;
+}
 
 export function profilesRouter(deps: { configProfileManager: unknown; dbClient?: typeof db }) {
   const router = Router();
@@ -17,6 +116,19 @@ export function profilesRouter(deps: { configProfileManager: unknown; dbClient?:
       orderBy: { createdAt: "desc" },
     });
     res.json(profiles);
+  });
+
+  router.get("/results-summary", cacheMiddleware(30_000), async (_req, res) => {
+    const summaries = await buildProfileResultsSummaries(database);
+
+    res.json(
+      Array.from(summaries.values()).sort((left, right) => {
+        if (left.mode === right.mode) {
+          return left.profile.localeCompare(right.profile);
+        }
+        return left.mode.localeCompare(right.mode);
+      }),
+    );
   });
 
   router.post("/", requireBearerToken, async (req, res) => {
@@ -59,33 +171,34 @@ export function profilesRouter(deps: { configProfileManager: unknown; dbClient?:
 
   router.get("/:name/results", cacheMiddleware(30_000), async (req, res) => {
     const profile = String(req.params.name);
-    const mode = (req.query.mode as string) ?? "DRY_RUN";
+    const mode = ((req.query.mode as string) ?? "DRY_RUN") as TradeMode;
 
-    const [trades, positions] = await Promise.all([
+    const [summaries, trades, positions] = await Promise.all([
+      buildProfileResultsSummaries(database, { profile, mode }),
       database.trade.findMany({
-        where: { configProfile: profile, mode: mode as "LIVE" | "DRY_RUN" },
+        where: { configProfile: profile, mode },
         orderBy: { executedAt: "desc" },
         take: 50,
       }),
       database.position.findMany({
-        where: { configProfile: profile, mode: mode as "LIVE" | "DRY_RUN" },
+        where: { configProfile: profile, mode },
         orderBy: { openedAt: "desc" },
         take: 20,
       }),
     ]);
-
-    const sells = trades.filter((t: Trade) => t.side === "SELL");
-    const wins = sells.filter((t: Trade) => Number(t.pnlUsd ?? 0) > 0);
-
-    res.json({
+    const summary = summaries.get(getSummaryKey(profile, mode)) ?? {
       profile,
       mode,
-      totalTrades: trades.length,
-      totalExits: sells.length,
-      wins: wins.length,
-      losses: sells.length - wins.length,
-      winRate: sells.length > 0 ? wins.length / sells.length : 0,
-      totalPnlUsd: sells.reduce((s: number, t: Trade) => s + Number(t.pnlUsd ?? 0), 0),
+      totalTrades: 0,
+      totalExits: 0,
+      wins: 0,
+      losses: 0,
+      winRate: 0,
+      totalPnlUsd: 0,
+    };
+
+    res.json({
+      ...summary,
       trades: trades.map((t: Trade) => ({
         ...t,
         amountSol: Number(t.amountSol),

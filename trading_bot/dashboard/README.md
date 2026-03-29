@@ -31,6 +31,7 @@ Use these files as the dashboard data contract:
 Rules:
 
 - If a filter varies by `days`, `mode`, `profile`, or `tradeSource`, the query key, request params, and backend route must all vary by the same fields.
+- Do not imply a filter applies where the backend has no matching dimension. Signal feeds are `mode/profile` scoped today; `tradeSource` applies to executed fills and analytics, not raw signal rows.
 - If operator state can contain multiple blockers, surface `pauseReasons` instead of collapsing everything to one string too early.
 - If a page mixes runtime-scope, lane-scoped, mode/profile-scoped, or global feeds, label that scope in the UI. A filtered header does not grant every card filtered semantics.
 - Do not add new header/footer/sidebar queries for overview, positions, heartbeat, or operator session when `use-dashboard-shell.ts` already exposes them.
@@ -47,6 +48,7 @@ Rules:
 - Service totals on `/quota` are global provider budgets. Only the endpoint table should be narrowed by analysis lane metadata, and only when that metadata exists.
 - Quota blockers come from quota snapshot pause metadata or hard-limit state. Generic operator `pauseReasons` are broader and should not be relabeled as provider blockers.
 - Profile lists should fetch and show tracked result context when activation decisions benefit from historical performance.
+- Config-profile performance context should come from aggregate profile summaries, not capped recent-sample payloads pretending to be totals.
 - `/api/analytics/execution-quality` summarizes entry/exit slippage, fees, latency, and copy lag by strategy. Keep types in `lib/api.ts` aligned before using it in UI code.
 
 ## Control And Auth

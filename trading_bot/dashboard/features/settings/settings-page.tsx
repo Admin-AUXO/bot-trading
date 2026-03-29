@@ -1,17 +1,18 @@
 "use client";
 
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   pauseBot, resumeBot,
   createProfile, toggleProfile, deleteProfile,
-  fetchProfileResults, reconcileWallet, unlockOperatorSession, clearOperatorSession,
+  reconcileWallet, unlockOperatorSession, clearOperatorSession,
 } from "@/lib/api";
 import type { ConfigProfile, TradeMode } from "@/lib/api";
-import { dashboardQueryKeys, profilesQueryOptions } from "@/lib/dashboard-query-options";
+import { dashboardQueryKeys, profileResultsSummariesQueryOptions, profilesQueryOptions } from "@/lib/dashboard-query-options";
 import { useDashboardShell } from "@/hooks/use-dashboard-shell";
+import { getApiUsageSnapshotRows } from "@/lib/api-usage";
 import { formatUsd, formatNumber, timeAgo } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import {
@@ -55,15 +56,22 @@ export default function SettingsPage() {
   } = useDashboardShell();
   const [operatorSecret, setOperatorSecret] = useState("");
   const { data: profiles } = useQuery(profilesQueryOptions());
+  const invalidateRuntimeShell = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.overview }),
+      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.heartbeat }),
+      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.strategyConfig }),
+    ]);
+  };
 
   const pauseMutation = useMutation({
     mutationFn: pauseBot,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.overview }),
+    onSuccess: invalidateRuntimeShell,
   });
 
   const resumeMutation = useMutation({
     mutationFn: resumeBot,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.overview }),
+    onSuccess: invalidateRuntimeShell,
   });
 
   const unlockMutation = useMutation({
@@ -81,11 +89,7 @@ export default function SettingsPage() {
 
   const reconcileMutation = useMutation({
     mutationFn: reconcileWallet,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.overview });
-      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.heartbeat });
-      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.strategyConfig });
-    },
+    onSuccess: invalidateRuntimeShell,
   });
 
   const criticalAlerts: string[] = [];
@@ -108,7 +112,7 @@ export default function SettingsPage() {
 
   const dailyLossPct = overview ? (overview.dailyLossUsd / overview.dailyLossLimit) * 100 : 0;
   const weeklyLossPct = overview ? (overview.weeklyLossUsd / overview.weeklyLossLimit) * 100 : 0;
-  const currentQuota = (apiUsage?.current ?? [])
+  const currentQuota = getApiUsageSnapshotRows(apiUsage)
     .map((snapshot) => ({
       ...snapshot,
       dailyPct: snapshot.dailyBudget > 0 ? (snapshot.dailyUsed / snapshot.dailyBudget) * 100 : 0,
@@ -829,22 +833,25 @@ function ProfilesSection({
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
   const [newMode, setNewMode] = useState<TradeMode>("DRY_RUN");
-  const profileResultsQueries = useQueries({
-    queries: profiles.map((profile) => ({
-      queryKey: ["profile-results", profile.name, profile.mode],
-      queryFn: () => fetchProfileResults(profile.name, profile.mode),
-      staleTime: 30_000,
-    })),
-  });
-  const profileResultsById = new Map(
-    profiles.map((profile, index) => [profile.id, profileResultsQueries[index]]),
+  const profileResultsSummariesQuery = useQuery(profileResultsSummariesQueryOptions());
+  const profileResultsByKey = new Map(
+    (profileResultsSummariesQuery.data ?? []).map((summary) => [`${summary.mode}:${summary.profile}`, summary]),
   );
+  const invalidateProfileAndRuntimeState = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.profiles }),
+      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.profileResultsSummaries }),
+      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.overview }),
+      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.heartbeat }),
+      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.strategyConfig }),
+    ]);
+  };
 
   const createMut = useMutation({
     mutationFn: (data: { name: string; description: string; mode: TradeMode; settings: Record<string, unknown> }) =>
       createProfile(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["profiles"] });
+    onSuccess: async () => {
+      await invalidateProfileAndRuntimeState();
       setShowCreate(false);
       setNewName("");
       setNewDesc("");
@@ -853,12 +860,12 @@ function ProfilesSection({
 
   const toggleMut = useMutation({
     mutationFn: ({ name, active }: { name: string; active: boolean }) => toggleProfile(name, active),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["profiles"] }),
+    onSuccess: invalidateProfileAndRuntimeState,
   });
 
   const deleteMut = useMutation({
     mutationFn: (name: string) => deleteProfile(name),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["profiles"] }),
+    onSuccess: invalidateProfileAndRuntimeState,
   });
 
   return (
@@ -950,8 +957,7 @@ function ProfilesSection({
               className="flex items-start justify-between gap-3 py-2.5 px-3 rounded-lg border border-bg-border bg-bg-hover/30 hover:bg-bg-hover/60 transition-colors"
             >
               {(() => {
-                const resultsQuery = profileResultsById.get(p.id);
-                const results = resultsQuery?.data;
+                const results = profileResultsByKey.get(`${p.mode}:${p.name}`);
                 return (
                   <>
                     <div className="flex items-start gap-2.5 min-w-0">
@@ -975,7 +981,7 @@ function ProfilesSection({
                         )}
                         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-text-muted">
                           <span>Updated {timeAgo(p.updatedAt)}</span>
-                          {resultsQuery?.isLoading ? (
+                          {profileResultsSummariesQuery.isLoading ? (
                             <span>Loading results…</span>
                           ) : results ? (
                             <>
