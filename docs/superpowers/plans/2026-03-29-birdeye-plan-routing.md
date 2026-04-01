@@ -1,72 +1,86 @@
-# Lite/Starter Birdeye Routing Standalone Implementation Plan
+# Birdeye Lite/Starter Routing Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make the bot operational on `Birdeye Lite` and `Birdeye Starter` by removing fixed-cadence Birdeye waste, moving cheap discovery and price reads onto Jupiter and DEX Screener, and preserving Birdeye only for final paid scoring and conditional refreshes.
+**Goal:** Keep the bot operational on Birdeye Lite and Starter by removing fixed-cadence Birdeye spend from discovery, analytics, and exit fast paths while preserving safety-critical Birdeye scoring and selective slow-path refreshes.
 
-**Architecture:** Keep `Helius` as the event, confirmation, and wallet-truth plane. Move fast prices, token discovery seeds, and non-essential analytics snapshots to `Jupiter` and `DEX Screener`. Keep `Birdeye` for high-signal final scoring, meme metadata catch-up, and selective exit refreshes. Introduce a small `market-router` so strategies and the `ExitMonitor` request `seed`, `prefilter`, `final score`, and `exit refresh` instead of talking to providers directly.
+**Architecture:** Keep Helius as the event, confirmation, and wallet-truth plane. Add a small `market-router` in `backend/src/services/` so strategies, `ExitMonitor`, `OutcomeTracker`, and regime/market-tick jobs ask for normalized seed, prefilter, price, and exit-refresh data instead of hardcoding provider calls. Use Jupiter for cheap prices and category seeds, DEX Screener for cheap pair and liquidity prefilter, and Birdeye only for final scoring, S2 catch-up, and rare slow-path refreshes.
 
-**Tech Stack:** TypeScript, Node 24, Express, Prisma 7, PostgreSQL 16, Helius RPC/WSS, Birdeye REST, Jupiter REST, DEX Screener REST, optional PumpPortal WSS, optional Raydium and Meteora REST.
+**Tech Stack:** TypeScript ESM, Node 24, Express, Prisma 7, PostgreSQL 16, Helius RPC/WSS, Birdeye REST, Jupiter REST, DEX Screener REST, optional PumpPortal WSS, optional Raydium and Meteora REST.
 
 ---
 
-## Verified Provider Facts
+## Repo-fit corrections to the March 29 draft
 
-Facts verified on **March 29, 2026**:
+- `trading_bot/backend/src/core/stats-aggregator.ts` only boots the worker. The duplicated daily-budget math that must stay in sync lives in `trading_bot/backend/src/workers/stats-aggregator.ts`.
+- `trading_bot/backend/src/services/jupiter.ts` still hardcodes `https://quote-api.jup.ag/v6` and `https://price.jup.ag/v6/price`. Fix that before moving any fast path to Jupiter.
+- `trading_bot/backend/src/core/api-budget-manager.ts` still models quota blockers only for `HELIUS` and `BIRDEYE`. Do not jam Jupiter or DEX Screener into Birdeye-style monthly reserve logic unless the provider actually has that billing model.
+- `trading_bot/backend/src/services/outcome-tracker.ts` owns the per-minute price backfill loop. `trading_bot/backend/src/bootstrap/intervals.ts` only owns the separate `wouldHaveWon` pass every 10 minutes. Wrong file, wrong fix, wasted time.
+- `trading_bot/backend/src/core/regime-detector.ts` and `trading_bot/backend/src/services/market-tick-recorder.ts` persist `trendingCount`. If the source stops being Birdeye trending, keep the field shape or relabel docs and dashboard together. No Prisma/view churn in the base phase.
+- The repo already uses `Math.ceil(n^0.8 * 5)` for Birdeye `multi_price`. Birdeye now publishes that batch formula, so phase 1 should replace the "internal guess" framing with a shared, source-backed helper.
+- `trading_bot/dashboard/features/quota/quota-page-client.tsx` and `trading_bot/dashboard/lib/api.ts` are already service-dynamic and typed for `JUPITER`. Do not create dashboard churn unless the API contract really changes.
 
-- Birdeye pricing page currently shows:
-  - `Lite`: `1,500,000 CU/month`, `15 RPS`, `WebSocket Access: No`
-  - `Starter`: `5,000,000 CU/month`, `15 RPS`, `WebSocket Access: No`
-- Birdeye package-access docs confirm Lite/Starter access to the single-token endpoints already used in this repo, plus `/defi/multi_price`. Other multi/batch endpoints remain restricted unless explicitly listed.
-- Birdeye CU docs list:
-  - `/defi/v3/token/list` = `100 CU`
-  - `/defi/v3/token/meme/list` = `100 CU`
-  - `/defi/v2/tokens/new_listing` = `80 CU`
-  - `/defi/token_trending` = `50 CU`
-  - `/defi/token_overview` = `30 CU`
-  - `/defi/v3/token/trade-data/single` = `15 CU`
-  - `/defi/token_security` = `50 CU`
-  - `/defi/v3/token/holder` = `50 CU`
-  - `/defi/v3/token/meme/detail/single` = `30 CU`
-  - `/defi/v2/tokens/top_traders` = `30 CU`
-  - `/defi/multi_price` uses batch pricing and Birdeye does not publish the exact batch formula on the CU page.
-- Helius Developer currently includes `10,000,000 credits/month`, `50 RPC req/s`, `10 DAS/Enhanced req/s`, and `150` concurrent standard WebSocket connections.
-- Helius credit docs confirm:
-  - standard RPC = `1 credit`
-  - `getSignaturesForAddress` = `10 credits`
-  - `getTransaction` = `10 credits`
-  - `getTransactionsForAddress` = `100 credits`
-- Jupiter current docs center on `https://api.jup.ag/` with `x-api-key` required, `Price API V3` at `/price/v3`, and `Tokens API V2` for `toptrending`, `toptraded`, and `recent`.
-- Jupiter Free tier is `60 rpm` on the default bucket. Free users do **not** get a separate Price bucket.
-- DEX Screener docs currently allow:
-  - `/tokens/v1/{chainId}/{tokenAddresses}` up to `30` token addresses per request
-  - pair and token endpoints at `300 rpm`
-  - latest token-profile style endpoints at `60 rpm`
-- PumpPortal realtime docs still require **one** shared WebSocket connection.
-- Meteora docs currently list `30 RPS` for DLMM and `10 RPS` for DAMM v2.
+## Current repo evidence
 
-## Budget Envelope
+- `trading_bot/backend/src/bootstrap/runtime.ts` wires `JupiterService`, `BirdeyeService`, `ExitMonitor`, `OutcomeTracker`, `MarketTickRecorder`, `S1`, `S2`, and `S3`.
+- `trading_bot/backend/src/bootstrap/intervals.ts` does a 60s regime refresh with Jupiter SOL price plus Birdeye trending, hourly Birdeye credit sync, daily wallet scoring, hourly stats aggregation, and the 10m `wouldHaveWon` pass.
+- `trading_bot/backend/src/services/market-tick-recorder.ts` does a 5m Jupiter SOL price plus Birdeye trending write.
+- `trading_bot/backend/src/services/outcome-tracker.ts` still uses Birdeye `multi_price` for signal, position, wallet-activity, and graduation-event backfills.
+- `trading_bot/backend/src/core/exit-monitor.ts` still polls Birdeye `multi_price` every 5s and pulls Birdeye trade-data per S3 position for fade checks.
+- `trading_bot/backend/src/strategies/momentum.ts` still scans Birdeye `token/list` every 20s.
+- `trading_bot/backend/src/strategies/graduation.ts` still runs dual Birdeye `meme/list` scans every 20s plus a 5m `new_listing` fallback.
+- `trading_bot/backend/src/strategies/copy-trade.ts` still uses Birdeye for final scoring, wallet-activity price capture, and daily top-trader seed discovery.
 
-The repo already uses a `20%` Birdeye reserve.
+## Verified provider facts
+
+Facts verified on **April 2, 2026**:
+
+- Birdeye pricing still shows:
+  - `Lite`: `1,500,000 CUs/MO`, `15 RPS`, `WebSocket Access: No`
+  - `Starter`: `5,000,000 CUs/MO`, `15 RPS`, `WebSocket Access: No`
+- Birdeye pricing docs still show Lite/Starter as `Most APIs` at `15 rps`, while Premium Plus and Business add websockets. Treat Lite/Starter as no-websocket plans.
+- Birdeye package-access docs still show the current repo's single-token endpoints on Lite/Starter, including `token_trending`, `token_security`, `token/holder`, `token/meme/list`, and `token/meme/detail/single`.
+- Birdeye now publishes batch-token CU math:
+  - `Batch CU Cost = N^0.8 * Base CU Cost`, rounded up
+  - `/defi/multi_price` base cost = `5`
+  - `/defi/multi_price` `n_max` = `100`
+- Helius Developer still shows `10,000,000` monthly credits, `50` RPC req/s, `10` DAS req/s, and `150` concurrent WebSocket connections.
+- Helius credits docs still price:
+  - `getSignaturesForAddress` = `10`
+  - `getTransaction` = `10`
+  - `getTransactionsForAddress` = `100`
+- Helius docs now also announce streaming-metering changes effective **April 7, 2026**, with Standard and Enhanced WebSockets billed at `2 credits per 0.1 MB`, and broad WSS metering activation on **May 1, 2026**. That is a docs/update item, not base-phase scope for byte-level budget math.
+- Jupiter portal docs now require `x-api-key` on `https://api.jup.ag/`.
+- Jupiter Free still uses a fixed `60 rpm` rate limit, but the current docs now describe separate buckets:
+  - `Default` bucket for standard API traffic
+  - dedicated `Price API` bucket for `/price/v3`
+- Jupiter Price docs still expose `GET https://api.jup.ag/price/v3` with `x-api-key`.
+- Jupiter Token docs still expose category-style discovery feeds such as `toptrending`, `toptraded`, and `recent`, with interval support on category feeds.
+- DEX Screener still allows:
+  - `/tokens/v1/{chainId}/{tokenAddresses}` with up to `30` token addresses per request
+  - token and pair endpoints at `300 rpm`
+  - token-profile / paid-order style endpoints at `60 rpm`
+- PumpPortal still requires one shared WebSocket connection. If the optional phase expands into PumpSwap data, plan for API key and funded-wallet requirements instead of assuming a free firehose.
+- Meteora docs still publish `30 RPS` for DLMM and `10 RPS` for DAMM v2.
+
+## Budget envelope
+
+Repo invariant: keep the existing `20%` Birdeye reserve.
 
 | Plan | Monthly CU | Reserve | Usable Monthly CU | Approx Daily Budget |
 | --- | ---: | ---: | ---: | ---: |
 | Lite | 1,500,000 | 300,000 | 1,200,000 | 40,000/day |
 | Starter | 5,000,000 | 1,000,000 | 4,000,000 | 133,333/day |
 
-All calculations below use:
+Use:
 
-`daily usage = unit cost * calls per day`
+- `daily usage = unit cost * calls per day`
+- `calls per day = 86,400 / interval_seconds`
+- `Birdeye batch cost = ceil(N^0.8 * baseCost)` for published batch endpoints such as `/defi/multi_price`
 
-or
+## Current repo API usage calculations
 
-`calls per day = 86,400 / interval_seconds`
-
-Wrong. Because “we'll just slow it down later” is not math.
-
-## Current Repo API Usage Calculations
-
-### Birdeye: deterministic scheduled usage already in code
+### Birdeye fixed scheduled usage already in code
 
 | Path | Current cadence | Calculation | Daily CU |
 | --- | --- | --- | ---: |
@@ -81,32 +95,32 @@ Wrong. Because “we'll just slow it down later” is not math.
 
 That fixed subtotal is:
 
-- about `35.1x` Lite daily budget
-- about `10.5x` Starter daily budget
+- about `35.1x` the Lite daily budget
+- about `10.5x` the Starter daily budget
 
-And that is before exits, backfills, or candidate-level final scoring.
+This is not a tuning problem. This is an architecture problem.
 
-### Birdeye: current exit-path and event-driven costs
+### Birdeye exit-path and event-driven costs in the current repo
+
+The published Birdeye batch formula now matches the repo's current `multi_price` estimator:
 
 | Path | Current behavior | Calculation | Daily CU |
 | --- | --- | --- | ---: |
-| `ExitMonitor` `/defi/multi_price` with `1` token | every `5s` | current repo estimator `5 * (86400 / 5)` | 86,400 |
-| `ExitMonitor` `/defi/multi_price` with `3` tokens | every `5s` | current repo estimator `13 * (86400 / 5)` | 224,640 |
-| `ExitMonitor` `/defi/multi_price` with `5` tokens | every `5s` | current repo estimator `19 * (86400 / 5)` | 328,320 |
+| `ExitMonitor` `/defi/multi_price` with `1` token | every `5s` | `5 * (86400 / 5)` | 86,400 |
+| `ExitMonitor` `/defi/multi_price` with `3` tokens | every `5s` | `13 * (86400 / 5)` | 224,640 |
+| `ExitMonitor` `/defi/multi_price` with `5` tokens | every `5s` | `19 * (86400 / 5)` | 328,320 |
 | `S3` fade checks via `/defi/v3/token/trade-data/single` | every `5s`, per position | `15 * (86400 / 5)` | 259,200 per S3 position |
 
-The repo's current `multi_price` batch estimator is an internal planning assumption because Birdeye does not publish the exact batch CU formula on the public CU page.
-
-### Birdeye: current per-candidate final scoring cost
+### Birdeye per-candidate final scoring cost in the current repo
 
 | Flow | Calls | Total CU |
 | --- | --- | ---: |
 | `S1` final score | `overview + trade-data + security + holders` | 145 |
 | `S2` final score | `meme-detail + overview + trade-data + security + holders` | 175 |
 | `S3` final score | `overview + trade-data + security + holders` | 145 |
-| optional adders | `pair overview + exit liquidity` | `+50` |
+| optional adders | `pair overview + exit liquidity` | `+20 to +50` |
 
-### Helius: scheduled and per-event usage
+### Helius usage that stays in scope
 
 | Path | Current behavior | Calculation | Credits |
 | --- | --- | --- | ---: |
@@ -116,50 +130,51 @@ The repo's current `multi_price` batch estimator is an internal planning assumpt
 | daily wallet scoring worst case | once/day | `500 wallets * getTransactionsForAddress 100` | 50,000/day |
 | trade-confirm polling fallback | per trade worst case | `15 polls * 1` | 15/trade |
 
-Helius is not the blocking provider. The math still belongs in the plan so nobody accidentally burns it by multiplying wallet scoring or creator lookbacks.
+Helius is not the blocking provider today. It still belongs in the plan so nobody accidentally multiplies archival queries or ignores the April 2026 WSS billing change.
 
-### Jupiter and DEX Screener: target scheduled rate calculations
+### Target Jupiter and DEX scheduled rates
 
-These are request-rate calculations, not credit costs.
+These are request-rate calculations, not Birdeye-style CU budgets.
 
-Assumed target cadence:
-
-- `Jupiter /price/v3` exit batch: every `5s`
-- `Jupiter Tokens toptrending` seed: every `20s`
-- `Jupiter Tokens toptraded` seed: every `20s`
-- `Jupiter Tokens recent` seed: every `60s`
-- `Jupiter` backfill price snapshots: worst-case `10` requests/minute combined
-- `DEX Screener /tokens/v1` S3 prefilter: every `20s`
-- `DEX Screener /tokens/v1` S2 prefilter: every `60s`
+#### Jupiter Price bucket steady state
 
 | Provider path | Cadence | Requests/day | Avg rpm | Public limit |
 | --- | --- | ---: | ---: | ---: |
-| Jupiter `Price API V3` exit batch | `5s` | 17,280 | 12 | 60 rpm free |
-| Jupiter Tokens `toptrending` | `20s` | 4,320 | 3 | 60 rpm free |
-| Jupiter Tokens `toptraded` | `20s` | 4,320 | 3 | 60 rpm free |
-| Jupiter Tokens `recent` | `60s` | 1,440 | 1 | 60 rpm free |
-| Jupiter backfill prices worst case | `10 req/min` | 14,400 | 10 | 60 rpm free |
-| **Jupiter scheduled subtotal** |  | **41,760** | **29** | **60 rpm free** |
-| DEX Screener S3 batch prefilter | `20s` | 4,320 | 3 | 300 rpm |
-| DEX Screener S2 batch prefilter | `60s` | 1,440 | 1 | 300 rpm |
-| **DEX scheduled subtotal** |  | **5,760** | **4** | **300 rpm** |
+| exit batch price reads via `/price/v3` | `5s` | 17,280 | 12 | 60 rpm free |
+| outcome/backfill price reads worst case | `10 req/min` | 14,400 | 10 | 60 rpm free |
+| **Price bucket subtotal** |  | **31,680** | **22** | **60 rpm free** |
 
-That means the target design fits comfortably inside Jupiter Free's `60 rpm` and DEX Screener's `300 rpm`, even before paying for higher Jupiter tiers.
+#### Jupiter Default bucket steady state
 
-## Target Birdeye Operating Model
+| Provider path | Cadence | Requests/day | Avg rpm | Public limit |
+| --- | --- | ---: | ---: | ---: |
+| `toptrending` discovery | `20s` | 4,320 | 3 | 60 rpm free |
+| `toptraded` discovery | `20s` | 4,320 | 3 | 60 rpm free |
+| `recent` discovery | `60s` | 1,440 | 1 | 60 rpm free |
+| **Default bucket subtotal** |  | **10,080** | **7** | **60 rpm free** |
+
+Quote-derived Jupiter fallback is not part of steady state. Keep it off the `5s` loop and rate-cap it behind the router.
+
+#### DEX Screener steady state
+
+| Provider path | Cadence | Requests/day | Avg rpm | Public limit |
+| --- | --- | ---: | ---: | ---: |
+| S3 batch prefilter via `/tokens/v1/solana/{addresses}` | `20s` | 4,320 | 3 | 300 rpm |
+| S2 batch prefilter via `/tokens/v1/solana/{addresses}` | `60s` | 1,440 | 1 | 300 rpm |
+| **DEX subtotal** |  | **5,760** | **4** | **300 rpm** |
+
+## Target Birdeye operating model
 
 ### Lite target
-
-Scheduled Birdeye use is capped to:
 
 | Usage | Cadence | Daily CU |
 | --- | --- | ---: |
 | `S2` catch-up `meme/list` near + just | every `30m` | 9,600 |
 | S1 daily wallet-scoring seed | daily | 230 |
-| regime / market tick / backfills / exit fast path | none on Birdeye | 0 |
+| fixed-cadence regime, market tick, backfills, exit fast path | none on Birdeye | 0 |
 | **Scheduled subtotal** |  | **9,830** |
 
-Remaining Birdeye budget for event-driven work:
+Remaining Birdeye headroom before event-driven work:
 
 - `40,000 - 9,830 = 30,170 CU/day`
 - raw ceiling at `145 CU` per S1/S3 final score: `208`
@@ -167,44 +182,37 @@ Remaining Birdeye budget for event-driven work:
 
 ### Starter target
 
-Scheduled Birdeye use is capped to:
-
 | Usage | Cadence | Daily CU |
 | --- | --- | ---: |
 | `S2` catch-up `meme/list` near + just | every `10m` | 28,800 |
 | S1 daily wallet-scoring seed | daily | 230 |
-| regime / market tick / backfills / exit fast path | none on Birdeye | 0 |
+| fixed-cadence regime, market tick, backfills, exit fast path | none on Birdeye | 0 |
 | **Scheduled subtotal** |  | **29,030** |
 
-Remaining Birdeye budget for event-driven work:
+Remaining Birdeye headroom before event-driven work:
 
 - `133,333 - 29,030 = 104,303 CU/day`
 - raw ceiling at `145 CU` per S1/S3 final score: `719`
 - raw ceiling at `175 CU` per S2 final score: `596`
 
-These raw ceilings are not a license to spend all of it. They are the upper bound before conditional exit refreshes and bursty days are considered.
+These are upper bounds, not spending targets. Leave margin for slow-path exit refreshes and bursty days.
 
-## Design Rules
+## Design rules
 
-- Do not use Birdeye WebSockets on Lite or Starter. Pricing page says `No`.
-- Remove Birdeye from all fixed-cadence fast paths:
-  - exit prices
-  - regime trending samples
-  - market tick recorder
-  - outcome backfills
-  - S3 seed discovery
-- Use Birdeye only for:
-  - final paid scoring
-  - `S2` meme catch-up cadence
-  - selective exit refreshes when Jupiter or DEX data is insufficient
-- Keep Helius as the only event and confirmation plane.
-- Keep all provider calls inside shared services.
-- Do not add new Prisma enums or SQL views in the base implementation.
-- Do not fake `DEX Screener` calls as `BIRDEYE` in quota tables.
+- Keep all provider calls in `trading_bot/backend/src/services/`.
+- Add a `market-router` service; do not sprinkle Jupiter or DEX fetches directly into strategies or `ExitMonitor`.
+- Keep Helius as the only event, transaction-confirmation, and wallet-truth plane.
+- Do not add Prisma migration files or SQL-view changes in the base phase.
+- Keep runtime quota blockers limited to real blocker services. Do not fabricate DEX or Jupiter pause reasons.
+- Do not let stale `shouldRunNonEssential("BIRDEYE")` guards keep suppressing work after that work moves off Birdeye.
+- Keep `trendingCount` schema and payload shape intact unless a later phase explicitly renames the field and updates the dashboard together.
+- DEX Screener is a cheap prefilter only. It does not replace Birdeye security, holders, or final score inputs.
+- Keep the dashboard quota UI untouched unless an API contract change forces it. The current screen is already dynamic.
+- Update docs in the same pass as runtime behavior changes.
 
-## Implementation Tasks
+## Implementation tasks
 
-### Task 1: Add provider plan capabilities and budget math
+### Task 1: Codify Birdeye plan capabilities and shared budget math
 
 **Files:**
 
@@ -215,59 +223,46 @@ These raw ceilings are not a license to spend all of it. They are the upper boun
 - Modify: `trading_bot/backend/.env.example`
 - Modify: `docs/workflows/quota-and-provider-budgets.md`
 
-- [ ] Add `BIRDEYE_PLAN=LITE|STARTER` config and derive monthly CU, reserve, target scheduled budget, and catch-up cadences from one helper.
-- [ ] Keep the existing config shape mostly intact. Do not create a giant provider-config tree for sport.
-- [ ] Make `ApiBudgetManager` and `stats-aggregator` use the same plan helper so daily remaining math cannot drift.
-- [ ] Document the pricing-page fact that Lite and Starter have `WebSocket Access: No`.
-- [ ] Add the explicit daily usage tables from this plan into the quota docs so operator expectations match runtime behavior.
+- [ ] Add `BIRDEYE_PLAN=LITE|STARTER` config and a helper that returns monthly CU, reserve, plan-aware S2 catch-up cadence, and the published `multi_price` batch-cost helper.
+- [ ] Make both `ApiBudgetManager` and `workers/stats-aggregator.ts` read Birdeye budget math from the same helper so daily remaining math cannot drift.
+- [ ] Keep quota blockers limited to `HELIUS` and `BIRDEYE` in this phase.
+- [ ] Replace stale doc text that says Birdeye batch pricing is unpublished or that Lite/Starter websocket access might exist.
 - [ ] Run: `npm run typecheck`
 
-### Task 2: Modernize Jupiter configuration and add current token/price APIs
+### Task 2: Modernize Jupiter configuration and add current price/category wrappers
 
 **Files:**
 
 - Modify: `trading_bot/backend/src/config/index.ts`
 - Modify: `trading_bot/backend/src/services/jupiter.ts`
-- Modify: `trading_bot/backend/src/core/trade-executor.ts`
+- Modify: `trading_bot/backend/src/bootstrap/runtime.ts`
 - Modify: `trading_bot/backend/.env.example`
 - Modify: `docs/architecture/backend-runtime.md`
+- Modify: `docs/workflows/quota-and-provider-budgets.md`
 
 - [ ] Add explicit Jupiter config for:
   - `JUPITER_API_KEY`
   - `JUPITER_BASE_URL=https://api.jup.ag`
   - `JUPITER_PRICE_PATH=/price/v3`
   - `JUPITER_SWAP_PATH=/swap/v1`
-- [ ] Remove hardcoded `quote-api.jup.ag/v6` and `price.jup.ag/v6/price`.
-- [ ] Add `getPricesUsd(mints: string[])` for batch exit and backfill reads.
-- [ ] Add `getTopTrendingTokens`, `getTopTradedTokens`, and `getRecentTokens` wrappers for seed discovery.
-- [ ] Keep the existing quote and execution interface stable for callers outside the new router.
+- [ ] Replace hardcoded `quote-api.jup.ag/v6` and `price.jup.ag/v6/price`.
+- [ ] Add batch-friendly helpers such as:
+  - `getPricesUsd(mints: string[])`
+  - `getTopTrendingTokens(...)`
+  - `getTopTradedTokens(...)`
+  - `getRecentTokens(...)`
+- [ ] Keep the existing quote/build-swap interface stable for trade execution callers.
+- [ ] Document the current Jupiter bucket model: `Price API` traffic is separate from `Default` bucket traffic.
 - [ ] Run: `node --env-file=.env.example --test --import tsx src/core/trade-executor.test.ts`
 - [ ] Run: `npm run typecheck`
 
-### Task 3: Move scheduled non-essential Birdeye reads to Jupiter
-
-**Files:**
-
-- Modify: `trading_bot/backend/src/bootstrap/intervals.ts`
-- Modify: `trading_bot/backend/src/services/market-tick-recorder.ts`
-- Modify: `trading_bot/backend/src/services/outcome-tracker.ts`
-- Modify: `trading_bot/backend/src/core/regime-detector.ts`
-- Modify: `docs/workflows/quota-and-provider-budgets.md`
-- Modify: `docs/architecture/backend-runtime.md`
-
-- [ ] Replace runtime regime trending samples from Birdeye with Jupiter token-category data or equivalent free-side routing data.
-- [ ] Replace market tick recorder trending reads from Birdeye with Jupiter-backed or router-backed counts.
-- [ ] Replace `OutcomeTracker` price backfills from Birdeye `multi_price` with Jupiter `Price API V3` batch reads.
-- [ ] Keep these jobs non-essential and skippable under quota pressure.
-- [ ] Verify the planned Jupiter steady-state usage remains within the `29 rpm` target envelope from this plan.
-- [ ] Run: `npm run typecheck`
-
-### Task 4: Introduce DEX Screener and the market-router
+### Task 3: Add DEX Screener and introduce the market-router
 
 **Files:**
 
 - Create: `trading_bot/backend/src/services/dexscreener.ts`
 - Create: `trading_bot/backend/src/services/market-router.ts`
+- Create: `trading_bot/backend/src/services/market-router.test.ts`
 - Modify: `trading_bot/backend/src/utils/types.ts`
 - Modify: `trading_bot/backend/src/bootstrap/runtime.ts`
 - Modify: `docs/strategies/overview.md`
@@ -275,14 +270,34 @@ These raw ceilings are not a license to spend all of it. They are the upper boun
 - [ ] Add provider-agnostic router models for:
   - `SeedCandidate`
   - `PrefilterResult`
-  - `FinalScore`
+  - `FinalScoreInput`
   - `ExitRefresh`
 - [ ] Implement DEX Screener batching through `/tokens/v1/solana/{tokenAddresses}` with up to `30` addresses per request.
 - [ ] Use `/token-pairs/v1/solana/{tokenAddress}` only when pair-age or pair-specific detail is required.
-- [ ] Keep DEX failures soft and do not route them into bot pause reasons.
-- [ ] Do not add a new Prisma service enum for DEX in this phase. Keep DEX telemetry in service-local logs or counters only.
-- [ ] Create: `trading_bot/backend/src/services/market-router.test.ts`
+- [ ] Keep DEX failures soft and keep DEX telemetry out of Prisma enums and quota pause reasons.
+- [ ] Make the router the only new place that knows provider fallback order.
 - [ ] Run: `node --env-file=.env.example --test --import tsx src/services/market-router.test.ts`
+- [ ] Run: `npm run typecheck`
+
+### Task 4: Move regime breadth, market ticks, and analytics backfills off Birdeye
+
+**Files:**
+
+- Modify: `trading_bot/backend/src/bootstrap/intervals.ts`
+- Modify: `trading_bot/backend/src/services/market-tick-recorder.ts`
+- Modify: `trading_bot/backend/src/services/outcome-tracker.ts`
+- Modify: `trading_bot/backend/src/core/regime-detector.ts`
+- Modify: `trading_bot/backend/src/services/market-router.ts`
+- Modify: `docs/architecture/backend-runtime.md`
+- Modify: `docs/workflows/quota-and-provider-budgets.md`
+
+- [ ] Replace Birdeye regime and market-tick breadth sampling with router-backed free-side breadth data while keeping the persisted/output field name `trendingCount`.
+- [ ] Replace all `OutcomeTracker` `multi_price` backfills with Jupiter price-batch reads.
+- [ ] Remove or replace stale `shouldRunNonEssential("BIRDEYE")` guards on any path that no longer spends Birdeye.
+- [ ] Revisit the 10-minute `wouldHaveWon` interval guard in `bootstrap/intervals.ts`; that pass does not itself hit a provider and should not stay incorrectly tied to Birdeye once prices move off Birdeye.
+- [ ] Verify steady-state Jupiter usage stays inside:
+  - Price bucket about `22 rpm`
+  - Default bucket about `7 rpm`
 - [ ] Run: `npm run typecheck`
 
 ### Task 5: Remove Birdeye from the exit fast path
@@ -297,84 +312,87 @@ These raw ceilings are not a license to spend all of it. They are the upper boun
 - Modify: `docs/strategies/s2-graduation.md`
 - Modify: `docs/strategies/s3-momentum.md`
 
-- [ ] Replace `Birdeye multi_price` in the `5s` loop with Jupiter batch prices.
-- [ ] Replace unconditional `S3` `trade-data` polling in the `5s` loop with plan-aware conditional refreshes.
+- [ ] Replace `Birdeye multi_price` in the `5s` loop with router-backed Jupiter batch prices.
+- [ ] Replace unconditional per-position S3 `trade-data` polling with plan-aware conditional refreshes. Slow or high-risk refreshes may still use Birdeye; the `5s` loop may not.
 - [ ] Use `market-router.refreshExitContext()` so fallback order is:
-  - Jupiter batch price
-  - Jupiter quote-derived price when needed
-  - Birdeye only on slow or high-risk refresh paths
+  - Jupiter price batch
+  - Jupiter quote-derived price on throttled slow path
+  - Birdeye only when the router marks the token as price-insufficient or high-risk
 - [ ] Keep Helius as the confirmation source for landed exits.
-- [ ] Prove the monitor no longer burns `86,400-328,320 CU/day` on price polling and `259,200 CU/day` per S3 position on fade checks.
+- [ ] Prove the monitor no longer burns Birdeye on the `5s` price loop and no longer polls S3 trade-data every `5s` per open position.
 - [ ] Run: `node --env-file=.env.example --test --import tsx src/core/exit-monitor.test.ts`
 - [ ] Run: `node --env-file=.env.example --test --import tsx src/core/trade-executor.test.ts`
 - [ ] Run: `npm run typecheck`
 
-### Task 6: Refactor S3 discovery onto Jupiter + DEX, keep Birdeye for final score only
+### Task 6: Refactor S3 discovery onto Jupiter plus DEX and keep Birdeye for final score only
 
 **Files:**
 
 - Modify: `trading_bot/backend/src/strategies/momentum.ts`
 - Modify: `trading_bot/backend/src/strategies/momentum.test.ts`
+- Modify: `trading_bot/backend/src/services/market-router.ts`
 - Modify: `docs/strategies/s3-momentum.md`
 
-- [ ] Seed `S3` from Jupiter `toptrending` and `toptraded` categories instead of Birdeye `token/list`.
-- [ ] Run DEX Screener batched prefilter before any paid Birdeye call.
-- [ ] Keep Birdeye `overview + trade-data + security + holders` for final go/no-go only.
-- [ ] Preserve current `20s` strategy responsiveness using Jupiter and DEX, not Birdeye.
+- [ ] Seed S3 from Jupiter category feeds such as `toptrending` and `toptraded` instead of Birdeye `token/list`.
+- [ ] Run DEX Screener batch prefilter before any paid Birdeye call.
+- [ ] Keep Birdeye `overview + trade-data + security + holders` as the final go/no-go gate.
+- [ ] Update signal source labels away from `v3/token/list` so analytics reflects the new router path honestly.
+- [ ] Preserve current `20s` responsiveness using Jupiter and DEX, not Birdeye.
 - [ ] Run: `node --env-file=.env.example --test --import tsx src/strategies/momentum.test.ts`
 - [ ] Run: `npm run typecheck`
 
-### Task 7: Refactor S2 into cheap seed + paid catch-up
+### Task 7: Refactor S2 into cheap seed plus paid catch-up
 
 **Files:**
 
 - Modify: `trading_bot/backend/src/strategies/graduation.ts`
 - Modify: `trading_bot/backend/src/strategies/graduation.test.ts`
+- Modify: `trading_bot/backend/src/services/market-router.ts`
 - Modify: `docs/strategies/s2-graduation.md`
 
-- [ ] Seed `S2` from Jupiter `recent` and DEX Screener pair data for cheap continuous discovery.
+- [ ] Seed S2 from Jupiter `recent` and DEX Screener pair data for cheap continuous discovery.
 - [ ] Keep Birdeye `meme/list` only as plan-aware catch-up:
   - Lite: every `30m`
   - Starter: every `10m`
 - [ ] Keep Birdeye `meme/detail`, `overview`, `trade-data`, `security`, and `holders` for shortlisted candidates only.
 - [ ] Keep Helius creator and token lookbacks intact at `20 credits` per shortlisted candidate.
-- [ ] Delete or disable Birdeye `new_listing` fallback once the cheap seed path is proven.
+- [ ] Do not delete the `new_listing` fallback blindly. First gate it behind router telemetry or a feature flag, then remove it only after coverage proves the cheap seed path is good enough.
 - [ ] Run: `node --env-file=.env.example --test --import tsx src/strategies/graduation.test.ts`
 - [ ] Run: `npm run typecheck`
 
-### Task 8: Refactor S1 to add cheap sanity before paid scoring
+### Task 8: Keep S1 on Helius and add cheap sanity before paid Birdeye scoring
 
 **Files:**
 
 - Modify: `trading_bot/backend/src/strategies/copy-trade.ts`
 - Modify: `trading_bot/backend/src/strategies/copy-trade.test.ts`
+- Modify: `trading_bot/backend/src/services/market-router.ts`
 - Modify: `docs/strategies/s1-copy-trade.md`
 
-- [ ] Preserve the Helius wallet-trigger path.
-- [ ] Keep the per-wallet-event Helius cost at `20 credits/event` and document it.
-- [ ] Add a DEX Screener sanity check before Birdeye final scoring.
-- [ ] Keep S1 final paid score at the current `145 CU` shape unless there is a safety reason to add pair or exit-liquidity checks.
-- [ ] Leave daily wallet scoring cadence unchanged, but document its worst-case `50,000 credits/day` Helius cost.
+- [ ] Preserve the Helius wallet-trigger path exactly; this strategy is not being re-architected around polling.
+- [ ] Replace the single-token Birdeye `multi_price` wallet-activity price capture with a cheap Jupiter/router price read.
+- [ ] Add a DEX Screener sanity check before Birdeye final scoring so obvious trash is filtered before paid calls.
+- [ ] Keep S1 final paid score at the current `145 CU` shape unless there is a safety reason to add pair-level checks.
+- [ ] Leave daily wallet-scoring cadence unchanged, but document both the Birdeye top-trader seed cost and the current Helius archival-query cost.
 - [ ] Run: `node --env-file=.env.example --test --import tsx src/strategies/copy-trade.test.ts`
 - [ ] Run: `npm run typecheck`
 
 ### Task 9: Optional PumpPortal watchlist phase
 
-Only do this after Tasks 1 through 8 land and telemetry shows `S2` near-grad discovery still needs cheaper eventing.
+Only do this after Tasks 1 through 8 land and telemetry still says S2 discovery needs cheaper eventing.
 
 **Files:**
 
 - Create: `trading_bot/backend/src/services/pumpportal.ts`
 - Optional Create: `trading_bot/backend/src/core/watchlist-store.ts`
-- Optional Modify: `trading_bot/backend/prisma/schema.prisma`
-- Optional Modify: `trading_bot/backend/prisma/views/create_views.sql`
-- Optional Modify: `docs/data/prisma-and-views.md`
+- Optional Modify: `docs/strategies/s2-graduation.md`
 
 - [ ] Add one shared PumpPortal WebSocket client.
 - [ ] Honor the one-connection rule.
+- [ ] Treat PumpSwap or paid data requirements as explicit config and ops work, not as hidden assumptions.
 - [ ] Only add persistence if in-memory watchlists prove too lossy across restarts.
 
-### Task 10: Optional venue confirmation phase
+### Task 10: Optional venue-confirmation phase
 
 Only do this if Jupiter route labels show repeated Raydium or Meteora concentration that justifies direct venue reads.
 
@@ -385,41 +403,45 @@ Only do this if Jupiter route labels show repeated Raydium or Meteora concentrat
 - Optional Modify: `trading_bot/backend/src/services/market-router.ts`
 
 - [ ] Add read-only confirmation wrappers for pool detail.
-- [ ] Keep them off the hot path unless a route already points there.
+- [ ] Keep them off the hot path unless a router decision already points there.
 
-## Verification Checklist
+## Verification checklist
 
 - Lite and Starter still use a `20%` Birdeye reserve.
 - Lite and Starter treat Birdeye WebSockets as unavailable.
+- Birdeye `multi_price` batch cost uses the published `ceil(N^0.8 * 5)` formula.
 - Scheduled Birdeye usage falls from `1,405,670 CU/day` fixed baseline to:
   - Lite about `9,830 CU/day`
   - Starter about `29,030 CU/day`
-- Exit monitoring no longer consumes Birdeye on the `5s` fast path.
-- `S3` no longer depends on Birdeye `token/list`.
-- `S2` no longer depends on dual `20s` Birdeye `meme/list` loops.
-- Regime sampling, market ticks, and outcome backfills no longer consume Birdeye.
-- Jupiter scheduled usage stays inside the planned `29 rpm` envelope.
-- DEX Screener scheduled usage stays inside the planned `4 rpm` envelope.
-- Helius scheduled usage remains well below the Developer plan monthly budget and RPS limits.
-- No schema or SQL view changes land unless an optional phase is actually required.
+- Regime breadth, market ticks, and analytics backfills no longer spend Birdeye.
+- Exit monitoring no longer spends Birdeye on the `5s` fast path.
+- S3 no longer depends on Birdeye `token/list`.
+- S2 no longer depends on dual `20s` Birdeye `meme/list` loops.
+- S1 still depends on Helius wallet events, not a new polling path.
+- Jupiter steady-state usage stays inside:
+  - Price bucket about `22 rpm`
+  - Default bucket about `7 rpm`
+- DEX Screener steady-state usage stays inside about `4 rpm`.
+- Helius scheduled usage remains well below current Developer plan limits, and docs mention the April/May 2026 WSS metering change.
+- No Prisma migration or SQL-view change lands unless an optional phase explicitly requires it.
 - Docs are updated in the same pass as code.
+- If any overview or API-usage response contract changes, run `trading_bot/dashboard` build before closing the work. Otherwise, skip dashboard edits.
 
 ## Sources
 
-- Birdeye pricing: https://bds.birdeye.so/pricing
+- Birdeye pricing page: https://bds.birdeye.so/pricing
+- Birdeye pricing docs: https://docs.birdeye.so/docs/pricing
 - Birdeye package access: https://docs.birdeye.so/docs/data-accessibility-by-packages
-- Birdeye CU costs: https://docs.birdeye.so/docs/compute-unit-cost
-- Birdeye rate limits: https://docs.birdeye.so/docs/rate-limiting
+- Birdeye compute unit cost: https://docs.birdeye.so/docs/compute-unit-cost
+- Birdeye batch token CU cost: https://docs.birdeye.so/docs/batch-token-cu-cost
 - Helius plans: https://www.helius.dev/docs/billing/plans
-- Helius credits: https://www.helius.dev/docs/billing/credits
 - Helius rate limits: https://www.helius.dev/docs/billing/rate-limits
-- Helius WebSockets: https://www.helius.dev/docs/rpc/websocket
-- Jupiter API setup: https://dev.jup.ag/docs/api-setup
+- Helius credits: https://www.helius.dev/docs/billing/credits
+- Helius WebSocket FAQ: https://www.helius.dev/docs/faqs/websockets
+- Jupiter API key setup: https://dev.jup.ag/portal/setup
 - Jupiter rate limits: https://dev.jup.ag/portal/rate-limit
-- Jupiter Price API V3: https://dev.jup.ag/docs/price
-- Jupiter Tokens API V2: https://dev.jup.ag/docs/tokens/token-information
-- Jupiter Swap quote reference: https://dev.jup.ag/api-reference/swap/v1/quote
+- Jupiter Price API: https://dev.jup.ag/docs/api-reference/price
+- Jupiter Token information: https://dev.jup.ag/docs/tokens/token-information
 - DEX Screener API reference: https://docs.dexscreener.com/api/reference
-- PumpPortal realtime: https://pumpportal.fun/data-api/real-time/
-- Meteora DLMM overview: https://docs.meteora.ag/api-reference/dlmm/overview
-- Meteora DAMM v2 overview: https://docs.meteora.ag/api-reference/damm-v2/overview
+- PumpPortal realtime docs: https://pumpportal.fun/data-api/real-time/
+- Meteora docs: https://docs.meteora.ag/

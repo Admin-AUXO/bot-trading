@@ -1,6 +1,7 @@
 import { parentPort } from "node:worker_threads";
 import { Prisma, type ApiCallPurpose, type Strategy, type TradeMode } from "@prisma/client";
 import { config } from "../config/index.js";
+import { calculateProtectedDailyBudget } from "../config/provider-plan.js";
 import { createPrismaClient } from "../db/client.js";
 
 const db = createPrismaClient();
@@ -411,9 +412,13 @@ async function aggregateApiUsage(date: Date): Promise<void> {
     const budgetTotal = service === "HELIUS" ? config.apiBudgets.helius.monthly : config.apiBudgets.birdeye.monthly;
     const monthlyCreditsUsed = Number(summary?.monthly_credits_used ?? 0);
     const monthlyCreditsRemaining = Math.max(0, budgetTotal - monthlyCreditsUsed);
-    const reserveCredits = Math.floor(budgetTotal * config.apiBudgets.reservePct);
-    const remainingDays = Math.max(1, Math.ceil((Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1) - dayEnd.getTime()) / DAY_MS));
-    const dailyBudget = remainingDays > 0 ? Math.floor(Math.max(0, monthlyCreditsRemaining - reserveCredits) / remainingDays) : 0;
+    const dailyBudget = calculateProtectedDailyBudget({
+      budgetTotal,
+      monthlyRemaining: monthlyCreditsRemaining,
+      reservePct: config.apiBudgets.reservePct,
+      cycleEnd: new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1)),
+      now: dayEnd,
+    }).dailyBudget;
     const dailyCreditsRemaining = Math.max(0, dailyBudget - totalCredits);
     const budgetUsedPercent = budgetTotal > 0 ? (monthlyCreditsUsed / budgetTotal) * 100 : 0;
     const quotaStatus =

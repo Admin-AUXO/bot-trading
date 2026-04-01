@@ -17,5 +17,5 @@ Use this skill for visual and interaction-focused dashboard work.
 ## Preferred Tools
 - `chrome_devtools` for layout, console, and rendering checks.
 - `browsermcp` for real interaction flows.
-- `filesystem` and `serena` for implementation context.
+- `filesystem` and `serena` for implementation context; in Codex, use the attached Serena session and reserve the CLI for explicit `project index` or `project health-check` refreshes.
 - `context7` for framework-specific UI behavior.

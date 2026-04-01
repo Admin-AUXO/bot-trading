@@ -19,6 +19,6 @@ Use this skill for READMEs, AGENTS guides, runbooks, and developer notes.
 ## Preferred Tools
 
 - `filesystem` for local docs and manifests
-- `serena` for ownership and callsite tracing
+- `serena` for ownership and callsite tracing in the Codex-managed project session; use the CLI only for explicit `project index` or `project health-check` refreshes
 - `context7` for framework details
 - `fetch` only when external docs are required

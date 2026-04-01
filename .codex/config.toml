@@ -103,9 +103,20 @@ required = false
 startup_timeout_ms = 20000
 
 [mcp_servers.serena]
+args = [
+    "--from",
+    "git+https://github.com/oraios/serena",
+    "serena",
+    "start-mcp-server",
+    "--context",
+    "codex",
+    "--project-from-cwd",
+    "--open-web-dashboard",
+    "false",
+]
+command = "uvx"
 required = false
-startup_timeout_ms = 30000
-url = "http://127.0.0.1:9121/mcp"
+startup_timeout_ms = 60000
 
 [mcp_servers.time]
 args = ["mcp-server-time"]

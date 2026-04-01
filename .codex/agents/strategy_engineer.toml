@@ -31,6 +31,7 @@ Validate how entry logic, sizing, exits, cooldowns, liquidity filters, and regim
 Treat manual entry and override paths as first-class risk surfaces; they must honor the same reserve, sizing, and capital constraints as automated entries.
 Do not design quota-blind polling or enrichment paths that would crowd out exits, execution completion, or reconciliation under provider budget pressure.
 Provider-heavy strategy logic must reuse the shared Helius and Birdeye services so purpose, essentiality, caching, and batching stay visible to the budget manager.
+In Codex, Serena is already attached to the active project; use its tools directly and only run `project index` or `project health-check` when intentionally refreshing repo metadata after repo-shape changes.
 If strategy behavior changes, update the matching docs in the same pass.
 Name the risk tradeoffs, failure modes, and verification steps before recommending a strategy change.
 Avoid clever rule additions that improve the backtest story more than live safety.

@@ -3,7 +3,7 @@ import { config } from "../config/index.js";
 import { createChildLogger } from "../utils/logger.js";
 import type { ApiBudgetManager } from "../core/api-budget-manager.js";
 import type { JupiterService } from "./jupiter.js";
-import type { BirdeyeService } from "./birdeye.js";
+import type { MarketRouter } from "./market-router.js";
 import type { RegimeDetector } from "../core/regime-detector.js";
 
 const log = createChildLogger("market-tick");
@@ -15,7 +15,7 @@ export class MarketTickRecorder {
 
   constructor(
     private jupiter: JupiterService,
-    private birdeye: BirdeyeService,
+    private marketRouter: Pick<MarketRouter, "getMarketBreadthSample">,
     private regimeDetector: RegimeDetector,
     private budgetManager?: ApiBudgetManager,
   ) {}
@@ -32,10 +32,9 @@ export class MarketTickRecorder {
 
   private async recordTick(): Promise<void> {
     try {
-      if (this.budgetManager && !this.budgetManager.shouldRunNonEssential("BIRDEYE")) return;
-      const [solPrice, trending] = await Promise.all([
+      const [solPrice, breadth] = await Promise.all([
         this.jupiter.getSolPriceUsd(),
-        this.birdeye.getTokenTrending({ purpose: "MARKET_TICK", essential: false, batchSize: 10 }),
+        this.marketRouter.getMarketBreadthSample({ interval: "1h", limit: 10 }),
       ]);
 
       if (!solPrice) return;
@@ -47,7 +46,7 @@ export class MarketTickRecorder {
           solPriceUsd: solPrice,
           solChange5m: state.solChange5m,
           solChange1h: state.solChange1h,
-          trendingCount: trending.length,
+          trendingCount: breadth.length,
           regime: state.regime,
         },
       });

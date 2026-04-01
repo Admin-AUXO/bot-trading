@@ -3,11 +3,9 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import { config } from "../config/index.js";
 import { createChildLogger } from "../utils/logger.js";
 import { CircuitBreaker } from "../utils/circuit-breaker.js";
-import { SOL_MINT, type SwapQuote } from "../utils/types.js";
+import { SOL_MINT, type MultiPriceResult, type SwapQuote } from "../utils/types.js";
 
 const log = createChildLogger("jupiter");
-
-const JUPITER_API = "https://quote-api.jup.ag/v6";
 
 type ParsedMintAccountData = {
   parsed?: {
@@ -16,6 +14,8 @@ type ParsedMintAccountData = {
     };
   };
 };
+
+type JupiterTokenMarket = Record<string, unknown>;
 
 class JupiterHttpError extends Error {
   constructor(public status: number, statusText: string) {
@@ -55,6 +55,40 @@ export class JupiterService {
       config.circuitBreaker.jupiterExecute.cooldownMs,
       config.circuitBreaker.jupiterExecute.halfOpenMax,
     );
+  }
+
+  private buildHeaders(contentType?: string): Headers {
+    const headers = new Headers();
+    if (contentType) headers.set("Content-Type", contentType);
+    if (config.jupiter.apiKey) headers.set("x-api-key", config.jupiter.apiKey);
+    return headers;
+  }
+
+  private buildUrl(path: string): URL {
+    return new URL(path.replace(/^\//, ""), `${config.jupiter.baseUrl.replace(/\/+$/, "")}/`);
+  }
+
+  private async getCategoryTokens(category: string, params?: { interval?: string; limit?: number }): Promise<JupiterTokenMarket[]> {
+    try {
+      return await this.quoteCb.execute(async () => {
+        const path = params?.interval
+          ? `${config.jupiter.tokensPath}/${category}/${params.interval}`
+          : `${config.jupiter.tokensPath}/${category}`;
+        const url = this.buildUrl(path);
+        if (params?.limit) url.searchParams.set("limit", String(params.limit));
+
+        const data = await fetchJson<JupiterTokenMarket[] | { data?: JupiterTokenMarket[] }>(
+          url.toString(),
+          { headers: this.buildHeaders() },
+          config.api.jupiterTimeoutMs,
+        );
+
+        return Array.isArray(data) ? data : data.data ?? [];
+      });
+    } catch (err) {
+      log.warn({ err, category }, "getCategoryTokens failed");
+      return [];
+    }
   }
 
   private getConnection(): Connection {
@@ -138,13 +172,17 @@ export class JupiterService {
   }): Promise<SwapQuote | null> {
     try {
       return await this.quoteCb.execute(async () => {
-        const url = new URL(`${JUPITER_API}/quote`);
+        const url = this.buildUrl(`${config.jupiter.swapPath}/quote`);
         url.searchParams.set("inputMint", params.inputMint);
         url.searchParams.set("outputMint", params.outputMint);
         url.searchParams.set("amount", String(params.amount));
         url.searchParams.set("slippageBps", String(params.slippageBps));
         url.searchParams.set("swapMode", "ExactIn");
-        const data = await fetchJson<SwapQuote>(url.toString(), {}, config.api.jupiterTimeoutMs);
+        const data = await fetchJson<SwapQuote>(
+          url.toString(),
+          { headers: this.buildHeaders() },
+          config.api.jupiterTimeoutMs,
+        );
         if (!data?.inAmount || !data?.outAmount) {
           throw new Error("Invalid quote response: missing inAmount or outAmount");
         }
@@ -173,10 +211,10 @@ export class JupiterService {
         };
 
         const data = await fetchJson<{ swapTransaction?: string }>(
-          `${JUPITER_API}/swap`,
+          this.buildUrl(`${config.jupiter.swapPath}/swap`).toString(),
           {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: this.buildHeaders("application/json"),
             body: JSON.stringify({
               quoteResponse,
               userPublicKey: config.solana.publicKey,
@@ -198,22 +236,43 @@ export class JupiterService {
     }
   }
 
-  async getTokenPriceUsd(tokenAddress: string): Promise<number | null> {
+  async getPricesUsd(tokenAddresses: string[]): Promise<Map<string, MultiPriceResult>> {
+    const unique = [...new Set(tokenAddresses.filter(Boolean))];
+    const prices = new Map<string, MultiPriceResult>();
+    if (unique.length === 0) return prices;
+
     try {
       return await this.quoteCb.execute(async () => {
-        const url = new URL("https://price.jup.ag/v6/price");
-        url.searchParams.set("ids", tokenAddress);
-        const data = await fetchJson<{ data?: Record<string, { price?: number }> }>(
-          url.toString(), {}, config.api.jupiterTimeoutMs,
+        const url = this.buildUrl(config.jupiter.pricePath);
+        url.searchParams.set("ids", unique.join(","));
+        const data = await fetchJson<Record<string, Record<string, unknown>> | { data?: Record<string, Record<string, unknown>> }>(
+          url.toString(),
+          { headers: this.buildHeaders() },
+          config.api.jupiterTimeoutMs,
         );
-        const price = data?.data?.[tokenAddress]?.price;
-        if (!price) throw new Error("Invalid price response: missing price data");
-        return price;
+        const entries = "data" in data && data.data ? data.data : data;
+
+        for (const [tokenAddress, rawEntry] of Object.entries(entries)) {
+          const entry = rawEntry as Record<string, unknown>;
+          prices.set(tokenAddress, {
+            value: Number(entry.usdPrice ?? entry.price ?? 0),
+            priceChange24h: Number(entry.priceChange24h ?? 0),
+            liquidity: Number(entry.liquidity ?? 0),
+            updateUnixTime: Number(entry.blockId ?? entry.updatedAt ?? 0),
+          });
+        }
+
+        return prices;
       });
     } catch (err) {
-      log.warn({ err, tokenAddress }, "getTokenPriceUsd failed");
-      return null;
+      log.warn({ err, count: unique.length }, "getPricesUsd failed");
+      return prices;
     }
+  }
+
+  async getTokenPriceUsd(tokenAddress: string): Promise<number | null> {
+    const prices = await this.getPricesUsd([tokenAddress]);
+    return prices.get(tokenAddress)?.value ?? null;
   }
 
   async getSolPriceUsd(): Promise<number | null> {
@@ -222,22 +281,27 @@ export class JupiterService {
       return this.solPriceCache.price;
     }
 
-    try {
-      return await this.quoteCb.execute(async () => {
-        const url = new URL("https://price.jup.ag/v6/price");
-        url.searchParams.set("ids", SOL_MINT);
-        const data = await fetchJson<{ data?: Record<string, { price?: number }> }>(
-          url.toString(), {}, config.api.jupiterTimeoutMs,
-        );
-        const price = data?.data?.[SOL_MINT]?.price;
-        if (!price) throw new Error("Invalid SOL price response: missing price data");
-        this.solPriceCache = { price, ts: now };
-        return price;
-      });
-    } catch (err) {
-      log.warn({ err }, "getSolPriceUsd failed");
-      return this.solPriceCache.price > 0 ? this.solPriceCache.price : null;
+    const prices = await this.getPricesUsd([SOL_MINT]);
+    const price = prices.get(SOL_MINT)?.value ?? null;
+    if (price) {
+      this.solPriceCache = { price, ts: now };
+      return price;
     }
+
+    log.warn("getSolPriceUsd fell back to cached price");
+    return this.solPriceCache.price > 0 ? this.solPriceCache.price : null;
+  }
+
+  async getTopTrendingTokens(params?: { interval?: string; limit?: number }): Promise<JupiterTokenMarket[]> {
+    return this.getCategoryTokens("toptrending", params);
+  }
+
+  async getTopTradedTokens(params?: { interval?: string; limit?: number }): Promise<JupiterTokenMarket[]> {
+    return this.getCategoryTokens("toptraded", params);
+  }
+
+  async getRecentTokens(params?: { limit?: number }): Promise<JupiterTokenMarket[]> {
+    return this.getCategoryTokens("recent", params);
   }
 
   async getQuoteForPriceCheck(tokenAddress: string, amountLamports: number = 1_000_000): Promise<number | null> {

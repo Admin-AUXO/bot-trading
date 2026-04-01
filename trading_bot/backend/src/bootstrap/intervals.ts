@@ -5,6 +5,7 @@ import type { RiskManager } from "../core/risk-manager.js";
 import type { RegimeDetector } from "../core/regime-detector.js";
 import type { BirdeyeService } from "../services/birdeye.js";
 import type { JupiterService } from "../services/jupiter.js";
+import type { MarketRouter } from "../services/market-router.js";
 import type { OutcomeTracker } from "../services/outcome-tracker.js";
 import type { CopyTradeStrategy } from "../strategies/copy-trade.js";
 import type { ApiBudgetManager } from "../core/api-budget-manager.js";
@@ -14,6 +15,7 @@ const log = createChildLogger("bootstrap:intervals");
 export function registerRuntimeIntervals(deps: {
   birdeye: BirdeyeService;
   jupiter: JupiterService;
+  marketRouter: Pick<MarketRouter, "getMarketBreadthSample">;
   outcomeTracker: OutcomeTracker;
   regimeDetector: RegimeDetector;
   riskManager: RiskManager;
@@ -27,12 +29,11 @@ export function registerRuntimeIntervals(deps: {
     try {
       const solPrice = await deps.jupiter.getSolPriceUsd();
       if (solPrice) deps.regimeDetector.updateSolPrice(solPrice);
-      const trending = await deps.birdeye.getTokenTrending({
-        purpose: "REGIME",
-        essential: false,
-        batchSize: config.regime.trendingSampleSize,
+      const breadth = await deps.marketRouter.getMarketBreadthSample({
+        interval: "1h",
+        limit: config.regime.trendingSampleSize,
       });
-      deps.regimeDetector.updateTrendingCount(trending.length);
+      deps.regimeDetector.updateTrendingCount(breadth.length);
     } catch (err) {
       log.error({ err }, "regime update failed");
     }
@@ -99,10 +100,6 @@ export function registerRuntimeIntervals(deps: {
 
   handles.push(setInterval(async () => {
     try {
-      if (!deps.apiBudgetManager.shouldRunNonEssential("BIRDEYE")) {
-        log.info("would-have-won backfill skipped — BIRDEYE quota in soft/hard limit state");
-        return;
-      }
       await deps.outcomeTracker.backfillWouldHaveWon();
     } catch (err) {
       log.error({ err }, "would-have-won backfill failed");

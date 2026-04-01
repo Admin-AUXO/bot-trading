@@ -99,6 +99,51 @@ export interface MultiPriceResult {
   updateUnixTime: number;
 }
 
+export type SeedSource =
+  | "JUPITER_TOP_TRENDING"
+  | "JUPITER_TOP_TRADED"
+  | "JUPITER_RECENT"
+  | "DEX_SCREENER";
+
+export interface SeedCandidate {
+  address: string;
+  symbol: string;
+  name: string;
+  source: SeedSource | string;
+  priceUsd: number;
+  liquidityUsd: number;
+  marketCap: number;
+  pairCreatedAt?: number;
+  metadata?: Record<string, JsonValue>;
+}
+
+export interface PrefilterResult {
+  address: string;
+  passed: boolean;
+  source: string;
+  reason?: string;
+  pairAddress?: string;
+  priceUsd?: number;
+  liquidityUsd?: number;
+  pairCreatedAt?: number;
+  metadata?: Record<string, JsonValue>;
+}
+
+export interface FinalScoreInput {
+  address: string;
+  symbol: string;
+  name?: string;
+  source: string;
+}
+
+export interface ExitRefresh {
+  tokenAddress: string;
+  priceUsd: number | null;
+  liquidityUsd: number;
+  priceSource: string;
+  updatedAt: number;
+}
+
 export interface SwapQuote {
   inputMint: string;
   outputMint: string;

@@ -14,6 +14,7 @@ import type { PositionTracker } from "./position-tracker.js";
 import type { ITradeExecutor } from "../utils/trade-executor-interface.js";
 import type { JupiterService } from "../services/jupiter.js";
 import type { BirdeyeService } from "../services/birdeye.js";
+import type { MarketRouter } from "../services/market-router.js";
 import type { PositionState, ExitReason, TradeData } from "../utils/types.js";
 
 const log = createChildLogger("exit-monitor");
@@ -24,13 +25,15 @@ export class ExitMonitor {
   private monitoredIds: Set<string> = new Set();
   private batchHandle?: ReturnType<typeof setInterval>;
   private runtimeState: RuntimeState;
+  private fadeTradeDataCache = new Map<string, { data: TradeData | null; nextRefreshAt: number }>();
 
   constructor(
     private positionTracker: PositionTracker,
     private tradeExecutor: ITradeExecutor,
-    private jupiter: JupiterService,
-    private birdeye: BirdeyeService,
+    private jupiter: Pick<JupiterService, "getSolPriceUsd">,
+    private marketRouter: Pick<MarketRouter, "refreshExitContext">,
     runtimeStateOrConfigs: RuntimeState | StrategyConfigMap,
+    private birdeye?: Pick<BirdeyeService, "getTradeData">,
   ) {
     this.runtimeState = isRuntimeState(runtimeStateOrConfigs)
       ? runtimeStateOrConfigs
@@ -61,6 +64,7 @@ export class ExitMonitor {
 
   stopAll(): void {
     this.monitoredIds.clear();
+    this.fadeTradeDataCache.clear();
     if (this.batchHandle) {
       clearInterval(this.batchHandle);
       this.batchHandle = undefined;
@@ -86,18 +90,23 @@ export class ExitMonitor {
       purpose: "EXIT_MONITOR" as const,
       essential: true,
     };
-    const [prices, solPrice, tradeDataMap] = await Promise.all([
-      this.birdeye.getMultiPrice(addresses, { ...exitMeta, batchSize: addresses.length }),
+    const [prices, solPrice] = await Promise.all([
+      this.marketRouter.refreshExitContext(addresses, exitMeta),
       this.jupiter.getSolPriceUsd(),
-      this.fetchTradeDataBatch(positions),
     ]);
 
     const exitPromises: Promise<void>[] = [];
+    const fadeCandidates: Array<{
+      position: PositionState;
+      pnlPercent: number;
+      dropFromPeak: number;
+      slippage: number;
+    }> = [];
 
     for (const pos of positions) {
       const priceData = prices.get(pos.tokenAddress);
-      const currentPriceUsd = priceData?.value;
-      if (!currentPriceUsd) continue;
+      const currentPriceUsd = priceData?.priceUsd;
+      if (currentPriceUsd == null) continue;
 
       const currentPriceSol = solPrice ? currentPriceUsd / solPrice : pos.currentPriceSol;
       const pnlPercent = new Decimal(currentPriceUsd).sub(pos.entryPriceUsd).div(pos.entryPriceUsd).mul(100).toNumber();
@@ -126,7 +135,25 @@ export class ExitMonitor {
         continue;
       }
 
-      exitPromises.push(this.checkFadeAndScaledExits(pos, pnlPercent, dropFromPeak, slippage, tradeDataMap.get(pos.tokenAddress)));
+      fadeCandidates.push({
+        position: pos,
+        pnlPercent,
+        dropFromPeak,
+        slippage,
+      });
+    }
+
+    const tradeDataMap = await this.fetchTradeDataBatch(fadeCandidates.map((item) => item.position));
+    for (const candidate of fadeCandidates) {
+      exitPromises.push(
+        this.checkFadeAndScaledExits(
+          candidate.position,
+          candidate.pnlPercent,
+          candidate.dropFromPeak,
+          candidate.slippage,
+          tradeDataMap.get(candidate.position.tokenAddress),
+        ),
+      );
     }
 
     const results = await Promise.allSettled(exitPromises);
@@ -138,19 +165,50 @@ export class ExitMonitor {
   }
 
   private async fetchTradeDataBatch(positions: PositionState[]): Promise<Map<string, TradeData>> {
-    const needsData = positions.filter((p) => p.strategy === "S3_MOMENTUM" && p.entryVolume5m && p.entryVolume5m > 0);
+    if (!this.birdeye) return new Map();
+
+    const needsData = positions
+      .filter((p) => p.strategy === "S3_MOMENTUM" && p.entryVolume5m && p.entryVolume5m > 0)
+      .filter((p, index, all) => all.findIndex((candidate) => candidate.tokenAddress === p.tokenAddress) === index);
     if (needsData.length === 0) return new Map();
-    const fetched = await Promise.all(needsData.map((p) => this.birdeye.getTradeData(p.tokenAddress, {
+
+    const now = Date.now();
+    const map = new Map<string, TradeData>();
+    const toFetch: PositionState[] = [];
+
+    for (const position of needsData) {
+      const cached = this.fadeTradeDataCache.get(position.tokenAddress);
+      if (cached && cached.nextRefreshAt > now) {
+        if (cached.data) {
+          map.set(position.tokenAddress, cached.data);
+        }
+        continue;
+      }
+
+      toFetch.push(position);
+    }
+
+    if (toFetch.length === 0) return map;
+
+    const fetched = await Promise.all(toFetch.map((p) => this.birdeye!.getTradeData(p.tokenAddress, {
       strategy: p.strategy,
       mode: p.mode,
       configProfile: p.configProfile,
       purpose: "EXIT_MONITOR",
       essential: true,
     })));
-    const map = new Map<string, TradeData>();
-    needsData.forEach((p, i) => {
-      if (fetched[i]) map.set(p.tokenAddress, fetched[i]!);
+
+    toFetch.forEach((p, i) => {
+      const tradeData = fetched[i] ?? null;
+      this.fadeTradeDataCache.set(p.tokenAddress, {
+        data: tradeData,
+        nextRefreshAt: now + config.exitMonitor.tradeDataSlowPathRefreshMs,
+      });
+      if (tradeData) {
+        map.set(p.tokenAddress, tradeData);
+      }
     });
+
     return map;
   }
 

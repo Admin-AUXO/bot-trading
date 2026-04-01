@@ -29,7 +29,7 @@ Use this skill for non-specialist dashboard changes.
 
 ## Preferred Tools
 - `filesystem` for local code inspection.
-- `serena` for component, hook, and symbol navigation.
+- `serena` for component, hook, and symbol navigation in the Codex-managed project session; use the CLI only for explicit `project index` or `project health-check` refreshes.
 - `chrome_devtools` for console, network, and rendering checks.
 - `browsermcp` for interaction-heavy flows.
 - `context7` for framework-specific behavior.

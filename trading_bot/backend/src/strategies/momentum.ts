@@ -10,11 +10,41 @@ import type { ITradeExecutor } from "../utils/trade-executor-interface.js";
 import type { ExitMonitor } from "../core/exit-monitor.js";
 import type { RegimeDetector } from "../core/regime-detector.js";
 import type { BirdeyeService } from "../services/birdeye.js";
-import type { ApiCallPurpose, ExecutionScope, SignalResult, TokenOverview, JsonValue } from "../utils/types.js";
+import type { MarketRouter } from "../services/market-router.js";
+import type {
+  ApiCallPurpose,
+  ExecutionScope,
+  JsonValue,
+  PrefilterResult,
+  SeedCandidate,
+  SignalResult,
+  TokenOverview,
+  TradeData,
+} from "../utils/types.js";
 
 const log = createChildLogger("s3-momentum");
 const DEFAULT_SCOPE: ExecutionScope = { mode: config.tradeMode, configProfile: "default" };
 type S3RuntimeConfig = RuntimeState["strategyConfigs"]["S3_MOMENTUM"];
+type SeedRouter = Pick<MarketRouter, "getMomentumSeeds" | "prefilterCandidates">;
+
+interface MomentumCandidate {
+  address: string;
+  symbol: string;
+  name: string;
+  source: string;
+  seedPriceUsd: number;
+  seedLiquidityUsd: number;
+  seedMarketCap: number;
+  prefilterPriceUsd?: number;
+  prefilterLiquidityUsd?: number;
+  pairAddress?: string;
+  pairCreatedAt?: number;
+}
+
+interface MomentumFilterResult extends SignalResult {
+  overview: TokenOverview | null;
+  tradeData: TradeData | null;
+}
 
 export class MomentumStrategy extends EventEmitter {
   private scanInterval?: ReturnType<typeof setInterval>;
@@ -31,6 +61,7 @@ export class MomentumStrategy extends EventEmitter {
     private tradeExecutor: ITradeExecutor,
     private exitMonitor: ExitMonitor,
     private regimeDetector: RegimeDetector,
+    private marketRouter: SeedRouter,
     private birdeye: BirdeyeService,
     options?: {
       runtimeState?: RuntimeState;
@@ -71,40 +102,51 @@ export class MomentumStrategy extends EventEmitter {
     if (this.scanInFlight) return;
     this.scanInFlight = true;
     try {
-    const regime = this.regimeDetector.getRegime();
-    if (regime === "RISK_OFF") return;
+      const regime = this.regimeDetector.getRegime();
+      if (regime === "RISK_OFF") return;
 
-    const candidates = await this.birdeye.getTokenList({
-      sortBy: "volume_5m_change_percent",
-      minVolume5m: this.cfg.minVolume5m,
-      minLiquidity: this.cfg.minLiquidity,
-      maxMarketCap: this.cfg.maxMarketCap,
-      minHolder: this.cfg.minHolders,
-      limit: this.cfg.maxCandidatesPerScan,
-    }, this.apiMeta("ENTRY_SCAN", false, this.cfg.maxCandidatesPerScan));
+      const seeds = await this.marketRouter.getMomentumSeeds({
+        limit: this.cfg.maxCandidatesPerScan * 2,
+      });
+      if (seeds.length === 0) return;
 
-    if (candidates.length === 0) return;
+      const availableSeeds = seeds.filter((seed) =>
+        !this.processingTokens.has(seed.address) && !this.positionTracker.holdsToken(seed.address, this.scope),
+      );
+      if (availableSeeds.length === 0) return;
 
-    const toProcess = candidates.filter((c) =>
-      !this.processingTokens.has(c.address) && !this.positionTracker.holdsToken(c.address, this.scope),
-    );
+      const prefilter = await this.marketRouter.prefilterCandidates(availableSeeds.map((seed) => seed.address));
+      const toProcess = availableSeeds
+        .map((seed) => this.buildCandidate(seed, prefilter.get(seed.address)))
+        .filter((candidate): candidate is MomentumCandidate => candidate !== null)
+        .slice(0, this.cfg.maxCandidatesPerScan);
+      if (toProcess.length === 0) return;
 
-    for (const c of toProcess) this.processingTokens.add(c.address);
+      for (const candidate of toProcess) this.processingTokens.add(candidate.address);
 
-    await Promise.allSettled(
-      toProcess.map((candidate) =>
-        this.evaluateCandidate(candidate).finally(() => {
-          this.processingTokens.delete(candidate.address);
-        }),
-      ),
-    );
+      await Promise.allSettled(
+        toProcess.map((candidate) =>
+          this.evaluateCandidate(candidate).finally(() => {
+            this.processingTokens.delete(candidate.address);
+          }),
+        ),
+      );
     } finally {
       this.scanInFlight = false;
     }
   }
 
-  private async evaluateCandidate(candidate: TokenOverview): Promise<void> {
+  private async evaluateCandidate(candidate: MomentumCandidate): Promise<void> {
     const signal = await this.runFilters(candidate);
+    const overview = signal.overview;
+    const tradeData = signal.tradeData;
+    const signalPrice = overview?.price ?? candidate.prefilterPriceUsd ?? candidate.seedPriceUsd ?? null;
+    const signalLiquidity = overview?.liquidity ?? candidate.prefilterLiquidityUsd ?? candidate.seedLiquidityUsd ?? null;
+    const signalMarketCap = overview?.marketCap ?? candidate.seedMarketCap ?? null;
+    const signalVolume5m = overview?.volume5m ?? tradeData?.volume5m ?? null;
+    const signalBuyPressure = tradeData && tradeData.volume5m > 0
+      ? (tradeData.volumeBuy5m / tradeData.volume5m) * 100
+      : overview?.buyPercent ?? null;
 
     await db.signal.create({
       data: {
@@ -114,20 +156,21 @@ export class MomentumStrategy extends EventEmitter {
         tokenAddress: candidate.address,
         tokenSymbol: candidate.symbol,
         signalType: "momentum_scan",
-        source: "v3/token/list",
+        source: candidate.source,
         passed: signal.passed,
         rejectReason: signal.rejectReason ?? null,
         filterResults: signal.filterResults,
         regime: this.regimeDetector.getRegime(),
-        tokenLiquidity: candidate.liquidity,
-        tokenMcap: candidate.marketCap,
-        tokenVolume5m: candidate.volume5m,
-        buyPressure: candidate.buyPercent,
-        priceAtSignal: candidate.price,
+        tokenLiquidity: signalLiquidity,
+        tokenMcap: signalMarketCap,
+        tokenVolume5m: signalVolume5m,
+        buyPressure: signalBuyPressure,
+        priceAtSignal: signalPrice,
       },
     });
 
     if (!signal.passed) return;
+    if (!overview || !tradeData) return;
 
     const check = this.riskManager.canOpenPosition("S3_MOMENTUM");
     if (!check.allowed) return;
@@ -143,12 +186,12 @@ export class MomentumStrategy extends EventEmitter {
       maxSlippageBps: this.cfg.maxSlippageBps,
       regime: this.regimeDetector.getRegime(),
       trancheNumber: 1,
-      entryVolume5m: candidate.volume5m,
-      entryLiquidity: candidate.liquidity,
-      entryMcap: candidate.marketCap,
-      entryHolders: candidate.holder,
-      entryVolume1h: candidate.volume1h,
-      entryBuyPressure: candidate.buyPercent,
+      entryVolume5m: overview.volume5m,
+      entryLiquidity: overview.liquidity,
+      entryMcap: overview.marketCap,
+      entryHolders: overview.holder,
+      entryVolume1h: overview.volume1h,
+      entryBuyPressure: signalBuyPressure ?? 0,
     });
 
     if (!result.success) return;
@@ -246,22 +289,90 @@ export class MomentumStrategy extends EventEmitter {
     });
   }
 
-  private async runFilters(candidate: TokenOverview): Promise<SignalResult> {
+  private async runFilters(candidate: MomentumCandidate): Promise<MomentumFilterResult> {
     const filters: Record<string, JsonValue> = {
-      volume5m: candidate.volume5m,
-      liquidity: candidate.liquidity,
-      marketCap: candidate.marketCap,
-      holders: candidate.holder,
+      seedSource: candidate.source,
+      seedPriceUsd: candidate.seedPriceUsd,
+      seedLiquidityUsd: candidate.seedLiquidityUsd,
+      seedMarketCap: candidate.seedMarketCap,
+      prefilterLiquidityUsd: candidate.prefilterLiquidityUsd ?? null,
+      prefilterPriceUsd: candidate.prefilterPriceUsd ?? null,
+      pairAddress: candidate.pairAddress ?? null,
+      pairCreatedAt: candidate.pairCreatedAt ?? null,
     };
 
-    const [tradeData, security, holders] = await Promise.all([
+    const [overview, tradeData, security, holders] = await Promise.all([
+      this.birdeye.getTokenOverview(candidate.address, this.apiMeta("ENTRY_SCAN")),
       this.birdeye.getTradeData(candidate.address, this.apiMeta("ENTRY_SCAN")),
       this.birdeye.getTokenSecurity(candidate.address, this.apiMeta("ENTRY_SCAN")),
       this.birdeye.getTokenHolders(candidate.address, 1, this.apiMeta("ENTRY_SCAN", false, 1)),
     ]);
 
+    if (!overview) {
+      return {
+        passed: false,
+        tokenAddress: candidate.address,
+        tokenSymbol: candidate.symbol,
+        rejectReason: "no overview data",
+        filterResults: filters,
+        overview: null,
+        tradeData,
+      };
+    }
+
+    filters.volume5m = overview.volume5m;
+    filters.volume1h = overview.volume1h;
+    filters.liquidity = overview.liquidity;
+    filters.marketCap = overview.marketCap;
+    filters.holders = overview.holder;
+    filters.priceChange1h = overview.priceChange1h;
+
+    if (overview.liquidity < this.cfg.minLiquidity) {
+      return {
+        passed: false,
+        tokenAddress: candidate.address,
+        tokenSymbol: candidate.symbol,
+        rejectReason: `liquidity ${overview.liquidity} < ${this.cfg.minLiquidity}`,
+        filterResults: filters,
+        overview,
+        tradeData,
+      };
+    }
+
+    if (overview.marketCap > this.cfg.maxMarketCap) {
+      return {
+        passed: false,
+        tokenAddress: candidate.address,
+        tokenSymbol: candidate.symbol,
+        rejectReason: `mcap ${overview.marketCap} > ${this.cfg.maxMarketCap}`,
+        filterResults: filters,
+        overview,
+        tradeData,
+      };
+    }
+
+    if (overview.holder < this.cfg.minHolders) {
+      return {
+        passed: false,
+        tokenAddress: candidate.address,
+        tokenSymbol: candidate.symbol,
+        rejectReason: `holders ${overview.holder} < ${this.cfg.minHolders}`,
+        filterResults: filters,
+        overview,
+        tradeData,
+      };
+    }
+
     if (!tradeData) {
-      return { passed: false, tokenAddress: candidate.address, tokenSymbol: candidate.symbol, rejectReason: "no trade data", filterResults: filters };
+      return {
+        passed: false,
+        tokenAddress: candidate.address,
+        tokenSymbol: candidate.symbol,
+        rejectReason: "no trade data",
+        filterResults: filters,
+        overview,
+        tradeData: null,
+      };
     }
 
     filters.volumeHistory5m = tradeData.volumeHistory5m;
@@ -274,23 +385,55 @@ export class MomentumStrategy extends EventEmitter {
     filters.volumeSpike = volumeSpike;
 
     if (volumeSpike < this.cfg.volumeSpikeMultiplier) {
-      return { passed: false, tokenAddress: candidate.address, tokenSymbol: candidate.symbol, rejectReason: `volume spike ${volumeSpike.toFixed(1)}x < ${this.cfg.volumeSpikeMultiplier}x`, filterResults: filters };
+      return {
+        passed: false,
+        tokenAddress: candidate.address,
+        tokenSymbol: candidate.symbol,
+        rejectReason: `volume spike ${volumeSpike.toFixed(1)}x < ${this.cfg.volumeSpikeMultiplier}x`,
+        filterResults: filters,
+        overview,
+        tradeData,
+      };
     }
 
     if ((filters.buyPercent as number) < this.cfg.minBuyPressure) {
-      return { passed: false, tokenAddress: candidate.address, tokenSymbol: candidate.symbol, rejectReason: `buy pressure ${(filters.buyPercent as number).toFixed(0)}% < ${this.cfg.minBuyPressure}%`, filterResults: filters };
+      return {
+        passed: false,
+        tokenAddress: candidate.address,
+        tokenSymbol: candidate.symbol,
+        rejectReason: `buy pressure ${(filters.buyPercent as number).toFixed(0)}% < ${this.cfg.minBuyPressure}%`,
+        filterResults: filters,
+        overview,
+        tradeData,
+      };
     }
 
     if (tradeData.volume5m > 0) {
       const washRatio = tradeData.uniqueWallet5m / (tradeData.volume5m / 1000);
       filters.washRatio = washRatio;
       if (washRatio < this.cfg.washTradingThreshold) {
-        return { passed: false, tokenAddress: candidate.address, tokenSymbol: candidate.symbol, rejectReason: "wash trading detected", filterResults: filters };
+        return {
+          passed: false,
+          tokenAddress: candidate.address,
+          tokenSymbol: candidate.symbol,
+          rejectReason: "wash trading detected",
+          filterResults: filters,
+          overview,
+          tradeData,
+        };
       }
     }
 
-    if (candidate.priceChange1h > this.cfg.alreadyPumpedPercent) {
-      return { passed: false, tokenAddress: candidate.address, tokenSymbol: candidate.symbol, rejectReason: `already pumped ${candidate.priceChange1h.toFixed(0)}%`, filterResults: filters };
+    if (overview.priceChange1h > this.cfg.alreadyPumpedPercent) {
+      return {
+        passed: false,
+        tokenAddress: candidate.address,
+        tokenSymbol: candidate.symbol,
+        rejectReason: `already pumped ${overview.priceChange1h.toFixed(0)}%`,
+        filterResults: filters,
+        overview,
+        tradeData,
+      };
     }
 
     const securityCheck = runSecurityChecks(security, holders, {
@@ -299,10 +442,43 @@ export class MomentumStrategy extends EventEmitter {
     });
     Object.assign(filters, securityCheck.filterResults);
     if (!securityCheck.pass) {
-      return { passed: false, tokenAddress: candidate.address, tokenSymbol: candidate.symbol, rejectReason: securityCheck.reason, filterResults: filters };
+      return {
+        passed: false,
+        tokenAddress: candidate.address,
+        tokenSymbol: candidate.symbol,
+        rejectReason: securityCheck.reason,
+        filterResults: filters,
+        overview,
+        tradeData,
+      };
     }
 
-    return { passed: true, tokenAddress: candidate.address, tokenSymbol: candidate.symbol, filterResults: filters };
+    return {
+      passed: true,
+      tokenAddress: candidate.address,
+      tokenSymbol: candidate.symbol,
+      filterResults: filters,
+      overview,
+      tradeData,
+    };
+  }
+
+  private buildCandidate(seed: SeedCandidate, prefilter: PrefilterResult | undefined): MomentumCandidate | null {
+    if (!prefilter?.passed) return null;
+
+    return {
+      address: seed.address,
+      symbol: seed.symbol,
+      name: seed.name,
+      source: seed.source,
+      seedPriceUsd: seed.priceUsd,
+      seedLiquidityUsd: seed.liquidityUsd,
+      seedMarketCap: seed.marketCap,
+      prefilterPriceUsd: prefilter.priceUsd,
+      prefilterLiquidityUsd: prefilter.liquidityUsd,
+      pairAddress: prefilter.pairAddress,
+      pairCreatedAt: prefilter.pairCreatedAt,
+    };
   }
 
   private apiMeta(purpose: ApiCallPurpose, essential = false, batchSize?: number) {

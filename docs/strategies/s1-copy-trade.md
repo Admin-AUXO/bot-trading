@@ -12,12 +12,13 @@ Source file: `trading_bot/backend/src/strategies/copy-trade.ts`
 
 1. Ensure elite wallets exist; trigger scoring/bootstrap if they do not.
 2. Receive wallet activity from Helius.
-3. Record wallet activity for analytics.
-4. Fetch token context through Birdeye.
-5. Reject on regime, duplicate exposure, or risk-manager blockers.
-6. Reject on token-quality filters.
-7. Size via `riskManager.getPositionSize("S1_COPY")`.
-8. Execute buy and start exit monitoring.
+3. Record wallet activity for analytics with router-backed price capture.
+4. Run DEX Screener sanity before any paid Birdeye score.
+5. Fetch final token context through Birdeye.
+6. Reject on regime, duplicate exposure, or risk-manager blockers.
+7. Reject on token-quality filters.
+8. Size via `riskManager.getPositionSize("S1_COPY")`.
+9. Execute buy and start exit monitoring.
 
 ## Main Filters
 
@@ -37,7 +38,11 @@ Source file: `trading_bot/backend/src/strategies/copy-trade.ts`
 - duplicate signatures and already-held tokens are skipped
 - wallet-scoring is quota-degradable and can be skipped when Helius non-essential budget is stressed
 - `CHOPPY` hard-pauses S1 even when other strategies can still trade
+- wallet-activity price capture now goes through `MarketRouter.refreshExitContext()`, so S1 analytics no longer call Birdeye `multi_price` for every copied buy
+- DEX Screener prefilter is a cheap trash filter, not a replacement for Birdeye security, holder, or wash-trading checks
 - missing Birdeye trade data weakens the wash-trading check instead of hard-rejecting the token
+- open-position exit pricing now comes from `MarketRouter.refreshExitContext()` on the `5s` loop, so S1 exits no longer depend on Birdeye `multi_price`
+- daily wallet scoring still pays for Birdeye top-trader discovery and Helius archival history; those costs are unchanged by the entry-path refactor
 
 ## Exit Shape
 
@@ -50,5 +55,8 @@ Source file: `trading_bot/backend/src/strategies/copy-trade.ts`
 ## Files Worth Reading Before Changes
 
 - `trading_bot/backend/src/services/helius.ts`
+- `trading_bot/backend/src/services/dexscreener.ts`
 - `trading_bot/backend/src/services/birdeye.ts`
+- `trading_bot/backend/src/services/market-router.ts`
+- `trading_bot/backend/src/core/exit-monitor.ts`
 - `trading_bot/backend/src/core/risk-manager.ts`

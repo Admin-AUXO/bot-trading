@@ -2,7 +2,7 @@ import { db } from "../db/client.js";
 import { config } from "../config/index.js";
 import { createChildLogger } from "../utils/logger.js";
 import type { ApiBudgetManager } from "../core/api-budget-manager.js";
-import type { BirdeyeService } from "./birdeye.js";
+import type { MarketRouter } from "./market-router.js";
 
 const log = createChildLogger("outcome-tracker");
 
@@ -31,7 +31,7 @@ export class OutcomeTracker {
   private wouldHaveWonInFlight = false;
 
   constructor(
-    private birdeye: BirdeyeService,
+    private marketRouter: Pick<MarketRouter, "refreshExitContext">,
     private budgetManager?: ApiBudgetManager,
   ) {}
 
@@ -48,7 +48,6 @@ export class OutcomeTracker {
     if (this.backfillInFlight) return;
     this.backfillInFlight = true;
     try {
-      if (this.budgetManager && !this.budgetManager.shouldRunNonEssential("BIRDEYE")) return;
       await Promise.allSettled([
         this.backfillSignals(),
         this.backfillPositions(),
@@ -62,12 +61,26 @@ export class OutcomeTracker {
     }
   }
 
+  private async getBackfillPrices(addresses: string[]): Promise<Map<string, number>> {
+    const unique = [...new Set(addresses.filter(Boolean))];
+    if (unique.length === 0) return new Map();
+
+    const refresh = await this.marketRouter.refreshExitContext(unique);
+    const prices = new Map<string, number>();
+    for (const [tokenAddress, value] of refresh) {
+      if (value.priceUsd !== null) {
+        prices.set(tokenAddress, value.priceUsd);
+      }
+    }
+    return prices;
+  }
+
   private async backfillSignals(): Promise<void> {
     const pending = await this.findPendingSignals();
     if (pending.length === 0) return;
 
     const addresses = [...new Set(pending.map((p) => p.tokenAddress))];
-    const prices = await this.birdeye.getMultiPrice(addresses, { purpose: "BACKFILL", essential: false, batchSize: addresses.length });
+    const prices = await this.getBackfillPrices(addresses);
 
     const updates = [];
     for (const item of pending) {
@@ -78,11 +91,11 @@ export class OutcomeTracker {
       const update: Record<string, unknown> = {};
 
       if (elapsed >= 5 && item.field === "priceAfter5m") {
-        update.priceAfter5m = price.value;
+        update.priceAfter5m = price;
       } else if (elapsed >= 15 && item.field === "priceAfter15m") {
-        update.priceAfter15m = price.value;
+        update.priceAfter15m = price;
       } else if (elapsed >= 60 && item.field === "priceAfter1h") {
-        update.priceAfter1h = price.value;
+        update.priceAfter1h = price;
       }
 
       if (Object.keys(update).length > 0) {
@@ -146,11 +159,11 @@ export class OutcomeTracker {
     if (need1h.length === 0) return;
 
     const addresses = [...new Set(need1h.map((p) => p.tokenAddress))];
-    const prices = await this.birdeye.getMultiPrice(addresses, { purpose: "BACKFILL", essential: false, batchSize: addresses.length });
+    const prices = await this.getBackfillPrices(addresses);
 
     const updates = need1h
       .filter((pos) => prices.get(pos.tokenAddress))
-      .map((pos) => db.position.update({ where: { id: pos.id }, data: { priceAfter1h: prices.get(pos.tokenAddress)!.value } }));
+      .map((pos) => db.position.update({ where: { id: pos.id }, data: { priceAfter1h: prices.get(pos.tokenAddress)! } }));
 
     if (updates.length > 0) await db.$transaction(updates);
   }
@@ -178,13 +191,13 @@ export class OutcomeTracker {
       if (pending.length === 0) continue;
 
       const addresses = [...new Set(pending.map((p: { tokenAddress: string }) => p.tokenAddress))];
-      const prices = await this.birdeye.getMultiPrice(addresses, { purpose: "BACKFILL", essential: false, batchSize: addresses.length });
+      const prices = await this.getBackfillPrices(addresses);
 
       const updates = pending
         .filter((item) => prices.get(item.tokenAddress))
         .map((item) => db.walletActivity.update({
           where: { id: item.id },
-          data: { [delay.field]: prices.get(item.tokenAddress)!.value },
+          data: { [delay.field]: prices.get(item.tokenAddress)! },
         }));
 
       if (updates.length > 0) await db.$transaction(updates);
@@ -214,16 +227,16 @@ export class OutcomeTracker {
       if (pending.length === 0) continue;
 
       const addresses = [...new Set(pending.map((p: { tokenAddress: string }) => p.tokenAddress))];
-      const prices = await this.birdeye.getMultiPrice(addresses, { purpose: "BACKFILL", essential: false, batchSize: addresses.length });
+      const prices = await this.getBackfillPrices(addresses);
 
       const updates = [];
       for (const item of pending) {
         const price = prices.get(item.tokenAddress);
         if (!price) continue;
 
-        const update: Record<string, unknown> = { [delay.field]: price.value };
+        const update: Record<string, unknown> = { [delay.field]: price };
 
-        if (delay.field === "priceAfter1h" && item.priceAtGrad && price.value < Number(item.priceAtGrad) * config.outcomeTracker.rugThreshold) {
+        if (delay.field === "priceAfter1h" && item.priceAtGrad && price < Number(item.priceAtGrad) * config.outcomeTracker.rugThreshold) {
           update.rugDetected = true;
           update.rugTimeMinutes = Math.round((now.getTime() - item.graduatedAt.getTime()) / 60_000);
         }

@@ -30,6 +30,7 @@ Trace the full data path from query or input through transform and state to rend
 Keep query keys, request params, and backend filters aligned; if the cache key changes with `days`, `mode`, `configProfile`, or `tradeSource`, the request should too.
 Centralize control-plane auth in the proxy and put page-level search-param client hooks behind Suspense-safe boundaries.
 Focus on broken metrics, filters, loading or error states, charts, and visible behavior before polish.
+In Codex, Serena is already attached to the active project; use its tools directly and only run `project index` or `project health-check` when intentionally refreshing repo metadata after repo-shape changes.
 Use browser tools when interaction, hydration, console health, or rendering verification matters.
 If dashboard behavior or scope labeling changes, update the matching docs in the same pass.
 Escalate to the dashboard_ui_ux_expert only when the task is primarily visual polish or interaction design.

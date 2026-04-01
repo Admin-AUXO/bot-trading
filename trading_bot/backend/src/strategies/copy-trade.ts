@@ -11,6 +11,7 @@ import type { ExitMonitor } from "../core/exit-monitor.js";
 import type { RegimeDetector } from "../core/regime-detector.js";
 import type { HeliusService } from "../services/helius.js";
 import type { BirdeyeService } from "../services/birdeye.js";
+import type { MarketRouter } from "../services/market-router.js";
 import type { ApiCallPurpose, ExecutionScope, SignalResult, JsonValue } from "../utils/types.js";
 
 const log = createChildLogger("s1-copy");
@@ -54,6 +55,7 @@ export class CopyTradeStrategy extends EventEmitter {
     private exitMonitor: ExitMonitor,
     private regimeDetector: RegimeDetector,
     private helius: HeliusService,
+    private marketRouter: Pick<MarketRouter, "prefilterCandidates" | "refreshExitContext">,
     private birdeye: BirdeyeService,
     options?: {
       runtimeState?: RuntimeState;
@@ -200,8 +202,8 @@ export class CopyTradeStrategy extends EventEmitter {
       if (txSignature) {
         const existing = await db.walletActivity.findUnique({ where: { txSignature } });
         if (!existing) {
-          const priceUsd = await this.birdeye.getMultiPrice([tokenAddress], this.apiMeta("ENTRY_SCAN"));
-          const price = priceUsd.get(tokenAddress);
+          const refresh = await this.marketRouter.refreshExitContext([tokenAddress], this.apiMeta("ENTRY_SCAN"));
+          const price = refresh.get(tokenAddress);
 
           await db.walletActivity.create({
             data: {
@@ -211,7 +213,7 @@ export class CopyTradeStrategy extends EventEmitter {
               side: "BUY",
               amountSol,
               amountToken,
-              priceAtTrade: price?.value ?? null,
+              priceAtTrade: price?.priceUsd ?? null,
               txSignature,
               walletArchetype: walletScore?.archetype ?? null,
               isElite: !!walletScore?.isElite,
@@ -312,6 +314,33 @@ export class CopyTradeStrategy extends EventEmitter {
 
   private async runFilters(tokenAddress: string): Promise<SignalResult> {
     const filters: Record<string, JsonValue> = {};
+    const prefilter = await this.marketRouter.prefilterCandidates([tokenAddress]);
+    const prefilterResult = prefilter.get(tokenAddress);
+
+    filters.prefilterSource = prefilterResult?.source ?? "DEX_SCREENER";
+    filters.prefilterLiquidityUsd = prefilterResult?.liquidityUsd ?? null;
+    filters.prefilterPriceUsd = prefilterResult?.priceUsd ?? null;
+    filters.prefilterReason = prefilterResult?.reason ?? null;
+
+    if (!prefilterResult?.passed) {
+      return {
+        passed: false,
+        tokenAddress,
+        tokenSymbol: "",
+        rejectReason: prefilterResult?.reason ?? "no DEX Screener market data",
+        filterResults: filters,
+      };
+    }
+
+    if ((prefilterResult.liquidityUsd ?? 0) > 0 && (prefilterResult.liquidityUsd ?? 0) < this.cfg.minLiquidity) {
+      return {
+        passed: false,
+        tokenAddress,
+        tokenSymbol: "",
+        rejectReason: `liquidity ${prefilterResult.liquidityUsd} < ${this.cfg.minLiquidity}`,
+        filterResults: filters,
+      };
+    }
 
     const [overview, security, holders, tradeData] = await Promise.all([
       this.birdeye.getTokenOverview(tokenAddress, this.apiMeta("ENTRY_SCAN")),

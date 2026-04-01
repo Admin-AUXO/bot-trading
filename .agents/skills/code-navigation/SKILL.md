@@ -15,7 +15,7 @@ Use this skill to explore the repo before proposing changes.
 - Follow auth boundaries, proxy rewrites, query-param flow, and worker bootstrap paths end to end when those are part of the failure mode.
 
 ## Preferred Tools
-- `serena` for semantic symbol lookup and code relationships.
+- `serena` for semantic symbol lookup and code relationships; in Codex, use the attached Serena session and reserve the CLI for explicit `project index` or `project health-check` refreshes.
 - `filesystem` for targeted file reads and directory scans.
 - `context7` only when framework behavior needs confirmation.
 - `memory` to preserve stable repo relationships for later tasks.

@@ -15,7 +15,9 @@ import { terminateStatsWorker } from "../core/stats-aggregator.js";
 import { ApiBudgetManager } from "../core/api-budget-manager.js";
 import { HeliusService } from "../services/helius.js";
 import { BirdeyeService } from "../services/birdeye.js";
+import { DexScreenerService } from "../services/dexscreener.js";
 import { JupiterService } from "../services/jupiter.js";
+import { MarketRouter } from "../services/market-router.js";
 import { OutcomeTracker } from "../services/outcome-tracker.js";
 import { MarketTickRecorder } from "../services/market-tick-recorder.js";
 import { CopyTradeStrategy } from "../strategies/copy-trade.js";
@@ -50,22 +52,24 @@ export async function startTradingBot(): Promise<void> {
 
   const helius = new HeliusService(apiBudgetManager);
   const birdeye = new BirdeyeService(apiBudgetManager);
+  const dexscreener = new DexScreenerService();
+  const marketRouter = new MarketRouter({ jupiter, dexscreener, birdeye });
 
   const executor: ITradeExecutor = isLive
     ? new TradeExecutor(positionTracker, riskManager, jupiter, helius, runtimeState)
     : new DryRunExecutor(positionTracker, riskManager, jupiter, runtimeState);
 
-  const exitMonitor = new ExitMonitor(positionTracker, executor, jupiter, birdeye, runtimeState);
-  const outcomeTracker = new OutcomeTracker(birdeye, apiBudgetManager);
-  const marketTickRecorder = new MarketTickRecorder(jupiter, birdeye, regimeDetector, apiBudgetManager);
+  const exitMonitor = new ExitMonitor(positionTracker, executor, jupiter, marketRouter, runtimeState, birdeye);
+  const outcomeTracker = new OutcomeTracker(marketRouter, apiBudgetManager);
+  const marketTickRecorder = new MarketTickRecorder(jupiter, marketRouter, regimeDetector, apiBudgetManager);
 
-  const s1 = new CopyTradeStrategy(riskManager, positionTracker, executor, exitMonitor, regimeDetector, helius, birdeye, {
+  const s1 = new CopyTradeStrategy(riskManager, positionTracker, executor, exitMonitor, regimeDetector, helius, marketRouter, birdeye, {
     runtimeState,
   });
-  const s2 = new GraduationStrategy(riskManager, positionTracker, executor, exitMonitor, regimeDetector, helius, birdeye, {
+  const s2 = new GraduationStrategy(riskManager, positionTracker, executor, exitMonitor, regimeDetector, helius, marketRouter, birdeye, {
     runtimeState,
   });
-  const s3 = new MomentumStrategy(riskManager, positionTracker, executor, exitMonitor, regimeDetector, birdeye, {
+  const s3 = new MomentumStrategy(riskManager, positionTracker, executor, exitMonitor, regimeDetector, marketRouter, birdeye, {
     runtimeState,
   });
 
@@ -173,6 +177,7 @@ export async function startTradingBot(): Promise<void> {
   const intervals = registerRuntimeIntervals({
     birdeye,
     jupiter,
+    marketRouter,
     outcomeTracker,
     regimeDetector,
     riskManager,

@@ -67,6 +67,9 @@ For domain-heavy work, check `.codex/agents/`.
 Configured repo MCPs live in `.codex/config.toml`. Preferred pairings:
 
 - Code tracing: `filesystem` + `serena`
+- Serena uses the official Codex launch mode: Codex starts it via `uvx --from git+https://github.com/oraios/serena serena start-mcp-server --context codex --project-from-cwd`.
+- In Codex, use the attached Serena MCP tools directly; do not start a second Serena server from inside a task unless you are intentionally repairing local tooling outside the normal Codex flow.
+- After major repo-shape changes, or edits under `.codex/agents/`, `.agents/skills/`, or `.serena/`, refresh Serena from the repo root with `uvx --from git+https://github.com/oraios/serena serena project index .` and validate with `uvx --from git+https://github.com/oraios/serena serena project health-check .`.
 - Docs and setup verification: `filesystem` + `desktop_commander`
 - DB and Prisma safety: `postgres` + `filesystem`
 - Dashboard verification: `chrome_devtools` or `browsermcp`

@@ -18,14 +18,15 @@ All three strategies eventually go through the same sequence:
 - Position sizing comes from `RiskManager`, not raw config constants
 - Existing holdings, open-position limits, gas reserve, loss limits, and pause reasons block entries
 - Provider traffic must flow through shared services so quota accounting stays intact
+- Discovery and cheap prefilter data should converge through `trading_bot/backend/src/services/market-router.ts` instead of scattering raw provider fetches across strategies
 - `DRY_RUN` and `LIVE` use the same strategy logic; only the executor changes
 - Partial exits are fractions of remaining token balance, not fractions of the original position size
 
 ## Strategy Roles
 
-- `S1_COPY`: reacts to elite-wallet buys from Helius websocket activity
-- `S2_GRADUATION`: scans near-graduation and fresh-graduation candidates, then enters after a delay
-- `S3_MOMENTUM`: scans for short-term momentum and can stage a second tranche only if follow-through holds
+- `S1_COPY`: reacts to elite-wallet buys from Helius websocket activity, then runs cheap router sanity before Birdeye scoring
+- `S2_GRADUATION`: scans Jupiter recent seeds plus DEX prefilter, uses Birdeye catch-up for missed graduations, then enters after a delay
+- `S3_MOMENTUM`: scans routed Jupiter momentum feeds with DEX prefilter and can stage a second tranche only if follow-through holds
 
 ## Shared Capital And Regime Constraints
 

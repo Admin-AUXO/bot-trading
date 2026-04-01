@@ -27,7 +27,7 @@ Use this skill for schema, SQL, or data-access work.
 ## Preferred Tools
 - `postgres` for schema inspection and read-only queries when configured.
 - `filesystem` for Prisma schema, SQL views, and seed files.
-- `serena` for query callsites and type relationships.
+- `serena` for query callsites and type relationships in the Codex-managed project session; use the CLI only for explicit `project index` or `project health-check` refreshes.
 - `context7` for Prisma and database framework behavior.
 - `sequential_thinking` for risky schema decisions.
 

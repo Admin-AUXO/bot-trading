@@ -1,6 +1,7 @@
 import type { ApiService, QuotaSource, QuotaStatus, Strategy, TradeMode } from "@prisma/client";
 import { db } from "../db/client.js";
 import { config } from "../config/index.js";
+import { calculateProtectedDailyBudget } from "../config/provider-plan.js";
 import { ApiCallBuffer } from "../utils/api-call-buffer.js";
 import type { RiskManager } from "./risk-manager.js";
 import type { ApiRequestMeta, BudgetSnapshot } from "../utils/types.js";
@@ -354,10 +355,13 @@ export class ApiBudgetManager {
     state.monthlyRemaining = providerRemaining ?? Math.max(0, state.budgetTotal - state.monthlyUsed);
     state.monthlyUsed = state.budgetTotal - state.monthlyRemaining;
 
-    const remainingDays = remainingCycleDays(state.providerCycleEnd ?? endOfUtcMonth(new Date(state.date)));
-    const emergencyReserve = Math.floor(state.budgetTotal * config.apiBudgets.reservePct);
-    const distributableRemaining = Math.max(0, state.monthlyRemaining - emergencyReserve);
-    state.dailyBudget = remainingDays > 0 ? Math.floor(distributableRemaining / remainingDays) : distributableRemaining;
+    const budgetWindow = calculateProtectedDailyBudget({
+      budgetTotal: state.budgetTotal,
+      monthlyRemaining: state.monthlyRemaining,
+      reservePct: config.apiBudgets.reservePct,
+      cycleEnd: state.providerCycleEnd ?? endOfUtcMonth(new Date(state.date)),
+    });
+    state.dailyBudget = budgetWindow.dailyBudget;
     state.dailyRemaining = Math.max(0, state.dailyBudget - state.totalCredits - state.pendingCredits);
     state.avgCreditsPerCall = state.totalCalls > 0 ? state.totalCredits / state.totalCalls : 0;
 
@@ -476,8 +480,4 @@ function startOfUtcMonth(date: Date): Date {
 
 function endOfUtcMonth(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1));
-}
-
-function remainingCycleDays(cycleEnd: Date): number {
-  return Math.max(1, Math.ceil((cycleEnd.getTime() - Date.now()) / DAY_MS));
 }

@@ -12,6 +12,7 @@ import type { ExitMonitor } from "../core/exit-monitor.js";
 import type { RegimeDetector } from "../core/regime-detector.js";
 import type { HeliusService } from "../services/helius.js";
 import type { BirdeyeService } from "../services/birdeye.js";
+import type { MarketRouter } from "../services/market-router.js";
 import type { ApiCallPurpose, ExecutionScope, SignalResult, MemeToken, JsonValue } from "../utils/types.js";
 
 const log = createChildLogger("s2-graduation");
@@ -20,11 +21,14 @@ type S2RuntimeConfig = RuntimeState["strategyConfigs"]["S2_GRADUATION"];
 
 export class GraduationStrategy extends EventEmitter {
   private scanInterval?: ReturnType<typeof setInterval>;
+  private catchupInterval?: ReturnType<typeof setInterval>;
   private fallbackInterval?: ReturnType<typeof setInterval>;
   private processingTokens: Set<string> = new Set();
   private pendingGraduation: Map<string, { token: MemeToken; deadline: number }> = new Map();
   private pendingEntryDelays: Map<string, ReturnType<typeof setTimeout>> = new Map();
+  private recentSeedCooldownUntil = new Map<string, number>();
   private scanInFlight = false;
+  private catchupInFlight = false;
   private fallbackInFlight = false;
   private readonly runtimeState?: RuntimeState;
   private readonly fallbackConfig: S2RuntimeConfig;
@@ -37,6 +41,7 @@ export class GraduationStrategy extends EventEmitter {
     private exitMonitor: ExitMonitor,
     private regimeDetector: RegimeDetector,
     private helius: HeliusService,
+    private marketRouter: Pick<MarketRouter, "getRecentSeeds" | "prefilterCandidates">,
     private birdeye: BirdeyeService,
     options?: {
       runtimeState?: RuntimeState;
@@ -60,68 +65,118 @@ export class GraduationStrategy extends EventEmitter {
 
   async start(): Promise<void> {
     this.scanInterval = setInterval(() => {
-      void this.runMemeListScan().catch((err) => {
+      void this.runSeedScan().catch((err) => {
         log.error({ err }, "graduation scan cycle failed");
       });
     }, this.cfg.scanIntervalMs);
-    this.fallbackInterval = setInterval(() => {
-      void this.runFallbackScan().catch((err) => {
-        log.error({ err }, "graduation fallback scan failed");
+
+    this.catchupInterval = setInterval(() => {
+      void this.runCatchupScan().catch((err) => {
+        log.error({ err }, "graduation catch-up scan failed");
       });
-    }, this.cfg.fallbackScanIntervalMs);
-    void this.runMemeListScan().catch((err) => {
-      log.error({ err }, "initial graduation scan failed");
+    }, config.birdeye.s2CatchupIntervalMs);
+
+    if (this.cfg.enableNewListingFallback) {
+      this.fallbackInterval = setInterval(() => {
+        void this.runFallbackScan().catch((err) => {
+          log.error({ err }, "graduation fallback scan failed");
+        });
+      }, this.cfg.fallbackScanIntervalMs);
+    }
+
+    void this.runSeedScan().catch((err) => {
+      log.error({ err }, "initial graduation seed scan failed");
+    });
+    void this.runCatchupScan().catch((err) => {
+      log.error({ err }, "initial graduation catch-up scan failed");
     });
     log.info("S2 graduation strategy started");
   }
 
   stop(): void {
     if (this.scanInterval) clearInterval(this.scanInterval);
+    if (this.catchupInterval) clearInterval(this.catchupInterval);
     if (this.fallbackInterval) clearInterval(this.fallbackInterval);
     for (const [, handle] of this.pendingEntryDelays) clearTimeout(handle);
     this.pendingEntryDelays.clear();
     this.pendingGraduation.clear();
+    this.recentSeedCooldownUntil.clear();
     log.info("S2 graduation strategy stopped");
   }
 
-  private async runMemeListScan(): Promise<void> {
+  private async runSeedScan(): Promise<void> {
     if (this.scanInFlight) return;
     this.scanInFlight = true;
     try {
-    if (this.regimeDetector.getRegime() === "RISK_OFF") return;
+      if (this.regimeDetector.getRegime() === "RISK_OFF") return;
 
-    await this.checkPendingGraduations();
+      await this.checkPendingGraduations();
 
-    const [nearGrad, justGrad] = await Promise.all([
-      this.birdeye.getMemeTokenList({
-        graduated: false,
-        minProgressPercent: this.cfg.nearGradPercent,
-        limit: this.cfg.memeListLimit,
-      }, this.apiMeta("ENTRY_SCAN", false, this.cfg.memeListLimit)),
-      this.birdeye.getMemeTokenList({
-        graduated: true,
-        minGraduatedTime: Math.floor(Date.now() / 1000) - this.cfg.justGraduatedLookbackSeconds,
-        limit: this.cfg.memeListLimit,
-      }, this.apiMeta("ENTRY_SCAN", false, this.cfg.memeListLimit)),
-    ]);
-
-    const candidates = [...nearGrad, ...justGrad];
-    for (const token of candidates) {
-      if (this.processingTokens.has(token.address)) continue;
-      if (this.pendingGraduation.has(token.address)) continue;
-      if (this.pendingEntryDelays.has(token.address)) continue;
-      this.processingTokens.add(token.address);
-
-      this.processCandidate(token).finally(() => {
-        this.processingTokens.delete(token.address);
+      const seeds = await this.marketRouter.getRecentSeeds({
+        limit: Math.max(this.cfg.memeListLimit, this.cfg.fallbackListingsBatchSize),
       });
-    }
+      if (seeds.length === 0) return;
+
+      const available = seeds.filter((seed) =>
+        !this.processingTokens.has(seed.address)
+        && !this.pendingGraduation.has(seed.address)
+        && !this.pendingEntryDelays.has(seed.address)
+        && !this.positionTracker.holdsToken(seed.address, this.scope)
+        && this.shouldInspectRecentSeed(seed.address),
+      );
+      if (available.length === 0) return;
+
+      const prefilter = await this.marketRouter.prefilterCandidates(available.map((seed) => seed.address));
+      const limit = pLimit(this.cfg.fallbackScanConcurrency);
+      const shortlisted = available
+        .filter((seed) => prefilter.get(seed.address)?.passed)
+        .slice(0, this.cfg.memeListLimit);
+
+      await Promise.allSettled(
+        shortlisted.map((seed) => limit(() => this.processRecentSeed(seed.address))),
+      );
     } finally {
       this.scanInFlight = false;
     }
   }
 
+  private async runCatchupScan(): Promise<void> {
+    if (this.catchupInFlight) return;
+    this.catchupInFlight = true;
+    try {
+      if (this.regimeDetector.getRegime() === "RISK_OFF") return;
+
+      const [nearGrad, justGrad] = await Promise.all([
+        this.birdeye.getMemeTokenList({
+          graduated: false,
+          minProgressPercent: this.cfg.nearGradPercent,
+          limit: this.cfg.memeListLimit,
+        }, this.apiMeta("ENTRY_SCAN", false, this.cfg.memeListLimit)),
+        this.birdeye.getMemeTokenList({
+          graduated: true,
+          minGraduatedTime: Math.floor(Date.now() / 1000) - this.cfg.justGraduatedLookbackSeconds,
+          limit: this.cfg.memeListLimit,
+        }, this.apiMeta("ENTRY_SCAN", false, this.cfg.memeListLimit)),
+      ]);
+
+      const candidates = [...nearGrad, ...justGrad];
+      for (const token of candidates) {
+        if (this.processingTokens.has(token.address)) continue;
+        if (this.pendingGraduation.has(token.address)) continue;
+        if (this.pendingEntryDelays.has(token.address)) continue;
+        this.processingTokens.add(token.address);
+
+        this.processCandidate(token).finally(() => {
+          this.processingTokens.delete(token.address);
+        });
+      }
+    } finally {
+      this.catchupInFlight = false;
+    }
+  }
+
   private async runFallbackScan(): Promise<void> {
+    if (!this.cfg.enableNewListingFallback) return;
     if (this.fallbackInFlight) return;
     this.fallbackInFlight = true;
     try {
@@ -156,6 +211,28 @@ export class GraduationStrategy extends EventEmitter {
     } finally {
       this.processingTokens.delete(address);
     }
+  }
+
+  private async processRecentSeed(address: string): Promise<void> {
+    this.processingTokens.add(address);
+    this.recentSeedCooldownUntil.set(address, Date.now() + config.birdeye.s2CatchupIntervalMs);
+    try {
+      const detail = await this.birdeye.getMemeTokenDetail(address, this.apiMeta("ENTRY_SCAN"));
+      if (!detail) return;
+      if (!detail.graduated && detail.progressPercent < this.cfg.nearGradPercent) return;
+      await this.processCandidate(detail);
+    } finally {
+      this.processingTokens.delete(address);
+    }
+  }
+
+  private shouldInspectRecentSeed(address: string): boolean {
+    const cooldownUntil = this.recentSeedCooldownUntil.get(address) ?? 0;
+    if (cooldownUntil <= Date.now()) {
+      this.recentSeedCooldownUntil.delete(address);
+      return true;
+    }
+    return false;
   }
 
   private async checkPendingGraduations(): Promise<void> {

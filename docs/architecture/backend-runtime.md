@@ -16,10 +16,12 @@ The backend is assembled in one place. Start there before touching strategy, API
    `PositionTracker`, `RegimeDetector`, `ConfigProfileManager`, `RiskManager`, `ApiBudgetManager`.
 3. Load profiles, resolve the active runtime scope, then load persisted risk/quota state.
 4. Create shared provider clients:
-   `HeliusService`, `BirdeyeService`, `JupiterService`.
+   `HeliusService`, `BirdeyeService`, `JupiterService`, `DexScreenerService`, `MarketRouter`.
+   Jupiter now reads `JUPITER_API_KEY`, `JUPITER_BASE_URL`, `JUPITER_PRICE_PATH`, and `JUPITER_SWAP_PATH` from `backend/src/config/index.ts`.
 5. Pick the executor by `TRADE_MODE`:
    `TradeExecutor` for `LIVE`, `DryRunExecutor` for `DRY_RUN`.
 6. Create `ExitMonitor`, `OutcomeTracker`, `MarketTickRecorder`, and strategies `S1`, `S2`, `S3`.
+   `ExitMonitor`, `OutcomeTracker`, `MarketTickRecorder`, `S1` wallet-activity pricing, `S2` recent-seed discovery, and `S3` discovery now read routed price, breadth, or seed data through `MarketRouter`.
 7. Load open positions for the active runtime lane and re-arm exit monitoring.
 8. Start regime evaluation, reconcile wallet balance in `LIVE`, and start strategies.
 9. Start the Express API server.
@@ -37,13 +39,22 @@ The backend is assembled in one place. Start there before touching strategy, API
 
 ## Periodic Work
 
-- Regime refresh: Jupiter SOL price + Birdeye trending sample
+- Regime refresh: Jupiter SOL price + `MarketRouter` breadth sample
 - Daily reset check: `RiskManager.checkDailyReset()`
 - State persistence: risk state + quota state
 - Quota sync: provider-reported Birdeye credits usage
 - Wallet scoring: S1-only maintenance task, skipped when Helius non-essential budget should degrade
+- S2 catch-up scan: plan-aware Birdeye `meme/list` recovery loop; `new_listing` fallback is now feature-flagged
 - Stats aggregation: hourly daily-stats recompute
-- Would-have-won backfill: skipped when Birdeye non-essential budget should degrade
+- Outcome price backfills: router-backed price refresh, no longer tied to Birdeye `multi_price`
+- Exit fast path: router-backed price refresh every `5s`; Jupiter batch first, then throttled quote/Birdeye slow paths only when price data is missing
+- Would-have-won backfill: DB-only recompute pass, no provider quota gate
+
+## Jupiter Notes
+
+- Quote and swap execution now target the env-backed `api.jup.ag` host instead of the legacy `quote-api.jup.ag` and `price.jup.ag` URLs.
+- `JupiterService` exposes batch price reads through Price API V3 and token-category wrappers for `toptrending`, `toptraded`, and `recent`.
+- Trade execution still calls `getQuote()` and `buildSwapTransaction()` through the same service surface; callers outside `JupiterService` should not build raw Jupiter URLs.
 
 ## Shutdown
 

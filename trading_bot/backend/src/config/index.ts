@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { z } from "zod";
+import { getBirdeyePlanProfile } from "./provider-plan.js";
 
 const envSchema = z.object({
   DATABASE_URL: z.string(),
@@ -9,6 +10,12 @@ const envSchema = z.object({
   HELIUS_WS_URL: z.string(),
   HELIUS_WEBHOOK_SECRET: z.string().default(""),
   BIRDEYE_API_KEY: z.string(),
+  BIRDEYE_PLAN: z.enum(["LITE", "STARTER"]).default("LITE"),
+  JUPITER_API_KEY: z.string().default(""),
+  JUPITER_BASE_URL: z.string().default("https://api.jup.ag"),
+  JUPITER_PRICE_PATH: z.string().default("/price/v3"),
+  JUPITER_SWAP_PATH: z.string().default("/swap/v1"),
+  S2_ENABLE_NEW_LISTING_FALLBACK: z.enum(["true", "false"]).default("false"),
   SOLANA_PRIVATE_KEY: z.string(),
   SOLANA_PUBLIC_KEY: z.string(),
   JITO_TIP_ACCOUNT: z.string().default("96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5"),
@@ -26,6 +33,7 @@ if (!_parsed.success) {
   process.exit(1);
 }
 const env = _parsed.data;
+const birdeyePlan = getBirdeyePlanProfile(env.BIRDEYE_PLAN);
 
 export const config = {
   env: env.NODE_ENV,
@@ -69,9 +77,24 @@ export const config = {
 
   birdeye: {
     apiKey: env.BIRDEYE_API_KEY,
+    plan: birdeyePlan.name,
     baseUrl: "https://public-api.birdeye.so",
-    rateLimit: 15,
+    rateLimit: birdeyePlan.rateLimitRps,
+    websocketAccess: birdeyePlan.websocketAccess,
+    s2CatchupIntervalMs: birdeyePlan.s2CatchupIntervalMs,
     maxRetries: 3,
+  },
+
+  jupiter: {
+    apiKey: env.JUPITER_API_KEY,
+    baseUrl: env.JUPITER_BASE_URL,
+    pricePath: env.JUPITER_PRICE_PATH,
+    swapPath: env.JUPITER_SWAP_PATH,
+    tokensPath: "/tokens/v2",
+  },
+
+  marketRouter: {
+    priceSlowPathRefreshMs: birdeyePlan.priceSlowPathRefreshMs,
   },
 
   solana: {
@@ -150,6 +173,7 @@ export const config = {
       fallbackScanIntervalMs: 300_000,
       fallbackListingsBatchSize: 20,
       fallbackScanConcurrency: 3,
+      enableNewListingFallback: env.S2_ENABLE_NEW_LISTING_FALLBACK === "true",
       tokenSignatureLimit: 200,
       creatorSignatureLimit: 100,
       serialDeployLookbackSeconds: 604_800,
@@ -212,7 +236,7 @@ export const config = {
         walletFundingSource: 100,
       },
     },
-    birdeye: { monthly: 1_500_000, rps: 15 },
+    birdeye: { monthly: birdeyePlan.monthlyCu, rps: birdeyePlan.rateLimitRps },
   },
 
   regime: {
@@ -231,6 +255,7 @@ export const config = {
 
   exitMonitor: {
     batchIntervalMs: 5_000,
+    tradeDataSlowPathRefreshMs: birdeyePlan.tradeDataSlowPathRefreshMs,
     timeStopPnlS3Pct: 5,
     timeStopPnlDefaultPct: 10,
     fadeVolumeRatioS3: 1.2,
