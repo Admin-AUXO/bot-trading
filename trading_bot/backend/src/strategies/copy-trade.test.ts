@@ -84,6 +84,53 @@ test("CopyTradeStrategy.runFilters rejects DEX prefilter failures before paid Bi
   assert.equal(birdeyeOverviewCalls, 0);
 });
 
+test("CopyTradeStrategy.runFilters rejects stale source transactions in LIVE before paid scoring", async () => {
+  let prefilterCalls = 0;
+  let birdeyeOverviewCalls = 0;
+
+  const strategy = new (CopyTradeStrategy as any)(
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {
+      prefilterCandidates: async () => {
+        prefilterCalls += 1;
+        return new Map();
+      },
+    } as never,
+    {
+      getTokenOverview: async () => {
+        birdeyeOverviewCalls += 1;
+        return null;
+      },
+      getTokenSecurity: async () => null,
+      getTokenHolders: async () => [],
+      getTradeData: async () => null,
+    } as never,
+    {
+      scope: { mode: "LIVE", configProfile: "default" },
+    },
+  );
+
+  const originalDateNow = Date.now;
+  Date.now = () => 1_700_000_050_000;
+
+  try {
+    const result = await (strategy as any).runFilters("mint_old", Date.now(), 1_700_000_000);
+
+    assert.equal(result.passed, false);
+    assert.match(result.rejectReason ?? "", /source transaction age 50s > 30s/i);
+    assert.equal(prefilterCalls, 0);
+    assert.equal(birdeyeOverviewCalls, 0);
+    assert.equal(result.filterResults.sourceTxAgeSec, 50);
+  } finally {
+    Date.now = originalDateNow;
+  }
+});
+
 test("CopyTradeStrategy.processWalletActivity records router price instead of direct Birdeye multi-price", async () => {
   const originalWalletScoreFindFirst = db.walletScore.findFirst;
   const originalWalletActivityFindUnique = db.walletActivity.findUnique;
@@ -114,6 +161,7 @@ test("CopyTradeStrategy.processWalletActivity records router price instead of di
           amountToken: 100,
           signature: "sig_router",
           side: "BUY",
+          blockTime: 1_700_000_000,
         }),
       } as never,
       {

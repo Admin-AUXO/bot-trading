@@ -10,13 +10,15 @@ All three strategies eventually go through the same sequence:
 2. fetch market/security context through shared services
 3. reject early on regime, quota, duplicate-position, or risk-manager blockers
 4. size from `RiskManager`
-5. buy through the executor interface
+5. buy through the executor interface, which also rejects duplicate token exposure in the active runtime and records confirmed fill sizes before position tracking
 6. hand the open position to `ExitMonitor`
 
 ## Shared Safety Rules
 
 - Position sizing comes from `RiskManager`, not raw config constants
 - Existing holdings, open-position limits, gas reserve, loss limits, and pause reasons block entries
+- The executor is the final duplicate-exposure gate; strategy-local checks are not trusted on their own
+- Manual entries may bypass entry filters, but once filled they still attach to `ExitMonitor` and use the same automated exit logic
 - Provider traffic must flow through shared services so quota accounting stays intact
 - Discovery and cheap prefilter data should converge through `trading_bot/backend/src/services/market-router.ts` instead of scattering raw provider fetches across strategies
 - `DRY_RUN` and `LIVE` use the same strategy logic; only the executor changes

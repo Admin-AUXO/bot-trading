@@ -26,6 +26,7 @@ export class ExitMonitor {
   private batchHandle?: ReturnType<typeof setInterval>;
   private runtimeState: RuntimeState;
   private fadeTradeDataCache = new Map<string, { data: TradeData | null; nextRefreshAt: number }>();
+  private batchInFlight = false;
 
   constructor(
     private positionTracker: PositionTracker,
@@ -72,6 +73,9 @@ export class ExitMonitor {
   }
 
   private async batchCheck(): Promise<void> {
+    if (this.batchInFlight) return;
+    this.batchInFlight = true;
+    try {
     const toRemove: string[] = [];
     for (const id of this.monitoredIds) {
       const p = this.positionTracker.getById(id);
@@ -109,7 +113,11 @@ export class ExitMonitor {
       if (currentPriceUsd == null) continue;
 
       const currentPriceSol = solPrice ? currentPriceUsd / solPrice : pos.currentPriceSol;
-      const pnlPercent = new Decimal(currentPriceUsd).sub(pos.entryPriceUsd).div(pos.entryPriceUsd).mul(100).toNumber();
+      const pnlPercent = pos.entryPriceUsd > 0
+        ? new Decimal(currentPriceUsd).sub(pos.entryPriceUsd).div(pos.entryPriceUsd).mul(100).toNumber()
+        : pos.entryPriceSol > 0
+        ? new Decimal(currentPriceSol).sub(pos.entryPriceSol).div(pos.entryPriceSol).mul(100).toNumber()
+        : 0;
       const newPeakPrice = currentPriceUsd > pos.peakPriceUsd ? currentPriceUsd : pos.peakPriceUsd;
 
       this.positionTracker.updatePrice(pos.id, currentPriceSol, currentPriceUsd);
@@ -161,6 +169,9 @@ export class ExitMonitor {
       if (result.status === "rejected") {
         log.error({ err: result.reason instanceof Error ? result.reason.message : String(result.reason) }, "exit promise rejected");
       }
+    }
+    } finally {
+      this.batchInFlight = false;
     }
   }
 
@@ -292,7 +303,7 @@ export class ExitMonitor {
     slippage: number,
   ): Promise<void> {
     const sellAmount = pos.remainingToken * sellFraction;
-    await this.tradeExecutor.executeSell({
+    const result = await this.tradeExecutor.executeSell({
       positionId: pos.id,
       tokenAddress: pos.tokenAddress,
       tokenSymbol: pos.tokenSymbol,
@@ -302,6 +313,10 @@ export class ExitMonitor {
       exitReason,
       trancheNumber: tranche,
     });
+
+    if (!result.success) {
+      log.warn({ id: pos.id, tranche, exitReason, error: result.error }, "partial exit failed; position remains monitored");
+    }
   }
 
   private async executeFullExit(pos: PositionState, exitReason: ExitReason, slippage: number): Promise<void> {

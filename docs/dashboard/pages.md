@@ -47,8 +47,12 @@ These are the actual route surfaces. Page wrappers are thin; feature modules own
 ## `/settings`
 
 - Feature file: `dashboard/features/settings/settings-page.tsx`
-- Owns bot pause/resume, operator unlock/lock, process health, strategy config, risk limits, quota summary, and config profiles
+- Owns bot pause/resume, operator unlock/lock, process health, strategy config, live-entry guardrails, risk limits, quota summary, and config profiles
 - `reconcile-wallet` is only shown in `LIVE`
+- Strategy cards surface the active runtime guardrails for stale-entry age, required trade data, and holder floors where applicable
+- Profile cards show visible override summaries so a profile cannot silently weaken safety
+- Profile override editing is inline on the settings page; blank fields remove overrides and revert to inherited defaults
+- Editing the active runtime profile updates the live runtime lane immediately
 - Profile activation for the active mode can become a runtime switch, and that is blocked while positions remain open
 
 ## Shared Page Metadata

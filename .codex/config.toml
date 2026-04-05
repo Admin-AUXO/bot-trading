@@ -102,22 +102,6 @@ command = "npx"
 required = false
 startup_timeout_ms = 20000
 
-[mcp_servers.serena]
-args = [
-    "--from",
-    "git+https://github.com/oraios/serena",
-    "serena",
-    "start-mcp-server",
-    "--context",
-    "codex",
-    "--project-from-cwd",
-    "--open-web-dashboard",
-    "false",
-]
-command = "uvx"
-required = false
-startup_timeout_ms = 60000
-
 [mcp_servers.time]
 args = ["mcp-server-time"]
 command = "uvx"

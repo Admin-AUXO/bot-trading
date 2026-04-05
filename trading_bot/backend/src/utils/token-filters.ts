@@ -1,4 +1,4 @@
-import type { TokenSecurity, TokenHolder, TradeData, JsonValue } from "./types.js";
+import type { TokenSecurity, TokenHolder, TokenOverview, TradeData, JsonValue } from "./types.js";
 
 export interface FilterResult {
   pass: boolean;
@@ -58,13 +58,19 @@ export function runTradeDataChecks(
   rules: {
     minUniqueBuyers5m?: number;
     minBuySellRatio?: number;
+    minWashTradingRatio?: number;
     minBuyPressure?: number;
+    requireTradeData?: boolean;
   },
 ): FilterResult {
-  const filterResults: Record<string, JsonValue> = {};
+  const filterResults: Record<string, JsonValue> = {
+    tradeDataAvailable: tradeData !== null,
+  };
 
   if (!tradeData) {
-    return { pass: true, filterResults };
+    return rules.requireTradeData
+      ? { pass: false, reason: "no trade data", filterResults }
+      : { pass: true, filterResults };
   }
 
   filterResults.buyCount5m = tradeData.buy5m;
@@ -86,6 +92,20 @@ export function runTradeDataChecks(
       return {
         pass: false,
         reason: `buy/sell ratio ${buySellRatio.toFixed(2)}`,
+        filterResults,
+      };
+    }
+  }
+
+  if (rules.minWashTradingRatio !== undefined) {
+    const washTradingRatio = tradeData.volume5m > 0
+      ? tradeData.uniqueWallet5m / (tradeData.volume5m / 1000)
+      : 0;
+    filterResults.washTradingRatio = washTradingRatio;
+    if (washTradingRatio < rules.minWashTradingRatio) {
+      return {
+        pass: false,
+        reason: "wash trading detected",
         filterResults,
       };
     }
@@ -124,6 +144,68 @@ export function runLiquidityMarketCapChecks(
         filterResults,
       };
     }
+  }
+
+  return { pass: true, filterResults };
+}
+
+export function runHolderCountCheck(
+  overview: TokenOverview | null,
+  rules: {
+    minHolderCount?: number;
+  },
+): FilterResult {
+  const filterResults: Record<string, JsonValue> = {
+    holderCount: overview?.holder ?? null,
+  };
+
+  if (!overview) {
+    return { pass: true, filterResults };
+  }
+
+  if (rules.minHolderCount !== undefined && overview.holder < rules.minHolderCount) {
+    return {
+      pass: false,
+      reason: `holders ${overview.holder} < ${rules.minHolderCount}`,
+      filterResults,
+    };
+  }
+
+  return { pass: true, filterResults };
+}
+
+export function runFreshnessCheck(
+  timestampSec: number | null | undefined,
+  rules: {
+    nowMs?: number;
+    maxAgeSeconds?: number;
+    requireTimestamp?: boolean;
+    ageKey?: string;
+    label?: string;
+  },
+): FilterResult {
+  const ageKey = rules.ageKey ?? "ageSeconds";
+  const label = rules.label ?? "timestamp";
+  const filterResults: Record<string, JsonValue> = {
+    [ageKey]: null,
+    [`${ageKey}Available`]: timestampSec != null && timestampSec > 0,
+  };
+
+  if (timestampSec == null || timestampSec <= 0) {
+    return rules.requireTimestamp
+      ? { pass: false, reason: `missing ${label}`, filterResults }
+      : { pass: true, filterResults };
+  }
+
+  const ageSeconds = Math.max(0, Math.floor(((rules.nowMs ?? Date.now()) / 1000) - timestampSec));
+  filterResults[ageKey] = ageSeconds;
+
+  if (rules.maxAgeSeconds !== undefined && ageSeconds > rules.maxAgeSeconds) {
+    return {
+      pass: false,
+      reason: `${label} age ${ageSeconds}s > ${rules.maxAgeSeconds}s`,
+      filterResults,
+    };
   }
 
   return { pass: true, filterResults };

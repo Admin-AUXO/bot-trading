@@ -15,6 +15,7 @@ const log = createChildLogger("trade-executor");
 
 export class TradeExecutor implements ITradeExecutor {
   private runtimeState: RuntimeState;
+  private pendingTokenKeys = new Set<string>();
 
   constructor(
     private positionTracker: PositionTracker,
@@ -36,6 +37,7 @@ export class TradeExecutor implements ITradeExecutor {
   async executeBuy(params: BuyParams): Promise<TradeResult> {
     const entryStart = Date.now();
     const shouldTrackPending = !params.positionId;
+    const tokenReservationKey = shouldTrackPending ? this.reserveTokenSlot(params.tokenAddress) : null;
     const executionMeta = {
       strategy: params.strategy,
       mode: this.runtimeState.scope.mode,
@@ -43,6 +45,18 @@ export class TradeExecutor implements ITradeExecutor {
       purpose: "EXECUTION" as const,
       essential: false,
     };
+
+    if (!params.positionId) {
+      if (!tokenReservationKey) {
+        log.info({ token: params.tokenAddress }, "buy blocked by duplicate token guard");
+        return { success: false, error: "token already held or pending in active runtime" };
+      }
+      if (this.positionTracker.holdsToken(params.tokenAddress, this.runtimeState.scope)) {
+        this.releaseTokenSlot(tokenReservationKey);
+        log.info({ token: params.tokenAddress }, "buy blocked by existing open position");
+        return { success: false, error: "token already held in active runtime" };
+      }
+    }
 
     const riskCheck = params.positionId
       ? this.riskManager.canIncreasePosition(params.strategy, params.amountSol)
@@ -137,8 +151,22 @@ export class TradeExecutor implements ITradeExecutor {
       if (!confirmed) return { success: false, error: "tx confirmation failed" };
 
       const entryLatencyMs = Date.now() - entryStart;
-      const priceUsd = await this.jupiter.getTokenPriceUsd(params.tokenAddress);
-      const priceSol = params.amountSol / amountToken;
+      const fill = await this.helius.getWalletTradeFillFromSignature(
+        txSig,
+        config.solana.publicKey,
+        params.tokenAddress,
+        executionMeta,
+      );
+      if (!fill || fill.side !== "BUY") {
+        return { success: false, error: "tx confirmed but fill reconciliation failed" };
+      }
+
+      const priceSol = fill.amountSol / fill.amountToken;
+      const [tokenPriceUsd, solPriceUsd] = await Promise.all([
+        this.jupiter.getTokenPriceUsd(params.tokenAddress),
+        this.jupiter.getSolPriceUsd(),
+      ]);
+      const priceUsd = tokenPriceUsd ?? (solPriceUsd ? priceSol * solPriceUsd : null);
 
       let positionId = params.positionId;
       if (!positionId) {
@@ -150,8 +178,8 @@ export class TradeExecutor implements ITradeExecutor {
           tokenSymbol: params.tokenSymbol,
           entryPriceSol: priceSol,
           entryPriceUsd: priceUsd ?? 0,
-          amountSol: params.amountSol,
-          amountToken,
+          amountSol: fill.amountSol,
+          amountToken: fill.amountToken,
           stopLossPercent: getStopLossPercent(params.strategy, this.runtimeState.strategyConfigs),
           regime: params.regime,
           entryVolume5m: params.entryVolume5m,
@@ -169,8 +197,8 @@ export class TradeExecutor implements ITradeExecutor {
         positionId = pos.id;
       } else {
         await this.positionTracker.fillPosition(positionId, {
-          additionalSol: params.amountSol,
-          additionalToken: amountToken,
+          additionalSol: fill.amountSol,
+          additionalToken: fill.amountToken,
           fillPriceSol: priceSol,
           fillPriceUsd: priceUsd ?? 0,
         });
@@ -185,8 +213,8 @@ export class TradeExecutor implements ITradeExecutor {
           tokenSymbol: params.tokenSymbol,
           side: "BUY",
           positionId,
-          amountSol: params.amountSol,
-          amountToken,
+          amountSol: fill.amountSol,
+          amountToken: fill.amountToken,
           priceUsd: priceUsd ?? 0,
           priceSol,
           slippageBps: Math.round(quote.priceImpactPct * 100),
@@ -201,12 +229,12 @@ export class TradeExecutor implements ITradeExecutor {
           copyLeadMs: params.copyLeadMs ?? null,
         },
       });
-      this.riskManager.recordBuyExecution(params.amountSol, totalFeeSol);
+      this.riskManager.recordBuyExecution(fill.amountSol, fill.feeSol);
 
       log.info({
         strategy: params.strategy,
         token: params.tokenSymbol,
-        amountSol: params.amountSol,
+        amountSol: fill.amountSol,
         priceUsd,
         latencyMs: entryLatencyMs,
         tx: txSig,
@@ -217,13 +245,14 @@ export class TradeExecutor implements ITradeExecutor {
         txSignature: txSig,
         priceUsd: priceUsd ?? 0,
         priceSol,
-        amountToken,
+        amountToken: fill.amountToken,
         slippageBps: Math.round(quote.priceImpactPct * 100),
         gasFee: config.capital.gasFee,
         jitoTip: jitoTipSol,
       };
     } finally {
       if (shouldTrackPending) this.riskManager.releasePosition(params.strategy);
+      if (tokenReservationKey) this.releaseTokenSlot(tokenReservationKey);
     }
   }
 
@@ -276,17 +305,33 @@ export class TradeExecutor implements ITradeExecutor {
     const confirmed = await this.helius.confirmTransaction(txSig, undefined, executionMeta);
     if (!confirmed) return { success: false, error: "sell tx confirmation failed" };
 
-    const solReceived = quote.outputAmountUi;
-    const priceUsd = await this.jupiter.getTokenPriceUsd(params.tokenAddress);
-    const priceSol = solReceived / params.amountToken;
+    const fill = await this.helius.getWalletTradeFillFromSignature(
+      txSig,
+      config.solana.publicKey,
+      params.tokenAddress,
+      executionMeta,
+    );
+    if (!fill || fill.side !== "SELL") {
+      return { success: false, error: "sell tx confirmed but fill reconciliation failed" };
+    }
 
-    const pnlSol = solReceived - (position.entryPriceSol * params.amountToken);
-    const pnlUsd = priceUsd
-      ? (priceUsd - position.entryPriceUsd) * params.amountToken
-      : pnlSol * position.entryPriceUsd / position.entryPriceSol;
+    const priceSol = fill.amountSol / fill.amountToken;
+    const [tokenPriceUsd, solPriceUsd] = await Promise.all([
+      this.jupiter.getTokenPriceUsd(params.tokenAddress),
+      this.jupiter.getSolPriceUsd(),
+    ]);
+    const priceUsd = tokenPriceUsd ?? (solPriceUsd ? priceSol * solPriceUsd : null);
+
+    const pnlSol = fill.amountSol - (position.entryPriceSol * fill.amountToken);
+    const resolvedEntryUsd = position.entryPriceUsd > 0
+      ? position.entryPriceUsd
+      : position.entryPriceSol * (solPriceUsd ?? 0);
+    const pnlUsd = priceUsd != null && resolvedEntryUsd > 0
+      ? (priceUsd - resolvedEntryUsd) * fill.amountToken
+      : pnlSol * (solPriceUsd ?? 0);
     const pnlPercent = ((priceSol - position.entryPriceSol) / position.entryPriceSol) * 100;
 
-    const remaining = Math.max(0, position.remainingToken - params.amountToken);
+    const remaining = Math.max(0, position.remainingToken - fill.amountToken);
     const tranche = params.trancheNumber as 1 | 2 | 3;
     await this.positionTracker.markTrancheExit(params.positionId, tranche, remaining);
 
@@ -299,8 +344,8 @@ export class TradeExecutor implements ITradeExecutor {
         tokenSymbol: params.tokenSymbol,
         side: "SELL",
         positionId: params.positionId,
-        amountSol: solReceived,
-        amountToken: params.amountToken,
+        amountSol: fill.amountSol,
+        amountToken: fill.amountToken,
         priceUsd: priceUsd ?? 0,
         priceSol,
         slippageBps: Math.round(quote.priceImpactPct * 100),
@@ -316,7 +361,7 @@ export class TradeExecutor implements ITradeExecutor {
         tradeSource: params.tradeSource ?? "AUTO",
       },
     });
-    this.riskManager.recordSellExecution(solReceived, pnlUsd, pnlUsd > 0, totalFeeSol);
+    this.riskManager.recordSellExecution(fill.amountSol, pnlUsd, pnlUsd > 0, fill.feeSol);
 
     if (remaining <= 0) {
       const realized = await db.trade.aggregate({
@@ -349,10 +394,21 @@ export class TradeExecutor implements ITradeExecutor {
       txSignature: txSig,
       priceUsd: priceUsd ?? 0,
       priceSol,
-      amountToken: params.amountToken,
+      amountToken: fill.amountToken,
       gasFee: config.capital.gasFee,
       jitoTip: jitoTipSol,
     };
+  }
+
+  private reserveTokenSlot(tokenAddress: string): string | null {
+    const key = `${this.runtimeState.scope.mode}:${this.runtimeState.scope.configProfile}:${tokenAddress}`;
+    if (this.pendingTokenKeys.has(key)) return null;
+    this.pendingTokenKeys.add(key);
+    return key;
+  }
+
+  private releaseTokenSlot(key: string): void {
+    this.pendingTokenKeys.delete(key);
   }
 
 }

@@ -23,8 +23,10 @@ This strategy does not buy immediately on first sight. It stages candidates, wai
 
 ## Main Filters
 
+- live graduation-age cap at actual entry time
 - minimum liquidity
 - maximum market cap
+- minimum unique holders
 - maximum top-10 holder concentration
 - maximum single-holder concentration
 - minimum unique buyers in the recent window
@@ -38,10 +40,11 @@ This strategy does not buy immediately on first sight. It stages candidates, wai
 - the entry delay is part of the strategy, not a UI artifact
 - creator and token-transaction lookbacks are there to reduce serial-launch spam
 - this strategy still uses the same risk-manager gates as the others
-- `minUniqueHolders` exists in config but is not currently enforced in strategy code
 - cheap discovery is allowed to miss progress changes; the Birdeye catch-up loop exists to close that gap without keeping paid scans on a `20s` cadence
 - `S2_ENABLE_NEW_LISTING_FALLBACK` is now the explicit feature flag for the old Birdeye `new_listing` sweep, and it defaults off
-- Birdeye trade-data checks are soft-fail here; missing trade data can remove some reject paths instead of forcing a reject
+- `LIVE` now hard-rejects entries if the graduation timestamp is missing or older than the configured age cap at execution time
+- `LIVE` now hard-rejects entries when Birdeye trade data is missing
+- `DRY_RUN` still soft-fails missing trade data so analytics can keep observing candidates
 - once a position is open, the `5s` exit loop now uses router-backed prices instead of Birdeye `multi_price`
 
 ## Exit Shape

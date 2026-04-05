@@ -201,3 +201,54 @@ test("ExitMonitor rate-limits S3 fade slow-path refreshes instead of polling Bir
   assert.equal(tradeDataCalls, 1);
   assert.equal(sells.length, 0);
 });
+
+test("ExitMonitor skips overlapping batches so a slow exit cycle does not double-sell", async () => {
+  let refreshCalls = 0;
+  let sellCalls = 0;
+  let releaseSell!: () => void;
+  const sellGate = new Promise<void>((resolve) => {
+    releaseSell = resolve;
+  });
+
+  const monitor = new ExitMonitor(
+    {
+      getById: () => makePosition({ strategy: "S1_COPY", tokenAddress: "mint_overlap", currentPriceUsd: 1 }),
+      updatePrice: () => undefined,
+    } as never,
+    {
+      executeSell: async () => {
+        sellCalls += 1;
+        await sellGate;
+        return { success: true };
+      },
+    } as never,
+    {
+      getSolPriceUsd: async () => 1,
+    } as never,
+    {
+      refreshExitContext: async () => {
+        refreshCalls += 1;
+        return new Map([
+          ["mint_overlap", {
+            tokenAddress: "mint_overlap",
+            priceUsd: 1.31,
+            liquidityUsd: 25_000,
+            priceSource: "JUPITER_PRICE",
+            updatedAt: 123456,
+          }],
+        ]);
+      },
+    } as never,
+    defaultStrategyConfigs,
+  );
+
+  (monitor as any).monitoredIds = new Set(["pos_1"]);
+  const first = (monitor as any).batchCheck();
+  const second = (monitor as any).batchCheck();
+  await Promise.resolve();
+  releaseSell();
+  await Promise.all([first, second]);
+
+  assert.equal(refreshCalls, 1);
+  assert.equal(sellCalls, 1);
+});

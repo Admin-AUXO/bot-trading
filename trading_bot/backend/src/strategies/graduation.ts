@@ -3,7 +3,13 @@ import pLimit from "p-limit";
 import { config } from "../config/index.js";
 import { db } from "../db/client.js";
 import { createChildLogger } from "../utils/logger.js";
-import { runSecurityChecks, runTradeDataChecks, runLiquidityMarketCapChecks } from "../utils/token-filters.js";
+import {
+  runFreshnessCheck,
+  runHolderCountCheck,
+  runLiquidityMarketCapChecks,
+  runSecurityChecks,
+  runTradeDataChecks,
+} from "../utils/token-filters.js";
 import type { RuntimeState } from "../core/runtime-state.js";
 import type { RiskManager } from "../core/risk-manager.js";
 import type { PositionTracker } from "../core/position-tracker.js";
@@ -366,6 +372,22 @@ export class GraduationStrategy extends EventEmitter {
   private async runFilters(token: MemeToken): Promise<SignalResult> {
     const filters: Record<string, JsonValue> = { source: token.source };
     const nowSec = Date.now() / 1000;
+    const graduationFreshnessCheck = runFreshnessCheck(token.graduatedTime ?? null, {
+      maxAgeSeconds: this.cfg.maxGraduationAgeAtEntrySeconds,
+      requireTimestamp: this.scope.mode === "LIVE",
+      ageKey: "graduationAgeSec",
+      label: "graduation",
+    });
+    Object.assign(filters, graduationFreshnessCheck.filterResults);
+    if (!graduationFreshnessCheck.pass) {
+      return {
+        passed: false,
+        tokenAddress: token.address,
+        tokenSymbol: token.symbol,
+        rejectReason: graduationFreshnessCheck.reason,
+        filterResults: filters,
+      };
+    }
 
     const [security, holders, overview, tradeData, sigs, creatorSigs] = await Promise.all([
       this.birdeye.getTokenSecurity(token.address, this.apiMeta("ENTRY_SCAN")),
@@ -417,6 +439,7 @@ export class GraduationStrategy extends EventEmitter {
     const tradeDataCheck = runTradeDataChecks(tradeData, {
       minUniqueBuyers5m: this.cfg.minUniqueBuyers5m,
       minBuySellRatio: this.cfg.minBuySellRatio,
+      requireTradeData: this.scope.mode === "LIVE" && this.cfg.requireTradeDataInLive,
     });
     Object.assign(filters, tradeDataCheck.filterResults);
     if (!tradeDataCheck.pass) {
@@ -424,6 +447,14 @@ export class GraduationStrategy extends EventEmitter {
     }
 
     if (!overview) return { passed: false, tokenAddress: token.address, tokenSymbol: token.symbol, rejectReason: "no overview", filterResults: filters };
+
+    const holderCountCheck = runHolderCountCheck(overview, {
+      minHolderCount: this.cfg.minUniqueHolders,
+    });
+    Object.assign(filters, holderCountCheck.filterResults);
+    if (!holderCountCheck.pass) {
+      return { passed: false, tokenAddress: token.address, tokenSymbol: token.symbol, rejectReason: holderCountCheck.reason, filterResults: filters };
+    }
 
     const liqCapCheck = runLiquidityMarketCapChecks(overview.liquidity, overview.marketCap, {
       minLiquidity: this.cfg.minLiquidity,

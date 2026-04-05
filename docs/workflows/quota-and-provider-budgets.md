@@ -53,6 +53,7 @@ Jupiter and Jito are used by execution paths, but the current `ApiBudgetManager`
 - wallet scoring can be skipped under Helius quota pressure
 - quota blockers come from provider quota state, not relabeled generic pause reasons
 - some strategy filters soft-fail when non-essential provider data is missing; others suppress the candidate entirely
+- `LIVE` S1 and S2 entries now fail closed when required Birdeye trade data is missing; only `DRY_RUN` keeps the old soft-fail analytics behavior
 - buy execution is treated as non-essential budget traffic; exit monitoring and sell execution stay essential
 - monthly reserve comes from the configured `20%` budget reserve
 - non-essential traffic is blocked before it consumes the protected daily reserve

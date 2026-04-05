@@ -19,6 +19,8 @@ import { controlRouter } from "./routes/control.js";
 import { profilesRouter } from "./routes/profiles.js";
 import { requireBearerToken } from "./middleware/auth.js";
 import type { ApiBudgetManager } from "../core/api-budget-manager.js";
+import type { ExitMonitor } from "../core/exit-monitor.js";
+import type { PositionTracker } from "../core/position-tracker.js";
 import type { RiskManager } from "../core/risk-manager.js";
 import type { RegimeDetector } from "../core/regime-detector.js";
 import type { RuntimeState } from "../core/runtime-state.js";
@@ -28,6 +30,7 @@ const log = createChildLogger("api");
 export function createApiServer(deps: {
   riskManager: unknown;
   positionTracker: unknown;
+  exitMonitor?: unknown;
   regimeDetector: unknown;
   configProfileManager: unknown;
   tradeExecutor?: unknown;
@@ -69,6 +72,8 @@ export function createApiServer(deps: {
   app.use("/api/control", controlLimiter, controlRouter({
     riskManager: deps.riskManager,
     tradeExecutor: deps.tradeExecutor,
+    positionTracker: deps.positionTracker,
+    exitMonitor: deps.exitMonitor,
     dbClient: deps.dbClient,
     runtimeState: deps.runtimeState,
     walletReconciler: deps.walletReconciler,

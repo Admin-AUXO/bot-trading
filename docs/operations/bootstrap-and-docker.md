@@ -6,6 +6,7 @@ These are the repo's real startup contracts. Break them and the bot turns into p
 
 1. Start infra from `trading_bot/`:
    `docker compose up -d postgres redis`
+   If host ports `5432` or `6379` are already occupied, set `POSTGRES_PORT` and/or `REDIS_PORT` before that command and make backend env URLs match.
 2. Create backend env:
    `trading_bot/backend/.env`
 3. Install backend deps and set up DB:
@@ -36,6 +37,7 @@ Prod compose does not run `db:seed`. If a workflow depends on seeded rows, say s
 
 - Backend container listens on `3001`
 - Dashboard container listens on `3000`
+- Local infra host mapping defaults to `${POSTGRES_PORT:-5432}:5432` and `${REDIS_PORT:-6379}:6379`
 - Host mapping defaults to `${BOT_PORT:-3001}:3001` and `${DASHBOARD_PORT:-3000}:3000`
 - Control auth flows depend on `CONTROL_API_SECRET` or the dashboard secret fallback chain
 

@@ -51,3 +51,35 @@ test("executeBuy uses canIncreasePosition for tranche fills", async () => {
   assert.equal(result.error, "manual pause");
   assert.deepEqual(riskCalls, ["increase"]);
 });
+
+test("executeBuy blocks duplicate token exposure before risk checks", async () => {
+  const riskCalls: string[] = [];
+  const executor = new TradeExecutor(
+    {
+      holdsToken: () => true,
+    } as never,
+    {
+      canOpenPosition: () => {
+        riskCalls.push("open");
+        return { allowed: true };
+      },
+    } as never,
+    {} as never,
+    {} as never,
+    { mode: "DRY_RUN", configProfile: "default" },
+    defaultStrategyConfigs,
+  );
+
+  const result = await executor.executeBuy({
+    strategy: "S1_COPY",
+    tokenAddress: "So11111111111111111111111111111111111111112",
+    tokenSymbol: "TEST",
+    amountSol: 0.2,
+    maxSlippageBps: 500,
+    regime: "NORMAL",
+  });
+
+  assert.equal(result.success, false);
+  assert.equal(result.error, "token already held in active runtime");
+  assert.deepEqual(riskCalls, []);
+});

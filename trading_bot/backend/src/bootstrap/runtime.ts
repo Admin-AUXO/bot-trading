@@ -165,6 +165,7 @@ export async function startTradingBot(): Promise<void> {
   startApiServer({
     riskManager,
     positionTracker,
+    exitMonitor,
     regimeDetector,
     configProfileManager,
     tradeExecutor: executor,

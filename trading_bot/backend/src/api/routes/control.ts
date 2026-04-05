@@ -10,11 +10,15 @@ import { defaultStrategyConfigs, getExitPlan, type StrategyConfigMap } from "../
 import type { RuntimeState } from "../../core/runtime-state.js";
 import type { RiskManager } from "../../core/risk-manager.js";
 import type { TradeExecutor } from "../../core/trade-executor.js";
+import type { ExitMonitor } from "../../core/exit-monitor.js";
+import type { PositionTracker } from "../../core/position-tracker.js";
 import type { Strategy } from "../../utils/types.js";
 
 export function controlRouter(deps: {
   riskManager: unknown;
   tradeExecutor?: unknown;
+  positionTracker?: unknown;
+  exitMonitor?: unknown;
   dbClient?: typeof db;
   runtimeState?: RuntimeState;
   walletReconciler?: () => Promise<number | null>;
@@ -22,6 +26,8 @@ export function controlRouter(deps: {
   const router = Router();
   const riskManager = deps.riskManager as RiskManager;
   const tradeExecutor = deps.tradeExecutor as TradeExecutor | undefined;
+  const positionTracker = deps.positionTracker as PositionTracker | undefined;
+  const exitMonitor = deps.exitMonitor as ExitMonitor | undefined;
   const database = deps.dbClient ?? db;
   const snapshotScope = () => deps.runtimeState?.scope ?? riskManager.getSnapshot().scope;
   const strategyConfigs = () => deps.runtimeState?.strategyConfigs ?? defaultStrategyConfigs;
@@ -101,6 +107,8 @@ export function controlRouter(deps: {
           stopLoss: configs.S1_COPY.stopLossPercent,
           maxSlippageBps: configs.S1_COPY.maxSlippageBps,
           timeStopMinutes: configs.S1_COPY.timeStopMinutes,
+          maxSourceTxAgeSeconds: configs.S1_COPY.maxSourceTxAgeSeconds,
+          requireTradeDataInLive: configs.S1_COPY.requireTradeDataInLive,
           exitPlan: getExitPlan("S1_COPY", configs),
         },
         S2_GRADUATION: {
@@ -111,6 +119,9 @@ export function controlRouter(deps: {
           maxSlippageBps: configs.S2_GRADUATION.maxSlippageBps,
           timeStopMinutes: configs.S2_GRADUATION.timeStopMinutes,
           timeLimitMinutes: configs.S2_GRADUATION.timeLimitMinutes,
+          minUniqueHolders: configs.S2_GRADUATION.minUniqueHolders,
+          maxGraduationAgeAtEntrySeconds: configs.S2_GRADUATION.maxGraduationAgeAtEntrySeconds,
+          requireTradeDataInLive: configs.S2_GRADUATION.requireTradeDataInLive,
           exitPlan: getExitPlan("S2_GRADUATION", configs),
         },
         S3_MOMENTUM: {
@@ -189,6 +200,12 @@ export function controlRouter(deps: {
     });
 
     if (result.success) {
+      const newPosition = positionTracker?.getOpen(snapshotScope()).find((position) =>
+        position.tokenAddress === tokenAddress && position.strategy === strategy,
+      );
+      if (newPosition && exitMonitor) {
+        exitMonitor.startMonitoring(newPosition);
+      }
       invalidateDashboardReadCaches(snapshotScope());
       res.json({ success: true, txSignature: result.txSignature });
     } else {

@@ -13,6 +13,7 @@ import type { HeliusService } from "../services/helius.js";
 import type { BirdeyeService } from "../services/birdeye.js";
 import type { MarketRouter } from "../services/market-router.js";
 import type { ApiCallPurpose, ExecutionScope, SignalResult, JsonValue } from "../utils/types.js";
+import { runFreshnessCheck, runTradeDataChecks } from "../utils/token-filters.js";
 
 const log = createChildLogger("s1-copy");
 const DEFAULT_SCOPE: ExecutionScope = { mode: config.tradeMode, configProfile: "default" };
@@ -83,6 +84,7 @@ export class CopyTradeStrategy extends EventEmitter {
       await this.runWalletScoring();
       await this.loadEliteWallets();
     }
+    await this.primeWalletActivityWaterlines(this.eliteWallets);
     this.wsMessageHandler = (data) => {
       void this.handleWebhookEvent(data);
     };
@@ -106,7 +108,30 @@ export class CopyTradeStrategy extends EventEmitter {
   private async refreshEliteSubscriptions(): Promise<void> {
     if (!this.wsMessageHandler) return;
     this.helius.connectWebSocket(this.wsMessageHandler);
+    await this.primeWalletActivityWaterlines(this.eliteWallets);
     await this.subscribeToEliteWallets(this.eliteWallets);
+  }
+
+  private async primeWalletActivityWaterlines(wallets: string[]): Promise<void> {
+    await Promise.all(
+      [...new Set(wallets.filter(Boolean))].map((walletAddress) => this.primeWalletActivityWaterline(walletAddress)),
+    );
+  }
+
+  private async primeWalletActivityWaterline(walletAddress: string): Promise<void> {
+    try {
+      const latest = await this.helius.getSignaturesForAddress(
+        walletAddress,
+        1,
+        this.apiMeta("WALLET_DISCOVERY", false, 1),
+      );
+      const slot = Number((latest[0] as Record<string, unknown> | undefined)?.slot ?? 0);
+      if (slot > 0) {
+        this.helius.setLastSlot(walletAddress, slot);
+      }
+    } catch (err) {
+      log.warn({ walletAddress, err }, "failed to prime wallet activity waterline");
+    }
   }
 
   private async loadEliteWallets(): Promise<void> {
@@ -185,10 +210,12 @@ export class CopyTradeStrategy extends EventEmitter {
       walletAddress,
       this.apiMeta("WALLET_DISCOVERY"),
     );
-    if (!walletTrade || walletTrade.side !== "BUY") return;
+    if (!walletTrade) return;
 
     this.trackRecentSignature(nextSignature);
-    const { tokenAddress, amountSol, amountToken, signature: txSignature } = walletTrade;
+    if (walletTrade.side !== "BUY") return;
+
+    const { tokenAddress, amountSol, amountToken, signature: txSignature, blockTime } = walletTrade;
     if (!tokenAddress || this.processingTokens.has(tokenAddress)) return;
 
     this.processingTokens.add(tokenAddress);
@@ -222,13 +249,18 @@ export class CopyTradeStrategy extends EventEmitter {
         }
       }
 
-      await this.evaluateAndTrade(tokenAddress, walletAddress, detectedAt);
+      await this.evaluateAndTrade(tokenAddress, walletAddress, detectedAt, blockTime);
     } finally {
       this.processingTokens.delete(tokenAddress);
     }
   }
 
-  private async evaluateAndTrade(tokenAddress: string, walletAddress: string, detectedAt: number): Promise<void> {
+  private async evaluateAndTrade(
+    tokenAddress: string,
+    walletAddress: string,
+    detectedAt: number,
+    sourceBlockTime: number | null,
+  ): Promise<void> {
     if (!tokenAddress || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(tokenAddress)) {
       log.warn({ tokenAddress }, "invalid token address in webhook — skipping");
       return;
@@ -249,7 +281,7 @@ export class CopyTradeStrategy extends EventEmitter {
       return;
     }
 
-    const signal = await this.runFilters(tokenAddress);
+    const signal = await this.runFilters(tokenAddress, detectedAt, sourceBlockTime);
 
     await db.signal.create({
       data: {
@@ -302,7 +334,9 @@ export class CopyTradeStrategy extends EventEmitter {
       entryLiquidity: (signal.filterResults.liquidity as number) ?? undefined,
       entryMcap: (signal.filterResults.marketCap as number) ?? undefined,
       entryBuyPressure: (signal.filterResults.buyPercent as number) ?? undefined,
-      copyLeadMs: Date.now() - detectedAt,
+      copyLeadMs: sourceBlockTime && sourceBlockTime > 0
+        ? Math.max(0, Date.now() - sourceBlockTime * 1000)
+        : Date.now() - detectedAt,
     });
 
     if (result.success) {
@@ -312,8 +346,31 @@ export class CopyTradeStrategy extends EventEmitter {
     }
   }
 
-  private async runFilters(tokenAddress: string): Promise<SignalResult> {
+  private async runFilters(
+    tokenAddress: string,
+    detectedAtMs: number = Date.now(),
+    sourceBlockTime: number | null = null,
+  ): Promise<SignalResult> {
     const filters: Record<string, JsonValue> = {};
+    const requireLiveSourceFreshness = this.scope.mode === "LIVE";
+    const freshnessCheck = runFreshnessCheck(sourceBlockTime, {
+      nowMs: detectedAtMs,
+      maxAgeSeconds: this.cfg.maxSourceTxAgeSeconds,
+      requireTimestamp: requireLiveSourceFreshness,
+      ageKey: "sourceTxAgeSec",
+      label: "source transaction",
+    });
+    Object.assign(filters, freshnessCheck.filterResults);
+    if (!freshnessCheck.pass) {
+      return {
+        passed: false,
+        tokenAddress,
+        tokenSymbol: "",
+        rejectReason: freshnessCheck.reason,
+        filterResults: filters,
+      };
+    }
+
     const prefilter = await this.marketRouter.prefilterCandidates([tokenAddress]);
     const prefilterResult = prefilter.get(tokenAddress);
 
@@ -396,14 +453,19 @@ export class CopyTradeStrategy extends EventEmitter {
       return { passed: false, tokenAddress, tokenSymbol: overview.symbol, rejectReason: `top holder ${holders[0].percent}% > ${this.cfg.maxSingleHolderPercent}%`, filterResults: filters };
     }
 
-    if (tradeData) {
-      filters.uniqueWallet5m = tradeData.uniqueWallet5m;
-      filters.washTradingRatio = tradeData.volume5m > 0
-        ? tradeData.uniqueWallet5m / (tradeData.volume5m / 1000)
-        : 0;
-      if ((filters.washTradingRatio as number) < this.cfg.washTradingThreshold) {
-        return { passed: false, tokenAddress, tokenSymbol: overview.symbol, rejectReason: "wash trading detected", filterResults: filters };
-      }
+    const tradeDataCheck = runTradeDataChecks(tradeData, {
+      minWashTradingRatio: this.cfg.washTradingThreshold,
+      requireTradeData: this.scope.mode === "LIVE" && this.cfg.requireTradeDataInLive,
+    });
+    Object.assign(filters, tradeDataCheck.filterResults);
+    if (!tradeDataCheck.pass) {
+      return {
+        passed: false,
+        tokenAddress,
+        tokenSymbol: overview.symbol,
+        rejectReason: tradeDataCheck.reason,
+        filterResults: filters,
+      };
     }
 
     return {

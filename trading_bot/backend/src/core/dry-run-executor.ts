@@ -15,6 +15,7 @@ const log = createChildLogger("dry-run");
 
 export class DryRunExecutor implements ITradeExecutor {
   private runtimeState: RuntimeState;
+  private pendingTokenKeys = new Set<string>();
 
   constructor(
     private positionTracker: PositionTracker,
@@ -38,6 +39,16 @@ export class DryRunExecutor implements ITradeExecutor {
 
   async executeBuy(params: BuyParams): Promise<TradeResult> {
     const shouldTrackPending = !params.positionId;
+    const tokenReservationKey = shouldTrackPending ? this.reserveTokenSlot(params.tokenAddress) : null;
+    if (!params.positionId) {
+      if (!tokenReservationKey) {
+        return { success: false, error: "token already held or pending in active runtime" };
+      }
+      if (this.positionTracker.holdsToken(params.tokenAddress, this.runtimeState.scope)) {
+        this.releaseTokenSlot(tokenReservationKey);
+        return { success: false, error: "token already held in active runtime" };
+      }
+    }
     const riskCheck = params.positionId
       ? this.riskManager.canIncreasePosition(params.strategy, params.amountSol)
       : this.riskManager.canOpenPosition(params.strategy, params.amountSol);
@@ -68,9 +79,13 @@ export class DryRunExecutor implements ITradeExecutor {
         return { success: false, error: `slippage too high: ${quote.priceImpactPct}% (dry-run)` };
       }
 
-      const priceUsd = await this.jupiter.getTokenPriceUsd(params.tokenAddress);
+      const [tokenPriceUsd, solPriceUsd] = await Promise.all([
+        this.jupiter.getTokenPriceUsd(params.tokenAddress),
+        this.jupiter.getSolPriceUsd(),
+      ]);
       const amountToken = quote.outputAmountUi;
       const priceSol = params.amountSol / amountToken;
+      const priceUsd = tokenPriceUsd ?? (solPriceUsd ? priceSol * solPriceUsd : null);
       const txSig = this.fakeTxSig();
 
       let positionId = params.positionId;
@@ -154,6 +169,7 @@ export class DryRunExecutor implements ITradeExecutor {
       };
     } finally {
       if (shouldTrackPending) this.riskManager.releasePosition(params.strategy);
+      if (tokenReservationKey) this.releaseTokenSlot(tokenReservationKey);
     }
   }
 
@@ -179,14 +195,21 @@ export class DryRunExecutor implements ITradeExecutor {
     }
 
     const solReceived = quote.outputAmountUi;
-    const priceUsd = await this.jupiter.getTokenPriceUsd(params.tokenAddress);
     const priceSol = solReceived / params.amountToken;
+    const [tokenPriceUsd, solPriceUsd] = await Promise.all([
+      this.jupiter.getTokenPriceUsd(params.tokenAddress),
+      this.jupiter.getSolPriceUsd(),
+    ]);
+    const priceUsd = tokenPriceUsd ?? (solPriceUsd ? priceSol * solPriceUsd : null);
     const txSig = this.fakeTxSig();
 
     const pnlSol = solReceived - (position.entryPriceSol * params.amountToken);
-    const pnlUsd = priceUsd
-      ? (priceUsd - position.entryPriceUsd) * params.amountToken
-      : pnlSol * (position.entryPriceUsd / position.entryPriceSol);
+    const resolvedEntryUsd = position.entryPriceUsd > 0
+      ? position.entryPriceUsd
+      : position.entryPriceSol * (solPriceUsd ?? 0);
+    const pnlUsd = priceUsd != null && resolvedEntryUsd > 0
+      ? (priceUsd - resolvedEntryUsd) * params.amountToken
+      : pnlSol * (solPriceUsd ?? 0);
     const pnlPercent = ((priceSol - position.entryPriceSol) / position.entryPriceSol) * 100;
 
     const remaining = Math.max(0, position.remainingToken - params.amountToken);
@@ -256,6 +279,17 @@ export class DryRunExecutor implements ITradeExecutor {
       gasFee: config.capital.gasFee,
       jitoTip: 0,
     };
+  }
+
+  private reserveTokenSlot(tokenAddress: string): string | null {
+    const key = `${this.runtimeState.scope.mode}:${this.runtimeState.scope.configProfile}:${tokenAddress}`;
+    if (this.pendingTokenKeys.has(key)) return null;
+    this.pendingTokenKeys.add(key);
+    return key;
+  }
+
+  private releaseTokenSlot(key: string): void {
+    this.pendingTokenKeys.delete(key);
   }
 
 }

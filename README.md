@@ -19,6 +19,14 @@ cd trading_bot
 docker compose up -d postgres redis
 ```
 
+If `5432` or `6379` is already taken on the host, override the local bindings first:
+
+```powershell
+$env:POSTGRES_PORT="55432"
+$env:REDIS_PORT="56379"
+docker compose up -d postgres redis
+```
+
 2. Create the backend env file:
 
 ```powershell
@@ -37,6 +45,8 @@ Copy-Item .env.example .env
 - `SOLANA_PRIVATE_KEY`
 - `SOLANA_PUBLIC_KEY`
 - `CONTROL_API_SECRET`
+
+If you overrode `POSTGRES_PORT` or `REDIS_PORT`, make `DATABASE_URL` and `REDIS_URL` use those same host ports.
 
 4. Keep `TRADE_MODE="DRY_RUN"` unless you intentionally want real execution.
 

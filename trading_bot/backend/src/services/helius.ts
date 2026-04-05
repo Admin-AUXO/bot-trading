@@ -439,7 +439,7 @@ export class HeliusService {
     signature: string,
     walletAddress: string,
     meta?: ApiRequestMeta,
-  ): Promise<{ signature: string; tokenAddress: string; amountToken: number; amountSol: number; side: "BUY" | "SELL" } | null> {
+  ): Promise<{ signature: string; tokenAddress: string; amountToken: number; amountSol: number; side: "BUY" | "SELL"; blockTime: number | null } | null> {
     const tx = await this.getTransaction(signature, meta);
     if (!tx) return null;
 
@@ -465,11 +465,60 @@ export class HeliusService {
     if (!primary || primary.delta === 0) return null;
 
     const side = primary.delta > 0 ? "BUY" : "SELL";
+    const blockTime = Number(tx.blockTime ?? 0);
     return {
       signature,
       tokenAddress: primary.mint,
       amountToken: Math.abs(primary.delta),
       amountSol: Math.abs(lamportDelta),
+      side,
+      blockTime: blockTime > 0 ? blockTime : null,
+    };
+  }
+
+  async getWalletTradeFillFromSignature(
+    signature: string,
+    walletAddress: string,
+    tokenAddress: string,
+    meta?: ApiRequestMeta,
+  ): Promise<{ signature: string; tokenAddress: string; amountToken: number; amountSol: number; feeSol: number; side: "BUY" | "SELL" } | null> {
+    const tx = await this.getTransaction(signature, meta);
+    if (!tx) return null;
+
+    const transaction = tx.transaction as Record<string, unknown> | undefined;
+    const metaInfo = tx.meta as Record<string, unknown> | undefined;
+    const message = transaction?.message as Record<string, unknown> | undefined;
+    const accountKeys = (message?.accountKeys as unknown[]) ?? [];
+    const walletIndex = accountKeys.findIndex((key) => extractAccountKey(key) === walletAddress);
+    if (walletIndex < 0 || !metaInfo) return null;
+
+    const preBalances = (metaInfo.preBalances as number[] | undefined) ?? [];
+    const postBalances = (metaInfo.postBalances as number[] | undefined) ?? [];
+    const lamportDelta = ((postBalances[walletIndex] ?? 0) - (preBalances[walletIndex] ?? 0)) / 1e9;
+    const feeSol = Number(metaInfo.fee ?? 0) / 1e9;
+
+    const tokenDeltas = computeWalletTokenDeltas(
+      walletAddress,
+      (metaInfo.preTokenBalances as Array<Record<string, unknown>> | undefined) ?? [],
+      (metaInfo.postTokenBalances as Array<Record<string, unknown>> | undefined) ?? [],
+    );
+    const tokenDelta = tokenDeltas.find((entry) => entry.mint === tokenAddress)?.delta ?? 0;
+    if (tokenDelta === 0) return null;
+
+    const side = tokenDelta > 0 ? "BUY" : "SELL";
+    const amountToken = Math.abs(tokenDelta);
+    const amountSol = side === "BUY"
+      ? Math.max(0, Math.abs(lamportDelta) - feeSol)
+      : Math.max(0, lamportDelta + feeSol);
+
+    if (amountToken <= 0 || amountSol <= 0) return null;
+
+    return {
+      signature,
+      tokenAddress,
+      amountToken,
+      amountSol,
+      feeSol,
       side,
     };
   }

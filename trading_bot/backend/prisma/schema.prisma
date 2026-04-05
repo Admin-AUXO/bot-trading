@@ -244,6 +244,7 @@ model DailyStats {
   @@unique([date, seriesKey, mode, configProfile])
   @@index([date])
   @@index([mode])
+  @@index([mode, configProfile, date])
 }
 
 model ApiUsageDaily {

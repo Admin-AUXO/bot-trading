@@ -52,7 +52,8 @@ Important behavior:
 
 - manual controls execute only on the active runtime lane
 - a page can inspect another lane, but writes still target the active runtime lane
-- settings page exposes this distinction and blocks invalid switches
+- settings page exposes this distinction, blocks invalid switches, and now lets operators edit profile overrides inline
+- editing the active runtime profile updates the live runtime lane immediately; editing inactive profiles only changes what will apply on activation
 
 ## Files To Update Together
 

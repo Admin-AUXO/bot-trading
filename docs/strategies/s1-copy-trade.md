@@ -22,6 +22,7 @@ Source file: `trading_bot/backend/src/strategies/copy-trade.ts`
 
 ## Main Filters
 
+- live source-transaction freshness cap before any paid enrichment
 - minimum liquidity
 - maximum market cap
 - minimum buy pressure
@@ -36,11 +37,14 @@ Source file: `trading_bot/backend/src/strategies/copy-trade.ts`
 
 - `RISK_OFF` blocks new copy entries
 - duplicate signatures and already-held tokens are skipped
+- startup and elite-wallet refresh now prime a per-wallet signature waterline so S1 does not replay pre-existing history on reconnect
 - wallet-scoring is quota-degradable and can be skipped when Helius non-essential budget is stressed
 - `CHOPPY` hard-pauses S1 even when other strategies can still trade
 - wallet-activity price capture now goes through `MarketRouter.refreshExitContext()`, so S1 analytics no longer call Birdeye `multi_price` for every copied buy
 - DEX Screener prefilter is a cheap trash filter, not a replacement for Birdeye security, holder, or wash-trading checks
-- missing Birdeye trade data weakens the wash-trading check instead of hard-rejecting the token
+- `LIVE` now hard-rejects copied buys if the source transaction timestamp is missing or older than the configured freshness cap
+- `LIVE` now hard-rejects tokens when Birdeye trade data is missing instead of weakening the wash-trading check
+- `DRY_RUN` still allows missing Birdeye trade data to pass the wash-trading gate so analytics can keep observing candidates
 - open-position exit pricing now comes from `MarketRouter.refreshExitContext()` on the `5s` loop, so S1 exits no longer depend on Birdeye `multi_price`
 - daily wallet scoring still pays for Birdeye top-trader discovery and Helius archival history; those costs are unchanged by the entry-path refactor
 

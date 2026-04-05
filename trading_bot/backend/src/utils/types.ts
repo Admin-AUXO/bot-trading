@@ -296,8 +296,12 @@ export interface StrategyOverrides {
   minLiquidity?: number;
   maxMarketCap?: number;
   minBuyPressure?: number;
+  minUniqueHolders?: number;
+  maxSourceTxAgeSeconds?: number;
+  maxGraduationAgeAtEntrySeconds?: number;
   maxTop10HolderPercent?: number;
   maxSingleHolderPercent?: number;
+  requireTradeDataInLive?: boolean;
   volumeSpikeMultiplier?: number;
   scanIntervalMs?: number;
 }

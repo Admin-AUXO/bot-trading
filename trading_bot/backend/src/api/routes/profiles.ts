@@ -158,6 +158,14 @@ export function profilesRouter(deps: {
     if (!settings) return res.status(400).json({ error: "settings required" });
     const profileName = String(req.params.name);
     await manager.updateProfile(profileName, settings);
+    if (deps.runtimeState && deps.runtimeState.scope.configProfile === profileName) {
+      deps.runtimeState.strategyConfigs = {
+        S1_COPY: manager.getStrategyConfig(profileName, "s1"),
+        S2_GRADUATION: manager.getStrategyConfig(profileName, "s2"),
+        S3_MOMENTUM: manager.getStrategyConfig(profileName, "s3"),
+      };
+      deps.runtimeState.capitalConfig = manager.getCapitalConfig(profileName);
+    }
     invalidateDashboardReadCaches();
     res.json({ status: "updated" });
   });

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import {
   Activity,
   ArrowLeftRight,
@@ -22,6 +22,21 @@ import { ALL_TRADE_SOURCE_FILTER } from "@/lib/store";
 import { cn, formatUsd, pnlClass, strategyLabel } from "@/lib/utils";
 
 const SIDEBAR_WIDTH = 256;
+
+function subscribeDesktopMedia(callback: () => void) {
+  if (typeof window === "undefined") {
+    return () => undefined;
+  }
+
+  const mediaQuery = window.matchMedia("(min-width: 1024px)");
+  const handleChange = () => callback();
+  mediaQuery.addEventListener("change", handleChange);
+  return () => mediaQuery.removeEventListener("change", handleChange);
+}
+
+function getDesktopMediaSnapshot() {
+  return typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches;
+}
 
 const navItems = [
   {
@@ -89,17 +104,7 @@ export function Sidebar() {
     pauseReasons,
     worstQuota,
   } = useDashboardShell();
-  const [isDesktop, setIsDesktop] = useState(false);
-  const [hasHydrated, setHasHydrated] = useState(false);
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia("(min-width: 1024px)");
-    setIsDesktop(mediaQuery.matches);
-    setHasHydrated(true);
-    const handleChange = (event: MediaQueryListEvent) => setIsDesktop(event.matches);
-    mediaQuery.addEventListener("change", handleChange);
-    return () => mediaQuery.removeEventListener("change", handleChange);
-  }, []);
+  const isDesktop = useSyncExternalStore(subscribeDesktopMedia, getDesktopMediaSnapshot, () => false);
 
   return (
     <>
@@ -126,8 +131,8 @@ export function Sidebar() {
 
       <motion.aside
         initial={false}
-        animate={hasHydrated ? { x: isDesktop || sidebarOpen ? 0 : -SIDEBAR_WIDTH } : undefined}
-        transition={hasHydrated ? { type: "spring", damping: 28, stiffness: 240 } : undefined}
+        animate={{ x: isDesktop || sidebarOpen ? 0 : -SIDEBAR_WIDTH }}
+        transition={{ type: "spring", damping: 28, stiffness: 240 }}
         className="fixed left-0 top-0 z-50 flex h-screen w-64 -translate-x-full flex-col border-r border-bg-border/80 bg-bg-secondary/92 backdrop-blur-xl lg:translate-x-0"
       >
         <div className="border-b border-bg-border px-4 py-4">

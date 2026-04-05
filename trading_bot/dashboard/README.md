@@ -21,7 +21,7 @@ This is the operator surface for the trading bot. It is a Next.js 16 App Router 
 - `/trades`: fills, signals, rejections, and filter evidence
 - `/analytics`: expectancy, execution quality, capital curve, distributions, scope badges
 - `/quota`: provider runway, endpoint concentration, quota-specific blockers
-- `/settings`: bot controls, operator session, strategy config, reconciliation, profile management
+- `/settings`: bot controls, operator session, strategy config, live-entry guardrails, reconciliation, profile management, profile override visibility, and inline override editing
 
 ## Data And Scope Rules
 

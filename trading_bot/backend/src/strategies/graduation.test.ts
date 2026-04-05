@@ -158,3 +158,205 @@ test("GraduationStrategy.runSeedScan uses recent seeds and DEX prefilter before 
   assert.equal(memeDetailCalls, 2);
   assert.deepEqual(processed, ["mint_1"]);
 });
+
+test("GraduationStrategy.runFilters rejects stale graduations in LIVE before provider checks", async () => {
+  let birdeyeCalls = 0;
+  let heliusCalls = 0;
+
+  const strategy = new (GraduationStrategy as any)(
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {
+      getSignaturesForAddress: async () => {
+        heliusCalls += 1;
+        return [];
+      },
+    } as never,
+    {} as never,
+    {
+      getTokenSecurity: async () => {
+        birdeyeCalls += 1;
+        return null;
+      },
+      getTokenHolders: async () => {
+        birdeyeCalls += 1;
+        return [];
+      },
+      getTokenOverview: async () => {
+        birdeyeCalls += 1;
+        return null;
+      },
+      getTradeData: async () => {
+        birdeyeCalls += 1;
+        return null;
+      },
+    } as never,
+    {
+      scope: { mode: "LIVE", configProfile: "default" },
+    },
+  );
+
+  const originalDateNow = Date.now;
+  Date.now = () => 1_700_000_250_000;
+
+  try {
+    const result = await (strategy as any).runFilters({
+      address: "mint_old",
+      symbol: "OLD",
+      name: "Old",
+      source: "pumpfun",
+      progressPercent: 100,
+      graduated: true,
+      graduatedTime: 1_700_000_000,
+      realSolReserves: 10,
+      creator: "creator_old",
+    });
+
+    assert.equal(result.passed, false);
+    assert.match(result.rejectReason ?? "", /graduation age 250s > 180s/i);
+    assert.equal(result.filterResults.graduationAgeSec, 250);
+    assert.equal(birdeyeCalls, 0);
+    assert.equal(heliusCalls, 0);
+  } finally {
+    Date.now = originalDateNow;
+  }
+});
+
+test("GraduationStrategy.runFilters rejects missing trade data in LIVE", async () => {
+  const strategy = new (GraduationStrategy as any)(
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {
+      getSignaturesForAddress: async () => [],
+    } as never,
+    {} as never,
+    {
+      getTokenSecurity: async () => ({
+        top10HolderPercent: 20,
+        freezeable: false,
+        mintAuthority: false,
+        transferFeeEnable: false,
+        mutableMetadata: false,
+      }),
+      getTokenHolders: async () => [{ address: "holder_1", percent: 5 }],
+      getTokenOverview: async () => ({
+        address: "mint_live",
+        symbol: "LIVE",
+        name: "Live Token",
+        price: 0.1,
+        priceChange5m: 10,
+        priceChange1h: 20,
+        volume5m: 25_000,
+        volume1h: 50_000,
+        liquidity: 25_000,
+        marketCap: 120_000,
+        holder: 250,
+        buyPercent: 60,
+        sellPercent: 40,
+      }),
+      getTradeData: async () => null,
+    } as never,
+    {
+      scope: { mode: "LIVE", configProfile: "default" },
+    },
+  );
+
+  const originalDateNow = Date.now;
+  Date.now = () => 1_700_000_100_000;
+
+  try {
+    const result = await (strategy as any).runFilters({
+      address: "mint_live",
+      symbol: "LIVE",
+      name: "Live Token",
+      source: "pumpfun",
+      progressPercent: 100,
+      graduated: true,
+      graduatedTime: 1_700_000_000,
+      realSolReserves: 10,
+      creator: "creator_live",
+    });
+
+    assert.equal(result.passed, false);
+    assert.equal(result.rejectReason, "no trade data");
+    assert.equal(result.filterResults.tradeDataAvailable, false);
+  } finally {
+    Date.now = originalDateNow;
+  }
+});
+
+test("GraduationStrategy.runFilters enforces minUniqueHolders", async () => {
+  const strategy = new (GraduationStrategy as any)(
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {
+      getSignaturesForAddress: async () => [],
+    } as never,
+    {} as never,
+    {
+      getTokenSecurity: async () => ({
+        top10HolderPercent: 20,
+        freezeable: false,
+        mintAuthority: false,
+        transferFeeEnable: false,
+        mutableMetadata: false,
+      }),
+      getTokenHolders: async () => [{ address: "holder_1", percent: 5 }],
+      getTokenOverview: async () => ({
+        address: "mint_holders",
+        symbol: "HOLD",
+        name: "Holder Token",
+        price: 0.1,
+        priceChange5m: 10,
+        priceChange1h: 20,
+        volume5m: 25_000,
+        volume1h: 50_000,
+        liquidity: 25_000,
+        marketCap: 120_000,
+        holder: 150,
+        buyPercent: 60,
+        sellPercent: 40,
+      }),
+      getTradeData: async () => ({
+        volume5m: 25_000,
+        volumeHistory5m: 10_000,
+        volumeBuy5m: 20_000,
+        trade5m: 120,
+        buy5m: 90,
+        uniqueWallet5m: 80,
+      }),
+    } as never,
+  );
+
+  const originalDateNow = Date.now;
+  Date.now = () => 1_700_000_100_000;
+
+  try {
+    const result = await (strategy as any).runFilters({
+      address: "mint_holders",
+      symbol: "HOLD",
+      name: "Holder Token",
+      source: "pumpfun",
+      progressPercent: 100,
+      graduated: true,
+      graduatedTime: 1_700_000_000,
+      realSolReserves: 10,
+      creator: "creator_hold",
+    });
+
+    assert.equal(result.passed, false);
+    assert.equal(result.rejectReason, "holders 150 < 200");
+    assert.equal(result.filterResults.holderCount, 150);
+  } finally {
+    Date.now = originalDateNow;
+  }
+});

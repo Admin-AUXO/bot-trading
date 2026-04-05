@@ -6,10 +6,10 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   pauseBot, resumeBot,
-  createProfile, toggleProfile, deleteProfile,
+  createProfile, updateProfile, toggleProfile, deleteProfile,
   reconcileWallet, unlockOperatorSession, clearOperatorSession,
 } from "@/lib/api";
-import type { ConfigProfile, TradeMode } from "@/lib/api";
+import type { ConfigProfile, DashboardProfileSettings, StrategyConfigResponse, TradeMode } from "@/lib/api";
 import { apiUsageQueryOptions, dashboardQueryKeys, profileResultsSummariesQueryOptions, profilesQueryOptions } from "@/lib/dashboard-query-options";
 import { useDashboardShell } from "@/hooks/use-dashboard-shell";
 import { decorateBudgetSnapshots, formatApiEndpointUsageScope, getApiEndpointUsageKey, getApiUsageSnapshotRows } from "@/lib/api-usage";
@@ -40,6 +40,265 @@ const STRATEGY_BORDER: Record<string, string> = {
   S2_GRADUATION: "border-l-accent-purple",
   S3_MOMENTUM: "border-l-accent-cyan",
 };
+
+type StrategyConfigCard = StrategyConfigResponse["strategies"][string];
+type TriStateBoolean = "inherit" | "true" | "false";
+type ProfileOverrideDraft = {
+  capitalUsd: string;
+  dailyLossPercent: string;
+  weeklyLossPercent: string;
+  s1: {
+    positionSizeSol: string;
+    maxSlippageBps: string;
+    maxSourceTxAgeSeconds: string;
+    requireTradeDataInLive: TriStateBoolean;
+  };
+  s2: {
+    positionSizeSol: string;
+    maxSlippageBps: string;
+    minUniqueHolders: string;
+    maxGraduationAgeAtEntrySeconds: string;
+    requireTradeDataInLive: TriStateBoolean;
+  };
+  s3: {
+    positionSizeSol: string;
+    maxSlippageBps: string;
+  };
+};
+
+function getLiveGuardrailRows(strategy: string, cfg: StrategyConfigCard): Array<{ label: string; value: string; tone?: "neutral" | "safe" | "warn" }> {
+  const rows: Array<{ label: string; value: string; tone?: "neutral" | "safe" | "warn" }> = [];
+
+  if (strategy === "S1_COPY" && cfg.maxSourceTxAgeSeconds !== undefined) {
+    rows.push({ label: "Source Freshness", value: `<= ${cfg.maxSourceTxAgeSeconds}s`, tone: "warn" });
+  }
+
+  if (strategy === "S2_GRADUATION" && cfg.minUniqueHolders !== undefined) {
+    rows.push({ label: "Min Holders", value: formatNumber(cfg.minUniqueHolders), tone: "warn" });
+  }
+
+  if (strategy === "S2_GRADUATION" && cfg.maxGraduationAgeAtEntrySeconds !== undefined) {
+    rows.push({ label: "Grad Age", value: `<= ${cfg.maxGraduationAgeAtEntrySeconds}s`, tone: "warn" });
+  }
+
+  if (cfg.requireTradeDataInLive !== undefined) {
+    rows.push({
+      label: "LIVE Trade Data",
+      value: cfg.requireTradeDataInLive ? "Required" : "Optional",
+      tone: cfg.requireTradeDataInLive ? "safe" : "warn",
+    });
+  }
+
+  return rows;
+}
+
+function getProfileOverrideTokens(profile: ConfigProfile): Array<{ label: string; tone: "neutral" | "safe" | "warn" }> {
+  const settings = (profile.settings ?? {}) as Record<string, unknown>;
+  const strategyEntries: Array<[string, string]> = [
+    ["s1", "S1"],
+    ["s2", "S2"],
+    ["s3", "S3"],
+  ];
+  const tokens: Array<{ label: string; tone: "neutral" | "safe" | "warn" }> = [];
+
+  const pushToken = (label: string, tone: "neutral" | "safe" | "warn" = "neutral") => {
+    if (!tokens.some((token) => token.label === label)) {
+      tokens.push({ label, tone });
+    }
+  };
+
+  for (const [strategyKey, prefix] of strategyEntries) {
+    const overrides = settings[strategyKey];
+    if (!overrides || typeof overrides !== "object") continue;
+    const config = overrides as Record<string, unknown>;
+
+    if ("maxSourceTxAgeSeconds" in config && Number.isFinite(Number(config.maxSourceTxAgeSeconds))) {
+      pushToken(`${prefix} tx age ${Number(config.maxSourceTxAgeSeconds)}s`);
+    }
+    if ("maxGraduationAgeAtEntrySeconds" in config && Number.isFinite(Number(config.maxGraduationAgeAtEntrySeconds))) {
+      pushToken(`${prefix} grad age ${Number(config.maxGraduationAgeAtEntrySeconds)}s`);
+    }
+    if ("minUniqueHolders" in config && Number.isFinite(Number(config.minUniqueHolders))) {
+      pushToken(`${prefix} holders ${formatNumber(Number(config.minUniqueHolders))}`);
+    }
+    if ("requireTradeDataInLive" in config && typeof config.requireTradeDataInLive === "boolean") {
+      pushToken(
+        `${prefix} LIVE trade data ${config.requireTradeDataInLive ? "required" : "soft"}`,
+        config.requireTradeDataInLive ? "safe" : "warn",
+      );
+    }
+    if ("maxSlippageBps" in config && Number.isFinite(Number(config.maxSlippageBps))) {
+      pushToken(`${prefix} slip ${Number(config.maxSlippageBps)}bps`);
+    }
+    if ("positionSizeSol" in config && Number.isFinite(Number(config.positionSizeSol))) {
+      pushToken(`${prefix} size ${Number(config.positionSizeSol)} SOL`);
+    }
+  }
+
+  if ("capitalUsd" in settings && Number.isFinite(Number(settings.capitalUsd))) {
+    pushToken(`Capital ${formatUsd(Number(settings.capitalUsd))}`);
+  }
+
+  return tokens;
+}
+
+function readNumberOverride(settings: Record<string, unknown>, key: string): string {
+  const value = settings[key];
+  return typeof value === "number" && Number.isFinite(value) ? String(value) : "";
+}
+
+function readPercentOverride(settings: Record<string, unknown>, key: string): string {
+  const value = settings[key];
+  return typeof value === "number" && Number.isFinite(value) ? String(value * 100) : "";
+}
+
+function readBooleanOverride(settings: Record<string, unknown>, key: string): TriStateBoolean {
+  const value = settings[key];
+  return typeof value === "boolean" ? String(value) as TriStateBoolean : "inherit";
+}
+
+function createEmptyProfileOverrideDraft(): ProfileOverrideDraft {
+  return {
+    capitalUsd: "",
+    dailyLossPercent: "",
+    weeklyLossPercent: "",
+    s1: {
+      positionSizeSol: "",
+      maxSlippageBps: "",
+      maxSourceTxAgeSeconds: "",
+      requireTradeDataInLive: "inherit",
+    },
+    s2: {
+      positionSizeSol: "",
+      maxSlippageBps: "",
+      minUniqueHolders: "",
+      maxGraduationAgeAtEntrySeconds: "",
+      requireTradeDataInLive: "inherit",
+    },
+    s3: {
+      positionSizeSol: "",
+      maxSlippageBps: "",
+    },
+  };
+}
+
+function createProfileOverrideDraft(profile: ConfigProfile): ProfileOverrideDraft {
+  const settings = (profile.settings ?? {}) as Record<string, unknown>;
+  const s1 = (settings.s1 as Record<string, unknown> | undefined) ?? {};
+  const s2 = (settings.s2 as Record<string, unknown> | undefined) ?? {};
+  const s3 = (settings.s3 as Record<string, unknown> | undefined) ?? {};
+
+  return {
+    capitalUsd: readNumberOverride(settings, "capitalUsd"),
+    dailyLossPercent: readPercentOverride(settings, "dailyLossPercent"),
+    weeklyLossPercent: readPercentOverride(settings, "weeklyLossPercent"),
+    s1: {
+      positionSizeSol: readNumberOverride(s1, "positionSizeSol"),
+      maxSlippageBps: readNumberOverride(s1, "maxSlippageBps"),
+      maxSourceTxAgeSeconds: readNumberOverride(s1, "maxSourceTxAgeSeconds"),
+      requireTradeDataInLive: readBooleanOverride(s1, "requireTradeDataInLive"),
+    },
+    s2: {
+      positionSizeSol: readNumberOverride(s2, "positionSizeSol"),
+      maxSlippageBps: readNumberOverride(s2, "maxSlippageBps"),
+      minUniqueHolders: readNumberOverride(s2, "minUniqueHolders"),
+      maxGraduationAgeAtEntrySeconds: readNumberOverride(s2, "maxGraduationAgeAtEntrySeconds"),
+      requireTradeDataInLive: readBooleanOverride(s2, "requireTradeDataInLive"),
+    },
+    s3: {
+      positionSizeSol: readNumberOverride(s3, "positionSizeSol"),
+      maxSlippageBps: readNumberOverride(s3, "maxSlippageBps"),
+    },
+  };
+}
+
+function numberOrUndefined(value: string): number | undefined {
+  if (value.trim().length === 0) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function percentToFractionOrUndefined(value: string): number | undefined {
+  const parsed = numberOrUndefined(value);
+  return parsed === undefined ? undefined : parsed / 100;
+}
+
+function triStateBooleanToValue(value: TriStateBoolean): boolean | undefined {
+  if (value === "inherit") return undefined;
+  return value === "true";
+}
+
+function compactObject<T extends Record<string, unknown>>(value: T): Partial<T> {
+  const entries = Object.entries(value).filter(([, entry]) => entry !== undefined);
+  return Object.fromEntries(entries) as Partial<T>;
+}
+
+function buildProfileSettingsPayload(draft: ProfileOverrideDraft): DashboardProfileSettings {
+  const s1 = compactObject({
+    positionSizeSol: numberOrUndefined(draft.s1.positionSizeSol),
+    maxSlippageBps: numberOrUndefined(draft.s1.maxSlippageBps),
+    maxSourceTxAgeSeconds: numberOrUndefined(draft.s1.maxSourceTxAgeSeconds),
+    requireTradeDataInLive: triStateBooleanToValue(draft.s1.requireTradeDataInLive),
+  });
+  const s2 = compactObject({
+    positionSizeSol: numberOrUndefined(draft.s2.positionSizeSol),
+    maxSlippageBps: numberOrUndefined(draft.s2.maxSlippageBps),
+    minUniqueHolders: numberOrUndefined(draft.s2.minUniqueHolders),
+    maxGraduationAgeAtEntrySeconds: numberOrUndefined(draft.s2.maxGraduationAgeAtEntrySeconds),
+    requireTradeDataInLive: triStateBooleanToValue(draft.s2.requireTradeDataInLive),
+  });
+  const s3 = compactObject({
+    positionSizeSol: numberOrUndefined(draft.s3.positionSizeSol),
+    maxSlippageBps: numberOrUndefined(draft.s3.maxSlippageBps),
+  });
+
+  return compactObject({
+    capitalUsd: numberOrUndefined(draft.capitalUsd),
+    dailyLossPercent: percentToFractionOrUndefined(draft.dailyLossPercent),
+    weeklyLossPercent: percentToFractionOrUndefined(draft.weeklyLossPercent),
+    s1: Object.keys(s1).length > 0 ? s1 : undefined,
+    s2: Object.keys(s2).length > 0 ? s2 : undefined,
+    s3: Object.keys(s3).length > 0 ? s3 : undefined,
+  });
+}
+
+function validatePositiveField(value: string, label: string, errors: string[]) {
+  if (value.trim().length === 0) return;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    errors.push(`${label} must be greater than 0`);
+  }
+}
+
+function validatePercentField(value: string, label: string, errors: string[]) {
+  if (value.trim().length === 0) return;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0 || parsed >= 100) {
+    errors.push(`${label} must be between 0 and 100`);
+  }
+}
+
+function validateProfileOverrideDraft(draft: ProfileOverrideDraft): string[] {
+  const errors: string[] = [];
+
+  validatePositiveField(draft.capitalUsd, "Capital USD", errors);
+  validatePercentField(draft.dailyLossPercent, "Daily Loss %", errors);
+  validatePercentField(draft.weeklyLossPercent, "Weekly Loss %", errors);
+
+  validatePositiveField(draft.s1.positionSizeSol, "S1 position size", errors);
+  validatePositiveField(draft.s1.maxSlippageBps, "S1 max slippage", errors);
+  validatePositiveField(draft.s1.maxSourceTxAgeSeconds, "S1 source tx age", errors);
+
+  validatePositiveField(draft.s2.positionSizeSol, "S2 position size", errors);
+  validatePositiveField(draft.s2.maxSlippageBps, "S2 max slippage", errors);
+  validatePositiveField(draft.s2.minUniqueHolders, "S2 min unique holders", errors);
+  validatePositiveField(draft.s2.maxGraduationAgeAtEntrySeconds, "S2 graduation age", errors);
+
+  validatePositiveField(draft.s3.positionSizeSol, "S3 position size", errors);
+  validatePositiveField(draft.s3.maxSlippageBps, "S3 max slippage", errors);
+
+  return errors;
+}
 
 export default function SettingsPage() {
   const queryClient = useQueryClient();
@@ -415,11 +674,15 @@ export default function SettingsPage() {
             <Shield className="w-4 h-4 text-accent-yellow" />
             <span className="stat-label">Strategy Configuration</span>
           </div>
+          <div className="mb-3 text-[11px] text-text-muted">
+            Runtime truth for the active lane. LIVE-only entry guardrails are shown here so the operator can see exactly what blocks stale or low-information buys.
+          </div>
           {stratConfig ? (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {Object.entries(stratConfig.strategies).map(([key, cfg]) => {
                 const active = positionsByStrategy[key] ?? 0;
                 const liveSizeChanged = Math.abs(cfg.effectivePositionSize - cfg.configuredPositionSize) > 0.0001;
+                const liveGuardrails = getLiveGuardrailRows(key, cfg);
                 return (
                   <div key={key} className={`card card-hover border-l-2 ${STRATEGY_BORDER[key] ?? ""}`}>
                     <div className={`font-bold text-base mb-3 ${STRATEGY_COLORS[key] ?? ""}`}>
@@ -484,6 +747,27 @@ export default function SettingsPage() {
                           </div>
                         )}
                       </div>
+                      {liveGuardrails.length > 0 && (
+                        <div className="pt-2 mt-1 border-t border-bg-border space-y-1.5">
+                          <div className="text-text-muted font-medium text-[10px] uppercase tracking-wider">
+                            Live Entry Guardrails
+                          </div>
+                          {liveGuardrails.map((guardrail) => (
+                            <div key={`${key}-${guardrail.label}`} className="flex items-center justify-between gap-3">
+                              <span className="text-text-muted">{guardrail.label}</span>
+                              <span className={
+                                guardrail.tone === "safe"
+                                  ? "font-medium text-accent-green"
+                                  : guardrail.tone === "warn"
+                                    ? "font-medium text-accent-yellow"
+                                    : "font-medium text-text-secondary"
+                              }>
+                                {guardrail.value}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -848,6 +1132,8 @@ function ProfilesSection({
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
   const [newMode, setNewMode] = useState<TradeMode>("DRY_RUN");
+  const [editingProfileName, setEditingProfileName] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<ProfileOverrideDraft>(createEmptyProfileOverrideDraft());
   const profileResultsSummariesQuery = useQuery(profileResultsSummariesQueryOptions());
   const profileResultsByKey = new Map(
     (profileResultsSummariesQuery.data ?? []).map((summary) => [`${summary.mode}:${summary.profile}`, summary]),
@@ -867,6 +1153,16 @@ function ProfilesSection({
     },
   });
 
+  const updateMut = useMutation({
+    mutationFn: ({ name, settings }: { name: string; settings: DashboardProfileSettings }) =>
+      updateProfile(name, settings),
+    onSuccess: async () => {
+      await invalidateProfileAndRuntimeState();
+      setEditingProfileName(null);
+      setEditDraft(createEmptyProfileOverrideDraft());
+    },
+  });
+
   const toggleMut = useMutation({
     mutationFn: ({ name, active }: { name: string; active: boolean }) => toggleProfile(name, active),
     onSuccess: invalidateProfileAndRuntimeState,
@@ -877,6 +1173,11 @@ function ProfilesSection({
     onSuccess: invalidateProfileAndRuntimeState,
   });
   const runtimeSwitchBlocked = activeScope != null && openPositionCount > 0;
+  const beginEditing = (profile: ConfigProfile) => {
+    setEditingProfileName(profile.name);
+    setEditDraft(createProfileOverrideDraft(profile));
+  };
+  const editDraftErrors = validateProfileOverrideDraft(editDraft);
 
   return (
     <div className="card h-full">
@@ -908,6 +1209,12 @@ function ProfilesSection({
           Runtime profile switching stays disabled while {activeScope?.mode}/{activeScope?.configProfile} still has {openPositionCount} open position{openPositionCount === 1 ? "" : "s"}.
         </div>
       ) : null}
+      <div className="mb-3 text-[11px] text-text-muted">
+        Profiles inherit backend defaults unless they carry overrides. This page now exposes the override summary so a profile cannot silently weaken safety.
+      </div>
+      <div className="mb-3 text-[11px] text-text-muted">
+        Editing the active runtime profile updates the live lane immediately. Leave a field blank to inherit the backend default again.
+      </div>
 
       <AnimatePresence>
         {showCreate && !controlsLocked && !controlsUnavailable && (
@@ -959,6 +1266,9 @@ function ProfilesSection({
                 </button>
                 <button onClick={() => setShowCreate(false)} className="btn-ghost text-xs">Cancel</button>
               </div>
+              <div className="text-[11px] text-text-muted">
+                New profiles start by inheriting the backend defaults for this mode. Create first, then use the inline editor below to add or remove overrides.
+              </div>
             </div>
           </motion.div>
         )}
@@ -967,128 +1277,388 @@ function ProfilesSection({
       <div className="space-y-1.5">
         <AnimatePresence>
           {profiles.map((p) => (
-            <motion.div
-              key={p.id}
-              layout
-              initial={{ opacity: 0, x: -8 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 8 }}
-              className="flex items-start justify-between gap-3 py-2.5 px-3 rounded-lg border border-bg-border bg-bg-hover/30 hover:bg-bg-hover/60 transition-colors"
-            >
-              {(() => {
-                const results = profileResultsByKey.get(`${p.mode}:${p.name}`);
-                const isRuntimeModeProfile = activeScope != null && p.mode === activeScope.mode;
-                const isRuntimeProfile = isRuntimeModeProfile && p.name === activeScope.configProfile;
-                const activationBlocked = !p.isActive && isRuntimeModeProfile && runtimeSwitchBlocked;
-                const toggleDisabled =
-                  controlsLocked
-                  || controlsUnavailable
-                  || isRuntimeProfile
-                  || activationBlocked;
-                const toggleTitle = isRuntimeProfile
-                  ? "Runtime active profile"
-                  : activationBlocked
-                    ? "Close runtime positions before switching profiles"
-                    : p.isActive
-                      ? "Deactivate"
-                      : "Activate";
-                return (
-                  <>
-                    <div className="flex items-start gap-2.5 min-w-0">
-                      {p.isActive
-                        ? <CircleCheck className="w-3.5 h-3.5 text-accent-green flex-shrink-0 mt-0.5" />
-                        : <XCircle className="w-3.5 h-3.5 text-text-muted flex-shrink-0 mt-0.5" />
-                      }
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium flex items-center gap-1.5">
-                          <span className="truncate">{p.name}</span>
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 ${
-                            p.mode === "LIVE"
-                              ? "bg-accent-green/20 text-accent-green"
-                              : "bg-accent-yellow/20 text-accent-yellow"
-                          }`}>
-                            {p.mode}
-                          </span>
-                          {isRuntimeProfile ? (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 bg-accent-blue/20 text-accent-blue">
-                              runtime
+            <div key={p.id} className="space-y-1.5">
+              <motion.div
+                layout
+                initial={{ opacity: 0, x: -8 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 8 }}
+                className="flex items-start justify-between gap-3 py-2.5 px-3 rounded-lg border border-bg-border bg-bg-hover/30 hover:bg-bg-hover/60 transition-colors"
+              >
+                {(() => {
+                  const results = profileResultsByKey.get(`${p.mode}:${p.name}`);
+                  const overrideTokens = getProfileOverrideTokens(p);
+                  const isRuntimeModeProfile = activeScope != null && p.mode === activeScope.mode;
+                  const isRuntimeProfile = isRuntimeModeProfile && p.name === activeScope.configProfile;
+                  const isEditing = editingProfileName === p.name;
+                  const activationBlocked = !p.isActive && isRuntimeModeProfile && runtimeSwitchBlocked;
+                  const toggleDisabled =
+                    controlsLocked
+                    || controlsUnavailable
+                    || isRuntimeProfile
+                    || activationBlocked;
+                  const toggleTitle = isRuntimeProfile
+                    ? "Runtime active profile"
+                    : activationBlocked
+                      ? "Close runtime positions before switching profiles"
+                      : p.isActive
+                        ? "Deactivate"
+                        : "Activate";
+                  return (
+                    <>
+                      <div className="flex items-start gap-2.5 min-w-0">
+                        {p.isActive
+                          ? <CircleCheck className="w-3.5 h-3.5 text-accent-green flex-shrink-0 mt-0.5" />
+                          : <XCircle className="w-3.5 h-3.5 text-text-muted flex-shrink-0 mt-0.5" />
+                        }
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium flex items-center gap-1.5">
+                            <span className="truncate">{p.name}</span>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 ${
+                              p.mode === "LIVE"
+                                ? "bg-accent-green/20 text-accent-green"
+                                : "bg-accent-yellow/20 text-accent-yellow"
+                            }`}>
+                              {p.mode}
                             </span>
-                          ) : null}
-                        </div>
-                        {p.description && (
-                          <div className="text-xs text-text-muted truncate">{p.description}</div>
-                        )}
-                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-text-muted">
-                          <span>Updated {timeAgo(p.updatedAt)}</span>
-                          {profileResultsSummariesQuery.isLoading ? (
-                            <span>Loading results…</span>
-                          ) : results ? (
-                            <>
-                              <span>{results.totalTrades} trades</span>
-                              <span>{results.totalExits} exits</span>
-                              <span>{(results.winRate * 100).toFixed(0)}% win</span>
-                              <span className={results.totalPnlUsd >= 0 ? "text-accent-green" : "text-accent-red"}>
-                                {formatUsd(results.totalPnlUsd)}
+                            {isRuntimeProfile ? (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 bg-accent-blue/20 text-accent-blue">
+                                runtime
                               </span>
-                            </>
-                          ) : (
-                            <span>No tracked results yet</span>
+                            ) : null}
+                          </div>
+                          {p.description && (
+                            <div className="text-xs text-text-muted truncate">{p.description}</div>
                           )}
+                          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-text-muted">
+                            <span>Updated {timeAgo(p.updatedAt)}</span>
+                            {profileResultsSummariesQuery.isLoading ? (
+                              <span>Loading results…</span>
+                            ) : results ? (
+                              <>
+                                <span>{results.totalTrades} trades</span>
+                                <span>{results.totalExits} exits</span>
+                                <span>{(results.winRate * 100).toFixed(0)}% win</span>
+                                <span className={results.totalPnlUsd >= 0 ? "text-accent-green" : "text-accent-red"}>
+                                  {formatUsd(results.totalPnlUsd)}
+                                </span>
+                              </>
+                            ) : (
+                              <span>No tracked results yet</span>
+                            )}
+                          </div>
+                          <div className="mt-1.5 flex flex-wrap gap-1.5">
+                            {overrideTokens.length > 0 ? (
+                              overrideTokens.map((token) => (
+                                <span
+                                  key={`${p.id}-${token.label}`}
+                                  className={`rounded-full px-2 py-0.5 text-[10px] ${
+                                    token.tone === "safe"
+                                      ? "bg-accent-green/12 text-accent-green"
+                                      : token.tone === "warn"
+                                        ? "bg-accent-red/12 text-accent-red"
+                                        : "bg-bg-border text-text-secondary"
+                                  }`}
+                                >
+                                  {token.label}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="rounded-full bg-bg-border px-2 py-0.5 text-[10px] text-text-muted">
+                                inherits defaults
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      <button
-                        onClick={() => {
-                          const nextActive = !p.isActive;
-                          const loadingLabel = nextActive ? "Activating profile…" : "Deactivating profile…";
-                          const successLabel = nextActive ? "Profile activated" : "Profile deactivated";
-                          const fallbackError = nextActive ? "Failed to activate profile" : "Failed to deactivate profile";
-
-                          toast.promise(
-                            toggleMut.mutateAsync({ name: p.name, active: nextActive }).catch(async (error) => {
-                              throw new Error(await extractApiErrorMessage(error, fallbackError));
-                            }),
-                            {
-                              loading: loadingLabel,
-                              success: successLabel,
-                              error: (error) => error instanceof Error ? error.message : fallbackError,
-                            },
-                          );
-                        }}
-                        disabled={toggleDisabled}
-                        className="btn-ghost p-1.5"
-                        title={toggleTitle}
-                      >
-                        {p.isActive
-                          ? <ToggleRight className="w-4 h-4 text-accent-green" />
-                          : <ToggleLeft className="w-4 h-4 text-text-muted" />
-                        }
-                      </button>
-                      {p.name !== "default" && (
+                      <div className="flex items-center gap-1 flex-shrink-0">
                         <button
-                          onClick={() => toast.promise(
-                            deleteMut.mutateAsync(p.name).catch(async (error) => {
-                              throw new Error(await extractApiErrorMessage(error, "Failed to delete profile"));
-                            }),
-                            {
-                              loading: "Deleting…",
-                              success: "Profile deleted",
-                              error: (error) => error instanceof Error ? error.message : "Failed to delete profile",
-                            },
-                          )}
-                          disabled={controlsLocked || controlsUnavailable || p.isActive}
-                          className="btn-ghost p-1.5 text-accent-red/60 hover:text-accent-red"
-                          title={p.isActive ? "Activate another profile before deleting this one" : "Delete"}
+                          onClick={() => {
+                            if (isEditing) {
+                              setEditingProfileName(null);
+                              setEditDraft(createEmptyProfileOverrideDraft());
+                              return;
+                            }
+                            beginEditing(p);
+                          }}
+                          disabled={controlsLocked || controlsUnavailable || updateMut.isPending}
+                          className="btn-ghost px-2 py-1 text-[11px]"
+                          title={isEditing ? "Close editor" : "Edit overrides"}
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          {isEditing ? "Close" : "Edit"}
                         </button>
-                      )}
+                        <button
+                          onClick={() => {
+                            const nextActive = !p.isActive;
+                            const loadingLabel = nextActive ? "Activating profile…" : "Deactivating profile…";
+                            const successLabel = nextActive ? "Profile activated" : "Profile deactivated";
+                            const fallbackError = nextActive ? "Failed to activate profile" : "Failed to deactivate profile";
+
+                            toast.promise(
+                              toggleMut.mutateAsync({ name: p.name, active: nextActive }).catch(async (error) => {
+                                throw new Error(await extractApiErrorMessage(error, fallbackError));
+                              }),
+                              {
+                                loading: loadingLabel,
+                                success: successLabel,
+                                error: (error) => error instanceof Error ? error.message : fallbackError,
+                              },
+                            );
+                          }}
+                          disabled={toggleDisabled}
+                          className="btn-ghost p-1.5"
+                          title={toggleTitle}
+                        >
+                          {p.isActive
+                            ? <ToggleRight className="w-4 h-4 text-accent-green" />
+                            : <ToggleLeft className="w-4 h-4 text-text-muted" />
+                          }
+                        </button>
+                        {p.name !== "default" && (
+                          <button
+                            onClick={() => toast.promise(
+                              deleteMut.mutateAsync(p.name).catch(async (error) => {
+                                throw new Error(await extractApiErrorMessage(error, "Failed to delete profile"));
+                              }),
+                              {
+                                loading: "Deleting…",
+                                success: "Profile deleted",
+                                error: (error) => error instanceof Error ? error.message : "Failed to delete profile",
+                              },
+                            )}
+                            disabled={controlsLocked || controlsUnavailable || p.isActive}
+                            className="btn-ghost p-1.5 text-accent-red/60 hover:text-accent-red"
+                            title={p.isActive ? "Activate another profile before deleting this one" : "Delete"}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </>
+                  );
+                })()}
+              </motion.div>
+              {editingProfileName === p.name ? (
+              <motion.div
+                key={`${p.id}-editor`}
+                initial={{ opacity: 0, height: 0, y: -4 }}
+                animate={{ opacity: 1, height: "auto", y: 0 }}
+                exit={{ opacity: 0, height: 0, y: -4 }}
+                transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] as const }}
+                className="overflow-hidden rounded-lg border border-bg-border bg-bg-hover/20 px-3 py-3"
+              >
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-medium text-text-primary">Edit {p.name} Overrides</div>
+                    <div className="text-[11px] text-text-muted">
+                      {p.mode} profile
+                      {activeScope && p.name === activeScope.configProfile && p.mode === activeScope.mode
+                        ? " · runtime-active changes apply immediately"
+                        : " · inactive changes apply on activation"}
                     </div>
-                  </>
-                );
-              })()}
-            </motion.div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setEditingProfileName(null);
+                      setEditDraft(createEmptyProfileOverrideDraft());
+                    }}
+                    className="btn-ghost px-2 py-1 text-[11px]"
+                  >
+                    Cancel
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+                  <div className="space-y-3">
+                    <div className="rounded-lg border border-bg-border bg-bg-card/50 p-3">
+                      <div className="mb-2 text-[10px] uppercase tracking-[0.16em] text-text-muted">Global</div>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                        <LabeledInput
+                          label="Capital USD"
+                          value={editDraft.capitalUsd}
+                          onChange={(value) => setEditDraft((current) => ({ ...current, capitalUsd: value }))}
+                          placeholder="inherit"
+                        />
+                        <LabeledInput
+                          label="Daily Loss %"
+                          value={editDraft.dailyLossPercent}
+                          onChange={(value) => setEditDraft((current) => ({ ...current, dailyLossPercent: value }))}
+                          placeholder="inherit"
+                        />
+                        <LabeledInput
+                          label="Weekly Loss %"
+                          value={editDraft.weeklyLossPercent}
+                          onChange={(value) => setEditDraft((current) => ({ ...current, weeklyLossPercent: value }))}
+                          placeholder="inherit"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-bg-border bg-bg-card/50 p-3">
+                      <div className="mb-2 text-[10px] uppercase tracking-[0.16em] text-accent-blue">S1 Copy</div>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <LabeledInput
+                          label="Position Size SOL"
+                          value={editDraft.s1.positionSizeSol}
+                          onChange={(value) => setEditDraft((current) => ({
+                            ...current,
+                            s1: { ...current.s1, positionSizeSol: value },
+                          }))}
+                          placeholder="inherit"
+                        />
+                        <LabeledInput
+                          label="Max Slippage Bps"
+                          value={editDraft.s1.maxSlippageBps}
+                          onChange={(value) => setEditDraft((current) => ({
+                            ...current,
+                            s1: { ...current.s1, maxSlippageBps: value },
+                          }))}
+                          placeholder="inherit"
+                        />
+                        <LabeledInput
+                          label="Max Source Tx Age (s)"
+                          value={editDraft.s1.maxSourceTxAgeSeconds}
+                          onChange={(value) => setEditDraft((current) => ({
+                            ...current,
+                            s1: { ...current.s1, maxSourceTxAgeSeconds: value },
+                          }))}
+                          placeholder="inherit"
+                        />
+                        <LabeledSelect
+                          label="LIVE Trade Data"
+                          value={editDraft.s1.requireTradeDataInLive}
+                          onChange={(value) => setEditDraft((current) => ({
+                            ...current,
+                            s1: { ...current.s1, requireTradeDataInLive: value as TriStateBoolean },
+                          }))}
+                          options={[
+                            { value: "inherit", label: "Inherit" },
+                            { value: "true", label: "Required" },
+                            { value: "false", label: "Soft-fail" },
+                          ]}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="rounded-lg border border-bg-border bg-bg-card/50 p-3">
+                      <div className="mb-2 text-[10px] uppercase tracking-[0.16em] text-accent-purple">S2 Graduation</div>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <LabeledInput
+                          label="Position Size SOL"
+                          value={editDraft.s2.positionSizeSol}
+                          onChange={(value) => setEditDraft((current) => ({
+                            ...current,
+                            s2: { ...current.s2, positionSizeSol: value },
+                          }))}
+                          placeholder="inherit"
+                        />
+                        <LabeledInput
+                          label="Max Slippage Bps"
+                          value={editDraft.s2.maxSlippageBps}
+                          onChange={(value) => setEditDraft((current) => ({
+                            ...current,
+                            s2: { ...current.s2, maxSlippageBps: value },
+                          }))}
+                          placeholder="inherit"
+                        />
+                        <LabeledInput
+                          label="Min Unique Holders"
+                          value={editDraft.s2.minUniqueHolders}
+                          onChange={(value) => setEditDraft((current) => ({
+                            ...current,
+                            s2: { ...current.s2, minUniqueHolders: value },
+                          }))}
+                          placeholder="inherit"
+                        />
+                        <LabeledInput
+                          label="Max Graduation Age (s)"
+                          value={editDraft.s2.maxGraduationAgeAtEntrySeconds}
+                          onChange={(value) => setEditDraft((current) => ({
+                            ...current,
+                            s2: { ...current.s2, maxGraduationAgeAtEntrySeconds: value },
+                          }))}
+                          placeholder="inherit"
+                        />
+                        <LabeledSelect
+                          label="LIVE Trade Data"
+                          value={editDraft.s2.requireTradeDataInLive}
+                          onChange={(value) => setEditDraft((current) => ({
+                            ...current,
+                            s2: { ...current.s2, requireTradeDataInLive: value as TriStateBoolean },
+                          }))}
+                          options={[
+                            { value: "inherit", label: "Inherit" },
+                            { value: "true", label: "Required" },
+                            { value: "false", label: "Soft-fail" },
+                          ]}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-bg-border bg-bg-card/50 p-3">
+                      <div className="mb-2 text-[10px] uppercase tracking-[0.16em] text-accent-cyan">S3 Momentum</div>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <LabeledInput
+                          label="Position Size SOL"
+                          value={editDraft.s3.positionSizeSol}
+                          onChange={(value) => setEditDraft((current) => ({
+                            ...current,
+                            s3: { ...current.s3, positionSizeSol: value },
+                          }))}
+                          placeholder="inherit"
+                        />
+                        <LabeledInput
+                          label="Max Slippage Bps"
+                          value={editDraft.s3.maxSlippageBps}
+                          onChange={(value) => setEditDraft((current) => ({
+                            ...current,
+                            s3: { ...current.s3, maxSlippageBps: value },
+                          }))}
+                          placeholder="inherit"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="text-[11px] text-text-muted">
+                      Blank fields remove the override and fall back to backend defaults.
+                    </div>
+                    {editDraftErrors.length > 0 ? (
+                      <div className="text-[11px] text-accent-red">
+                        {editDraftErrors[0]}
+                      </div>
+                    ) : null}
+                  </div>
+                  <button
+                    onClick={() => {
+                      const settings = buildProfileSettingsPayload(editDraft);
+                      toast.promise(
+                        updateMut.mutateAsync({ name: p.name, settings }).catch(async (error) => {
+                          throw new Error(await extractApiErrorMessage(error, "Failed to save profile overrides"));
+                        }),
+                        {
+                          loading: "Saving overrides…",
+                          success: activeScope && p.name === activeScope.configProfile && p.mode === activeScope.mode
+                            ? "Overrides saved and applied to runtime"
+                            : "Overrides saved",
+                          error: (error) => error instanceof Error ? error.message : "Failed to save profile overrides",
+                        },
+                      );
+                    }}
+                    disabled={controlsLocked || controlsUnavailable || updateMut.isPending || editDraftErrors.length > 0}
+                    className="btn-primary px-3 py-1.5 text-xs disabled:opacity-30"
+                  >
+                    {updateMut.isPending ? "Saving…" : "Save Overrides"}
+                  </button>
+                </div>
+              </motion.div>
+              ) : null}
+            </div>
           ))}
         </AnimatePresence>
         {profiles.length === 0 && (
@@ -1105,6 +1675,59 @@ function Row({ label, value }: { label: string; value: string }) {
       <span className="text-text-muted">{label}</span>
       <span className="font-medium tabular-nums">{value}</span>
     </div>
+  );
+}
+
+function LabeledInput({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <label className="space-y-1">
+      <span className="text-[10px] uppercase tracking-[0.14em] text-text-muted">{label}</span>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        className="input-base h-9 text-sm"
+      />
+    </label>
+  );
+}
+
+function LabeledSelect({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+}) {
+  return (
+    <label className="space-y-1">
+      <span className="text-[10px] uppercase tracking-[0.14em] text-text-muted">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="input-base h-9 text-sm"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 

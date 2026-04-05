@@ -13,7 +13,7 @@ services:
     restart: unless-stopped
     shm_size: 128mb
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     environment:
       POSTGRES_USER: botuser
       POSTGRES_PASSWORD: botpass
@@ -33,7 +33,7 @@ services:
     container_name: trading-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redisdata:/data
     healthcheck:

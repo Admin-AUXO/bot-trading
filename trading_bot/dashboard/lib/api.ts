@@ -234,6 +234,24 @@ export interface ConfigProfile {
   updatedAt: string;
 }
 
+export interface DashboardStrategyProfileOverrides {
+  positionSizeSol?: number;
+  maxSlippageBps?: number;
+  maxSourceTxAgeSeconds?: number;
+  minUniqueHolders?: number;
+  maxGraduationAgeAtEntrySeconds?: number;
+  requireTradeDataInLive?: boolean;
+}
+
+export interface DashboardProfileSettings {
+  s1?: DashboardStrategyProfileOverrides;
+  s2?: DashboardStrategyProfileOverrides;
+  s3?: DashboardStrategyProfileOverrides;
+  capitalUsd?: number;
+  dailyLossPercent?: number;
+  weeklyLossPercent?: number;
+}
+
 export interface ProfileResults {
   profile: string;
   mode: TradeMode;
@@ -412,6 +430,10 @@ export interface StrategyConfigResponse {
     maxSlippageBps: number;
     timeStopMinutes: number;
     timeLimitMinutes?: number;
+    maxSourceTxAgeSeconds?: number;
+    minUniqueHolders?: number;
+    maxGraduationAgeAtEntrySeconds?: number;
+    requireTradeDataInLive?: boolean;
     exitPlan: {
       tp1ThresholdPct: number;
       tp2ThresholdPct: number;
@@ -590,6 +612,10 @@ export async function clearOperatorSession() {
 
 export async function createProfile(data: { name: string; description: string; mode: TradeMode; settings: Record<string, unknown> }) {
   return api.post("api/profiles", { json: data }).json();
+}
+
+export async function updateProfile(name: string, settings: DashboardProfileSettings) {
+  return api.put(`api/profiles/${name}`, { json: { settings } }).json();
 }
 
 export async function toggleProfile(name: string, active: boolean) {
