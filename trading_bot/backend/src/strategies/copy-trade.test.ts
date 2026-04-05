@@ -200,3 +200,63 @@ test("CopyTradeStrategy.processWalletActivity records router price instead of di
     db.walletActivity.create = originalWalletActivityCreate;
   }
 });
+
+test("CopyTradeStrategy.runFilters rejects weak continuation when unique buyers and buy/sell ratio are thin", async () => {
+  const strategy = new (CopyTradeStrategy as any)(
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {
+      prefilterCandidates: async () => new Map([
+        ["mint_weak", {
+          address: "mint_weak",
+          passed: true,
+          source: "DEX_SCREENER",
+          liquidityUsd: 80_000,
+          priceUsd: 0.12,
+        }],
+      ]),
+    } as never,
+    {
+      getTokenOverview: async () => ({
+        address: "mint_weak",
+        symbol: "WEAK",
+        name: "Weak Token",
+        price: 0.12,
+        priceChange5m: 5,
+        priceChange1h: 10,
+        volume5m: 40_000,
+        volume1h: 120_000,
+        liquidity: 80_000,
+        marketCap: 400_000,
+        holder: 300,
+        buyPercent: 65,
+        sellPercent: 35,
+      }),
+      getTokenSecurity: async () => ({
+        top10HolderPercent: 25,
+        freezeable: false,
+        mintAuthority: false,
+        transferFeeEnable: false,
+        mutableMetadata: false,
+      }),
+      getTokenHolders: async () => [{ address: "holder_1", percent: 8 }],
+      getTradeData: async () => ({
+        volume5m: 40_000,
+        volumeHistory5m: 15_000,
+        volumeBuy5m: 22_000,
+        trade5m: 20,
+        buy5m: 10,
+        uniqueWallet5m: 12,
+      }),
+    } as never,
+  );
+
+  const result = await (strategy as any).runFilters("mint_weak");
+
+  assert.equal(result.passed, false);
+  assert.match(result.rejectReason ?? "", /unique wallets|buy\/sell ratio/i);
+});

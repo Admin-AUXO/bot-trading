@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { db } from "../../db/client.js";
 import { invalidateDashboardReadCaches } from "../cache-invalidation.js";
@@ -19,6 +20,16 @@ type ProfileResultsSummary = {
   winRate: number;
   totalPnlUsd: number;
 };
+
+interface ProfileResultsRow {
+  configProfile: string;
+  mode: TradeMode;
+  totalTrades: number;
+  totalExits: number;
+  wins: number;
+  losses: number;
+  totalPnlUsd: unknown;
+}
 
 function getSummaryKey(profile: string, mode: TradeMode) {
   return `${mode}:${profile}`;
@@ -51,57 +62,29 @@ async function buildProfileResultsSummaries(
   database: typeof db,
   filters?: { profile?: string; mode?: TradeMode },
 ): Promise<Map<string, ProfileResultsSummary>> {
-  const where = {
-    ...(filters?.profile ? { configProfile: filters.profile } : {}),
-    ...(filters?.mode ? { mode: filters.mode } : {}),
-  };
-  const [tradeCounts, exitStats, winCounts, lossCounts] = await Promise.all([
-    database.trade.groupBy({
-      by: ["configProfile", "mode"],
-      where,
-      _count: { _all: true },
-    }),
-    database.trade.groupBy({
-      by: ["configProfile", "mode"],
-      where: { ...where, side: "SELL" },
-      _count: { _all: true },
-      _sum: { pnlUsd: true },
-    }),
-    database.trade.groupBy({
-      by: ["configProfile", "mode"],
-      where: { ...where, side: "SELL", pnlUsd: { gt: 0 } },
-      _count: { _all: true },
-    }),
-    database.trade.groupBy({
-      by: ["configProfile", "mode"],
-      where: { ...where, side: "SELL", pnlUsd: { lte: 0 } },
-      _count: { _all: true },
-    }),
-  ]);
   const summaries = new Map<string, ProfileResultsSummary>();
+  const rows = await database.$queryRaw<ProfileResultsRow[]>(Prisma.sql`
+    SELECT
+      "configProfile",
+      mode,
+      COUNT(*)::int AS "totalTrades",
+      COUNT(*) FILTER (WHERE side = 'SELL')::int AS "totalExits",
+      COUNT(*) FILTER (WHERE side = 'SELL' AND "pnlUsd" > 0)::int AS wins,
+      COUNT(*) FILTER (WHERE side = 'SELL' AND "pnlUsd" <= 0)::int AS losses,
+      COALESCE(SUM("pnlUsd") FILTER (WHERE side = 'SELL'), 0) AS "totalPnlUsd"
+    FROM "Trade"
+    WHERE (${filters?.profile ?? null}::text IS NULL OR "configProfile" = ${filters?.profile ?? null})
+      AND (${filters?.mode ?? null}::text IS NULL OR mode = ${filters?.mode ?? null})
+    GROUP BY "configProfile", mode
+  `);
 
-  for (const row of tradeCounts) {
+  for (const row of rows) {
     const summary = getOrCreateSummary(summaries, row.configProfile, row.mode);
-    summary.totalTrades = row._count._all;
-  }
-
-  for (const row of exitStats) {
-    const summary = getOrCreateSummary(summaries, row.configProfile, row.mode);
-    summary.totalExits = row._count._all;
-    summary.totalPnlUsd = Number(row._sum.pnlUsd ?? 0);
-  }
-
-  for (const row of winCounts) {
-    const summary = getOrCreateSummary(summaries, row.configProfile, row.mode);
-    summary.wins = row._count._all;
-  }
-
-  for (const row of lossCounts) {
-    const summary = getOrCreateSummary(summaries, row.configProfile, row.mode);
-    summary.losses = row._count._all;
-  }
-
-  for (const summary of summaries.values()) {
+    summary.totalTrades = row.totalTrades;
+    summary.totalExits = row.totalExits;
+    summary.wins = row.wins;
+    summary.losses = row.losses;
+    summary.totalPnlUsd = Number(row.totalPnlUsd ?? 0);
     summary.winRate = summary.totalExits > 0 ? summary.wins / summary.totalExits : 0;
   }
 

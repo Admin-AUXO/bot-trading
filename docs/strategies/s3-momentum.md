@@ -57,9 +57,10 @@ This is the only strategy with staged position growth built into the entry logic
 
 - stop loss at `-10%`
 - TP1 at `+20%`, selling `50%` of remaining size
+- once TP1 is done, the remaining size is protected and will exit if profit retraces back toward a minimal gain before TP2
 - TP2 at `+40%`, selling `50%` of remaining size again
 - trailing stop at `15%` after both partials
-- fade exit if `current volume5m / entryVolume5m < 1.2`, using throttled slow-path trade-data refresh instead of per-batch polling
+- fade exit if `current volume5m / entryVolume5m < 1.2` on two consecutive weak reads, using throttled slow-path trade-data refresh instead of per-batch polling
 - soft time-stop at `5m`
 - hard time limit at `30m`
 

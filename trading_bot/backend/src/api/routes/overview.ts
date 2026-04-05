@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { Prisma } from "@prisma/client";
 import { db } from "../../db/client.js";
 import { cacheMiddleware } from "../middleware/cache.js";
 import { serializeOpenPosition } from "../serializers/position.js";
@@ -9,7 +10,9 @@ import type { RiskManager } from "../../core/risk-manager.js";
 import type { RegimeDetector } from "../../core/regime-detector.js";
 
 function parseDays(value: unknown, fallback: number, max: number): number {
-  return Math.min(Number(value) || fallback, max);
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(Math.max(Math.floor(parsed), 1), max);
 }
 
 function serializeUsageRow(row: {
@@ -66,6 +69,40 @@ function serializeUsageRow(row: {
   };
 }
 
+function isSameDay(left: Date, right: Date): boolean {
+  return left.toISOString().slice(0, 10) === right.toISOString().slice(0, 10);
+}
+
+type MonthlyUsageSummary = {
+  service: string;
+  totalCredits: number;
+  totalCalls: number;
+  totalErrors: number;
+};
+
+function summarizeMonthlyUsage(rows: Array<{
+  date: Date;
+  service: string;
+  totalCredits: number;
+  totalCalls: number;
+  errorCount: number;
+}>): MonthlyUsageSummary[] {
+  const byService = new Map<string, MonthlyUsageSummary>();
+  for (const row of rows) {
+    const current = byService.get(row.service) ?? {
+      service: row.service,
+      totalCredits: 0,
+      totalCalls: 0,
+      totalErrors: 0,
+    };
+    current.totalCredits += row.totalCredits;
+    current.totalCalls += row.totalCalls;
+    current.totalErrors += row.errorCount;
+    byService.set(row.service, current);
+  }
+  return [...byService.values()].sort((left, right) => right.totalCredits - left.totalCredits);
+}
+
 export function overviewRouter(deps: { riskManager: unknown; regimeDetector: unknown; apiBudgetManager?: ApiBudgetManager; dbClient?: typeof db }) {
   const router = Router();
   const riskManager = deps.riskManager as RiskManager;
@@ -115,59 +152,77 @@ export function overviewRouter(deps: { riskManager: unknown; regimeDetector: unk
     const since = new Date();
     since.setDate(since.getDate() - Math.max(0, days - 1));
     const currentUsage = apiBudgetManager?.getSnapshots() ?? null;
-    const persistedUsage = currentUsage
-      ? null
-      : await database.apiUsageDaily.findMany({
-          where: { date: new Date(today) },
-        });
-
     const monthStart = new Date(today.slice(0, 7) + "-01");
-    const [monthlyUsage, history, topEndpoints] = await Promise.all([
-      database.apiUsageDaily.groupBy({
-        by: ["service"],
-        where: { date: { gte: monthStart } },
-        _sum: { totalCredits: true, totalCalls: true, errorCount: true },
-      }),
+    const fetchStart = since < monthStart ? since : monthStart;
+    const todayDate = new Date(today);
+
+    type TopEndpointRow = {
+      service: string;
+      endpoint: string;
+      strategy: string | null;
+      mode: string | null;
+      configProfile: string | null;
+      purpose: string;
+      essential: boolean;
+      totalCalls: bigint | number;
+      totalCredits: bigint | number;
+      cachedCalls: bigint | number;
+      errorCount: bigint | number;
+      avgCreditsPerCall: unknown;
+      avgLatencyMs: unknown;
+      avgBatchSize: unknown;
+    };
+
+    const [usageRows, topEndpoints] = await Promise.all([
       database.apiUsageDaily.findMany({
-        where: { date: { gte: since } },
+        where: { date: { gte: fetchStart } },
         orderBy: [{ date: "asc" }, { service: "asc" }],
       }),
-      database.apiEndpointDaily.groupBy({
-        by: ["service", "endpoint", "strategy", "mode", "configProfile", "purpose", "essential"],
-        where: {
-          date: { gte: since },
-          ...(endpointMode ? { mode: endpointMode as "LIVE" | "DRY_RUN" } : {}),
-          ...(endpointProfile ? { configProfile: endpointProfile } : {}),
-        },
-        _sum: {
-          totalCalls: true,
-          totalCredits: true,
-          cachedCalls: true,
-          errorCount: true,
-        },
-        _avg: {
-          avgCreditsPerCall: true,
-          avgLatencyMs: true,
-          avgBatchSize: true,
-        },
-        orderBy: {
-          _sum: {
-            totalCredits: "desc",
-          },
-        },
-        take: 20,
-      }),
+      database.$queryRaw<TopEndpointRow[]>(Prisma.sql`
+        SELECT
+          "service",
+          "endpoint",
+          "strategy",
+          "mode",
+          "configProfile",
+          "purpose",
+          "essential",
+          SUM("totalCalls")::bigint AS "totalCalls",
+          SUM("totalCredits")::bigint AS "totalCredits",
+          SUM("cachedCalls")::bigint AS "cachedCalls",
+          SUM("errorCount")::bigint AS "errorCount",
+          CASE
+            WHEN SUM("totalCalls") > 0 THEN SUM("totalCredits")::numeric / SUM("totalCalls")::numeric
+            ELSE 0
+          END AS "avgCreditsPerCall",
+          CASE
+            WHEN SUM("totalCalls") > 0 THEN SUM("avgLatencyMs" * "totalCalls")::numeric / SUM("totalCalls")::numeric
+            ELSE 0
+          END AS "avgLatencyMs",
+          CASE
+            WHEN SUM("totalCalls") > 0 THEN SUM("avgBatchSize" * "totalCalls")::numeric / SUM("totalCalls")::numeric
+            ELSE 0
+          END AS "avgBatchSize"
+        FROM "ApiEndpointDaily"
+        WHERE "date" >= ${since}
+          ${endpointMode ? Prisma.sql`AND "mode" = ${endpointMode}` : Prisma.empty}
+          ${endpointProfile ? Prisma.sql`AND "configProfile" = ${endpointProfile}` : Prisma.empty}
+        GROUP BY "service", "endpoint", "strategy", "mode", "configProfile", "purpose", "essential"
+        ORDER BY SUM("totalCredits") DESC
+        LIMIT 20
+      `),
     ]);
+
+    const history = usageRows.filter((row) => row.date >= since);
+    const monthlyUsage = summarizeMonthlyUsage(usageRows.filter((row) => row.date >= monthStart));
+    const persistedUsage = currentUsage
+      ? null
+      : history.filter((row) => isSameDay(row.date, todayDate));
 
     res.json({
       current: currentUsage,
       daily: currentUsage ?? persistedUsage?.map((row) => serializeUsageRow(row)) ?? [],
-      monthly: monthlyUsage.map((entry) => ({
-        service: entry.service,
-        totalCredits: Number(entry._sum.totalCredits ?? 0),
-        totalCalls: Number(entry._sum.totalCalls ?? 0),
-        totalErrors: Number(entry._sum.errorCount ?? 0),
-      })),
+      monthly: monthlyUsage,
       history: history.map((row) => serializeUsageRow(row)),
       endpointFilter: {
         mode: endpointMode ?? null,
@@ -181,13 +236,13 @@ export function overviewRouter(deps: { riskManager: unknown; regimeDetector: unk
         configProfile: entry.configProfile,
         purpose: entry.purpose,
         essential: entry.essential,
-        totalCalls: Number(entry._sum.totalCalls ?? 0),
-        totalCredits: Number(entry._sum.totalCredits ?? 0),
-        cachedCalls: Number(entry._sum.cachedCalls ?? 0),
-        errorCount: Number(entry._sum.errorCount ?? 0),
-        avgCreditsPerCall: Number(entry._avg.avgCreditsPerCall ?? 0),
-        avgLatencyMs: Number(entry._avg.avgLatencyMs ?? 0),
-        avgBatchSize: Number(entry._avg.avgBatchSize ?? 0),
+        totalCalls: Number(entry.totalCalls ?? 0),
+        totalCredits: Number(entry.totalCredits ?? 0),
+        cachedCalls: Number(entry.cachedCalls ?? 0),
+        errorCount: Number(entry.errorCount ?? 0),
+        avgCreditsPerCall: Number(entry.avgCreditsPerCall ?? 0),
+        avgLatencyMs: Number(entry.avgLatencyMs ?? 0),
+        avgBatchSize: Number(entry.avgBatchSize ?? 0),
       })),
       windowDays: days,
     });

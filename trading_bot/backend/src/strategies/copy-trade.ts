@@ -454,6 +454,8 @@ export class CopyTradeStrategy extends EventEmitter {
     }
 
     const tradeDataCheck = runTradeDataChecks(tradeData, {
+      minUniqueBuyers5m: this.cfg.minUniqueBuyers5m,
+      minBuySellRatio: this.cfg.minBuySellRatio,
       minWashTradingRatio: this.cfg.washTradingThreshold,
       requireTradeData: this.scope.mode === "LIVE" && this.cfg.requireTradeDataInLive,
     });
@@ -487,14 +489,14 @@ export class CopyTradeStrategy extends EventEmitter {
     const results = await Promise.all(candidateWallets.map((walletAddress) => limit(() => this.scoreWallet(walletAddress))));
 
     const scores = results
-      .filter((r): r is ScoringResult => r !== null)
-      .map((r) => ({ address: r.walletAddress, score: r.compositeScore }));
+      .filter((result): result is ScoringResult => result !== null)
+      .map((result: ScoringResult) => ({ address: result.walletAddress, score: result.compositeScore }));
 
-    scores.sort((a, b) => b.score - a.score);
+    scores.sort((left: { address: string; score: number }, right: { address: string; score: number }) => right.score - left.score);
 
     const previousElites = [...this.eliteWallets];
     const topWallets = scores.slice(0, this.cfg.walletCount);
-    const nextEliteWallets = topWallets.map((w) => w.address);
+    const nextEliteWallets = topWallets.map((wallet: { address: string; score: number }) => wallet.address);
 
     await db.$transaction(async (tx) => {
       await tx.walletScore.updateMany({

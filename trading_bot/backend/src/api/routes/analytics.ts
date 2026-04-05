@@ -1,5 +1,5 @@
 import { Router } from "express";
-import type { Prisma, Strategy } from "@prisma/client";
+import { Prisma, type Strategy } from "@prisma/client";
 import { db } from "../../db/client.js";
 import { cacheMiddleware } from "../middleware/cache.js";
 import type { RuntimeState } from "../../core/runtime-state.js";
@@ -7,11 +7,26 @@ import type { RuntimeState } from "../../core/runtime-state.js";
 const STRATEGIES: Strategy[] = ["S1_COPY", "S2_GRADUATION", "S3_MOMENTUM"];
 
 function parseDays(value: unknown, fallback: number, max: number): number {
-  return Math.min(Number(value) || fallback, max);
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(Math.max(Math.floor(parsed), 1), max);
 }
 
 function numberOrZero(value: unknown): number {
   return Number(value ?? 0);
+}
+
+function laneSqlFilters(options: {
+  mode?: string;
+  profile?: string;
+  tradeSource?: string;
+}): Prisma.Sql {
+  const { mode, profile, tradeSource } = options;
+  return Prisma.sql`
+    ${mode ? Prisma.sql`AND "mode" = ${mode}` : Prisma.empty}
+    ${profile ? Prisma.sql`AND "configProfile" = ${profile}` : Prisma.empty}
+    ${tradeSource ? Prisma.sql`AND "tradeSource" = ${tradeSource}` : Prisma.empty}
+  `;
 }
 
 export function analyticsRouter(deps?: { runtimeState?: RuntimeState }) {
@@ -57,47 +72,44 @@ export function analyticsRouter(deps?: { runtimeState?: RuntimeState }) {
     const since = new Date();
     since.setDate(since.getDate() - days);
 
-    const where: Prisma.TradeWhereInput = {
-      strategy: { in: STRATEGIES },
-      side: "SELL",
-      executedAt: { gte: since },
-      ...(mode ? { mode: mode as "LIVE" | "DRY_RUN" } : {}),
-      ...(profile ? { configProfile: profile } : {}),
-      ...(tradeSource ? { tradeSource: tradeSource as "AUTO" | "MANUAL" } : {}),
+    type StrategySummaryRow = {
+      strategy: Strategy;
+      totalExits: bigint | number;
+      wins: bigint | number;
+      losses: bigint | number;
+      totalPnlUsd: unknown;
+      winningPnlUsd: unknown;
+      losingPnlUsd: unknown;
+      totalGasFee: unknown;
+      totalJitoTip: unknown;
     };
 
-    const [exitStats, winStats, lossStats] = await Promise.all([
-      db.trade.groupBy({
-        by: ["strategy"],
-        where,
-        _count: { _all: true },
-        _sum: { pnlUsd: true, gasFee: true, jitoTip: true },
-      }),
-      db.trade.groupBy({
-        by: ["strategy"],
-        where: { ...where, pnlUsd: { gt: 0 } },
-        _count: { _all: true },
-        _sum: { pnlUsd: true },
-      }),
-      db.trade.groupBy({
-        by: ["strategy"],
-        where: { ...where, pnlUsd: { lte: 0 } },
-        _count: { _all: true },
-        _sum: { pnlUsd: true },
-      }),
-    ]);
+    const rows = await db.$queryRaw<StrategySummaryRow[]>(Prisma.sql`
+      SELECT
+        "strategy",
+        COUNT(*)::bigint AS "totalExits",
+        COUNT(*) FILTER (WHERE "pnlUsd" > 0)::bigint AS wins,
+        COUNT(*) FILTER (WHERE "pnlUsd" <= 0)::bigint AS losses,
+        COALESCE(SUM("pnlUsd"), 0) AS "totalPnlUsd",
+        COALESCE(SUM(CASE WHEN "pnlUsd" > 0 THEN "pnlUsd" ELSE 0 END), 0) AS "winningPnlUsd",
+        COALESCE(SUM(CASE WHEN "pnlUsd" <= 0 THEN "pnlUsd" ELSE 0 END), 0) AS "losingPnlUsd",
+        COALESCE(SUM("gasFee"), 0) AS "totalGasFee",
+        COALESCE(SUM("jitoTip"), 0) AS "totalJitoTip"
+      FROM "Trade"
+      WHERE "strategy" IN (${Prisma.join(STRATEGIES)})
+        AND "side" = 'SELL'
+        AND "executedAt" >= ${since}
+        ${laneSqlFilters({ mode, profile, tradeSource })}
+      GROUP BY "strategy"
+    `);
 
-    const exitStatsByStrategy = new Map(exitStats.map((row) => [row.strategy, row]));
-    const winStatsByStrategy = new Map(winStats.map((row) => [row.strategy, row]));
-    const lossStatsByStrategy = new Map(lossStats.map((row) => [row.strategy, row]));
+    const rowsByStrategy = new Map(rows.map((row) => [row.strategy, row]));
 
     res.json(STRATEGIES.map((strategy) => {
-      const exits = exitStatsByStrategy.get(strategy);
-      const wins = winStatsByStrategy.get(strategy);
-      const losses = lossStatsByStrategy.get(strategy);
-      const totalExits = exits?._count._all ?? 0;
-      const winCount = wins?._count._all ?? 0;
-      const lossCount = losses?._count._all ?? 0;
+      const summary = rowsByStrategy.get(strategy);
+      const totalExits = Number(summary?.totalExits ?? 0);
+      const winCount = Number(summary?.wins ?? 0);
+      const lossCount = Number(summary?.losses ?? 0);
 
       return {
         strategy,
@@ -105,10 +117,10 @@ export function analyticsRouter(deps?: { runtimeState?: RuntimeState }) {
         wins: winCount,
         losses: lossCount,
         winRate: totalExits > 0 ? winCount / totalExits : 0,
-        totalPnlUsd: numberOrZero(exits?._sum.pnlUsd),
-        avgWinUsd: winCount > 0 ? numberOrZero(wins?._sum.pnlUsd) / winCount : 0,
-        avgLossUsd: lossCount > 0 ? Math.abs(numberOrZero(losses?._sum.pnlUsd)) / lossCount : 0,
-        totalFeesSol: numberOrZero(exits?._sum.gasFee) + numberOrZero(exits?._sum.jitoTip),
+        totalPnlUsd: numberOrZero(summary?.totalPnlUsd),
+        avgWinUsd: winCount > 0 ? numberOrZero(summary?.winningPnlUsd) / winCount : 0,
+        avgLossUsd: lossCount > 0 ? Math.abs(numberOrZero(summary?.losingPnlUsd)) / lossCount : 0,
+        totalFeesSol: numberOrZero(summary?.totalGasFee) + numberOrZero(summary?.totalJitoTip),
       };
     }));
   });
@@ -305,89 +317,67 @@ export function analyticsRouter(deps?: { runtimeState?: RuntimeState }) {
     const since = new Date();
     since.setDate(since.getDate() - days);
 
-    const tradeWhere = {
-      executedAt: { gte: since },
-      ...(mode ? { mode: mode as "LIVE" | "DRY_RUN" } : {}),
-      ...(profile ? { configProfile: profile } : {}),
-      ...(tradeSource ? { tradeSource: tradeSource as "AUTO" | "MANUAL" } : {}),
+    type ExecutionTradeRow = {
+      strategy: Strategy;
+      totalTrades: bigint | number;
+      buyCount: bigint | number;
+      sellCount: bigint | number;
+      totalGasFee: unknown;
+      totalJitoTip: unknown;
+      buySlippageBpsTotal: unknown;
+      sellSlippageBpsTotal: unknown;
+      manualTrades: bigint | number;
+      avgCopyLeadMs: unknown;
     };
-    const positionWhere = {
-      openedAt: { gte: since },
-      ...(mode ? { mode: mode as "LIVE" | "DRY_RUN" } : {}),
-      ...(profile ? { configProfile: profile } : {}),
-      ...(tradeSource ? { tradeSource: tradeSource as "AUTO" | "MANUAL" } : {}),
+    type ExecutionPositionRow = {
+      strategy: Strategy;
+      positionCount: bigint | number;
+      entrySlippageBpsTotal: unknown;
+      avgEntryLatencyMs: unknown;
     };
-    const manualTradeCountsPromise = tradeSource === "AUTO"
-      ? Promise.resolve([] as Array<{ strategy: Strategy; _count: { _all: number } }>)
-      : db.trade.groupBy({
-          by: ["strategy"],
-          where: { ...tradeWhere, tradeSource: "MANUAL" },
-          _count: { _all: true },
-        });
 
-    const [
-      tradeTotals,
-      buyStats,
-      sellStats,
-      manualTradeCounts,
-      autoCopyLeadStats,
-      entryPositionStats,
-      entryLatencyStats,
-    ] = await Promise.all([
-      db.trade.groupBy({
-        by: ["strategy"],
-        where: tradeWhere,
-        _count: { _all: true },
-        _sum: { gasFee: true, jitoTip: true },
-      }),
-      db.trade.groupBy({
-        by: ["strategy"],
-        where: { ...tradeWhere, side: "BUY" },
-        _count: { _all: true },
-        _sum: { slippageBps: true },
-      }),
-      db.trade.groupBy({
-        by: ["strategy"],
-        where: { ...tradeWhere, side: "SELL" },
-        _count: { _all: true },
-        _sum: { slippageBps: true },
-      }),
-      manualTradeCountsPromise,
-      db.trade.groupBy({
-        by: ["strategy"],
-        where: { ...tradeWhere, tradeSource: "AUTO", copyLeadMs: { gt: 0 } },
-        _avg: { copyLeadMs: true },
-      }),
-      db.position.groupBy({
-        by: ["strategy"],
-        where: positionWhere,
-        _count: { _all: true },
-        _sum: { entrySlippageBps: true },
-      }),
-      db.position.groupBy({
-        by: ["strategy"],
-        where: { ...positionWhere, entryLatencyMs: { gt: 0 } },
-        _avg: { entryLatencyMs: true },
-      }),
+    const [tradeRows, positionRows] = await Promise.all([
+      db.$queryRaw<ExecutionTradeRow[]>(Prisma.sql`
+        SELECT
+          "strategy",
+          COUNT(*)::bigint AS "totalTrades",
+          COUNT(*) FILTER (WHERE "side" = 'BUY')::bigint AS "buyCount",
+          COUNT(*) FILTER (WHERE "side" = 'SELL')::bigint AS "sellCount",
+          COALESCE(SUM("gasFee"), 0) AS "totalGasFee",
+          COALESCE(SUM("jitoTip"), 0) AS "totalJitoTip",
+          COALESCE(SUM(CASE WHEN "side" = 'BUY' THEN "slippageBps" ELSE 0 END), 0) AS "buySlippageBpsTotal",
+          COALESCE(SUM(CASE WHEN "side" = 'SELL' THEN "slippageBps" ELSE 0 END), 0) AS "sellSlippageBpsTotal",
+          COUNT(*) FILTER (WHERE "tradeSource" = 'MANUAL')::bigint AS "manualTrades",
+          AVG(CASE WHEN "tradeSource" = 'AUTO' AND "copyLeadMs" > 0 THEN "copyLeadMs" END) AS "avgCopyLeadMs"
+        FROM "Trade"
+        WHERE "executedAt" >= ${since}
+          ${laneSqlFilters({ mode, profile, tradeSource })}
+        GROUP BY "strategy"
+      `),
+      db.$queryRaw<ExecutionPositionRow[]>(Prisma.sql`
+        SELECT
+          "strategy",
+          COUNT(*)::bigint AS "positionCount",
+          COALESCE(SUM("entrySlippageBps"), 0) AS "entrySlippageBpsTotal",
+          AVG(CASE WHEN "entryLatencyMs" > 0 THEN "entryLatencyMs" END) AS "avgEntryLatencyMs"
+        FROM "Position"
+        WHERE "openedAt" >= ${since}
+          ${laneSqlFilters({ mode, profile, tradeSource })}
+        GROUP BY "strategy"
+      `),
     ]);
 
-    const tradeTotalsByStrategy = new Map(tradeTotals.map((row) => [row.strategy, row]));
-    const buyStatsByStrategy = new Map(buyStats.map((row) => [row.strategy, row]));
-    const sellStatsByStrategy = new Map(sellStats.map((row) => [row.strategy, row]));
-    const manualCountsByStrategy = new Map(manualTradeCounts.map((row) => [row.strategy, row]));
-    const autoCopyLeadByStrategy = new Map(autoCopyLeadStats.map((row) => [row.strategy, row]));
-    const entryPositionsByStrategy = new Map(entryPositionStats.map((row) => [row.strategy, row]));
-    const entryLatencyByStrategy = new Map(entryLatencyStats.map((row) => [row.strategy, row]));
+    const tradeRowsByStrategy = new Map(tradeRows.map((row) => [row.strategy, row]));
+    const positionRowsByStrategy = new Map(positionRows.map((row) => [row.strategy, row]));
 
     res.json(STRATEGIES.map((strategy) => {
-      const totals = tradeTotalsByStrategy.get(strategy);
-      const buys = buyStatsByStrategy.get(strategy);
-      const sells = sellStatsByStrategy.get(strategy);
-      const manualTrades = manualCountsByStrategy.get(strategy)?._count._all ?? 0;
-      const entryPositions = entryPositionsByStrategy.get(strategy);
-      const totalTrades = totals?._count._all ?? 0;
-      const buyCount = buys?._count._all ?? 0;
-      const positionCount = entryPositions?._count._all ?? 0;
+      const trades = tradeRowsByStrategy.get(strategy);
+      const positions = positionRowsByStrategy.get(strategy);
+      const totalTrades = Number(trades?.totalTrades ?? 0);
+      const buyCount = Number(trades?.buyCount ?? 0);
+      const sellCount = Number(trades?.sellCount ?? 0);
+      const manualTrades = Number(trades?.manualTrades ?? 0);
+      const positionCount = Number(positions?.positionCount ?? 0);
       const entrySlippageDenominator = buyCount + positionCount;
       const manualShare = tradeSource === "AUTO"
         ? 0
@@ -400,18 +390,18 @@ export function analyticsRouter(deps?: { runtimeState?: RuntimeState }) {
       return {
         strategy,
         buyCount,
-        sellCount: sells?._count._all ?? 0,
+        sellCount,
         avgEntrySlippageBps: entrySlippageDenominator > 0
-          ? (numberOrZero(entryPositions?._sum.entrySlippageBps) + numberOrZero(buys?._sum.slippageBps)) / entrySlippageDenominator
+          ? (numberOrZero(positions?.entrySlippageBpsTotal) + numberOrZero(trades?.buySlippageBpsTotal)) / entrySlippageDenominator
           : 0,
-        avgExitSlippageBps: (sells?._count._all ?? 0) > 0
-          ? numberOrZero(sells?._sum.slippageBps) / (sells?._count._all ?? 1)
+        avgExitSlippageBps: sellCount > 0
+          ? numberOrZero(trades?.sellSlippageBpsTotal) / sellCount
           : 0,
         avgFeeSol: totalTrades > 0
-          ? (numberOrZero(totals?._sum.gasFee) + numberOrZero(totals?._sum.jitoTip)) / totalTrades
+          ? (numberOrZero(trades?.totalGasFee) + numberOrZero(trades?.totalJitoTip)) / totalTrades
           : 0,
-        avgEntryLatencyMs: numberOrZero(entryLatencyByStrategy.get(strategy)?._avg.entryLatencyMs),
-        avgCopyLeadMs: numberOrZero(autoCopyLeadByStrategy.get(strategy)?._avg.copyLeadMs),
+        avgEntryLatencyMs: numberOrZero(positions?.avgEntryLatencyMs),
+        avgCopyLeadMs: numberOrZero(trades?.avgCopyLeadMs),
         manualShare,
       };
     }));

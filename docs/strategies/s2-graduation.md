@@ -50,8 +50,9 @@ This strategy does not buy immediately on first sight. It stages candidates, wai
 ## Exit Shape
 
 - stop loss at `-25%`
-- TP1 at `2x` price, selling `50%` of remaining size
-- TP2 at `3.5x` price, selling `25%` of remaining size
+- TP1 at `1.6x` price, selling `50%` of remaining size
+- once TP1 is done, the remaining size is protected and will exit if profit retraces materially before TP2
+- TP2 at `2.4x` price, selling `25%` of remaining size
 - trailing stop at `25%` after both partials
 - soft time-stop at `15m`
 - hard time limit at `120m`

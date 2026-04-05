@@ -11,6 +11,7 @@ This is the operator surface for the trading bot. It is a Next.js 16 App Router 
 - `hooks/use-dashboard-shell.ts`: runtime shell truth for chrome and shell summaries
 - `hooks/use-dashboard-filters.ts`: page-level analysis filters
 - `lib/dashboard-query-options.ts`: canonical query keys and query functions
+- `lib/realtime-overview.ts`: pure cache-update and invalidation rules for overview SSE payloads
 - `lib/api.ts`: request/response contracts plus `createSSEConnection()`
 - `lib/page-meta.ts`: page titles and descriptions
 
@@ -32,6 +33,7 @@ This is the operator surface for the trading bot. It is a Next.js 16 App Router 
 - `tradeSource` applies to fills and analytics, not raw signal rows.
 - `/api/overview`, `/api/control/*`, and `/api/stream` are active-runtime contracts.
 - `/api/overview/api-usage` keeps service totals and quota history global. Only endpoint rows narrow by lane metadata.
+- Endpoint usage averages must be weighted by underlying call counts, not averaged from already-aggregated daily rows.
 - Capacity widgets must use runtime portfolio truth, not filtered row counts.
 - Aggregate percentages from strategy rows must be weighted by the underlying counts.
 - Profile activation is a runtime action for the active mode and must stay blocked while that mode still has open positions.
@@ -62,6 +64,7 @@ Run:
 
 ```powershell
 cd trading_bot/dashboard
+npm test
 npm run lint
 npm run build
 ```

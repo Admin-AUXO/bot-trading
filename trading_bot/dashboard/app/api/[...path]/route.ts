@@ -2,16 +2,12 @@ import type { NextRequest } from "next/server";
 import {
   getDashboardControlSecret,
   hasOperatorSession,
-} from "@/lib/server/operator-session";
+} from "@/lib/server/operator-session-core";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const BACKEND = process.env.API_URL ?? "http://localhost:3001";
-const BACKEND_RETRY_MS = 3000;
-
-let backendAvailable = true;
-let lastFailAt = 0;
 
 function shouldProxyWithControlSecret(
   method: string,
@@ -32,10 +28,6 @@ async function proxy(
   const controlSecret = getDashboardControlSecret();
   const requiresControlSecret = shouldProxyWithControlSecret(request.method, path);
   const target = new URL(`/api/${path.join("/")}${request.nextUrl.search}`, BACKEND);
-
-  if (!backendAvailable && Date.now() - lastFailAt < BACKEND_RETRY_MS) {
-    return Response.json({ error: "Backend unavailable" }, { status: 503 });
-  }
 
   if (requiresControlSecret && !controlSecret) {
     return Response.json(
@@ -73,7 +65,6 @@ async function proxy(
 
   try {
     const upstream = await fetch(target, { method: request.method, headers, body });
-    backendAvailable = true;
     const upstreamCt = upstream.headers.get("content-type") ?? "application/json";
 
     if (upstreamCt.includes("text/event-stream")) {
@@ -92,8 +83,6 @@ async function proxy(
       headers: { "content-type": upstreamCt },
     });
   } catch (err) {
-    backendAvailable = false;
-    lastFailAt = Date.now();
     const code = (err as NodeJS.ErrnoException).code;
     const status = code === "ETIMEDOUT" || code === "EHOSTUNREACH" ? 504 : 503;
     return Response.json({ error: "Backend unavailable" }, { status });

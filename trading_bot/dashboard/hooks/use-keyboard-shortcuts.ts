@@ -4,6 +4,7 @@ import { useHotkeys } from "react-hotkeys-hook";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { ACTIVE_MODE_FILTER, useDashboardStore } from "@/lib/store";
+import { invalidateRuntimeShellQueries } from "@/lib/query-invalidation";
 
 const MODE_CYCLE = [ACTIVE_MODE_FILTER, "LIVE", "DRY_RUN"] as const;
 
@@ -18,7 +19,9 @@ export function useKeyboardShortcuts() {
   useHotkeys("4", () => router.push("/analytics"), { description: "Analytics" });
   useHotkeys("5", () => router.push("/quota"), { description: "Quota" });
   useHotkeys("6", () => router.push("/settings"), { description: "Settings" });
-  useHotkeys("r", () => queryClient.invalidateQueries(), { description: "Refresh all" });
+  useHotkeys("r", () => {
+    void invalidateRuntimeShellQueries(queryClient);
+  }, { description: "Refresh runtime shell" });
   useHotkeys("l", () => {
     const currentIndex = MODE_CYCLE.indexOf(selectedMode);
     const next = MODE_CYCLE[(currentIndex + 1) % MODE_CYCLE.length];

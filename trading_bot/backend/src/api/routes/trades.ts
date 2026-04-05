@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { db } from "../../db/client.js";
 import { cacheMiddleware } from "../middleware/cache.js";
@@ -6,6 +7,17 @@ import type { RuntimeState } from "../../core/runtime-state.js";
 export function tradesRouter(deps?: { runtimeState?: RuntimeState }) {
   const router = Router();
   const defaultScope = () => deps?.runtimeState?.scope;
+
+  interface TradeSummaryRow {
+    totalTrades: number;
+    totalExits: number;
+    wins: number;
+    losses: number;
+    netPnlUsd: unknown;
+    totalGasFee: unknown;
+    totalJitoTip: unknown;
+    lastExecutedAt: Date | null;
+  }
 
   router.get("/", cacheMiddleware(10_000), async (req, res) => {
     const page = Number(req.query.page) || 1;
@@ -26,12 +38,9 @@ export function tradesRouter(deps?: { runtimeState?: RuntimeState }) {
     if (profile) where.configProfile = profile;
     if (tradeSource) where.tradeSource = tradeSource;
 
-    const exitsWhere: Record<string, unknown> = {
-      ...where,
-      side: tradeSide && tradeSide !== "SELL" ? tradeSide : "SELL",
-    };
+    const summarySide = tradeSide && tradeSide !== "SELL" ? tradeSide : "SELL";
 
-    const [trades, total, exitTotal, wins, losses, pnlAggregate, feeAggregate, lastTrade] = await Promise.all([
+    const [trades, summaryRows] = await Promise.all([
       db.trade.findMany({
         where,
         omit: { metadata: true },
@@ -39,36 +48,27 @@ export function tradesRouter(deps?: { runtimeState?: RuntimeState }) {
         skip: (page - 1) * limit,
         take: limit,
       }),
-      db.trade.count({ where }),
-      db.trade.count({ where: exitsWhere }),
-      db.trade.count({
-        where: {
-          ...exitsWhere,
-          pnlUsd: { gt: 0 },
-        },
-      }),
-      db.trade.count({
-        where: {
-          ...exitsWhere,
-          pnlUsd: { lte: 0 },
-        },
-      }),
-      db.trade.aggregate({
-        where: exitsWhere,
-        _sum: { pnlUsd: true },
-      }),
-      db.trade.aggregate({
-        where,
-        _sum: { gasFee: true, jitoTip: true },
-      }),
-      db.trade.findFirst({
-        where,
-        orderBy: { executedAt: "desc" },
-        select: { executedAt: true },
-      }),
+      db.$queryRaw<TradeSummaryRow[]>(Prisma.sql`
+        SELECT
+          COUNT(*)::int AS "totalTrades",
+          COUNT(*) FILTER (WHERE side = ${summarySide})::int AS "totalExits",
+          COUNT(*) FILTER (WHERE side = ${summarySide} AND "pnlUsd" > 0)::int AS wins,
+          COUNT(*) FILTER (WHERE side = ${summarySide} AND "pnlUsd" <= 0)::int AS losses,
+          COALESCE(SUM("pnlUsd") FILTER (WHERE side = ${summarySide}), 0) AS "netPnlUsd",
+          COALESCE(SUM("gasFee"), 0) AS "totalGasFee",
+          COALESCE(SUM("jitoTip"), 0) AS "totalJitoTip",
+          MAX("executedAt") AS "lastExecutedAt"
+        FROM "Trade"
+        WHERE (${strategy ?? null}::text IS NULL OR strategy = ${strategy ?? null})
+          AND (${tradeSide ?? null}::text IS NULL OR side = ${tradeSide ?? null})
+          AND (${mode ?? null}::text IS NULL OR mode = ${mode ?? null})
+          AND (${profile ?? null}::text IS NULL OR "configProfile" = ${profile ?? null})
+          AND (${tradeSource ?? null}::text IS NULL OR "tradeSource" = ${tradeSource ?? null})
+      `),
     ]);
-
-    const totalFeesSol = Number(feeAggregate._sum.gasFee ?? 0) + Number(feeAggregate._sum.jitoTip ?? 0);
+    const summary = summaryRows[0];
+    const total = Number(summary?.totalTrades ?? 0);
+    const totalFeesSol = Number(summary?.totalGasFee ?? 0) + Number(summary?.totalJitoTip ?? 0);
 
     res.json({
       data: trades.map((trade) => ({
@@ -87,12 +87,12 @@ export function tradesRouter(deps?: { runtimeState?: RuntimeState }) {
       totalPages: Math.ceil(total / limit),
       summary: {
         totalTrades: total,
-        totalExits: exitTotal,
-        wins,
-        losses,
-        netPnlUsd: Number(pnlAggregate._sum?.pnlUsd ?? 0),
+        totalExits: Number(summary?.totalExits ?? 0),
+        wins: Number(summary?.wins ?? 0),
+        losses: Number(summary?.losses ?? 0),
+        netPnlUsd: Number(summary?.netPnlUsd ?? 0),
         totalFeesSol,
-        lastExecutedAt: lastTrade?.executedAt ?? null,
+        lastExecutedAt: summary?.lastExecutedAt ?? null,
       },
     });
   });

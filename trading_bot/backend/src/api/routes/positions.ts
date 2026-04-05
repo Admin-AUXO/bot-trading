@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { db } from "../../db/client.js";
 import { createChildLogger } from "../../utils/logger.js";
@@ -10,6 +11,14 @@ import type { TradeExecutor } from "../../core/trade-executor.js";
 import type { PositionTracker } from "../../core/position-tracker.js";
 
 const log = createChildLogger("positions");
+
+interface PositionHistorySummaryRow {
+  closedCount: number;
+  wins: number;
+  losses: number;
+  netPnlUsd: unknown;
+  avgPnlPercent: unknown;
+}
 
 export function positionsRouter(deps?: {
   tradeExecutor?: unknown;
@@ -61,35 +70,30 @@ export function positionsRouter(deps?: {
     if (profile) where.configProfile = profile;
     if (tradeSource) where.tradeSource = tradeSource;
 
-    const [positions, total, wins, losses, pnlAggregate, pnlPercentAggregate] = await Promise.all([
+    const [positions, summaryRows] = await Promise.all([
       database.position.findMany({
         where,
         orderBy: { closedAt: "desc" },
         skip: (page - 1) * limit,
         take: limit,
       }),
-      database.position.count({ where }),
-      database.position.count({
-        where: {
-          ...where,
-          pnlUsd: { gt: 0 },
-        },
-      }),
-      database.position.count({
-        where: {
-          ...where,
-          pnlUsd: { lte: 0 },
-        },
-      }),
-      database.position.aggregate({
-        where,
-        _sum: { pnlUsd: true },
-      }),
-      database.position.aggregate({
-        where,
-        _avg: { pnlPercent: true },
-      }),
+      database.$queryRaw<PositionHistorySummaryRow[]>(Prisma.sql`
+        SELECT
+          COUNT(*)::int AS "closedCount",
+          COUNT(*) FILTER (WHERE "pnlUsd" > 0)::int AS wins,
+          COUNT(*) FILTER (WHERE "pnlUsd" <= 0)::int AS losses,
+          COALESCE(SUM("pnlUsd"), 0) AS "netPnlUsd",
+          COALESCE(AVG("pnlPercent"), 0) AS "avgPnlPercent"
+        FROM "Position"
+        WHERE status = 'CLOSED'
+          AND (${strategy ?? null}::text IS NULL OR strategy = ${strategy ?? null})
+          AND (${mode ?? null}::text IS NULL OR mode = ${mode ?? null})
+          AND (${profile ?? null}::text IS NULL OR "configProfile" = ${profile ?? null})
+          AND (${tradeSource ?? null}::text IS NULL OR "tradeSource" = ${tradeSource ?? null})
+      `),
     ]);
+    const summary = summaryRows[0];
+    const total = Number(summary?.closedCount ?? 0);
 
     res.json({
       data: positions.map((p) => ({
@@ -105,10 +109,10 @@ export function positionsRouter(deps?: {
       totalPages: Math.ceil(total / limit),
       summary: {
         closedCount: total,
-        wins,
-        losses,
-        netPnlUsd: Number(pnlAggregate._sum.pnlUsd ?? 0),
-        avgPnlPercent: Number(pnlPercentAggregate._avg.pnlPercent ?? 0),
+        wins: Number(summary?.wins ?? 0),
+        losses: Number(summary?.losses ?? 0),
+        netPnlUsd: Number(summary?.netPnlUsd ?? 0),
+        avgPnlPercent: Number(summary?.avgPnlPercent ?? 0),
       },
     });
   });

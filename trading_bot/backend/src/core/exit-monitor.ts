@@ -26,6 +26,7 @@ export class ExitMonitor {
   private batchHandle?: ReturnType<typeof setInterval>;
   private runtimeState: RuntimeState;
   private fadeTradeDataCache = new Map<string, { data: TradeData | null; nextRefreshAt: number }>();
+  private weakMomentumReadCounts = new Map<string, number>();
   private batchInFlight = false;
 
   constructor(
@@ -57,6 +58,7 @@ export class ExitMonitor {
 
   stopMonitoring(positionId: string): void {
     this.monitoredIds.delete(positionId);
+    this.weakMomentumReadCounts.delete(positionId);
     if (this.monitoredIds.size === 0 && this.batchHandle) {
       clearInterval(this.batchHandle);
       this.batchHandle = undefined;
@@ -66,6 +68,7 @@ export class ExitMonitor {
   stopAll(): void {
     this.monitoredIds.clear();
     this.fadeTradeDataCache.clear();
+    this.weakMomentumReadCounts.clear();
     if (this.batchHandle) {
       clearInterval(this.batchHandle);
       this.batchHandle = undefined;
@@ -81,7 +84,10 @@ export class ExitMonitor {
       const p = this.positionTracker.getById(id);
       if (!p || p.status === "CLOSED") toRemove.push(id);
     }
-    toRemove.forEach((id) => this.monitoredIds.delete(id));
+    toRemove.forEach((id) => {
+      this.monitoredIds.delete(id);
+      this.weakMomentumReadCounts.delete(id);
+    });
 
     const positions = [...this.monitoredIds]
       .map((id) => this.positionTracker.getById(id))
@@ -244,10 +250,12 @@ export class ExitMonitor {
     if (pos.entryVolume5m && pos.entryVolume5m > 0 && tradeData) {
       const volumeRatio = new Decimal(tradeData.volume5m).div(pos.entryVolume5m).toNumber();
       const threshold = pos.strategy === "S3_MOMENTUM" ? config.exitMonitor.fadeVolumeRatioS3 : config.exitMonitor.fadeVolumeRatioDefault;
-      if (volumeRatio < threshold) {
+      if (volumeRatio < threshold && this.shouldExitOnFade(pos, volumeRatio, threshold)) {
         await this.executeFullExit(pos, "FADE_EXIT", slippage);
         return;
       }
+
+      this.weakMomentumReadCounts.delete(pos.id);
     }
 
     await this.checkScaledExits(pos, pnlPercent, dropFromPeak, slippage);
@@ -260,6 +268,10 @@ export class ExitMonitor {
     slippage: number,
   ): Promise<void> {
     const exitPlan = getExitPlan(pos.strategy, this.runtimeState.strategyConfigs);
+    if (this.shouldProtectAfterFirstTakeProfit(pos, pnlPercent)) {
+      await this.executeFullExit(pos, "TRAILING_STOP", slippage);
+      return;
+    }
 
     if (pos.strategy === "S1_COPY") {
       const f = config.exitMonitor.exitFractions.s1;
@@ -337,6 +349,33 @@ export class ExitMonitor {
     }
 
     log.warn({ id: pos.id, exitReason, error: result.error }, "full exit failed; keeping position monitored");
+  }
+
+  private shouldProtectAfterFirstTakeProfit(pos: PositionState, pnlPercent: number): boolean {
+    if (!pos.exit1Done || pos.exit2Done) return false;
+
+    const exitPlan = getExitPlan(pos.strategy, this.runtimeState.strategyConfigs);
+    const floorPct = Math.max(
+      pos.strategy === "S2_GRADUATION" ? 10 : 5,
+      exitPlan.tp1ThresholdPct * 0.25,
+    );
+
+    return pnlPercent <= floorPct;
+  }
+
+  private shouldExitOnFade(pos: PositionState, volumeRatio: number, threshold: number): boolean {
+    if (pos.strategy !== "S3_MOMENTUM") {
+      return true;
+    }
+
+    const weakReads = (this.weakMomentumReadCounts.get(pos.id) ?? 0) + 1;
+    this.weakMomentumReadCounts.set(pos.id, weakReads);
+    if (weakReads >= 2) {
+      return true;
+    }
+
+    log.debug({ id: pos.id, volumeRatio, threshold, weakReads }, "momentum weakening; waiting for confirmation");
+    return false;
   }
 
 }

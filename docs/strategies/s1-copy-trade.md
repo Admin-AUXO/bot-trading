@@ -26,6 +26,8 @@ Source file: `trading_bot/backend/src/strategies/copy-trade.ts`
 - minimum liquidity
 - maximum market cap
 - minimum buy pressure
+- minimum unique buyers in the recent window
+- minimum buy/sell ratio in the recent window
 - maximum top-10 holder concentration
 - maximum single-holder concentration
 - no freezeable token
@@ -52,6 +54,7 @@ Source file: `trading_bot/backend/src/strategies/copy-trade.ts`
 
 - stop loss at `-20%`
 - TP1 at `+30%`, selling `50%` of remaining size
+- once TP1 is done, the remaining size is protected and will exit if profit retraces to a low single-digit gain before TP2
 - TP2 at `+60%`, selling `50%` of remaining size again
 - trailing stop at `20%` after both partials
 - time-stop at `120m`; no separate hard time-limit field for S1

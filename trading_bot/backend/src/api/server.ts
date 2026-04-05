@@ -42,6 +42,11 @@ export function createApiServer(deps: {
 }) {
   const app = express();
   const database = deps.dbClient ?? db;
+  const streamClients = new Set<Response>();
+  let streamInterval: ReturnType<typeof setInterval> | undefined;
+  let publishInFlight = false;
+  let publishQueued = false;
+  let lastStreamPayload = "";
   app.use(cors({
     origin: [
       `http://localhost:${config.dashboardPort}`,
@@ -102,46 +107,85 @@ export function createApiServer(deps: {
 
     const riskManager = deps.riskManager as RiskManager;
     const regimeDetector = deps.regimeDetector as RegimeDetector;
-    let sendInFlight = false;
+    const buildStreamPayload = async (): Promise<string> => {
+      const snapshot = riskManager.getSnapshot();
+      const regime = regimeDetector.getState();
+      const scope = deps.runtimeState?.scope ?? snapshot.scope;
+      const [summary, laneActivity] = await Promise.all([
+        getLaneTodaySummary(database, scope),
+        getLaneActivity(database, scope),
+      ]);
 
-    const send = async () => {
-      if (sendInFlight) return;
-      sendInFlight = true;
+      return JSON.stringify({
+        ...snapshot,
+        regime,
+        quotaSnapshots: deps.apiBudgetManager?.getSnapshots() ?? null,
+        lastTradeAt: laneActivity.lastTradeAt,
+        lastSignalAt: laneActivity.lastSignalAt,
+        todayTrades: summary.todayTrades,
+        todayPnl: summary.todayPnl,
+        todayWins: summary.todayWins,
+        todayLosses: summary.todayLosses,
+        openPositions: snapshot.openPositions.map((position) => serializeOpenPosition(position)),
+      });
+    };
+
+    const publishSnapshot = async (): Promise<void> => {
+      if (publishInFlight) {
+        publishQueued = true;
+        return;
+      }
+
+      publishInFlight = true;
       try {
-        const snapshot = riskManager.getSnapshot();
-        const regime = regimeDetector.getState();
-        const scope = deps.runtimeState?.scope ?? snapshot.scope;
-        const [summary, laneActivity] = await Promise.all([
-          getLaneTodaySummary(database, scope),
-          getLaneActivity(database, scope),
-        ]);
+        lastStreamPayload = await buildStreamPayload();
 
-        res.write(`data: ${JSON.stringify({
-          ...snapshot,
-          regime,
-          quotaSnapshots: deps.apiBudgetManager?.getSnapshots() ?? null,
-          lastTradeAt: laneActivity.lastTradeAt,
-          lastSignalAt: laneActivity.lastSignalAt,
-          todayTrades: summary.todayTrades,
-          todayPnl: summary.todayPnl,
-          todayWins: summary.todayWins,
-          todayLosses: summary.todayLosses,
-          openPositions: snapshot.openPositions.map((position) => serializeOpenPosition(position)),
-        })}\n\n`);
+        for (const client of [...streamClients]) {
+          try {
+            client.write(`data: ${lastStreamPayload}\n\n`);
+          } catch (err) {
+            streamClients.delete(client);
+            log.warn({ err }, "dropping stale sse client after write failure");
+          }
+        }
       } catch (err) {
-        log.warn({ err }, "sse stream send failed");
+        log.warn({ err }, "sse stream publish failed");
       } finally {
-        sendInFlight = false;
+        publishInFlight = false;
+        if (publishQueued) {
+          publishQueued = false;
+          if (streamClients.size > 0) {
+            void publishSnapshot();
+          }
+        }
       }
     };
 
-    void send();
-    const interval = setInterval(() => {
-      void send();
-    }, config.api.streamIntervalMs);
+    const ensureStreamLoop = (): void => {
+      if (streamInterval) return;
+      streamInterval = setInterval(() => {
+        void publishSnapshot();
+      }, config.api.streamIntervalMs);
+    };
+
+    const maybeStopStreamLoop = (): void => {
+      if (streamClients.size > 0 || !streamInterval) return;
+      clearInterval(streamInterval);
+      streamInterval = undefined;
+      lastStreamPayload = "";
+    };
+
+    streamClients.add(res);
+    ensureStreamLoop();
+    if (lastStreamPayload) {
+      res.write(`data: ${lastStreamPayload}\n\n`);
+    } else {
+      void publishSnapshot();
+    }
 
     req.on("close", () => {
-      clearInterval(interval);
+      streamClients.delete(res);
+      maybeStopStreamLoop();
     });
   });
 

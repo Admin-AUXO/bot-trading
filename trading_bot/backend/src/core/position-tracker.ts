@@ -1,6 +1,7 @@
 import { db } from "../db/client.js";
 import { createChildLogger } from "../utils/logger.js";
 import type { PositionState, Strategy, MarketRegime, ExitReason, TradeMode, TradeSource } from "../utils/types.js";
+import type { Prisma } from "@prisma/client";
 
 const log = createChildLogger("position-tracker");
 
@@ -11,20 +12,21 @@ interface PositionFilter {
 
 export class PositionTracker {
   private positions: Map<string, PositionState> = new Map();
+  private openIdsByScope: Map<string, Set<string>> = new Map();
+  private openIdsByStrategyScope: Map<string, Set<string>> = new Map();
+  private openIdsByTokenScope: Map<string, string> = new Map();
 
   async loadOpenPositions(filter?: PositionFilter): Promise<void> {
-    this.positions.clear();
     const where: Record<string, unknown> = {
       status: { in: ["OPEN", "PARTIALLY_CLOSED"] },
     };
     if (filter?.mode) where.mode = filter.mode;
     if (filter?.configProfile) where.configProfile = filter.configProfile;
 
-    const rows = await db.position.findMany({
-      where,
-    });
+    const rows = await db.position.findMany({ where });
+    const nextPositions = new Map<string, PositionState>();
     for (const r of rows) {
-      this.positions.set(r.id, {
+      nextPositions.set(r.id, {
         id: r.id,
         mode: r.mode,
         configProfile: r.configProfile,
@@ -64,7 +66,9 @@ export class PositionTracker {
         tradeSource: r.tradeSource,
       });
     }
-    log.info({ count: this.positions.size }, "loaded open positions");
+    this.positions = nextPositions;
+    this.rebuildIndexes();
+    log.info({ count: nextPositions.size }, "loaded open positions");
   }
 
   getAll(): PositionState[] {
@@ -79,6 +83,13 @@ export class PositionTracker {
   }
 
   getOpen(filter?: PositionFilter): PositionState[] {
+    const indexedIds = this.getIndexedIdsForScope(filter);
+    if (indexedIds) {
+      return [...indexedIds]
+        .map((id) => this.positions.get(id))
+        .filter((position): position is PositionState => !!position);
+    }
+
     return this.getAll().filter((p) => {
       const statusOk = p.status === "OPEN" || p.status === "PARTIALLY_CLOSED";
       return statusOk && this.matchesFilter(p, filter);
@@ -86,6 +97,13 @@ export class PositionTracker {
   }
 
   getByStrategy(strategy: Strategy, filter?: PositionFilter): PositionState[] {
+    const indexedIds = this.getIndexedIdsForStrategyScope(strategy, filter);
+    if (indexedIds) {
+      return [...indexedIds]
+        .map((id) => this.positions.get(id))
+        .filter((position): position is PositionState => !!position);
+    }
+
     return Array.from(this.positions.values()).filter((p) => {
       if (p.strategy !== strategy) return false;
       const statusOk = p.status === "OPEN" || p.status === "PARTIALLY_CLOSED";
@@ -97,46 +115,47 @@ export class PositionTracker {
     return this.positions.get(id);
   }
 
-  holdsToken(tokenAddress: string, filter?: PositionFilter): boolean {
-    return this.getOpen(filter).some((p) => p.tokenAddress === tokenAddress);
+  hydratePosition(position: PositionState): void {
+    this.positions.set(position.id, position);
+    this.rebuildIndexes();
   }
 
-  openCount(filter?: PositionFilter): number {
-    return this.getOpen(filter).length;
+  removePosition(id: string): void {
+    this.positions.delete(id);
+    this.rebuildIndexes();
   }
 
-  countByStrategy(strategy: Strategy, filter?: PositionFilter): number {
-    return this.getByStrategy(strategy, filter).length;
-  }
-
-  async openPosition(params: {
-    strategy: Strategy;
-    tokenAddress: string;
-    tokenSymbol: string;
-    entryPriceSol: number;
-    entryPriceUsd: number;
-    amountSol: number;
-    amountToken: number;
-    stopLossPercent: number;
-    regime: MarketRegime;
-    entryVolume5m?: number;
-    platform?: string;
-    walletSource?: string;
-    mode?: TradeMode;
-    configProfile?: string;
-    entryLiquidity?: number;
-    entryMcap?: number;
-    entryHolders?: number;
-    entryVolume1h?: number;
-    entryBuyPressure?: number;
-    entrySlippageBps?: number;
-    entryLatencyMs?: number;
-    tradeSource?: TradeSource;
-  }): Promise<PositionState> {
+  async createPositionRecord(
+    params: {
+      strategy: Strategy;
+      tokenAddress: string;
+      tokenSymbol: string;
+      entryPriceSol: number;
+      entryPriceUsd: number;
+      amountSol: number;
+      amountToken: number;
+      stopLossPercent: number;
+      regime: MarketRegime;
+      entryVolume5m?: number;
+      platform?: string;
+      walletSource?: string;
+      mode?: TradeMode;
+      configProfile?: string;
+      entryLiquidity?: number;
+      entryMcap?: number;
+      entryHolders?: number;
+      entryVolume1h?: number;
+      entryBuyPressure?: number;
+      entrySlippageBps?: number;
+      entryLatencyMs?: number;
+      tradeSource?: TradeSource;
+    },
+    tx: Prisma.TransactionClient = db,
+  ): Promise<PositionState> {
     const mode = params.mode ?? "LIVE";
     const configProfile = params.configProfile ?? "default";
 
-    const row = await db.position.create({
+    const row = await tx.position.create({
       data: {
         mode,
         configProfile,
@@ -171,7 +190,7 @@ export class PositionTracker {
       },
     });
 
-    const pos: PositionState = {
+    return {
       id: row.id,
       mode: row.mode,
       configProfile: row.configProfile,
@@ -210,7 +229,142 @@ export class PositionTracker {
       maxPnlPercent: 0,
       minPnlPercent: 0,
     };
+  }
 
+  async applyPositionFill(
+    id: string,
+    fill: {
+      additionalSol: number;
+      additionalToken: number;
+      fillPriceSol: number;
+      fillPriceUsd: number;
+    },
+    tx: Prisma.TransactionClient = db,
+  ): Promise<PositionState | null> {
+    const pos = this.positions.get(id);
+    if (!pos) return null;
+
+    const nextPosition = this.buildFilledPositionState(pos, fill);
+
+    await tx.position.update({
+      where: { id },
+      data: {
+        tranche2Filled: true,
+        amountSol: nextPosition.amountSol,
+        amountToken: nextPosition.amountToken,
+        remainingToken: nextPosition.remainingToken,
+        entryPriceSol: nextPosition.entryPriceSol,
+        entryPriceUsd: nextPosition.entryPriceUsd,
+        currentPriceSol: nextPosition.currentPriceSol,
+        currentPriceUsd: nextPosition.currentPriceUsd,
+        peakPriceUsd: nextPosition.peakPriceUsd,
+      },
+    });
+
+    return nextPosition;
+  }
+
+  async applyTrancheExit(
+    id: string,
+    tranche: 1 | 2 | 3,
+    remainingToken: number,
+    tx: Prisma.TransactionClient = db,
+  ): Promise<PositionState | null> {
+    const pos = this.positions.get(id);
+    if (!pos) return null;
+
+    const nextPosition = this.buildExitedPositionState(pos, tranche, remainingToken);
+    const update: Record<string, unknown> = {
+      remainingToken: nextPosition.remainingToken,
+      status: nextPosition.status,
+    };
+
+    if (tranche === 1) update.exit1Done = true;
+    if (tranche === 2) update.exit2Done = true;
+    if (tranche === 3) update.exit3Done = true;
+
+    await tx.position.update({ where: { id }, data: update });
+    return nextPosition;
+  }
+
+  async finalizeClosedPosition(
+    id: string,
+    exitReason: ExitReason,
+    pnlSol: number,
+    pnlUsd: number,
+    pnlPercent: number,
+    tx: Prisma.TransactionClient = db,
+  ): Promise<PositionState | null> {
+    const pos = this.positions.get(id);
+    if (!pos) return null;
+
+    const nextPosition: PositionState = {
+      ...pos,
+      status: "CLOSED",
+      remainingToken: 0,
+    };
+
+    await tx.position.update({
+      where: { id },
+      data: {
+        status: "CLOSED",
+        exitReason,
+        pnlSol,
+        pnlUsd,
+        pnlPercent,
+        remainingToken: 0,
+        closedAt: new Date(),
+      },
+    });
+
+    return nextPosition;
+  }
+
+  holdsToken(tokenAddress: string, filter?: PositionFilter): boolean {
+    const scopeKey = this.buildScopeKey(filter);
+    if (scopeKey) {
+      return this.openIdsByTokenScope.has(this.tokenScopeKey(tokenAddress, scopeKey));
+    }
+    return this.getOpen(filter).some((p) => p.tokenAddress === tokenAddress);
+  }
+
+  openCount(filter?: PositionFilter): number {
+    const indexedIds = this.getIndexedIdsForScope(filter);
+    if (indexedIds) return indexedIds.size;
+    return this.getOpen(filter).length;
+  }
+
+  countByStrategy(strategy: Strategy, filter?: PositionFilter): number {
+    const indexedIds = this.getIndexedIdsForStrategyScope(strategy, filter);
+    if (indexedIds) return indexedIds.size;
+    return this.getByStrategy(strategy, filter).length;
+  }
+
+  async openPosition(params: {
+    strategy: Strategy;
+    tokenAddress: string;
+    tokenSymbol: string;
+    entryPriceSol: number;
+    entryPriceUsd: number;
+    amountSol: number;
+    amountToken: number;
+    stopLossPercent: number;
+    regime: MarketRegime;
+    entryVolume5m?: number;
+    platform?: string;
+    walletSource?: string;
+    mode?: TradeMode;
+    configProfile?: string;
+    entryLiquidity?: number;
+    entryMcap?: number;
+    entryHolders?: number;
+    entryVolume1h?: number;
+    entryBuyPressure?: number;
+    entrySlippageBps?: number;
+    entryLatencyMs?: number;
+    tradeSource?: TradeSource;
+  }): Promise<PositionState> {
+    const pos = await this.createPositionRecord(params);
     this.positions.set(pos.id, pos);
     log.info({ id: pos.id, strategy: pos.strategy, token: pos.tokenSymbol }, "position opened");
     return pos;
@@ -273,9 +427,27 @@ export class PositionTracker {
     fillPriceSol: number;
     fillPriceUsd: number;
   }): Promise<void> {
-    const pos = this.positions.get(id);
-    if (!pos) return;
+    const nextPosition = await this.applyPositionFill(id, fill);
+    if (!nextPosition) return;
+    this.positions.set(id, nextPosition);
+  }
 
+  async closePosition(id: string, exitReason: ExitReason, pnlSol: number, pnlUsd: number, pnlPercent: number): Promise<void> {
+    const pos = await this.finalizeClosedPosition(id, exitReason, pnlSol, pnlUsd, pnlPercent);
+    if (!pos) return;
+    this.positions.delete(id);
+    log.info({ id, strategy: pos.strategy, exitReason, pnlUsd }, "position closed");
+  }
+
+  private buildFilledPositionState(
+    pos: PositionState,
+    fill: {
+      additionalSol: number;
+      additionalToken: number;
+      fillPriceSol: number;
+      fillPriceUsd: number;
+    },
+  ): PositionState {
     const totalToken = pos.amountToken + fill.additionalToken;
     const weightedPriceSol = totalToken > 0
       ? (pos.entryPriceSol * pos.amountToken + fill.fillPriceSol * fill.additionalToken) / totalToken
@@ -284,53 +456,89 @@ export class PositionTracker {
       ? (pos.entryPriceUsd * pos.amountToken + fill.fillPriceUsd * fill.additionalToken) / totalToken
       : pos.entryPriceUsd;
 
-    pos.tranche2Filled = true;
-    pos.amountSol += fill.additionalSol;
-    pos.amountToken = totalToken;
-    pos.remainingToken += fill.additionalToken;
-    pos.entryPriceSol = weightedPriceSol;
-    pos.entryPriceUsd = weightedPriceUsd;
-    pos.currentPriceSol = fill.fillPriceSol;
-    pos.currentPriceUsd = fill.fillPriceUsd;
-    pos.peakPriceUsd = Math.max(pos.peakPriceUsd, fill.fillPriceUsd);
-
-    await db.position.update({
-      where: { id },
-      data: {
-        tranche2Filled: true,
-        amountSol: pos.amountSol,
-        amountToken: pos.amountToken,
-        remainingToken: pos.remainingToken,
-        entryPriceSol: pos.entryPriceSol,
-        entryPriceUsd: pos.entryPriceUsd,
-        currentPriceSol: pos.currentPriceSol,
-        currentPriceUsd: pos.currentPriceUsd,
-        peakPriceUsd: pos.peakPriceUsd,
-      },
-    });
+    return {
+      ...pos,
+      tranche2Filled: true,
+      amountSol: pos.amountSol + fill.additionalSol,
+      amountToken: totalToken,
+      remainingToken: pos.remainingToken + fill.additionalToken,
+      entryPriceSol: weightedPriceSol,
+      entryPriceUsd: weightedPriceUsd,
+      currentPriceSol: fill.fillPriceSol,
+      currentPriceUsd: fill.fillPriceUsd,
+      peakPriceUsd: Math.max(pos.peakPriceUsd, fill.fillPriceUsd),
+    };
   }
 
-  async closePosition(id: string, exitReason: ExitReason, pnlSol: number, pnlUsd: number, pnlPercent: number): Promise<void> {
-    const pos = this.positions.get(id);
-    if (!pos) return;
+  private buildExitedPositionState(
+    pos: PositionState,
+    tranche: 1 | 2 | 3,
+    remainingToken: number,
+  ): PositionState {
+    const nextPosition: PositionState = {
+      ...pos,
+      remainingToken,
+      status: remainingToken <= 0 ? "CLOSED" : "PARTIALLY_CLOSED",
+    };
 
-    pos.status = "CLOSED";
-    pos.remainingToken = 0;
+    if (tranche === 1) nextPosition.exit1Done = true;
+    if (tranche === 2) nextPosition.exit2Done = true;
+    if (tranche === 3) nextPosition.exit3Done = true;
 
-    await db.position.update({
-      where: { id },
-      data: {
-        status: "CLOSED",
-        exitReason,
-        pnlSol,
-        pnlUsd,
-        pnlPercent,
-        remainingToken: 0,
-        closedAt: new Date(),
-      },
-    });
+    return nextPosition;
+  }
 
-    this.positions.delete(id);
-    log.info({ id, strategy: pos.strategy, exitReason, pnlUsd }, "position closed");
+  private rebuildIndexes(): void {
+    this.openIdsByScope.clear();
+    this.openIdsByStrategyScope.clear();
+    this.openIdsByTokenScope.clear();
+
+    for (const position of this.positions.values()) {
+      if (position.status !== "OPEN" && position.status !== "PARTIALLY_CLOSED") continue;
+
+      const scopeKey = this.scopeKey(position.mode, position.configProfile);
+      this.addToSetMap(this.openIdsByScope, scopeKey, position.id);
+      this.addToSetMap(this.openIdsByStrategyScope, this.strategyScopeKey(position.strategy, scopeKey), position.id);
+      this.openIdsByTokenScope.set(this.tokenScopeKey(position.tokenAddress, scopeKey), position.id);
+    }
+  }
+
+  private addToSetMap(map: Map<string, Set<string>>, key: string, value: string): void {
+    const existing = map.get(key);
+    if (existing) {
+      existing.add(value);
+      return;
+    }
+
+    map.set(key, new Set([value]));
+  }
+
+  private getIndexedIdsForScope(filter?: PositionFilter): Set<string> | null {
+    const scopeKey = this.buildScopeKey(filter);
+    if (!scopeKey) return null;
+    return this.openIdsByScope.get(scopeKey) ?? new Set();
+  }
+
+  private getIndexedIdsForStrategyScope(strategy: Strategy, filter?: PositionFilter): Set<string> | null {
+    const scopeKey = this.buildScopeKey(filter);
+    if (!scopeKey) return null;
+    return this.openIdsByStrategyScope.get(this.strategyScopeKey(strategy, scopeKey)) ?? new Set();
+  }
+
+  private buildScopeKey(filter?: PositionFilter): string | null {
+    if (!filter?.mode || !filter.configProfile) return null;
+    return this.scopeKey(filter.mode, filter.configProfile);
+  }
+
+  private scopeKey(mode: TradeMode, configProfile: string): string {
+    return `${mode}:${configProfile}`;
+  }
+
+  private strategyScopeKey(strategy: Strategy, scopeKey: string): string {
+    return `${strategy}:${scopeKey}`;
+  }
+
+  private tokenScopeKey(tokenAddress: string, scopeKey: string): string {
+    return `${tokenAddress}:${scopeKey}`;
   }
 }

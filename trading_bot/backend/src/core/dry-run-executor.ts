@@ -89,64 +89,78 @@ export class DryRunExecutor implements ITradeExecutor {
       const txSig = this.fakeTxSig();
 
       let positionId = params.positionId;
-      if (!positionId) {
-        const pos = await this.positionTracker.openPosition({
-          strategy: params.strategy,
-          tokenAddress: params.tokenAddress,
-          tokenSymbol: params.tokenSymbol,
-          entryPriceSol: priceSol,
-          entryPriceUsd: priceUsd ?? 0,
-          amountSol: params.amountSol,
-          amountToken,
-          stopLossPercent: getStopLossPercent(params.strategy, this.runtimeState.strategyConfigs),
-          regime: params.regime,
-          entryVolume5m: params.entryVolume5m,
-          platform: params.platform,
-          walletSource: params.walletSource,
-          mode: this.runtimeState.scope.mode,
-          configProfile: this.runtimeState.scope.configProfile,
-          entryLiquidity: params.entryLiquidity,
-          entryMcap: params.entryMcap,
-          entryHolders: params.entryHolders,
-          entryVolume1h: params.entryVolume1h,
-          entryBuyPressure: params.entryBuyPressure,
-          entrySlippageBps: Math.round(quote.priceImpactPct * 100),
-          tradeSource: params.tradeSource ?? "AUTO",
-        });
-        positionId = pos.id;
-      } else {
-        await this.positionTracker.fillPosition(positionId, {
-          additionalSol: params.amountSol,
-          additionalToken: amountToken,
-          fillPriceSol: priceSol,
-          fillPriceUsd: priceUsd ?? 0,
-        });
-      }
+      let persistedPosition = positionId
+        ? this.positionTracker.getById(positionId) ?? null
+        : null;
 
-      await db.trade.create({
-        data: {
-          mode: this.runtimeState.scope.mode,
-          configProfile: this.runtimeState.scope.configProfile,
-          strategy: params.strategy,
-          tokenAddress: params.tokenAddress,
-          tokenSymbol: params.tokenSymbol,
-          side: "BUY",
-          positionId,
-          amountSol: params.amountSol,
-          amountToken,
-          priceUsd: priceUsd ?? 0,
-          priceSol,
-          slippageBps: Math.round(quote.priceImpactPct * 100),
-          gasFee: config.capital.gasFee,
-          jitoTip: 0,
-          txSignature: txSig,
-          trancheNumber: params.trancheNumber ?? 1,
-          regime: params.regime,
-          walletAddress: params.walletSource,
-          platform: params.platform,
-          tradeSource: params.tradeSource ?? "AUTO",
-        },
+      await db.$transaction(async (tx) => {
+        if (!positionId) {
+          persistedPosition = await this.positionTracker.createPositionRecord({
+            strategy: params.strategy,
+            tokenAddress: params.tokenAddress,
+            tokenSymbol: params.tokenSymbol,
+            entryPriceSol: priceSol,
+            entryPriceUsd: priceUsd ?? 0,
+            amountSol: params.amountSol,
+            amountToken,
+            stopLossPercent: getStopLossPercent(params.strategy, this.runtimeState.strategyConfigs),
+            regime: params.regime,
+            entryVolume5m: params.entryVolume5m,
+            platform: params.platform,
+            walletSource: params.walletSource,
+            mode: this.runtimeState.scope.mode,
+            configProfile: this.runtimeState.scope.configProfile,
+            entryLiquidity: params.entryLiquidity,
+            entryMcap: params.entryMcap,
+            entryHolders: params.entryHolders,
+            entryVolume1h: params.entryVolume1h,
+            entryBuyPressure: params.entryBuyPressure,
+            entrySlippageBps: Math.round(quote.priceImpactPct * 100),
+            tradeSource: params.tradeSource ?? "AUTO",
+          }, tx);
+          positionId = persistedPosition.id;
+        } else {
+          persistedPosition = await this.positionTracker.applyPositionFill(positionId, {
+            additionalSol: params.amountSol,
+            additionalToken: amountToken,
+            fillPriceSol: priceSol,
+            fillPriceUsd: priceUsd ?? 0,
+          }, tx);
+        }
+
+        if (!positionId) {
+          throw new Error("position persistence failed during dry-run buy");
+        }
+
+        await tx.trade.create({
+          data: {
+            mode: this.runtimeState.scope.mode,
+            configProfile: this.runtimeState.scope.configProfile,
+            strategy: params.strategy,
+            tokenAddress: params.tokenAddress,
+            tokenSymbol: params.tokenSymbol,
+            side: "BUY",
+            positionId,
+            amountSol: params.amountSol,
+            amountToken,
+            priceUsd: priceUsd ?? 0,
+            priceSol,
+            slippageBps: Math.round(quote.priceImpactPct * 100),
+            gasFee: config.capital.gasFee,
+            jitoTip: 0,
+            txSignature: txSig,
+            trancheNumber: params.trancheNumber ?? 1,
+            regime: params.regime,
+            walletAddress: params.walletSource,
+            platform: params.platform,
+            tradeSource: params.tradeSource ?? "AUTO",
+          },
+        });
       });
+
+      if (persistedPosition) {
+        this.positionTracker.hydratePosition(persistedPosition);
+      }
       this.riskManager.recordBuyExecution(params.amountSol, config.capital.gasFee);
 
       log.info({
@@ -214,53 +228,75 @@ export class DryRunExecutor implements ITradeExecutor {
 
     const remaining = Math.max(0, position.remainingToken - params.amountToken);
     const tranche = params.trancheNumber as 1 | 2 | 3;
-    await this.positionTracker.markTrancheExit(params.positionId, tranche, remaining);
+    let nextPosition = position;
 
-    await db.trade.create({
-      data: {
-        mode: this.runtimeState.scope.mode,
-        configProfile: this.runtimeState.scope.configProfile,
-        strategy: params.strategy,
-        tokenAddress: params.tokenAddress,
-        tokenSymbol: params.tokenSymbol,
-        side: "SELL",
-        positionId: params.positionId,
-        amountSol: solReceived,
-        amountToken: params.amountToken,
-        priceUsd: priceUsd ?? 0,
-        priceSol,
-        slippageBps: Math.round(quote.priceImpactPct * 100),
-        gasFee: config.capital.gasFee,
-        jitoTip: 0,
-        txSignature: txSig,
-        exitReason: params.exitReason,
-        pnlSol,
-        pnlUsd,
-        pnlPercent,
-        trancheNumber: params.trancheNumber,
-        regime: position.regime,
-        tradeSource: params.tradeSource ?? "AUTO",
-      },
+    await db.$transaction(async (tx) => {
+      const updatedPosition = await this.positionTracker.applyTrancheExit(
+        params.positionId,
+        tranche,
+        remaining,
+        tx,
+      );
+      if (updatedPosition) {
+        nextPosition = updatedPosition;
+      }
+
+      await tx.trade.create({
+        data: {
+          mode: this.runtimeState.scope.mode,
+          configProfile: this.runtimeState.scope.configProfile,
+          strategy: params.strategy,
+          tokenAddress: params.tokenAddress,
+          tokenSymbol: params.tokenSymbol,
+          side: "SELL",
+          positionId: params.positionId,
+          amountSol: solReceived,
+          amountToken: params.amountToken,
+          priceUsd: priceUsd ?? 0,
+          priceSol,
+          slippageBps: Math.round(quote.priceImpactPct * 100),
+          gasFee: config.capital.gasFee,
+          jitoTip: 0,
+          txSignature: txSig,
+          exitReason: params.exitReason,
+          pnlSol,
+          pnlUsd,
+          pnlPercent,
+          trancheNumber: params.trancheNumber,
+          regime: position.regime,
+          tradeSource: params.tradeSource ?? "AUTO",
+        },
+      });
+
+      if (remaining <= 0) {
+        const realized = await tx.trade.aggregate({
+          where: { positionId: params.positionId, side: "SELL" },
+          _sum: { pnlSol: true, pnlUsd: true },
+        });
+        const totalPnlSol = Number(realized._sum.pnlSol ?? 0);
+        const totalPnlUsd = Number(realized._sum.pnlUsd ?? 0);
+        const totalCostUsd = position.amountToken * position.entryPriceUsd;
+        const totalPnlPercent = totalCostUsd > 0 ? (totalPnlUsd / totalCostUsd) * 100 : 0;
+        const closedPosition = await this.positionTracker.finalizeClosedPosition(
+          params.positionId,
+          params.exitReason,
+          totalPnlSol,
+          totalPnlUsd,
+          totalPnlPercent,
+          tx,
+        );
+        if (closedPosition) {
+          nextPosition = closedPosition;
+        }
+      }
     });
-    this.riskManager.recordSellExecution(solReceived, pnlUsd, pnlUsd > 0, config.capital.gasFee);
 
     if (remaining <= 0) {
-      const realized = await db.trade.aggregate({
-        where: { positionId: params.positionId, side: "SELL" },
-        _sum: { pnlSol: true, pnlUsd: true },
-      });
-      const totalPnlSol = Number(realized._sum.pnlSol ?? 0);
-      const totalPnlUsd = Number(realized._sum.pnlUsd ?? 0);
-      const totalCostUsd = position.amountToken * position.entryPriceUsd;
-      const totalPnlPercent = totalCostUsd > 0 ? (totalPnlUsd / totalCostUsd) * 100 : 0;
-      await this.positionTracker.closePosition(
-        params.positionId,
-        params.exitReason,
-        totalPnlSol,
-        totalPnlUsd,
-        totalPnlPercent,
-      );
+      this.positionTracker.removePosition(params.positionId);
+    } else {
+      this.positionTracker.hydratePosition(nextPosition);
     }
+    this.riskManager.recordSellExecution(solReceived, pnlUsd, pnlUsd > 0, config.capital.gasFee);
 
     log.info({
       profile: this.runtimeState.scope.configProfile,

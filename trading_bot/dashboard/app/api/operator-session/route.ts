@@ -5,7 +5,7 @@ import {
   getOperatorSessionCookieName,
   hasOperatorSession,
   matchesDashboardControlSecret,
-} from "@/lib/server/operator-session";
+} from "@/lib/server/operator-session-core";
 
 export const runtime = "nodejs";
 
