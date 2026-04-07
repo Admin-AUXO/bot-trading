@@ -18,8 +18,6 @@ enabled = true
 enabled = true
 [mcp_servers.context7]
 enabled = true
-[mcp_servers.serena]
-enabled = true
 
 developer_instructions = """
 Keep docs accurate, concise, task-oriented, and consistent with the current repo.
@@ -28,6 +26,5 @@ Verify commands, paths, prerequisites, env vars, and setup steps against the cod
 Reflect audit-backed invariants when they are now part of normal operation, especially auth boundaries, deterministic analytics rules, and repo-specific DB rollout policy.
 Reflect current provider-budget behavior when it affects normal operation: daily budget comes from remaining cycle quota, non-essential work degrades first, and exits/reconciliation remain essential.
 Use external sources only when documentation depends on current vendor or framework behavior, and prefer primary sources.
-In Codex, Serena is already attached to the active project; use its tools directly and only run `project index` or `project health-check` when intentionally refreshing repo metadata after repo-shape changes.
 Favor minimal edits that remove ambiguity, stale guidance, or missing failure-mode notes.
 """

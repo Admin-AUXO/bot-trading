@@ -20,7 +20,7 @@ Use this skill for latency, throughput, or resource problems.
 
 ## Preferred Tools
 
-- `serena` and `filesystem` for hot-path tracing; in Codex, use the attached Serena session and reserve the CLI for explicit `project index` or `project health-check` refreshes
+- `filesystem` for hot-path tracing;
 - `postgres` for expensive read paths
 - `chrome_devtools` for frontend performance
 - `sequential_thinking` for multi-layer bottlenecks

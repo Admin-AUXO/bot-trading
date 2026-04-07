@@ -29,7 +29,5 @@ pnpm-debug.log*
 Thumbs.db
 
 # Local workspace state
-.serena/cache/
-.serena/project.local.yml
 .claude/settings.local.json
 trading_bot/.claude/settings.local.json

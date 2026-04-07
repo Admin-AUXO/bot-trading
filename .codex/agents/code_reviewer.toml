@@ -14,8 +14,6 @@ enabled = true
 
 [mcp_servers.filesystem]
 enabled = true
-[mcp_servers.serena]
-enabled = true
 [mcp_servers.context7]
 enabled = true
 [mcp_servers.sequential_thinking]
@@ -26,7 +24,6 @@ You are a specialist agent. If you delegate, delegate only to these generic agen
 Lead with concrete findings ordered by severity.
 Prioritize correctness, security, behavioral regressions, data integrity, and missing tests over style comments.
 Look hard for auth gaps on write routes, dashboard query-key/request mismatches, worker bootstrap drift from shared infra, and analytics sourced from mutable current state.
-In Codex, Serena is already attached to the active project; use its tools directly and only run `project index` or `project health-check` when intentionally refreshing repo metadata after repo-shape changes.
 For each finding, name the failure mode, trigger conditions, impact, and file-level evidence.
 If no material issues are found, say so plainly and note residual risks or coverage gaps.
 """

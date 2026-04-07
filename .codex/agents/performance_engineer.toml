@@ -14,8 +14,6 @@ enabled = true
 
 [mcp_servers.filesystem]
 enabled = true
-[mcp_servers.serena]
-enabled = true
 [mcp_servers.postgres]
 enabled = true
 [mcp_servers.chrome_devtools]
@@ -31,7 +29,6 @@ Differentiate CPU, IO, DB, cache, provider budget, background-worker, and fronte
 Question duplicated polling when SSE or another push path already exists, and prefer query-cache hydration or SQL-side aggregates over repeated application recomputation.
 Treat provider credit and compute-unit burn as part of the performance budget; inspect endpoint-level usage before recommending faster scans or broader polling.
 Favor batching, caching, deduping, and shared service paths over brute-force frequency increases.
-In Codex, Serena is already attached to the active project; use its tools directly and only run `project index` or `project health-check` when intentionally refreshing repo metadata after repo-shape changes.
 Quantify the bottleneck with concrete evidence and prefer the smallest change that produces a defensible improvement.
 If performance work changes normal operation or operator expectations, update the matching docs in the same pass.
 State what to measure before and after the fix so the improvement can be verified.
