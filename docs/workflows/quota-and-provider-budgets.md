@@ -58,6 +58,7 @@ Jupiter and Jito are used by execution paths, but the current `ApiBudgetManager`
 - monthly reserve comes from the configured `20%` budget reserve
 - non-essential traffic is blocked before it consumes the protected daily reserve
 - `shouldRunNonEssential()` only returns true in `HEALTHY`, so soft-limit state already degrades work
+- paid entry evaluation now short-circuits when a strategy has no remaining global or per-strategy slots, and concurrent Birdeye entry evaluations are capped to the remaining slot count
 - Helius historical RPC methods are not cheap: `getSignaturesForAddress` and `getTransaction` must be accounted at `10` credits each
 
 ## Current Routing Notes
@@ -68,6 +69,7 @@ Jupiter and Jito are used by execution paths, but the current `ApiBudgetManager`
 - S1 wallet-activity price capture now uses `MarketRouter.refreshExitContext()` instead of single-token Birdeye `multi_price`.
 - S1 entry now uses DEX Screener sanity before paid Birdeye scoring.
 - S2 continuous discovery now uses Jupiter `recent` plus DEX Screener prefilter; Birdeye `meme/list` is catch-up only.
+- S2 catch-up and fallback Birdeye loops now pause completely when `S2` has no remaining entry slots.
 - S3 discovery now seeds from Jupiter category feeds plus DEX Screener prefilter before any paid Birdeye final-score calls.
 - `wouldHaveWon` recompute is now a DB-only pass; do not tie it to Birdeye quota state.
 - Birdeye quota sync still matters for paid discovery and final scoring paths that remain on Birdeye.

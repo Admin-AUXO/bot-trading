@@ -20,6 +20,19 @@ required = false
 startup_timeout_ms = 20000
 tool_timeout_sec = 90
 
+[mcp_servers.birdeye-mcp]
+args = [
+    "-y",
+    "mcp-remote",
+    "https://mcp.birdeye.so/mcp",
+    "--header",
+    "x-api-key:${BIRDEYE_API_KEY}",
+]
+command = "npx"
+enabled = true
+required = false
+startup_timeout_ms = 20000
+
 [mcp_servers.chrome_devtools]
 args = [
     "-y",
@@ -34,9 +47,6 @@ tool_timeout_sec = 90
 required = false
 startup_timeout_ms = 20000
 url = "https://mcp.context7.com/mcp"
-
-[mcp_servers.context7.env_http_headers]
-CONTEXT7_API_KEY = "ctx7sk-2a57610c-16c7-4d54-a318-a3ba67eb05a0"
 
 [mcp_servers.desktop_commander]
 args = [
@@ -73,7 +83,7 @@ startup_timeout_ms = 20000
 args = [
     "-y",
     "@modelcontextprotocol/server-postgres",
-    "postgresql://botuser:botpass@localhost:5432/trading_bot",
+    "postgresql://botuser:botpass@localhost:55432/trading_bot",
 ]
 command = "npx"
 enabled = true
@@ -86,9 +96,16 @@ args = [
     "redis-mcp-server@latest",
     "redis-mcp-server",
     "--url",
-    "redis://localhost:6379/0",
+    "redis://localhost:56379/0",
 ]
 command = "uvx"
+enabled = true
+required = false
+startup_timeout_ms = 20000
+
+[mcp_servers.helius]
+args = ["helius-mcp@latest"]
+command = "npx"
 enabled = true
 required = false
 startup_timeout_ms = 20000

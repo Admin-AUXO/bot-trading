@@ -71,7 +71,14 @@ test("MomentumStrategy.runScan uses MarketRouter seeds plus DEX prefilter before
   const evaluated: Array<Record<string, unknown>> = [];
 
   const strategy = new MomentumStrategy(
-    {} as never,
+    {
+      getEntryCapacity: () => ({
+        allowed: true,
+        globalRemaining: 5,
+        strategyRemaining: 3,
+        remaining: 3,
+      }),
+    } as never,
     {
       holdsToken: () => false,
     } as never,
@@ -158,8 +165,17 @@ test("MomentumStrategy.evaluateCandidate records router seed source instead of B
 
   try {
     const strategy = new MomentumStrategy(
-      {} as never,
-      {} as never,
+      {
+        getEntryCapacity: () => ({
+          allowed: true,
+          globalRemaining: 5,
+          strategyRemaining: 3,
+          remaining: 3,
+        }),
+      } as never,
+      {
+        holdsToken: () => false,
+      } as never,
       {} as never,
       {} as never,
       {
@@ -193,6 +209,84 @@ test("MomentumStrategy.evaluateCandidate records router seed source instead of B
 
     assert.equal(writes.length, 1);
     assert.equal((writes[0].data as Record<string, unknown>).source, "JUPITER_TOP_TRADED");
+  } finally {
+    db.signal.create = originalCreate;
+  }
+});
+
+test("MomentumStrategy.evaluateCandidate limits paid evaluations to remaining slots", async () => {
+  const originalCreate = db.signal.create;
+  const writes: Array<Record<string, unknown>> = [];
+  let runFiltersCalls = 0;
+  let releaseRunFilters: (() => void) | undefined;
+  const runFiltersBlock = new Promise<void>((resolve) => {
+    releaseRunFilters = () => resolve();
+  });
+
+  db.signal.create = (async (args: Record<string, unknown>) => {
+    writes.push(args);
+    return {} as never;
+  }) as typeof db.signal.create;
+
+  try {
+    const strategy = new MomentumStrategy(
+      {
+        getEntryCapacity: () => ({
+          allowed: true,
+          globalRemaining: 5,
+          strategyRemaining: 1,
+          remaining: 1,
+        }),
+      } as never,
+      {
+        holdsToken: () => false,
+      } as never,
+      {} as never,
+      {} as never,
+      {
+        getRegime: () => "NORMAL",
+      } as never,
+      {} as never,
+      {} as never,
+    );
+
+    (strategy as any).runFilters = async (candidate: { address: string; symbol: string }) => {
+      runFiltersCalls += 1;
+      await runFiltersBlock;
+      return {
+        passed: false,
+        tokenAddress: candidate.address,
+        tokenSymbol: candidate.symbol,
+        rejectReason: "filtered",
+        filterResults: {},
+      };
+    };
+
+    const first = (strategy as any).evaluateCandidate({
+      address: "mint_1",
+      symbol: "ONE",
+      name: "One",
+      source: "JUPITER_TOP_TRENDING",
+      seedPriceUsd: 0.1,
+      seedLiquidityUsd: 50_000,
+      seedMarketCap: 120_000,
+    });
+    const second = (strategy as any).evaluateCandidate({
+      address: "mint_2",
+      symbol: "TWO",
+      name: "Two",
+      source: "JUPITER_TOP_TRADED",
+      seedPriceUsd: 0.2,
+      seedLiquidityUsd: 55_000,
+      seedMarketCap: 140_000,
+    });
+
+    if (releaseRunFilters) releaseRunFilters();
+    await Promise.all([first, second]);
+
+    assert.equal(runFiltersCalls, 1);
+    assert.equal(writes.length, 1);
+    assert.equal((writes[0].data as Record<string, unknown>).tokenAddress, "mint_1");
   } finally {
     db.signal.create = originalCreate;
   }

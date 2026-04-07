@@ -30,6 +30,7 @@ const log = createChildLogger("main");
 
 export async function startTradingBot(): Promise<void> {
   const isLive = config.tradeMode === "LIVE";
+  const canReadWallet = config.solana.publicKey.trim().length > 0;
   log.info({ mode: config.tradeMode }, "initializing trading bot");
 
   const apiCallBuffer = new ApiCallBuffer();
@@ -85,14 +86,21 @@ export async function startTradingBot(): Promise<void> {
   regimeDetector.startPeriodicEvaluation();
 
   const reconcileWalletBalance = async (): Promise<number | null> => {
-    if (!isLive) return null;
-    const balanceSol = await helius.getWalletBalanceSol(config.solana.publicKey, {
-      mode: runtimeState.scope.mode,
-      configProfile: runtimeState.scope.configProfile,
-      purpose: "RECONCILIATION",
-      essential: true,
-    });
+    if (!canReadWallet) return null;
+    const [balanceSol, solPriceUsd] = await Promise.all([
+      helius.getWalletBalanceSol(config.solana.publicKey, {
+        mode: runtimeState.scope.mode,
+        configProfile: runtimeState.scope.configProfile,
+        purpose: "RECONCILIATION",
+        essential: true,
+      }),
+      jupiter.getSolPriceUsd(),
+    ]);
     if (balanceSol === null) return null;
+    riskManager.updateWalletCapital(balanceSol, solPriceUsd);
+    if (!isLive) {
+      return balanceSol;
+    }
     riskManager.updateWalletBalance(balanceSol);
     return balanceSol;
   };
@@ -171,7 +179,7 @@ export async function startTradingBot(): Promise<void> {
     tradeExecutor: executor,
     runtimeState,
     apiBudgetManager,
-    walletReconciler: isLive ? reconcileWalletBalance : undefined,
+    walletReconciler: canReadWallet ? reconcileWalletBalance : undefined,
     applyRuntimeProfile,
   });
 
@@ -184,7 +192,7 @@ export async function startTradingBot(): Promise<void> {
     riskManager,
     apiBudgetManager,
     s1,
-    walletReconciler: isLive ? reconcileWalletBalance : undefined,
+    walletReconciler: canReadWallet ? reconcileWalletBalance : undefined,
   });
 
   await apiBudgetManager.persistCurrentState();

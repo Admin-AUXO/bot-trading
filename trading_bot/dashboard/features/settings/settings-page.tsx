@@ -175,8 +175,8 @@ export default function SettingsPage() {
         <MiniStat
           icon={<Wallet className="w-3.5 h-3.5 text-accent-blue" />}
           label="Capital"
-          value={formatUsd(overview?.capitalUsd ?? 0)}
-          sub={`${(overview?.walletBalance ?? 0).toFixed(3)} SOL`}
+          value={formatUsd(overview?.walletCapitalUsd ?? 0)}
+          sub={`${(overview?.walletCapitalSol ?? 0).toFixed(3)} SOL`}
           level={overview?.capitalLevel}
         />
         <MiniStat
@@ -552,7 +552,8 @@ export default function SettingsPage() {
                 <div className="text-sm space-y-1">
                   <Row label="Max Open Positions" value={String(stratConfig.risk.maxOpenPositions)} />
                   <Row label="Gas Reserve" value={`${stratConfig.risk.gasReserve} SOL`} />
-                  <Row label="Wallet Balance" value={`${(overview.walletBalance ?? 0).toFixed(4)} SOL`} />
+                  <Row label="Wallet Balance" value={`${(overview.walletCapitalSol ?? 0).toFixed(4)} SOL`} />
+                  <Row label="Available Balance" value={`${(overview.walletBalance ?? 0).toFixed(4)} SOL`} />
                   <Row label="Rolling Win Rate" value={`${((overview.rollingWinRate ?? 0) * 100).toFixed(0)}%`} />
                 </div>
                 <div className="text-sm space-y-1">

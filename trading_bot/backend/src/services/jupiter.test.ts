@@ -1,10 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Keypair } from "@solana/web3.js";
 
+const wallet = Keypair.generate();
+process.env.DATABASE_URL = "postgresql://user:pass@localhost:5432/test";
+process.env.HELIUS_API_KEY = "test-helius";
 process.env.JUPITER_API_KEY = "test-key";
+process.env.HELIUS_RPC_URL = "https://rpc.test";
+process.env.HELIUS_WS_URL = "wss://ws.test";
 process.env.JUPITER_BASE_URL = "https://api.jup.ag";
 process.env.JUPITER_PRICE_PATH = "/price/v3";
 process.env.JUPITER_SWAP_PATH = "/swap/v1";
+process.env.BIRDEYE_API_KEY = "test-birdeye";
+process.env.SOLANA_PRIVATE_KEY = JSON.stringify(Array.from(wallet.secretKey));
+process.env.SOLANA_PUBLIC_KEY = wallet.publicKey.toBase58();
+process.env.CONTROL_API_SECRET = "test-control-secret-123";
 
 const { JupiterService } = await import("./jupiter.js");
 
@@ -55,16 +65,32 @@ test("JupiterService.getQuote uses the swap v1 quote endpoint and x-api-key head
   }
 });
 
-test("JupiterService.buildSwapTransaction uses the swap v1 endpoint and x-api-key header", async () => {
+test("JupiterService.buildSwapTransaction uses the swap-instructions endpoint and x-api-key header", async () => {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
   const originalFetch = globalThis.fetch;
+  const originalGetConnection = (JupiterService.prototype as unknown as { getConnection: unknown }).getConnection;
 
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     requests.push({ url: String(url), init });
-    return new Response(JSON.stringify({ swapTransaction: "base64tx" }), { status: 200 });
+    return new Response(JSON.stringify({
+      computeBudgetInstructions: [],
+      otherInstructions: [],
+      setupInstructions: [],
+      swapInstruction: {
+        programId: "11111111111111111111111111111111",
+        accounts: [],
+        data: "",
+      },
+      cleanupInstruction: null,
+      addressLookupTableAddresses: [],
+    }), { status: 200 });
   }) as typeof fetch;
 
   try {
+    (JupiterService.prototype as unknown as { getConnection: () => unknown }).getConnection = () => ({
+      getLatestBlockhash: async () => ({ blockhash: "11111111111111111111111111111111" }),
+      getAddressLookupTable: async () => ({ value: null }),
+    });
     const service = new JupiterService();
     const swapTx = await service.buildSwapTransaction({
       inputMint: "So11111111111111111111111111111111111111112",
@@ -78,13 +104,14 @@ test("JupiterService.buildSwapTransaction uses the swap v1 endpoint and x-api-ke
       priceImpactPct: 0.1,
       slippageBps: 50,
       routePlan: [],
-    }, { priorityFee: 1234, blockhash: "ignored" });
+    }, { priorityFee: 1234, blockhash: "11111111111111111111111111111111" });
 
-    assert.equal(swapTx, "base64tx");
+    assert.ok(swapTx);
     assert.equal(requests.length, 1);
-    assert.equal(requests[0].url, "https://api.jup.ag/swap/v1/swap");
+    assert.equal(requests[0].url, "https://api.jup.ag/swap/v1/swap-instructions");
     assert.equal(getHeader(requests[0].init, "x-api-key"), "test-key");
   } finally {
+    (JupiterService.prototype as unknown as { getConnection: unknown }).getConnection = originalGetConnection;
     globalThis.fetch = originalFetch;
   }
 });
@@ -131,6 +158,28 @@ test("JupiterService.getTopTrendingTokens uses the Tokens V2 category endpoint",
     assert.equal(tokens.length, 1);
     assert.equal(requests.length, 1);
     assert.equal(requests[0].url, "https://api.jup.ag/tokens/v2/toptrending/1h?limit=25");
+    assert.equal(getHeader(requests[0].init, "x-api-key"), "test-key");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("JupiterService.getTopTrendingTokens defaults to the 1h category interval", async () => {
+  const requests: Array<{ url: string; init?: RequestInit }> = [];
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    requests.push({ url: String(url), init });
+    return new Response(JSON.stringify([{ id: "mint_1", symbol: "TEST" }]), { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    const service = new JupiterService();
+    const tokens = await (service as any).getTopTrendingTokens({ limit: 10 });
+
+    assert.equal(tokens.length, 1);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].url, "https://api.jup.ag/tokens/v2/toptrending/1h?limit=10");
     assert.equal(getHeader(requests[0].init, "x-api-key"), "test-key");
   } finally {
     globalThis.fetch = originalFetch;

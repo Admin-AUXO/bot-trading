@@ -1,6 +1,9 @@
-node_modules
-dist
-.env
-.env.docker
-*.log
-npm-debug.log*
+*
+!Dockerfile
+!package.json
+!package-lock.json
+!prisma.config.ts
+!tsconfig.json
+!tsconfig.build.json
+!prisma/**
+!src/**

@@ -51,6 +51,7 @@ export class MomentumStrategy extends EventEmitter {
   private processingTokens: Set<string> = new Set();
   private pendingTranche2: Map<string, ReturnType<typeof setTimeout>> = new Map();
   private scanInFlight = false;
+  private activeEntryEvaluations = 0;
   private readonly runtimeState?: RuntimeState;
   private readonly fallbackConfig: S3RuntimeConfig;
   private readonly fallbackScope: ExecutionScope;
@@ -104,6 +105,7 @@ export class MomentumStrategy extends EventEmitter {
     try {
       const regime = this.regimeDetector.getRegime();
       if (regime === "RISK_OFF") return;
+      if (!this.hasEntryEvaluationHeadroom("S3 scan")) return;
 
       const seeds = await this.marketRouter.getMomentumSeeds({
         limit: this.cfg.maxCandidatesPerScan * 2,
@@ -137,7 +139,15 @@ export class MomentumStrategy extends EventEmitter {
   }
 
   private async evaluateCandidate(candidate: MomentumCandidate): Promise<void> {
-    const signal = await this.runFilters(candidate);
+    if (this.positionTracker.holdsToken(candidate.address, this.scope)) return;
+
+    const signal = await this.withEntryEvaluationSlot(
+      "S3 candidate evaluation",
+      candidate.address,
+      () => this.runFilters(candidate),
+    );
+    if (!signal) return;
+
     const overview = signal.overview;
     const tradeData = signal.tradeData;
     const signalPrice = overview?.price ?? candidate.prefilterPriceUsd ?? candidate.seedPriceUsd ?? null;
@@ -490,5 +500,50 @@ export class MomentumStrategy extends EventEmitter {
       essential,
       batchSize,
     };
+  }
+
+  private hasEntryEvaluationHeadroom(context: string): boolean {
+    const capacity = this.riskManager.getEntryCapacity("S3_MOMENTUM");
+    if (!capacity.allowed) {
+      log.info({ reason: capacity.reason }, `${context} skipped — no S3 entry capacity`);
+      return false;
+    }
+
+    if (capacity.remaining <= this.activeEntryEvaluations) {
+      log.info(
+        { remaining: capacity.remaining, inFlight: this.activeEntryEvaluations },
+        `${context} skipped — S3 Birdeye evaluation slots are busy`,
+      );
+      return false;
+    }
+
+    return true;
+  }
+
+  private async withEntryEvaluationSlot<T>(
+    context: string,
+    tokenAddress: string,
+    fn: () => Promise<T>,
+  ): Promise<T | null> {
+    const capacity = this.riskManager.getEntryCapacity("S3_MOMENTUM");
+    if (!capacity.allowed) {
+      log.info({ tokenAddress, reason: capacity.reason }, `${context} skipped — no S3 entry capacity`);
+      return null;
+    }
+
+    if (capacity.remaining <= this.activeEntryEvaluations) {
+      log.info(
+        { tokenAddress, remaining: capacity.remaining, inFlight: this.activeEntryEvaluations },
+        `${context} skipped — S3 Birdeye evaluation slots are busy`,
+      );
+      return null;
+    }
+
+    this.activeEntryEvaluations += 1;
+    try {
+      return await fn();
+    } finally {
+      this.activeEntryEvaluations = Math.max(0, this.activeEntryEvaluations - 1);
+    }
   }
 }

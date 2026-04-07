@@ -29,6 +29,7 @@ The dashboard is a thin App Router shell around shared runtime state, page-level
   overview, heartbeat, operator session, strategy config, quota snapshots, open positions, urgent positions, active scope
 - `useDashboardFilters()` owns analysis state:
   selected mode, profile, strategy, trade source, and the derived effective analysis lane
+- Capital tiles in the shell and overview should use the wallet-backed overview fields, not the risk ledger's simulated or persisted capital counters.
 
 That separation is deliberate. Do not collapse it.
 

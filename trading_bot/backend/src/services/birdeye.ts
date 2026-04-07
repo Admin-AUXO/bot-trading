@@ -10,17 +10,17 @@ const log = createChildLogger("birdeye");
 const ENDPOINT_COSTS = {
   "/defi/token_overview": 30,
   "/defi/token_security": 50,
-  "/v3/token/holder": 50,
-  "/v3/token/trade-data/single": 15,
-  "/v3/token/list": 100,
-  "/v3/token/meme/list": 100,
-  "/v3/token/meme/detail/single": 30,
-  "/v2/tokens/top_traders": 30,
+  "/defi/v3/token/holder": 50,
+  "/defi/v3/token/trade-data/single": 15,
+  "/defi/v3/token/list": 100,
+  "/defi/v3/token/meme/list": 100,
+  "/defi/v3/token/meme/detail/single": 30,
+  "/defi/v2/tokens/top_traders": 30,
   "/defi/token_trending": 50,
-  "/v2/tokens/new_listing": 80,
-  "/v3/pair/overview/single": 20,
+  "/defi/v2/tokens/new_listing": 80,
+  "/defi/v3/pair/overview/single": 20,
   "/defi/ohlcv": 40,
-  "/v3/token/txs": 20,
+  "/defi/v3/token/txs": 20,
   "/utils/v1/credits": 1,
 } as const;
 
@@ -291,15 +291,15 @@ export class BirdeyeService {
     const cacheKey = `holders:${address}:${limit}`;
     const cached = this.getCached<TokenHolder[]>(cacheKey);
     if (cached) {
-      this.budgetManager.recordCacheHit("BIRDEYE", "/v3/token/holder", { ...meta, batchSize: limit });
+      this.budgetManager.recordCacheHit("BIRDEYE", "/defi/v3/token/holder", { ...meta, batchSize: limit });
       return cached;
     }
 
     try {
       const res = await this.requestWithBudget<{ data?: { items?: unknown[] } }>({
-        endpoint: "/v3/token/holder",
+        endpoint: "/defi/v3/token/holder",
         params: { address, limit },
-        estimatedCredits: ENDPOINT_COSTS["/v3/token/holder"],
+        estimatedCredits: ENDPOINT_COSTS["/defi/v3/token/holder"],
         meta: { ...meta, batchSize: limit },
         walletEndpoint: true,
       });
@@ -322,15 +322,15 @@ export class BirdeyeService {
     const cacheKey = `trade:${address}`;
     const cached = this.getCached<TradeData>(cacheKey);
     if (cached) {
-      this.budgetManager.recordCacheHit("BIRDEYE", "/v3/token/trade-data/single", meta);
+      this.budgetManager.recordCacheHit("BIRDEYE", "/defi/v3/token/trade-data/single", meta);
       return cached;
     }
 
     try {
       const res = await this.requestWithBudget<{ data?: Record<string, unknown> }>({
-        endpoint: "/v3/token/trade-data/single",
+        endpoint: "/defi/v3/token/trade-data/single",
         params: { address },
-        estimatedCredits: ENDPOINT_COSTS["/v3/token/trade-data/single"],
+        estimatedCredits: ENDPOINT_COSTS["/defi/v3/token/trade-data/single"],
         meta,
       });
       const d = res?.data;
@@ -368,13 +368,13 @@ export class BirdeyeService {
     const cacheKey = `token-list:${JSON.stringify(params)}`;
     const cached = this.getCached<TokenOverview[]>(cacheKey);
     if (cached) {
-      this.budgetManager.recordCacheHit("BIRDEYE", "/v3/token/list", { ...meta, batchSize: params.limit ?? 5 });
+      this.budgetManager.recordCacheHit("BIRDEYE", "/defi/v3/token/list", { ...meta, batchSize: params.limit ?? 5 });
       return cached;
     }
 
     try {
       const res = await this.requestWithBudget<{ data?: { items?: unknown[] } }>({
-        endpoint: "/v3/token/list",
+        endpoint: "/defi/v3/token/list",
         params: {
           sort_by: params.sortBy,
           sort_type: "desc",
@@ -384,7 +384,7 @@ export class BirdeyeService {
           min_holder: params.minHolder,
           limit: params.limit ?? 5,
         },
-        estimatedCredits: ENDPOINT_COSTS["/v3/token/list"],
+        estimatedCredits: ENDPOINT_COSTS["/defi/v3/token/list"],
         meta: { ...meta, batchSize: params.limit ?? 5 },
       });
       const items = (res?.data?.items ?? []) as Record<string, unknown>[];
@@ -426,13 +426,13 @@ export class BirdeyeService {
     const cacheKey = `meme-list:${JSON.stringify(params)}`;
     const cached = this.getCached<MemeToken[]>(cacheKey);
     if (cached) {
-      this.budgetManager.recordCacheHit("BIRDEYE", "/v3/token/meme/list", { ...meta, batchSize: params.limit ?? 10 });
+      this.budgetManager.recordCacheHit("BIRDEYE", "/defi/v3/token/meme/list", { ...meta, batchSize: params.limit ?? 10 });
       return cached;
     }
 
     try {
       const res = await this.requestWithBudget<{ data?: { items?: unknown[] } }>({
-        endpoint: "/v3/token/meme/list",
+        endpoint: "/defi/v3/token/meme/list",
         params: {
           graduated: params.graduated,
           min_progress_percent: params.minProgressPercent,
@@ -440,7 +440,7 @@ export class BirdeyeService {
           source: params.source,
           limit: params.limit ?? 10,
         },
-        estimatedCredits: ENDPOINT_COSTS["/v3/token/meme/list"],
+        estimatedCredits: ENDPOINT_COSTS["/defi/v3/token/meme/list"],
         meta: { ...meta, batchSize: params.limit ?? 10 },
       });
       const items = (res?.data?.items ?? []) as Record<string, unknown>[];
@@ -469,15 +469,15 @@ export class BirdeyeService {
     const cacheKey = `meme-detail:${address}`;
     const cached = this.getCached<MemeToken>(cacheKey);
     if (cached) {
-      this.budgetManager.recordCacheHit("BIRDEYE", "/v3/token/meme/detail/single", meta);
+      this.budgetManager.recordCacheHit("BIRDEYE", "/defi/v3/token/meme/detail/single", meta);
       return cached;
     }
 
     try {
       const res = await this.requestWithBudget<{ data?: Record<string, unknown> }>({
-        endpoint: "/v3/token/meme/detail/single",
+        endpoint: "/defi/v3/token/meme/detail/single",
         params: { address },
-        estimatedCredits: ENDPOINT_COSTS["/v3/token/meme/detail/single"],
+        estimatedCredits: ENDPOINT_COSTS["/defi/v3/token/meme/detail/single"],
         meta,
       });
       const d = res?.data;
@@ -506,13 +506,14 @@ export class BirdeyeService {
 
   async getTopTraders(address: string, meta?: ApiRequestMeta): Promise<unknown[]> {
     try {
-      const res = await this.requestWithBudget<{ data?: unknown[] }>({
-        endpoint: "/v2/tokens/top_traders",
+      const res = await this.requestWithBudget<{ data?: { items?: unknown[] } | unknown[] }>({
+        endpoint: "/defi/v2/tokens/top_traders",
         params: { address },
-        estimatedCredits: ENDPOINT_COSTS["/v2/tokens/top_traders"],
+        estimatedCredits: ENDPOINT_COSTS["/defi/v2/tokens/top_traders"],
         meta,
       });
-      return res?.data ?? [];
+      if (Array.isArray(res?.data)) return res.data;
+      return res?.data?.items ?? [];
     } catch (err) {
       if (!(err instanceof QuotaExceededError)) {
         log.warn({ err: (err as Error).message, address }, "getTopTraders failed");
@@ -530,20 +531,15 @@ export class BirdeyeService {
     }
 
     try {
-      const res = await this.requestWithBudget<{ data?: { items?: unknown[] } }>({
+      const res = await this.requestWithBudget<{ data?: { tokens?: unknown[]; items?: unknown[] } }>({
         endpoint: "/defi/token_trending",
-        params: {
-          sort_by: "volume",
-          sort_type: "desc",
-          offset: 0,
-          limit: 10,
-        },
         estimatedCredits: ENDPOINT_COSTS["/defi/token_trending"],
         meta: { ...meta, batchSize: 10 },
       });
-      const items = res?.data?.items ?? [];
-      this.setCache(cacheKey, items);
-      return items;
+      const tokens = res?.data?.tokens ?? res?.data?.items ?? [];
+      const limited = tokens.slice(0, 10);
+      this.setCache(cacheKey, limited);
+      return limited;
     } catch (err) {
       if (!(err instanceof QuotaExceededError)) {
         log.warn({ err: (err as Error).message }, "getTokenTrending failed");
@@ -556,15 +552,15 @@ export class BirdeyeService {
     const cacheKey = "new-listings:20";
     const cached = this.getCached<unknown[]>(cacheKey);
     if (cached) {
-      this.budgetManager.recordCacheHit("BIRDEYE", "/v2/tokens/new_listing", meta);
+      this.budgetManager.recordCacheHit("BIRDEYE", "/defi/v2/tokens/new_listing", meta);
       return cached;
     }
 
     try {
       const res = await this.requestWithBudget<{ data?: unknown[] }>({
-        endpoint: "/v2/tokens/new_listing",
+        endpoint: "/defi/v2/tokens/new_listing",
         params: { limit: 20 },
-        estimatedCredits: ENDPOINT_COSTS["/v2/tokens/new_listing"],
+        estimatedCredits: ENDPOINT_COSTS["/defi/v2/tokens/new_listing"],
         meta: { ...meta, batchSize: 20 },
       });
       const listings = res?.data ?? [];
@@ -582,15 +578,15 @@ export class BirdeyeService {
     const cacheKey = `pair:${pairAddress}`;
     const cached = this.getCached<unknown>(cacheKey);
     if (cached) {
-      this.budgetManager.recordCacheHit("BIRDEYE", "/v3/pair/overview/single", meta);
+      this.budgetManager.recordCacheHit("BIRDEYE", "/defi/v3/pair/overview/single", meta);
       return cached;
     }
 
     try {
       const res = await this.requestWithBudget<{ data?: unknown }>({
-        endpoint: "/v3/pair/overview/single",
+        endpoint: "/defi/v3/pair/overview/single",
         params: { address: pairAddress },
-        estimatedCredits: ENDPOINT_COSTS["/v3/pair/overview/single"],
+        estimatedCredits: ENDPOINT_COSTS["/defi/v3/pair/overview/single"],
         meta,
       });
       const pair = res?.data ?? null;

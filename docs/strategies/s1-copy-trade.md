@@ -47,6 +47,7 @@ Source file: `trading_bot/backend/src/strategies/copy-trade.ts`
 - `LIVE` now hard-rejects copied buys if the source transaction timestamp is missing or older than the configured freshness cap
 - `LIVE` now hard-rejects tokens when Birdeye trade data is missing instead of weakening the wash-trading check
 - `DRY_RUN` still allows missing Birdeye trade data to pass the wash-trading gate so analytics can keep observing candidates
+- paid Birdeye entry scoring now short-circuits when `S1` has no remaining entry slots, and concurrent webhook candidates only consume as many paid evaluations as there are slots left
 - open-position exit pricing now comes from `MarketRouter.refreshExitContext()` on the `5s` loop, so S1 exits no longer depend on Birdeye `multi_price`
 - daily wallet scoring still pays for Birdeye top-trader discovery and Helius archival history; those costs are unchanged by the entry-path refactor
 

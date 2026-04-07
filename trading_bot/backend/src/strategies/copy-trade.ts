@@ -45,6 +45,7 @@ export class CopyTradeStrategy extends EventEmitter {
   private wsMessageHandler: ((data: unknown) => void) | null = null;
   private processingTokens: Set<string> = new Set();
   private recentWalletSignatures: Set<string> = new Set();
+  private activeEntryEvaluations = 0;
   private readonly runtimeState?: RuntimeState;
   private readonly fallbackConfig: S1RuntimeConfig;
   private readonly fallbackScope: ExecutionScope;
@@ -81,8 +82,7 @@ export class CopyTradeStrategy extends EventEmitter {
   async start(): Promise<void> {
     await this.loadEliteWallets();
     if (this.eliteWallets.length === 0) {
-      await this.runWalletScoring();
-      await this.loadEliteWallets();
+      void this.bootstrapWalletScoring();
     }
     await this.primeWalletActivityWaterlines(this.eliteWallets);
     this.wsMessageHandler = (data) => {
@@ -93,6 +93,15 @@ export class CopyTradeStrategy extends EventEmitter {
     await this.subscribeToEliteWallets(this.eliteWallets);
 
     log.info({ wallets: this.eliteWallets.length }, "S1 copy trade started");
+  }
+
+  private async bootstrapWalletScoring(): Promise<void> {
+    try {
+      await this.runWalletScoring();
+      await this.loadEliteWallets();
+    } catch (err) {
+      log.warn({ err }, "background wallet scoring bootstrap failed");
+    }
   }
 
   private async subscribeToEliteWallets(wallets: string[]): Promise<void> {
@@ -281,7 +290,17 @@ export class CopyTradeStrategy extends EventEmitter {
       return;
     }
 
-    const signal = await this.runFilters(tokenAddress, detectedAt, sourceBlockTime);
+    if (this.positionTracker.holdsToken(tokenAddress, this.scope)) {
+      log.info({ tokenAddress }, "already holding token");
+      return;
+    }
+
+    const signal = await this.withEntryEvaluationSlot(
+      "S1 signal",
+      tokenAddress,
+      () => this.runFilters(tokenAddress, detectedAt, sourceBlockTime),
+    );
+    if (!signal) return;
 
     await db.signal.create({
       data: {
@@ -306,11 +325,6 @@ export class CopyTradeStrategy extends EventEmitter {
 
     if (!signal.passed) {
       log.info({ token: signal.tokenSymbol, reason: signal.rejectReason }, "signal rejected");
-      return;
-    }
-
-    if (this.positionTracker.holdsToken(tokenAddress, this.scope)) {
-      log.info({ token: signal.tokenSymbol }, "already holding token");
       return;
     }
 
@@ -486,7 +500,14 @@ export class CopyTradeStrategy extends EventEmitter {
       return;
     }
     const limit = pLimit(config.walletScorer.workerPoolSize);
-    const results = await Promise.all(candidateWallets.map((walletAddress) => limit(() => this.scoreWallet(walletAddress))));
+    const results = await Promise.all(candidateWallets.map((walletAddress) => limit(async () => {
+      try {
+        return await this.scoreWallet(walletAddress);
+      } catch (err) {
+        log.warn({ err, walletAddress }, "wallet scoring failed for candidate");
+        return null;
+      }
+    })));
 
     const scores = results
       .filter((result): result is ScoringResult => result !== null)
@@ -830,6 +851,33 @@ export class CopyTradeStrategy extends EventEmitter {
   private extractBase58(value: unknown): string | null {
     const text = typeof value === "string" ? value.trim() : "";
     return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(text) ? text : null;
+  }
+
+  private async withEntryEvaluationSlot<T>(
+    context: string,
+    tokenAddress: string,
+    fn: () => Promise<T>,
+  ): Promise<T | null> {
+    const capacity = this.riskManager.getEntryCapacity("S1_COPY");
+    if (!capacity.allowed) {
+      log.info({ tokenAddress, reason: capacity.reason }, `${context} skipped — no S1 entry capacity`);
+      return null;
+    }
+
+    if (capacity.remaining <= this.activeEntryEvaluations) {
+      log.info(
+        { tokenAddress, remaining: capacity.remaining, inFlight: this.activeEntryEvaluations },
+        `${context} skipped — S1 Birdeye evaluation slots are busy`,
+      );
+      return null;
+    }
+
+    this.activeEntryEvaluations += 1;
+    try {
+      return await fn();
+    } finally {
+      this.activeEntryEvaluations = Math.max(0, this.activeEntryEvaluations - 1);
+    }
   }
 
   stop(): void {

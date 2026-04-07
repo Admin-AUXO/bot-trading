@@ -20,6 +20,14 @@ type RiskRuntimeState = Omit<RuntimeState, "strategyConfigs"> & {
   strategyConfigs: StrategyRiskConfigMap;
 };
 
+export interface StrategyEntryCapacity {
+  allowed: boolean;
+  reason?: string;
+  globalRemaining: number;
+  strategyRemaining: number;
+  remaining: number;
+}
+
 interface RiskManagerOptions {
   capitalConfig?: CapitalConfig;
   persistState?: boolean;
@@ -32,6 +40,8 @@ export class RiskManager extends EventEmitter {
   private capitalUsd: number;
   private capitalSol: number;
   private walletBalance: number;
+  private walletCapitalUsd: number;
+  private walletCapitalSol: number;
   private dailyLossUsd = 0;
   private weeklyLossUsd = 0;
   private totalTradesCount = 0;
@@ -72,6 +82,8 @@ export class RiskManager extends EventEmitter {
     this.capitalUsd = this.runtimeState.capitalConfig.startingUsd;
     this.capitalSol = this.runtimeState.capitalConfig.startingSol;
     this.walletBalance = this.runtimeState.capitalConfig.startingSol;
+    this.walletCapitalUsd = this.runtimeState.capitalConfig.startingUsd;
+    this.walletCapitalSol = this.runtimeState.capitalConfig.startingSol;
     this.lastDailyReset = new Date();
     this.lastWeeklyReset = new Date();
   }
@@ -84,6 +96,8 @@ export class RiskManager extends EventEmitter {
     this.capitalUsd = Number(state.capitalUsd);
     this.capitalSol = Number(state.capitalSol);
     this.walletBalance = Number(state.walletBalance);
+    this.walletCapitalUsd = Number(state.capitalUsd);
+    this.walletCapitalSol = Number(state.walletBalance);
     this.dailyLossUsd = Number(state.dailyLossUsd);
     this.weeklyLossUsd = Number(state.weeklyLossUsd);
     this.capitalLevel = state.capitalLevel;
@@ -255,21 +269,56 @@ export class RiskManager extends EventEmitter {
     return this.checkStrategySafety(strategy, requestedAmountSol);
   }
 
-  canOpenPosition(strategy: Strategy, requestedAmountSol?: number): { allowed: boolean; reason?: string } {
+  getEntryCapacity(strategy: Strategy, requestedAmountSol?: number): StrategyEntryCapacity {
     const safety = this.checkStrategySafety(strategy, requestedAmountSol);
-    if (!safety.allowed) return safety;
+    if (!safety.allowed) {
+      return {
+        allowed: false,
+        reason: safety.reason,
+        globalRemaining: 0,
+        strategyRemaining: 0,
+        remaining: 0,
+      };
+    }
 
     const pendingTotal = [...this.pendingByStrategy.values()].reduce((a, b) => a + b, 0);
-    if (this.positionTracker.openCount(this.runtimeState.scope) + pendingTotal >= this.runtimeState.capitalConfig.maxOpenPositions) {
-      return { allowed: false, reason: `max ${this.runtimeState.capitalConfig.maxOpenPositions} open positions reached` };
-    }
-
     const stratConfig = this.runtimeState.strategyConfigs[strategy];
     const stratPending = this.pendingByStrategy.get(strategy) ?? 0;
-    if (this.positionTracker.countByStrategy(strategy, this.runtimeState.scope) + stratPending >= stratConfig.maxPositions) {
-      return { allowed: false, reason: `max ${stratConfig.maxPositions} ${strategy} positions reached` };
+    const globalRemaining = Math.max(
+      0,
+      this.runtimeState.capitalConfig.maxOpenPositions - (this.positionTracker.openCount(this.runtimeState.scope) + pendingTotal),
+    );
+    const strategyRemaining = Math.max(
+      0,
+      stratConfig.maxPositions - (this.positionTracker.countByStrategy(strategy, this.runtimeState.scope) + stratPending),
+    );
+    const remaining = Math.min(globalRemaining, strategyRemaining);
+
+    if (remaining <= 0) {
+      return {
+        allowed: false,
+        reason: globalRemaining <= 0
+          ? `max ${this.runtimeState.capitalConfig.maxOpenPositions} open positions reached`
+          : `max ${stratConfig.maxPositions} ${strategy} positions reached`,
+        globalRemaining,
+        strategyRemaining,
+        remaining,
+      };
     }
 
+    return {
+      allowed: true,
+      globalRemaining,
+      strategyRemaining,
+      remaining,
+    };
+  }
+
+  canOpenPosition(strategy: Strategy, requestedAmountSol?: number): { allowed: boolean; reason?: string } {
+    const capacity = this.getEntryCapacity(strategy, requestedAmountSol);
+    if (!capacity.allowed) {
+      return { allowed: false, reason: capacity.reason };
+    }
     return { allowed: true };
   }
 
@@ -314,6 +363,13 @@ export class RiskManager extends EventEmitter {
   updateWalletBalance(balance: number): void {
     this.walletBalance = balance;
     this.capitalSol = balance;
+  }
+
+  updateWalletCapital(balanceSol: number, solPriceUsd: number | null): void {
+    this.walletCapitalSol = balanceSol;
+    if (solPriceUsd != null && Number.isFinite(solPriceUsd) && solPriceUsd > 0) {
+      this.walletCapitalUsd = new Decimal(balanceSol).mul(solPriceUsd).toDecimalPlaces(2).toNumber();
+    }
   }
 
   getScope(): ExecutionScope {
@@ -365,6 +421,8 @@ export class RiskManager extends EventEmitter {
       capitalUsd: this.capitalUsd,
       capitalSol: this.capitalSol,
       walletBalance: this.walletBalance,
+      walletCapitalUsd: this.walletCapitalUsd,
+      walletCapitalSol: this.walletCapitalSol,
       dailyLossUsd: this.dailyLossUsd,
       weeklyLossUsd: this.weeklyLossUsd,
       dailyLossLimit: this.getDailyLossLimit(),

@@ -60,7 +60,14 @@ test("GraduationStrategy.runSeedScan uses recent seeds and DEX prefilter before 
   const processed: string[] = [];
 
   const strategy = new (GraduationStrategy as any)(
-    {} as never,
+    {
+      getEntryCapacity: () => ({
+        allowed: true,
+        globalRemaining: 5,
+        strategyRemaining: 2,
+        remaining: 2,
+      }),
+    } as never,
     {
       holdsToken: () => false,
     } as never,
@@ -157,6 +164,40 @@ test("GraduationStrategy.runSeedScan uses recent seeds and DEX prefilter before 
   assert.equal(memeListCalls, 0);
   assert.equal(memeDetailCalls, 2);
   assert.deepEqual(processed, ["mint_1"]);
+});
+
+test("GraduationStrategy.runCatchupScan skips Birdeye catch-up when S2 is already at capacity", async () => {
+  let memeListCalls = 0;
+
+  const strategy = new (GraduationStrategy as any)(
+    {
+      getEntryCapacity: () => ({
+        allowed: false,
+        reason: "max 2 S2_GRADUATION positions reached",
+        globalRemaining: 3,
+        strategyRemaining: 0,
+        remaining: 0,
+      }),
+    } as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {
+      getRegime: () => "NORMAL",
+    } as never,
+    {} as never,
+    {} as never,
+    {
+      getMemeTokenList: async () => {
+        memeListCalls += 1;
+        return [];
+      },
+    } as never,
+  );
+
+  await (strategy as any).runCatchupScan();
+
+  assert.equal(memeListCalls, 0);
 });
 
 test("GraduationStrategy.runFilters rejects stale graduations in LIVE before provider checks", async () => {

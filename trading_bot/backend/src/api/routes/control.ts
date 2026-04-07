@@ -57,6 +57,8 @@ export function controlRouter(deps: {
       capitalUsd: snapshot.capitalUsd,
       capitalSol: snapshot.capitalSol,
       walletBalance: snapshot.walletBalance,
+      walletCapitalUsd: snapshot.walletCapitalUsd,
+      walletCapitalSol: snapshot.walletCapitalSol,
       dailyLossUsd: snapshot.dailyLossUsd,
       weeklyLossUsd: snapshot.weeklyLossUsd,
       dailyLossLimit: snapshot.dailyLossLimit,

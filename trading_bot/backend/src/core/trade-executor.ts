@@ -121,12 +121,17 @@ export class TradeExecutor implements ITradeExecutor {
         this.helius.getPriorityFeeEstimate(executionMeta),
         this.helius.getLatestBlockhash(executionMeta),
       ]);
-      const jitoTipSol = priorityFee / 1e9;
-      const totalFeeSol = config.capital.gasFee + jitoTipSol;
+      const tipAccount = config.helius.senderUrls.length > 0
+        ? this.helius.nextTipAccount()
+        : null;
+      const tipLamports = tipAccount ? config.helius.senderTipLamports : 0;
+      const jitoTipSol = tipLamports / 1e9;
 
       const swapTx = await this.jupiter.buildSwapTransaction(quote, {
         priorityFee,
         blockhash: blockhashInfo.blockhash,
+        tipLamports,
+        tipAccount,
       });
 
       if (!swapTx) return { success: false, error: "failed to build swap tx" };
@@ -307,11 +312,16 @@ export class TradeExecutor implements ITradeExecutor {
       this.helius.getPriorityFeeEstimate(executionMeta),
       this.helius.getLatestBlockhash(executionMeta),
     ]);
-    const jitoTipSol = priorityFee / 1e9;
-    const totalFeeSol = config.capital.gasFee + jitoTipSol;
+    const tipAccount = config.helius.senderUrls.length > 0
+      ? this.helius.nextTipAccount()
+      : null;
+    const tipLamports = tipAccount ? config.helius.senderTipLamports : 0;
+    const jitoTipSol = tipLamports / 1e9;
     const swapTx = await this.jupiter.buildSwapTransaction(quote, {
       priorityFee,
       blockhash: blockhashInfo.blockhash,
+      tipLamports,
+      tipAccount,
     });
 
     if (!swapTx) return { success: false, error: "failed to build sell tx" };

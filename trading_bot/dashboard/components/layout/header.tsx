@@ -144,8 +144,8 @@ export function Header() {
           <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:min-w-[520px]">
             <HeaderMetric
               label="Capital"
-              value={overview ? formatUsd(overview.capitalUsd) : "—"}
-              sub={overview ? `${overview.capitalSol.toFixed(2)} SOL` : "Waiting for feed"}
+              value={overview ? formatUsd(overview.walletCapitalUsd) : "—"}
+              sub={overview ? `${overview.walletCapitalSol.toFixed(2)} SOL` : "Waiting for feed"}
             />
             <HeaderMetric
               label="Open P&L"
@@ -156,7 +156,7 @@ export function Header() {
             <HeaderMetric
               label="Live Exposure"
               value={overview ? formatUsd(deployedCapitalUsd) : "—"}
-              sub={overview ? `${Math.min(100, (deployedCapitalUsd / Math.max(overview.capitalUsd, 1)) * 100).toFixed(0)}% at work` : "No capital snapshot"}
+              sub={overview ? `${Math.min(100, (deployedCapitalUsd / Math.max(overview.walletCapitalUsd + deployedCapitalUsd, 1)) * 100).toFixed(0)}% at work` : "No capital snapshot"}
             />
             <HeaderMetric
               label="Today Realized"

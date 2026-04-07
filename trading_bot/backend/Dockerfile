@@ -5,12 +5,12 @@ WORKDIR /app
 
 FROM base AS deps
 COPY package.json package-lock.json ./
-RUN --mount=type=cache,target=/root/.npm npm ci
+RUN --mount=type=cache,target=/root/.npm,sharing=locked npm ci
 
 FROM deps AS builder
 ENV DATABASE_URL=postgresql://botuser:botpass@postgres:5432/trading_bot
 COPY . .
-RUN npx prisma generate
+RUN npm run db:generate
 RUN npm run build
 
 FROM base AS prod-deps
@@ -20,19 +20,21 @@ RUN npm prune --omit=dev && npm cache clean --force
 
 FROM base AS migrator
 ENV NODE_ENV=production
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/package.json ./
-COPY --from=builder /app/package-lock.json ./
-COPY --from=builder /app/prisma.config.ts ./
+COPY --chown=node:node --from=builder /app/node_modules ./node_modules
+COPY --chown=node:node --from=builder /app/prisma ./prisma
+COPY --chown=node:node --from=builder /app/package.json ./
+COPY --chown=node:node --from=builder /app/package-lock.json ./
+COPY --chown=node:node --from=builder /app/prisma.config.ts ./
+USER node
 
 CMD ["npm", "run", "db:setup"]
 
 FROM base AS runner
 ENV NODE_ENV=production
-COPY --from=builder /app/dist ./dist
-COPY --from=prod-deps /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./
+COPY --chown=node:node --from=builder /app/dist ./dist
+COPY --chown=node:node --from=prod-deps /app/node_modules ./node_modules
+COPY --chown=node:node --from=builder /app/package.json ./
+USER node
 
 EXPOSE 3001
 CMD ["node", "dist/index.js"]

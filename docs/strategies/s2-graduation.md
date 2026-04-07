@@ -41,6 +41,8 @@ This strategy does not buy immediately on first sight. It stages candidates, wai
 - creator and token-transaction lookbacks are there to reduce serial-launch spam
 - this strategy still uses the same risk-manager gates as the others
 - cheap discovery is allowed to miss progress changes; the Birdeye catch-up loop exists to close that gap without keeping paid scans on a `20s` cadence
+- when `S2` is already full, the catch-up loop, fallback loop, and delayed entry re-checks now stop spending Birdeye CU until capacity returns
+- concurrent paid `meme/detail`, overview, and entry-filter evaluations are capped to the remaining `S2` slot count instead of fanning out blindly
 - `S2_ENABLE_NEW_LISTING_FALLBACK` is now the explicit feature flag for the old Birdeye `new_listing` sweep, and it defaults off
 - `LIVE` now hard-rejects entries if the graduation timestamp is missing or older than the configured age cap at execution time
 - `LIVE` now hard-rejects entries when Birdeye trade data is missing

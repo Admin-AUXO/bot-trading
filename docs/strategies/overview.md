@@ -17,6 +17,7 @@ All three strategies eventually go through the same sequence:
 
 - Position sizing comes from `RiskManager`, not raw config constants
 - Existing holdings, open-position limits, gas reserve, loss limits, and pause reasons block entries
+- Paid Birdeye entry evaluation is now gated by remaining strategy and global slot capacity, so full strategies stop spending on candidates they cannot open
 - The executor is the final duplicate-exposure gate; strategy-local checks are not trusted on their own
 - Manual entries may bypass entry filters, but once filled they still attach to `ExitMonitor` and use the same automated exit logic
 - Provider traffic must flow through shared services so quota accounting stays intact

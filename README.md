@@ -41,9 +41,12 @@ Copy-Item .env.example .env
 - `HELIUS_API_KEY`
 - `HELIUS_RPC_URL`
 - `HELIUS_WS_URL`
+- `HELIUS_SENDER_URLS`
+- `HELIUS_SENDER_TIP_LAMPORTS`
 - `BIRDEYE_API_KEY`
 - `SOLANA_PRIVATE_KEY`
 - `SOLANA_PUBLIC_KEY`
+- `JITO_TIP_ACCOUNTS`
 - `CONTROL_API_SECRET`
 
 If you overrode `POSTGRES_PORT` or `REDIS_PORT`, make `DATABASE_URL` and `REDIS_URL` use those same host ports.
@@ -94,9 +97,12 @@ cd trading_bot/backend
 npm run docker:up
 ```
 
+`npm run docker:up` now runs a host-port preflight first. If `5432`, `6379`, `3001`, or `3000` is already occupied by something outside this compose project, the script rewrites the matching `*_PORT` value in `trading_bot/backend/.env.docker` to the next safe free port before starting containers.
+
 Useful commands:
 
 ```powershell
+npm run docker:preflight
 npm run docker:build
 npm run docker:logs
 npm run docker:down
@@ -107,6 +113,17 @@ Production compose contract:
 - `docker-compose.yml` is local infra only: Postgres + Redis.
 - `docker-compose.prod.yml` is the full stack.
 - Startup order is `postgres/redis healthy -> db-setup runs npm run db:setup -> backend /api/health healthy -> dashboard starts`.
+- Host port overrides come from `POSTGRES_PORT`, `REDIS_PORT`, `BOT_PORT`, and `DASHBOARD_PORT`.
+
+Before booting the Docker stack, set these values in `trading_bot/backend/.env.docker`:
+
+- Required for all modes: `DATABASE_URL`, `REDIS_URL`, `HELIUS_API_KEY`, `HELIUS_RPC_URL`, `HELIUS_WS_URL`, `BIRDEYE_API_KEY`, `CONTROL_API_SECRET`
+- Required when wallet-aware runtime paths matter: `SOLANA_PUBLIC_KEY`
+- Required for `TRADE_MODE="LIVE"` execution: `SOLANA_PRIVATE_KEY`
+- Required if you changed the Postgres container credentials or database name: `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`
+- Optional but commonly adjusted: `POSTGRES_PORT`, `REDIS_PORT`, `BOT_PORT`, `DASHBOARD_PORT`, `BIRDEYE_PLAN`, `JUPITER_API_KEY`, `JUPITER_BASE_URL`, `JUPITER_PRICE_PATH`, `JUPITER_SWAP_PATH`, `S2_ENABLE_NEW_LISTING_FALLBACK`, `HELIUS_SENDER_URLS`, `HELIUS_SENDER_TIP_LAMPORTS`, `JITO_TIP_ACCOUNT`, `JITO_TIP_ACCOUNTS`, `TRADE_MODE`, `LOG_LEVEL`
+- Keep `DATABASE_URL` aligned with `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB`
+- Keep compose-internal service URLs on `postgres:5432` and `redis:6379`; `POSTGRES_PORT` and `REDIS_PORT` only change host-side bindings
 
 ## Commands
 

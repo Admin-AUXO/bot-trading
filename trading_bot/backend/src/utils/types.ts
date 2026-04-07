@@ -203,6 +203,8 @@ export interface BotStateSnapshot {
   capitalUsd: number;
   capitalSol: number;
   walletBalance: number;
+  walletCapitalUsd: number;
+  walletCapitalSol: number;
   dailyLossUsd: number;
   weeklyLossUsd: number;
   dailyLossLimit: number;

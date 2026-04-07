@@ -18,6 +18,7 @@ The backend is assembled in one place. Start there before touching strategy, API
 4. Create shared provider clients:
    `HeliusService`, `BirdeyeService`, `JupiterService`, `DexScreenerService`, `MarketRouter`.
    Jupiter now reads `JUPITER_API_KEY`, `JUPITER_BASE_URL`, `JUPITER_PRICE_PATH`, and `JUPITER_SWAP_PATH` from `backend/src/config/index.ts`.
+   LIVE swap execution signs Jupiter swap instructions locally, adds a rotating Sender tip transfer only when Sender endpoints are configured, and submits through ordered Helius Sender endpoints before falling back to generic RPC sending.
 5. Pick the executor by `TRADE_MODE`:
    `TradeExecutor` for `LIVE`, `DryRunExecutor` for `DRY_RUN`.
 6. Create `ExitMonitor`, `OutcomeTracker`, `MarketTickRecorder`, and strategies `S1`, `S2`, `S3`.
@@ -32,6 +33,8 @@ The backend is assembled in one place. Start there before touching strategy, API
 - Runtime scope lives in `runtimeState.scope` and drives API/control truth.
 - `DRY_RUN` still writes trades, positions, signals, and analytics rows; it just uses the dry-run executor.
 - Strategy position sizes come from `RiskManager`, not directly from config constants.
+- S1 wallet scoring can bootstrap in the background when no elite wallets are cached; API startup must not wait on that remote scoring pass.
+- Wallet-backed capital snapshots are refreshed from Helius + SOL spot in any mode when a wallet address is configured. That wallet view is separate from the dry-run risk ledger, which still tracks simulated spend and P&L in memory.
 - Profile switching for the active mode pauses the bot, stops strategies, reloads scope/config, reloads open positions, and restarts the runtime.
 - Failed runtime profile switches can leave the switch pause reason in place. Read the switch path before "simplifying" it.
 - Wallet reconciliation exists only in `LIVE`.

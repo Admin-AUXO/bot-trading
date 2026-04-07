@@ -48,6 +48,7 @@ This is the only strategy with staged position growth built into the entry logic
 - `CRITICAL` capital level still allows only S3 in `RiskManager`, so this strategy carries special capital-state importance
 - tranche 2 is not a blind DCA path; it is a gated follow-through add
 - S3 hard-requires trade data for entry; quota starvation usually suppresses signals instead of weakening filters
+- paid tranche-1 Birdeye scoring now short-circuits when `S3` has no remaining entry slots, and concurrent candidate evaluations are capped to the remaining slot count
 - tranche 2 uses `canIncreasePosition()`, so it obeys balance and safety checks but is not the same path as opening a brand-new slot
 - signal `source` now reflects the routed seed feed (`JUPITER_TOP_TRENDING` or `JUPITER_TOP_TRADED`) instead of pretending everything came from Birdeye `v3/token/list`
 - exit pricing now comes from `MarketRouter.refreshExitContext()` on the `5s` loop instead of Birdeye `multi_price`

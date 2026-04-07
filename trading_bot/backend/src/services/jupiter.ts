@@ -1,9 +1,19 @@
 import Decimal from "decimal.js";
-import { Connection, PublicKey } from "@solana/web3.js";
+import {
+  Connection,
+  PublicKey,
+  SystemProgram,
+  TransactionInstruction,
+  TransactionMessage,
+  VersionedTransaction,
+  type AccountMeta,
+  type AddressLookupTableAccount,
+} from "@solana/web3.js";
 import { config } from "../config/index.js";
 import { createChildLogger } from "../utils/logger.js";
 import { CircuitBreaker } from "../utils/circuit-breaker.js";
 import { SOL_MINT, type MultiPriceResult, type SwapQuote } from "../utils/types.js";
+import { loadSolanaKeypair } from "../utils/solana-keypair.js";
 
 const log = createChildLogger("jupiter");
 
@@ -16,6 +26,20 @@ type ParsedMintAccountData = {
 };
 
 type JupiterTokenMarket = Record<string, unknown>;
+type JupiterInstruction = {
+  programId: string;
+  accounts: Array<{ pubkey: string; isSigner: boolean; isWritable: boolean }>;
+  data: string;
+};
+type JupiterSwapInstructionsResponse = {
+  tokenLedgerInstruction?: JupiterInstruction;
+  computeBudgetInstructions?: JupiterInstruction[];
+  otherInstructions?: JupiterInstruction[];
+  setupInstructions?: JupiterInstruction[];
+  swapInstruction: JupiterInstruction;
+  cleanupInstruction?: JupiterInstruction | null;
+  addressLookupTableAddresses?: string[];
+};
 
 class JupiterHttpError extends Error {
   constructor(public status: number, statusText: string) {
@@ -41,6 +65,7 @@ export class JupiterService {
   private executeCb: CircuitBreaker;
   private connection: Connection | null = null;
   private mintDecimals = new Map<string, number>();
+  private signer = null as ReturnType<typeof loadSolanaKeypair> | null;
 
   constructor() {
     this.quoteCb = new CircuitBreaker(
@@ -71,8 +96,9 @@ export class JupiterService {
   private async getCategoryTokens(category: string, params?: { interval?: string; limit?: number }): Promise<JupiterTokenMarket[]> {
     try {
       return await this.quoteCb.execute(async () => {
-        const path = params?.interval
-          ? `${config.jupiter.tokensPath}/${category}/${params.interval}`
+        const interval = params?.interval ?? (category === "recent" ? undefined : "1h");
+        const path = interval
+          ? `${config.jupiter.tokensPath}/${category}/${interval}`
           : `${config.jupiter.tokensPath}/${category}`;
         const url = this.buildUrl(path);
         if (params?.limit) url.searchParams.set("limit", String(params.limit));
@@ -196,10 +222,11 @@ export class JupiterService {
 
   async buildSwapTransaction(
     quote: SwapQuote,
-    options: { priorityFee?: number; blockhash?: string },
+    options: { priorityFee?: number; blockhash?: string; tipLamports?: number; tipAccount?: string | null },
   ): Promise<string | null> {
     try {
       return await this.executeCb.execute(async () => {
+        const signer = this.getSigner();
         const quoteResponse = {
           inputMint: quote.inputMint,
           outputMint: quote.outputMint,
@@ -210,8 +237,8 @@ export class JupiterService {
           routePlan: quote.routePlan,
         };
 
-        const data = await fetchJson<{ swapTransaction?: string }>(
-          this.buildUrl(`${config.jupiter.swapPath}/swap`).toString(),
+        const data = await fetchJson<JupiterSwapInstructionsResponse>(
+          this.buildUrl(`${config.jupiter.swapPath}/swap-instructions`).toString(),
           {
             method: "POST",
             headers: this.buildHeaders("application/json"),
@@ -225,15 +252,78 @@ export class JupiterService {
           },
           config.api.jupiterTimeoutMs,
         );
-        if (!data?.swapTransaction) {
-          throw new Error("Invalid swap response: missing swapTransaction");
+
+        const instructions: TransactionInstruction[] = [
+          ...(data.computeBudgetInstructions ?? []).map((instruction) => this.toTransactionInstruction(instruction)),
+          ...(data.otherInstructions ?? []).map((instruction) => this.toTransactionInstruction(instruction)),
+          ...(data.setupInstructions ?? []).map((instruction) => this.toTransactionInstruction(instruction)),
+        ];
+
+        if (data.tokenLedgerInstruction) {
+          instructions.push(this.toTransactionInstruction(data.tokenLedgerInstruction));
         }
-        return data.swapTransaction;
+
+        instructions.push(this.toTransactionInstruction(data.swapInstruction));
+
+        if (options.tipLamports && options.tipLamports > 0 && options.tipAccount) {
+          instructions.push(SystemProgram.transfer({
+            fromPubkey: signer.publicKey,
+            toPubkey: new PublicKey(options.tipAccount),
+            lamports: options.tipLamports,
+          }));
+        }
+
+        if (data.cleanupInstruction) {
+          instructions.push(this.toTransactionInstruction(data.cleanupInstruction));
+        }
+
+        const recentBlockhash = options.blockhash ?? (await this.getConnection().getLatestBlockhash("confirmed")).blockhash;
+        const lookupTableAccounts = await this.getLookupTableAccounts(data.addressLookupTableAddresses ?? []);
+        const message = new TransactionMessage({
+          payerKey: signer.publicKey,
+          recentBlockhash,
+          instructions,
+        }).compileToV0Message(lookupTableAccounts);
+        const transaction = new VersionedTransaction(message);
+        transaction.sign([signer]);
+        return Buffer.from(transaction.serialize()).toString("base64");
       });
     } catch (err) {
       log.error({ err }, "buildSwapTransaction failed");
       return null;
     }
+  }
+
+  private toTransactionInstruction(instruction: JupiterInstruction): TransactionInstruction {
+    const keys: AccountMeta[] = instruction.accounts.map((account) => ({
+      pubkey: new PublicKey(account.pubkey),
+      isSigner: account.isSigner,
+      isWritable: account.isWritable,
+    }));
+
+    return new TransactionInstruction({
+      programId: new PublicKey(instruction.programId),
+      keys,
+      data: Buffer.from(instruction.data, "base64"),
+    });
+  }
+
+  private async getLookupTableAccounts(addresses: string[]): Promise<AddressLookupTableAccount[]> {
+    if (addresses.length === 0) return [];
+
+    const lookupTables = await Promise.all(addresses.map(async (address) => {
+      const table = await this.getConnection().getAddressLookupTable(new PublicKey(address));
+      return table.value;
+    }));
+
+    return lookupTables.filter((table): table is AddressLookupTableAccount => table !== null);
+  }
+
+  private getSigner() {
+    if (!this.signer) {
+      this.signer = loadSolanaKeypair(config.solana.privateKey);
+    }
+    return this.signer;
   }
 
   async getPricesUsd(tokenAddresses: string[]): Promise<Map<string, MultiPriceResult>> {

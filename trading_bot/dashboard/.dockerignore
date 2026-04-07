@@ -1,4 +1,13 @@
-node_modules
-.next
-*.log
-npm-debug.log*
+*
+!Dockerfile
+!package.json
+!package-lock.json
+!next.config.ts
+!next-env.d.ts
+!postcss.config.js
+!tsconfig.json
+!app/**
+!components/**
+!features/**
+!hooks/**
+!lib/**

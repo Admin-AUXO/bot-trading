@@ -8,6 +8,8 @@ const envSchema = z.object({
   HELIUS_API_KEY: z.string(),
   HELIUS_RPC_URL: z.string(),
   HELIUS_WS_URL: z.string(),
+  HELIUS_SENDER_URLS: z.string().default(""),
+  HELIUS_SENDER_TIP_LAMPORTS: z.coerce.number().int().nonnegative().default(200_000),
   HELIUS_WEBHOOK_SECRET: z.string().default(""),
   BIRDEYE_API_KEY: z.string(),
   BIRDEYE_PLAN: z.enum(["LITE", "STARTER"]).default("LITE"),
@@ -18,6 +20,7 @@ const envSchema = z.object({
   S2_ENABLE_NEW_LISTING_FALLBACK: z.enum(["true", "false"]).default("false"),
   SOLANA_PRIVATE_KEY: z.string(),
   SOLANA_PUBLIC_KEY: z.string(),
+  JITO_TIP_ACCOUNTS: z.string().default(""),
   JITO_TIP_ACCOUNT: z.string().default("96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5"),
   BOT_PORT: z.coerce.number().default(3001),
   DASHBOARD_PORT: z.coerce.number().default(3000),
@@ -34,6 +37,13 @@ if (!_parsed.success) {
 }
 const env = _parsed.data;
 const birdeyePlan = getBirdeyePlanProfile(env.BIRDEYE_PLAN);
+const senderUrls = parseListEnv(env.HELIUS_SENDER_URLS);
+const configuredTipAccounts = parseListEnv(env.JITO_TIP_ACCOUNTS);
+const tipAccounts = configuredTipAccounts.length > 0
+  ? configuredTipAccounts
+  : env.JITO_TIP_ACCOUNT
+    ? [env.JITO_TIP_ACCOUNT]
+    : [];
 
 export const config = {
   env: env.NODE_ENV,
@@ -55,6 +65,8 @@ export const config = {
     apiKey: env.HELIUS_API_KEY,
     rpcUrl: env.HELIUS_RPC_URL,
     wsUrl: env.HELIUS_WS_URL,
+    senderUrls,
+    senderTipLamports: env.HELIUS_SENDER_TIP_LAMPORTS,
     webhookSecret: env.HELIUS_WEBHOOK_SECRET,
     rateLimitRps: 30,
     rateLimitWindowMs: 60_000,
@@ -103,7 +115,8 @@ export const config = {
   },
 
   jito: {
-    tipAccount: env.JITO_TIP_ACCOUNT,
+    tipAccount: tipAccounts[0] ?? "",
+    tipAccounts,
     blockEngineUrl: "https://mainnet.block-engine.jito.wtf",
   },
 
@@ -350,3 +363,10 @@ export const config = {
 } as const;
 
 export type Config = typeof config;
+
+function parseListEnv(value: string): string[] {
+  return value
+    .split(/[\n,\r]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}

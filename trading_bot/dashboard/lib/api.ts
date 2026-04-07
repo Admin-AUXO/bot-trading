@@ -370,6 +370,8 @@ export interface OverviewResponse {
   capitalUsd: number;
   capitalSol: number;
   walletBalance: number;
+  walletCapitalUsd: number;
+  walletCapitalSol: number;
   dailyLossUsd: number;
   weeklyLossUsd: number;
   dailyLossLimit: number;
@@ -399,14 +401,18 @@ export interface OverviewResponse {
   configProfile: string;
 }
 
-type RawOverviewResponse = Omit<OverviewResponse, "quotaSnapshots"> & {
+type RawOverviewResponse = Omit<OverviewResponse, "quotaSnapshots" | "walletCapitalUsd" | "walletCapitalSol"> & {
   quotaSnapshots?: BudgetSnapshot[] | null;
   currentQuotaSnapshots?: BudgetSnapshot[] | null;
+  walletCapitalUsd?: number;
+  walletCapitalSol?: number;
 };
 
 export function normalizeOverviewResponse(payload: RawOverviewResponse): OverviewResponse {
   return {
     ...payload,
+    walletCapitalUsd: payload.walletCapitalUsd ?? payload.capitalUsd,
+    walletCapitalSol: payload.walletCapitalSol ?? payload.walletBalance ?? payload.capitalSol,
     quotaSnapshots: payload.quotaSnapshots ?? payload.currentQuotaSnapshots ?? [],
   };
 }

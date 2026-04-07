@@ -39,6 +39,8 @@ function buildOverview(overrides: Partial<OverviewResponse> = {}): OverviewRespo
     capitalUsd: 200,
     capitalSol: 2.2,
     walletBalance: 2.2,
+    walletCapitalUsd: 330,
+    walletCapitalSol: 2.2,
     dailyLossUsd: 2,
     weeklyLossUsd: 2,
     dailyLossLimit: 10,

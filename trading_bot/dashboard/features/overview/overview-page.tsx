@@ -226,8 +226,8 @@ export default function OverviewPage() {
       <motion.div variants={motionItem} className="grid grid-cols-2 gap-3 xl:grid-cols-6">
         <SummaryTile
           label="Capital"
-          value={formatUsd(overview.capitalUsd)}
-          sub={`${overview.capitalSol.toFixed(2)} SOL on hand`}
+          value={formatUsd(overview.walletCapitalUsd)}
+          sub={`${overview.walletCapitalSol.toFixed(2)} SOL on hand`}
           icon={<Wallet className="h-3.5 w-3.5 text-accent-blue" />}
         />
         <SummaryTile

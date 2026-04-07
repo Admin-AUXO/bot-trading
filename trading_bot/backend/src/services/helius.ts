@@ -34,6 +34,7 @@ export class HeliusService {
   private subscribedAccounts: Set<string> = new Set();
   private subscribedPrograms: Set<string> = new Set();
   private subscribedLogs: Set<string> = new Set();
+  private tipAccountCursor = 0;
 
   constructor(private budgetManager: ApiBudgetManager) {
     this.helius = createHelius({ apiKey: config.helius.apiKey });
@@ -96,6 +97,9 @@ export class HeliusService {
     opts?: { skipPreflight?: boolean; maxRetries?: number },
     meta?: ApiRequestMeta,
   ): Promise<string | null> {
+    if (config.helius.senderUrls.length > 0) {
+      return this.sendTransactionViaSender(tx, meta);
+    }
     await this.rateLimiter.waitForSlot();
     try {
       return await this.circuitBreaker.execute(async () => {
@@ -116,6 +120,9 @@ export class HeliusService {
   }
 
   async sendTransactionFast(tx: string, meta?: ApiRequestMeta): Promise<string | null> {
+    if (config.helius.senderUrls.length > 0) {
+      return this.sendTransactionViaSender(tx, meta);
+    }
     await this.rateLimiter.waitForSlot();
     try {
       return await this.circuitBreaker.execute(async () => {
@@ -133,6 +140,14 @@ export class HeliusService {
       log.error({ err }, "sendTransactionFast failed");
       return null;
     }
+  }
+
+  nextTipAccount(): string | null {
+    const tipAccounts = config.jito.tipAccounts;
+    if (tipAccounts.length === 0) return null;
+    const account = tipAccounts[this.tipAccountCursor % tipAccounts.length];
+    this.tipAccountCursor = (this.tipAccountCursor + 1) % tipAccounts.length;
+    return account;
   }
 
   async confirmTransaction(
@@ -252,13 +267,16 @@ export class HeliusService {
 
           try {
             const result = await this.helius.getTransactionsForAddress([address, sdkOpts]);
+            const rows = Array.isArray(result)
+              ? result
+              : ((result as { data?: unknown[] } | null | undefined)?.data ?? []);
             reservation.commit({
               endpoint: "getTransactionsForAddress",
               credits: config.apiBudgets.helius.credits.getTransactionsForAddress,
               statusCode: 200,
               latencyMs: Date.now() - startedAt,
             });
-            return (result as unknown as unknown[]) ?? [];
+            return rows;
           } catch (err) {
             reservation.commit({
               endpoint: "getTransactionsForAddress",
@@ -765,6 +783,76 @@ export class HeliusService {
       });
       throw err;
     }
+  }
+
+  private async sendTransactionViaSender(tx: string, meta?: ApiRequestMeta): Promise<string | null> {
+    await this.rateLimiter.waitForSlot();
+
+    for (const endpoint of config.helius.senderUrls) {
+      const reservation = await this.budgetManager.reserve("HELIUS", config.apiBudgets.helius.credits.default, meta);
+      const startedAt = Date.now();
+      try {
+        const response = await this.circuitBreaker.execute(async () =>
+          fetch(this.withHeliusApiKey(endpoint), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: String(Date.now()),
+              method: "sendTransaction",
+              params: [
+                tx,
+                {
+                  encoding: "base64",
+                  skipPreflight: true,
+                  maxRetries: config.api.heliusFastMaxRetries,
+                },
+              ],
+            }),
+            signal: AbortSignal.timeout(config.api.heliusTimeoutMs),
+          }),
+        );
+        const data = (await response.json()) as { result?: string; error?: { code: number; message: string } };
+        if (data.error) {
+          throw new Error(`Sender RPC error ${data.error.code}: ${data.error.message}`);
+        }
+        if (!data.result) {
+          throw new Error("sender response missing transaction signature");
+        }
+
+        reservation.commit({
+          endpoint: "sendTransaction(sender)",
+          credits: config.apiBudgets.helius.credits.default,
+          statusCode: response.status,
+          latencyMs: Date.now() - startedAt,
+          batchSize: meta?.batchSize,
+        });
+        log.info({ endpoint }, "sendTransaction routed through Helius Sender");
+        return data.result;
+      } catch (err) {
+        reservation.commit({
+          endpoint: "sendTransaction(sender)",
+          credits: config.apiBudgets.helius.credits.default,
+          statusCode: 0,
+          latencyMs: Date.now() - startedAt,
+          success: false,
+          batchSize: meta?.batchSize,
+        });
+        log.warn({ err, endpoint }, "sender endpoint failed");
+      }
+    }
+
+    log.error({ endpoints: config.helius.senderUrls }, "all sender endpoints failed");
+    return null;
+  }
+
+  private withHeliusApiKey(endpoint: string): string {
+    if (!config.helius.apiKey) return endpoint;
+    const url = new URL(endpoint);
+    if (!url.searchParams.has("api-key")) {
+      url.searchParams.set("api-key", config.helius.apiKey);
+    }
+    return url.toString();
   }
 
   private updateSlot(address: string, slot: number): void {

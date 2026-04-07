@@ -36,6 +36,7 @@ export class GraduationStrategy extends EventEmitter {
   private scanInFlight = false;
   private catchupInFlight = false;
   private fallbackInFlight = false;
+  private activeEntryEvaluations = 0;
   private readonly runtimeState?: RuntimeState;
   private readonly fallbackConfig: S2RuntimeConfig;
   private readonly fallbackScope: ExecutionScope;
@@ -115,6 +116,7 @@ export class GraduationStrategy extends EventEmitter {
     this.scanInFlight = true;
     try {
       if (this.regimeDetector.getRegime() === "RISK_OFF") return;
+      if (!this.hasEntryEvaluationHeadroom("S2 seed scan")) return;
 
       await this.checkPendingGraduations();
 
@@ -151,6 +153,7 @@ export class GraduationStrategy extends EventEmitter {
     this.catchupInFlight = true;
     try {
       if (this.regimeDetector.getRegime() === "RISK_OFF") return;
+      if (!this.hasEntryEvaluationHeadroom("S2 catch-up scan")) return;
 
       const [nearGrad, justGrad] = await Promise.all([
         this.birdeye.getMemeTokenList({
@@ -186,6 +189,8 @@ export class GraduationStrategy extends EventEmitter {
     if (this.fallbackInFlight) return;
     this.fallbackInFlight = true;
     try {
+      if (!this.hasEntryEvaluationHeadroom("S2 fallback scan")) return;
+
       const listings = await this.birdeye.getNewListings(this.apiMeta("ENTRY_SCAN", false, this.cfg.fallbackListingsBatchSize));
       const limit = pLimit(this.cfg.fallbackScanConcurrency);
       const candidates = (listings as Array<Record<string, unknown>>)
@@ -210,7 +215,11 @@ export class GraduationStrategy extends EventEmitter {
   private async processFallbackListing(address: string): Promise<void> {
     this.processingTokens.add(address);
     try {
-      const detail = await this.birdeye.getMemeTokenDetail(address, this.apiMeta("ENTRY_SCAN"));
+      const detail = await this.withEntryEvaluationSlot(
+        "S2 fallback listing detail",
+        address,
+        () => this.birdeye.getMemeTokenDetail(address, this.apiMeta("ENTRY_SCAN")),
+      );
       if (detail?.graduated) {
         await this.processCandidate(detail);
       }
@@ -223,7 +232,11 @@ export class GraduationStrategy extends EventEmitter {
     this.processingTokens.add(address);
     this.recentSeedCooldownUntil.set(address, Date.now() + config.birdeye.s2CatchupIntervalMs);
     try {
-      const detail = await this.birdeye.getMemeTokenDetail(address, this.apiMeta("ENTRY_SCAN"));
+      const detail = await this.withEntryEvaluationSlot(
+        "S2 recent seed detail",
+        address,
+        () => this.birdeye.getMemeTokenDetail(address, this.apiMeta("ENTRY_SCAN")),
+      );
       if (!detail) return;
       if (!detail.graduated && detail.progressPercent < this.cfg.nearGradPercent) return;
       await this.processCandidate(detail);
@@ -257,16 +270,17 @@ export class GraduationStrategy extends EventEmitter {
     for (const address of expired) this.pendingGraduation.delete(address);
     if (toCheck.length === 0) return;
 
-    const details = await Promise.allSettled(
-      toCheck.map(({ address }) => this.birdeye.getMemeTokenDetail(address, this.apiMeta("ENTRY_SCAN"))),
-    );
+    if (!this.hasEntryEvaluationHeadroom("S2 pending graduation recheck")) return;
 
-    for (let i = 0; i < toCheck.length; i++) {
-      const result = details[i];
-      const { address } = toCheck[i];
-      if (result.status === "fulfilled" && result.value?.graduated) {
+    for (const { address } of toCheck) {
+      const detail = await this.withEntryEvaluationSlot(
+        "S2 pending graduation detail",
+        address,
+        () => this.birdeye.getMemeTokenDetail(address, this.apiMeta("ENTRY_SCAN")),
+      );
+      if (detail?.graduated) {
         this.pendingGraduation.delete(address);
-        await this.onGraduated(result.value);
+        await this.onGraduated(detail);
       }
     }
   }
@@ -280,37 +294,46 @@ export class GraduationStrategy extends EventEmitter {
   }
 
   private async onGraduated(token: MemeToken): Promise<void> {
-    const overview = await this.birdeye.getTokenOverview(token.address, this.apiMeta("ENTRY_SCAN"));
+    await this.withEntryEvaluationSlot("S2 graduated candidate", token.address, async () => {
+      const overview = await this.birdeye.getTokenOverview(token.address, this.apiMeta("ENTRY_SCAN"));
 
-    await db.graduationEvent.create({
-      data: {
-        tokenAddress: token.address,
-        tokenSymbol: token.symbol,
-        platform: token.source,
-        creator: token.creator,
-        liquidity: overview?.liquidity ?? null,
-        marketCap: overview?.marketCap ?? null,
-        holders: overview?.holder ?? null,
-        priceAtGrad: overview?.price ?? null,
-        wasTraded: false,
-      },
-    });
-
-    const priceAtSignal = overview?.price ?? null;
-    const delayMs = this.cfg.entryDelayMinutes * 60_000;
-    const handle = setTimeout(() => {
-      this.runFilterAndTrade(token, priceAtSignal).catch((err) => {
-        log.error({ err, token: token.address }, "entry after delay failed");
+      await db.graduationEvent.create({
+        data: {
+          tokenAddress: token.address,
+          tokenSymbol: token.symbol,
+          platform: token.source,
+          creator: token.creator,
+          liquidity: overview?.liquidity ?? null,
+          marketCap: overview?.marketCap ?? null,
+          holders: overview?.holder ?? null,
+          priceAtGrad: overview?.price ?? null,
+          wasTraded: false,
+        },
       });
-    }, delayMs);
 
-    this.pendingEntryDelays.set(token.address, handle);
+      const priceAtSignal = overview?.price ?? null;
+      const delayMs = this.cfg.entryDelayMinutes * 60_000;
+      const handle = setTimeout(() => {
+        this.runFilterAndTrade(token, priceAtSignal).catch((err) => {
+          log.error({ err, token: token.address }, "entry after delay failed");
+        });
+      }, delayMs);
+
+      this.pendingEntryDelays.set(token.address, handle);
+    });
   }
 
   private async runFilterAndTrade(token: MemeToken, priceAtSignal: number | null): Promise<void> {
     this.pendingEntryDelays.delete(token.address);
 
-    const signal = await this.runFilters(token);
+    if (this.positionTracker.holdsToken(token.address, this.scope)) return;
+
+    const signal = await this.withEntryEvaluationSlot(
+      "S2 delayed entry",
+      token.address,
+      () => this.runFilters(token),
+    );
+    if (!signal) return;
 
     await db.signal.create({
       data: {
@@ -337,8 +360,6 @@ export class GraduationStrategy extends EventEmitter {
       log.info({ token: token.symbol, reason: signal.rejectReason }, "graduation signal rejected");
       return;
     }
-
-    if (this.positionTracker.holdsToken(token.address, this.scope)) return;
 
     const check = this.riskManager.canOpenPosition("S2_GRADUATION");
     if (!check.allowed) return;
@@ -477,5 +498,50 @@ export class GraduationStrategy extends EventEmitter {
       essential,
       batchSize,
     };
+  }
+
+  private hasEntryEvaluationHeadroom(context: string): boolean {
+    const capacity = this.riskManager.getEntryCapacity("S2_GRADUATION");
+    if (!capacity.allowed) {
+      log.info({ reason: capacity.reason }, `${context} skipped — no S2 entry capacity`);
+      return false;
+    }
+
+    if (capacity.remaining <= this.activeEntryEvaluations) {
+      log.info(
+        { remaining: capacity.remaining, inFlight: this.activeEntryEvaluations },
+        `${context} skipped — S2 Birdeye evaluation slots are busy`,
+      );
+      return false;
+    }
+
+    return true;
+  }
+
+  private async withEntryEvaluationSlot<T>(
+    context: string,
+    tokenAddress: string,
+    fn: () => Promise<T>,
+  ): Promise<T | null> {
+    const capacity = this.riskManager.getEntryCapacity("S2_GRADUATION");
+    if (!capacity.allowed) {
+      log.info({ tokenAddress, reason: capacity.reason }, `${context} skipped — no S2 entry capacity`);
+      return null;
+    }
+
+    if (capacity.remaining <= this.activeEntryEvaluations) {
+      log.info(
+        { tokenAddress, remaining: capacity.remaining, inFlight: this.activeEntryEvaluations },
+        `${context} skipped — S2 Birdeye evaluation slots are busy`,
+      );
+      return null;
+    }
+
+    this.activeEntryEvaluations += 1;
+    try {
+      return await fn();
+    } finally {
+      this.activeEntryEvaluations = Math.max(0, this.activeEntryEvaluations - 1);
+    }
   }
 }

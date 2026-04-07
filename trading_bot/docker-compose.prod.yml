@@ -17,15 +17,15 @@ services:
     restart: unless-stopped
     shm_size: 128mb
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     environment:
-      POSTGRES_USER: botuser
+      POSTGRES_USER: ${POSTGRES_USER:-botuser}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-botpass}
-      POSTGRES_DB: trading_bot
+      POSTGRES_DB: ${POSTGRES_DB:-trading_bot}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U botuser -d trading_bot"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-botuser} -d ${POSTGRES_DB:-trading_bot}"]
       interval: 30s
       timeout: 5s
       retries: 5
@@ -37,7 +37,7 @@ services:
     container_name: trading-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redisdata:/data
     healthcheck:
@@ -72,7 +72,7 @@ services:
     restart: unless-stopped
     stop_grace_period: 45s
     ports:
-      - "${BOT_PORT:-3001}:3001"
+      - "${BOT_PORT:-3001}:${BOT_PORT:-3001}"
     env_file:
       - ./backend/.env.docker
     depends_on:
@@ -86,13 +86,11 @@ services:
         condition: service_completed_successfully
     healthcheck:
       test:
-        - CMD
-        - node
-        - -e
+        - CMD-SHELL
         - >-
-          fetch('http://127.0.0.1:3001/api/health').then((res) => {
+          node -e "fetch('http://127.0.0.1:' + (process.env.BOT_PORT || 3001) + '/api/health').then((res) => {
             if (!res.ok) process.exit(1);
-          }).catch(() => process.exit(1))
+          }).catch(() => process.exit(1))"
       interval: 30s
       timeout: 5s
       retries: 6
@@ -107,14 +105,26 @@ services:
     restart: unless-stopped
     stop_grace_period: 20s
     ports:
-      - "${DASHBOARD_PORT:-3000}:3000"
+      - "${DASHBOARD_PORT:-3000}:${DASHBOARD_PORT:-3000}"
     environment:
-      API_URL: http://bot:3001
+      API_URL: http://bot:${BOT_PORT:-3001}
       CONTROL_SECRET: ${CONTROL_API_SECRET}
+      PORT: ${DASHBOARD_PORT:-3000}
     depends_on:
       bot:
         condition: service_healthy
         restart: true
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 3000)).then((res) => {
+            if (!res.ok) process.exit(1);
+          }).catch(() => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
 
 volumes:
   pgdata:

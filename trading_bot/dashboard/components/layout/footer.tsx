@@ -53,7 +53,7 @@ export function Footer() {
           {heartbeat?.lastTradeAt ? <span>Trade {timeAgo(heartbeat.lastTradeAt)}</span> : null}
           {heartbeat?.lastSignalAt ? <span>Signal {timeAgo(heartbeat.lastSignalAt)}</span> : null}
           {heartbeat ? <span>Uptime {formatUptime(heartbeat.uptime)}</span> : null}
-          {overview ? <span>Capital {formatUsd(overview.capitalUsd)}</span> : null}
+          {overview ? <span>Capital {formatUsd(overview.walletCapitalUsd)}</span> : null}
           <span>Updated {updatedLabel}</span>
         </div>
       </div>

@@ -15,7 +15,8 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "docker:build": "docker compose --env-file .env.docker -f ../docker-compose.prod.yml build",
-    "docker:up": "docker compose --env-file .env.docker -f ../docker-compose.prod.yml up --build -d",
+    "docker:preflight": "node ./scripts/docker-port-preflight.mjs",
+    "docker:up": "npm run docker:preflight && docker compose --env-file .env.docker -f ../docker-compose.prod.yml up --build -d",
     "docker:down": "docker compose --env-file .env.docker -f ../docker-compose.prod.yml down",
     "docker:logs": "docker compose --env-file .env.docker -f ../docker-compose.prod.yml logs -f"
   },
@@ -23,6 +24,7 @@
     "@prisma/adapter-pg": "^7.6.0",
     "@prisma/client": "^7.6.0",
     "@solana/web3.js": "^1.98.4",
+    "bs58": "^6.0.0",
     "compression": "^1.8.1",
     "cors": "^2.8.5",
     "decimal.js": "^10.6.0",
