@@ -2,32 +2,32 @@
 
 Source file: `trading_bot/backend/src/strategies/copy-trade.ts`
 
-## What Triggers It
+## Trigger
 
 - Helius websocket subscription to elite-wallet activity
-- Only wallet buys can create entry candidates
-- Wallet-scoring maintenance runs separately on an interval and refreshes the elite-wallet set
+- only wallet buys create entry candidates
+- wallet scoring maintenance runs separately and refreshes the elite-wallet set
 
 ## Workflow
 
-1. Ensure elite wallets exist; trigger scoring/bootstrap if they do not.
-2. Receive wallet activity from Helius.
-3. Record wallet activity for analytics with router-backed price capture.
-4. Run DEX Screener sanity before any paid Birdeye score.
-5. Fetch final token context through Birdeye.
-6. Reject on regime, duplicate exposure, or risk-manager blockers.
-7. Reject on token-quality filters.
-8. Size via `riskManager.getPositionSize("S1_COPY")`.
-9. Execute buy and start exit monitoring.
+1. ensure elite wallets exist; bootstrap scoring if they do not
+2. receive wallet activity from Helius
+3. record wallet activity for analytics with router-backed price capture
+4. run DEX Screener sanity before any paid Birdeye score
+5. fetch final token context through Birdeye
+6. reject on regime, duplicate exposure, or risk-manager blockers
+7. reject on token-quality filters
+8. size via `riskManager.getPositionSize("S1_COPY")`
+9. execute buy and start exit monitoring
 
 ## Main Filters
 
-- live source-transaction freshness cap before any paid enrichment
+- live source-transaction freshness cap
 - minimum liquidity
 - maximum market cap
 - minimum buy pressure
-- minimum unique buyers in the recent window
-- minimum buy/sell ratio in the recent window
+- minimum unique buyers
+- minimum buy/sell ratio
 - maximum top-10 holder concentration
 - maximum single-holder concentration
 - no freezeable token
@@ -35,33 +35,31 @@ Source file: `trading_bot/backend/src/strategies/copy-trade.ts`
 - no transfer-fee token
 - wash-trading ratio under threshold
 
-## Important Safety Notes
+## Safety Notes
 
-- if `S1` is disabled in runtime config, it does not open the Helius subscription path or run daily wallet scoring
+- if `S1` is disabled, it does not open the Helius subscription path or run daily wallet scoring
 - `RISK_OFF` blocks new copy entries
 - duplicate signatures and already-held tokens are skipped
-- startup and elite-wallet refresh now prime a per-wallet signature waterline so S1 does not replay pre-existing history on reconnect
-- wallet-scoring is quota-degradable and can be skipped when Helius non-essential budget is stressed
+- startup and elite-wallet refresh prime a per-wallet signature waterline to avoid replay
+- wallet scoring is quota-degradable under Helius pressure
 - `CHOPPY` hard-pauses S1 even when other strategies can still trade
-- wallet-activity price capture now goes through `MarketRouter.refreshExitContext()`, so S1 analytics no longer call Birdeye `multi_price` for every copied buy
-- DEX Screener prefilter is a cheap trash filter, not a replacement for Birdeye security, holder, or wash-trading checks
-- `LIVE` now hard-rejects copied buys if the source transaction timestamp is missing or older than the configured freshness cap
-- `LIVE` now hard-rejects tokens when Birdeye trade data is missing instead of weakening the wash-trading check
-- `DRY_RUN` still allows missing Birdeye trade data to pass the wash-trading gate so analytics can keep observing candidates
-- paid Birdeye entry scoring now short-circuits when `S1` has no remaining entry slots, and concurrent webhook candidates only consume as many paid evaluations as there are slots left
-- open-position exit pricing now comes from `MarketRouter.refreshExitContext()` on the `5s` loop, so S1 exits no longer depend on Birdeye `multi_price`
-- daily wallet scoring still pays for Birdeye top-trader discovery and Helius archival history; those costs are unchanged by the entry-path refactor
+- DEX Screener prefilter is cheap trash filtering, not a replacement for Birdeye security checks
+- `LIVE` hard-rejects copied buys if the source timestamp is missing or too old
+- `LIVE` hard-rejects tokens when Birdeye trade data is missing
+- `DRY_RUN` still allows missing Birdeye trade data so analytics can observe candidates
+- paid Birdeye scoring short-circuits when `S1` has no remaining entry slots
+- exit pricing now comes from `MarketRouter.refreshExitContext()` on the `5s` loop
 
 ## Exit Shape
 
 - stop loss at `-20%`
 - TP1 at `+30%`, selling `50%` of remaining size
-- once TP1 is done, the remaining size is protected and will exit if profit retraces to a low single-digit gain before TP2
+- once TP1 is done, remaining size exits if profit retraces to a low single-digit gain before TP2
 - TP2 at `+60%`, selling `50%` of remaining size again
 - trailing stop at `20%` after both partials
-- time-stop at `120m`; no separate hard time-limit field for S1
+- time-stop at `120m`
 
-## Files Worth Reading Before Changes
+## Files Worth Reading
 
 - `trading_bot/backend/src/services/helius.ts`
 - `trading_bot/backend/src/services/dexscreener.ts`

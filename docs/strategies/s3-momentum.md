@@ -2,25 +2,25 @@
 
 Source file: `trading_bot/backend/src/strategies/momentum.ts`
 
-## What Triggers It
+## Trigger
 
 - interval scans of router-backed Jupiter momentum feeds
 - DEX Screener prefilter before any paid Birdeye final-score call
 - router-side seed market-cap sanity drops obvious large-cap mismatches before paid scoring
 
-This is the only strategy with staged position growth built into the entry logic.
+This is the only strategy with staged position growth built into entry logic.
 
 ## Workflow
 
-1. Pull momentum seeds through `MarketRouter.getMomentumSeeds()`.
-2. Run DEX Screener batch prefilter and drop tokens with no cheap-side market confirmation.
-3. Drop obvious large-cap router seeds before paid Birdeye scoring when the seed market cap is already far above the configured S3 ceiling.
-4. Reject on regime, quota, duplicate exposure, or risk-manager blockers.
-5. Run final Birdeye overview, trade-data, security, and holder checks.
-6. Buy tranche 1 only.
-7. Wait for the configured delay.
-8. Re-check follow-through before tranche 2.
-9. Only then allow size increase through `riskManager.canIncreasePosition`.
+1. pull momentum seeds through `MarketRouter.getMomentumSeeds()`
+2. run DEX Screener batch prefilter and drop tokens with no cheap-side market confirmation
+3. drop obvious large-cap router seeds before paid Birdeye scoring
+4. reject on regime, quota, duplicate exposure, or risk-manager blockers
+5. run final Birdeye overview, trade-data, security, and holder checks
+6. buy tranche 1 only
+7. wait for the configured delay
+8. re-check follow-through before tranche 2
+9. only then allow size increase through `riskManager.canIncreasePosition`
 
 ## Main Filters
 
@@ -36,40 +36,40 @@ This is the only strategy with staged position growth built into the entry logic
 
 ## Tranche 2 Rules
 
-- existing position must still be valid
+- position must still be valid
 - price must be above entry
-- fresh buy pressure must still hold
+- buy pressure must still hold
 - liquidity must still be above the floor
 - market cap must still be under the ceiling
 - holder participation must stay above the configured ratio
 - volume retention must stay above the configured floor
 
-## Important Safety Notes
+## Safety Notes
 
 - `RISK_OFF` blocks new momentum entries
-- `CRITICAL` capital level still allows only S3 in `RiskManager`, so this strategy carries special capital-state importance
-- tranche 2 is not a blind DCA path; it is a gated follow-through add
+- `CRITICAL` capital state still allows only S3 in `RiskManager`
+- tranche 2 is a gated follow-through add, not blind DCA
 - S3 hard-requires trade data for entry; quota starvation usually suppresses signals instead of weakening filters
-- incomplete Birdeye trade payloads fail closed as `incomplete trade data`; missing recent-history fields are not reinterpreted as `0x` momentum
-- DEX Screener liquidity now hard-rejects sub-floor candidates before any paid Birdeye overview, trade-data, or security calls
-- paid tranche-1 Birdeye scoring now short-circuits when `S3` has no remaining entry slots, and concurrent candidate evaluations are capped to the remaining slot count
-- tranche 2 uses `canIncreasePosition()`, so it obeys balance and safety checks but is not the same path as opening a brand-new slot
-- signal `source` now reflects the routed seed feed (`JUPITER_TOP_TRENDING` or `JUPITER_TOP_TRADED`) instead of pretending everything came from Birdeye `v3/token/list`
-- exit pricing now comes from `MarketRouter.refreshExitContext()` on the `5s` loop instead of Birdeye `multi_price`
-- fade exits still use Birdeye trade data, but only on a throttled slow path; refresh cadence is plan-aware (`STARTER` `60s`, `LITE` `180s`)
+- incomplete Birdeye trade payloads fail closed
+- DEX Screener liquidity now hard-rejects sub-floor candidates before paid Birdeye calls
+- paid tranche-1 Birdeye scoring short-circuits when `S3` has no remaining entry slots
+- tranche 2 uses `canIncreasePosition()`, so it obeys balance and safety checks without consuming a brand-new slot
+- signal `source` now reflects the routed seed feed instead of pretending everything came from Birdeye `v3/token/list`
+- exit pricing now comes from `MarketRouter.refreshExitContext()` on the `5s` loop
+- fade exits still use Birdeye trade data, but only on a throttled slow path
 
 ## Exit Shape
 
 - stop loss at `-10%`
 - TP1 at `+20%`, selling `50%` of remaining size
-- once TP1 is done, the remaining size is protected and will exit if profit retraces back toward a minimal gain before TP2
+- once TP1 is done, remaining size exits if profit retraces toward a minimal gain before TP2
 - TP2 at `+40%`, selling `50%` of remaining size again
 - trailing stop at `15%` after both partials
-- fade exit if `current volume5m / entryVolume5m < 1.2` on two consecutive weak reads, using throttled slow-path trade-data refresh instead of per-batch polling
+- fade exit if `current volume5m / entryVolume5m < 1.2` on two consecutive weak reads
 - soft time-stop at `5m`
 - hard time limit at `30m`
 
-## Files Worth Reading Before Changes
+## Files Worth Reading
 
 - `trading_bot/backend/src/services/birdeye.ts`
 - `trading_bot/backend/src/services/dexscreener.ts`

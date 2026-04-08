@@ -1,6 +1,6 @@
 # Control And Auth
 
-The dashboard has two auth layers. Confuse them and you either brick controls or punch a hole in them.
+The dashboard has two auth layers. Mix them up and you either break controls or create a hole.
 
 ## Secret Sources
 
@@ -17,38 +17,34 @@ Resolution order:
 ## Operator Session Flow
 
 1. Browser posts the secret to `dashboard/app/api/operator-session/route.ts`
-2. The server validates the secret and sets an HTTP-only cookie
+2. The server validates it and sets an HTTP-only cookie
 3. Mutating dashboard proxy requests require that cookie
 4. The proxy injects bearer auth toward the backend
 
-The browser never needs to hold the backend bearer token directly.
+The browser never needs the backend bearer token directly.
 
 ## Proxy Rules
 
-Proxy file:
-`dashboard/app/api/[...path]/route.ts`
+Proxy file: `dashboard/app/api/[...path]/route.ts`
 
 - non-GET requests require operator session
 - non-GET requests receive bearer auth upstream
 - `GET /api/stream` also receives bearer auth upstream
 - ordinary read routes do not require operator session
 
-That means the operator-session cookie is a dashboard boundary, not a backend boundary. Server-to-server or direct backend calls only care about bearer auth.
+The operator-session cookie is a dashboard boundary, not a backend boundary.
 
 ## Backend Rules
 
-- Mutating backend routes require `requireBearerToken`
-- Control-plane writes include pause, resume, manual entry, manual exit, profile create/toggle/delete, and wallet reconcile
-- Read routes can stay public, but keep that choice explicit
+- mutating backend routes require `requireBearerToken`
+- control-plane writes include pause, resume, manual entry, manual exit, profile create/toggle/delete, and wallet reconcile
+- read routes can stay public, but keep that choice explicit
 
 ## Failure Modes
 
-- no configured secret:
-  dashboard returns `503` for privileged paths
-- missing operator session:
-  dashboard returns `401` for mutating proxy requests
-- backend unavailable:
-  dashboard proxy returns `503` or `504`
+- no configured secret -> dashboard returns `503` for privileged paths
+- missing operator session -> dashboard returns `401` for mutating proxy requests
+- backend unavailable -> dashboard proxy returns `503` or `504`
 
 ## Files To Update Together
 

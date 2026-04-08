@@ -1,6 +1,9 @@
 # Profiles And Runtime Scope
 
-This repo has two different truths. Runtime scope decides what the bot is actually doing. Analysis scope decides what the user is inspecting.
+This repo has two truths:
+
+- runtime scope = what the bot is actually doing
+- analysis scope = what the user is inspecting
 
 ## Runtime Scope
 
@@ -32,16 +35,14 @@ Primary source:
 
 ## Rules
 
-- Header, sidebar, footer, overview shell, and control surfaces should reflect runtime truth
-- Positions, trades, analytics, and quota drill-downs may inspect other lanes
-- Mixed-scope UI must say so plainly
-- Portfolio capacity comes from runtime portfolio truth, not filtered table length
+- header, sidebar, footer, overview shell, and control surfaces reflect runtime truth
+- positions, trades, analytics, and quota drill-downs may inspect other lanes
+- mixed-scope UI must say so plainly
+- portfolio capacity comes from runtime portfolio truth, not filtered table length
 
 ## Profile Switching
 
 Profile routes live in `backend/src/api/routes/profiles.ts`.
-
-Important behavior:
 
 - activating a profile in a different mode does not switch the running runtime
 - activating a profile in the same mode as the runtime may trigger a runtime switch
@@ -51,9 +52,9 @@ Important behavior:
 ## Dashboard Control Impact
 
 - manual controls execute only on the active runtime lane
-- a page can inspect another lane, but writes still target the active runtime lane
-- settings page exposes this distinction, blocks invalid switches, and now lets operators edit profile overrides inline
-- editing the active runtime profile updates the live runtime lane immediately; editing inactive profiles only changes what will apply on activation
+- a page may inspect another lane, but writes still target the active runtime lane
+- settings exposes this distinction and blocks invalid switches
+- editing the active runtime profile updates the live lane immediately; editing inactive profiles only changes future activation state
 
 ## Files To Update Together
 
