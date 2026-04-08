@@ -495,6 +495,79 @@ test("GraduationStrategy.runFilters rejects missing trade data in LIVE", async (
   }
 });
 
+test("GraduationStrategy.runFilters rejects missing creator before Helius lookups", async () => {
+  let heliusCalls = 0;
+
+  const strategy = new (GraduationStrategy as any)(
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {
+      getSignaturesForAddress: async () => {
+        heliusCalls += 1;
+        return [];
+      },
+    } as never,
+    {
+      prefilterCandidates: async () => new Map([
+        ["mint_creator", { address: "mint_creator", passed: true, source: "DEX_SCREENER", liquidityUsd: 25_000, priceUsd: 0.1 }],
+      ]),
+    } as never,
+    {
+      getTokenSecurity: async () => ({
+        top10HolderPercent: 20,
+        freezeable: false,
+        mintAuthority: false,
+        transferFeeEnable: false,
+        mutableMetadata: false,
+      }),
+      getTokenHolders: async () => [{ address: "holder_1", percent: 5 }],
+      getTokenOverview: async () => ({
+        address: "mint_creator",
+        symbol: "MISS",
+        name: "Missing Creator",
+        price: 0.1,
+        priceChange5m: 10,
+        priceChange1h: 20,
+        volume5m: 25_000,
+        volume1h: 50_000,
+        liquidity: 25_000,
+        marketCap: 120_000,
+        holder: 250,
+        buyPercent: 60,
+        sellPercent: 40,
+      }),
+      getTradeData: async () => ({
+        volume5m: 25_000,
+        volumeHistory5m: 10_000,
+        volumeBuy5m: 20_000,
+        trade5m: 120,
+        buy5m: 90,
+        uniqueWallet5m: 80,
+      }),
+    } as never,
+  );
+
+  const result = await (strategy as any).runFilters({
+    address: "mint_creator",
+    symbol: "MISS",
+    name: "Missing Creator",
+    source: "pumpfun",
+    progressPercent: 100,
+    graduated: true,
+    graduatedTime: Math.floor(Date.now() / 1000),
+    realSolReserves: 10,
+    creator: "",
+  });
+
+  assert.equal(result.passed, false);
+  assert.equal(result.rejectReason, "missing creator");
+  assert.equal(result.filterResults.creatorAvailable, false);
+  assert.equal(heliusCalls, 0);
+});
+
 test("GraduationStrategy.runFilters enforces minUniqueHolders", async () => {
   const strategy = new (GraduationStrategy as any)(
     {} as never,
@@ -626,6 +699,76 @@ test("GraduationStrategy.runFilters rejects DEX prefilter failures before paid p
   assert.equal(result.filterResults.prefilterReason, "no DEX Screener market data");
   assert.equal(birdeyeCalls, 0);
   assert.equal(heliusCalls, 0);
+});
+
+test("GraduationStrategy.onGraduated records the event without an immediate overview spend", async () => {
+  const { calls: writes, restore: restoreCreate } = captureCreateCalls(db.graduationEvent);
+  const delays: number[] = [];
+  let overviewCalls = 0;
+  const restoreSetTimeout = stubProperty(
+    globalThis,
+    "setTimeout",
+    (((
+      _fn: (...args: any[]) => void,
+      delay?: number,
+      ..._args: any[]
+    ) => {
+      delays.push(Number(delay ?? 0));
+      return { delay } as never;
+    }) as unknown as typeof setTimeout),
+  );
+
+  try {
+    const strategy = new (GraduationStrategy as any)(
+      {
+        getEntryCapacity: () => ({
+          allowed: true,
+          globalRemaining: 5,
+          strategyRemaining: 2,
+          remaining: 2,
+        }),
+      } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {
+        getTokenOverview: async () => {
+          overviewCalls += 1;
+          return null;
+        },
+      } as never,
+    );
+
+    await (strategy as any).onGraduated({
+      address: "mint_grad",
+      symbol: "GRAD",
+      name: "Graduated",
+      source: "pumpfun",
+      progressPercent: 100,
+      graduated: true,
+      graduatedTime: 1_700_000_000,
+      realSolReserves: 10,
+      creator: "creator_grad",
+    });
+
+    assert.equal(overviewCalls, 0);
+    assert.equal(writes.length, 1);
+    assert.equal(delays[0], config.strategies.s2.entryDelayMinutes * 60_000);
+    const data = writes[0].data as Record<string, unknown>;
+    assert.equal(data.tokenAddress, "mint_grad");
+    assert.equal(data.tokenSymbol, "GRAD");
+    assert.equal(data.wasTraded, false);
+    assert.equal("liquidity" in data, false);
+    assert.equal("marketCap" in data, false);
+    assert.equal("holders" in data, false);
+    assert.equal("priceAtGrad" in data, false);
+  } finally {
+    restoreSetTimeout();
+    restoreCreate();
+  }
 });
 
 test("GraduationStrategy.runFilterAndTrade persists buy pressure and entry holders from fetched data", async () => {

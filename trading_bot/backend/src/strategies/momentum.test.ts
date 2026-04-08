@@ -216,6 +216,60 @@ test("MomentumStrategy.runScan drops obvious large-cap seeds before paid scoring
   assert.deepEqual(evaluated.map((candidate) => candidate.address), ["mint_small"]);
 });
 
+test("MomentumStrategy.runScan skips tokens still on reject cooldown", async () => {
+  let prefilterCalls = 0;
+  let evaluateCalls = 0;
+
+  const strategy = new MomentumStrategy(
+    {
+      getEntryCapacity: () => ({
+        allowed: true,
+        globalRemaining: 5,
+        strategyRemaining: 3,
+        remaining: 3,
+      }),
+    } as never,
+    {
+      holdsToken: () => false,
+    } as never,
+    {} as never,
+    {} as never,
+    {
+      getRegime: () => "NORMAL",
+    } as never,
+    {} as never,
+    {} as never,
+  );
+
+  (strategy as any).recentRejectCooldownUntil.set("mint_cooldown", Date.now() + 60_000);
+  (strategy as any).marketRouter = {
+    getMomentumSeeds: async () => ([
+      {
+        address: "mint_cooldown",
+        symbol: "COOL",
+        name: "Cooling Off",
+        source: "JUPITER_TOP_TRENDING",
+        priceUsd: 0.11,
+        liquidityUsd: 30_000,
+        marketCap: 100_000,
+      },
+    ]),
+    prefilterCandidates: async () => {
+      prefilterCalls += 1;
+      return new Map();
+    },
+  };
+
+  (strategy as any).evaluateCandidate = async () => {
+    evaluateCalls += 1;
+  };
+
+  await (strategy as any).runScan();
+
+  assert.equal(prefilterCalls, 0);
+  assert.equal(evaluateCalls, 0);
+});
+
 test("MomentumStrategy.evaluateCandidate records router seed source instead of Birdeye token-list source", async () => {
   const { calls: writes, restore: restoreCreate } = captureCreateCalls(db.signal);
 
@@ -466,6 +520,77 @@ test("MomentumStrategy rejects incomplete trade data instead of mislabeling it a
   assert.equal(result.passed, false);
   assert.equal(result.rejectReason, "incomplete trade data");
   assert.equal(result.filterResults.tradeDataComplete, false);
+});
+
+test("MomentumStrategy rejects low 5m volume before safety endpoint calls", async () => {
+  let securityCalls = 0;
+  let holderCalls = 0;
+
+  const strategy = new MomentumStrategy(
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {
+      getTokenOverview: async () => ({
+        address: "mint_low_volume",
+        symbol: "LOW",
+        name: "Low Volume Token",
+        price: 0.001,
+        priceChange5m: 15,
+        priceChange1h: 20,
+        volume5m: 12_000,
+        volume1h: 40_000,
+        liquidity: 50_000,
+        marketCap: 300_000,
+        holder: 220,
+        buyPercent: 65,
+        sellPercent: 35,
+      }),
+      getTradeData: async () => ({
+        volume5m: 12_000,
+        volumeHistory5m: 4_000,
+        volumeBuy5m: 8_000,
+        trade5m: 180,
+        buy5m: 110,
+        uniqueWallet5m: 120,
+      }),
+      getTokenSecurity: async () => {
+        securityCalls += 1;
+        return {
+          top10HolderPercent: 35,
+          freezeable: false,
+          mintAuthority: false,
+          transferFeeEnable: false,
+          mutableMetadata: false,
+        };
+      },
+      getTokenHolders: async () => {
+        holderCalls += 1;
+        return [{ address: "holder_1", percent: 20 }];
+      },
+    } as never,
+  );
+
+  const result = await (strategy as any).runFilters({
+    address: "mint_low_volume",
+    symbol: "LOW",
+    name: "Low Volume Token",
+    source: "JUPITER_TOP_TRENDING",
+    seedPriceUsd: 0.001,
+    seedLiquidityUsd: 50_000,
+    seedMarketCap: 300_000,
+    prefilterPriceUsd: 0.0011,
+    prefilterLiquidityUsd: 51_000,
+  });
+
+  assert.equal(result.passed, false);
+  assert.equal(result.rejectReason, "volume 12000 < 30000");
+  assert.equal(result.filterResults.tradeVolume5m, 12_000);
+  assert.equal(securityCalls, 0);
+  assert.equal(holderCalls, 0);
 });
 
 test("MomentumStrategy rejects low-liquidity DEX prefilter candidates before paid scoring", async () => {

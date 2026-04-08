@@ -57,8 +57,10 @@ The repo does not pause runtime off Jupiter quota state in this phase.
 - Outcome backfills, exit fast-path prices, and S1 wallet-activity pricing now use `MarketRouter.refreshExitContext()` first.
 - S1 entry uses DEX Screener sanity before paid Birdeye scoring.
 - S2 continuous discovery uses Jupiter `recent` plus DEX Screener prefilter; Birdeye `meme/list` is catch-up only.
+- S2 graduation-event inserts no longer spend an immediate Birdeye overview call, and missing creator data stops before Helius creator-history fetches.
 - S2 catch-up and fallback Birdeye loops pause completely when `S2` has no remaining entry slots.
 - S3 discovery seeds from Jupiter category feeds plus DEX Screener prefilter before paid Birdeye scoring.
+- S3 enforces minimum 5-minute volume before paid security and holder checks, then cools down repeated rejects instead of re-scoring the same token every scan.
 - `wouldHaveWon` recompute is DB-only; do not tie it to Birdeye quota state.
 
 ## Audit Commands

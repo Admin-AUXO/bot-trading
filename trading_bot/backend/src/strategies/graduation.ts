@@ -315,26 +315,19 @@ export class GraduationStrategy extends EventEmitter {
   private async onGraduated(token: MemeToken): Promise<void> {
     const detectedAtMs = Date.now();
     await this.withEntryEvaluationSlot("S2 graduated candidate", token.address, async () => {
-      const overview = await this.birdeye.getTokenOverview(token.address, this.apiMeta("ENTRY_SCAN"));
-
       await db.graduationEvent.create({
         data: {
           tokenAddress: token.address,
           tokenSymbol: token.symbol,
           platform: token.source,
           creator: token.creator,
-          liquidity: overview?.liquidity ?? null,
-          marketCap: overview?.marketCap ?? null,
-          holders: overview?.holder ?? null,
-          priceAtGrad: overview?.price ?? null,
           wasTraded: false,
         },
       });
 
-      const priceAtSignal = overview?.price ?? null;
       const delayMs = this.cfg.entryDelayMinutes * 60_000;
       const handle = setTimeout(() => {
-        this.runFilterAndTrade(token, priceAtSignal, detectedAtMs).catch((err) => {
+        this.runFilterAndTrade(token, null, detectedAtMs).catch((err) => {
           log.error({ err, token: token.address }, "entry after delay failed");
         });
       }, delayMs);
@@ -570,6 +563,20 @@ export class GraduationStrategy extends EventEmitter {
       };
     }
 
+    const creator = token.creator.trim();
+    filters.creatorAvailable = creator.length > 0;
+    if (creator.length === 0) {
+      return {
+        passed: false,
+        tokenAddress: token.address,
+        tokenSymbol: token.symbol,
+        rejectReason: "missing creator",
+        filterResults: filters,
+        overview,
+        tradeData,
+      };
+    }
+
     const [sigs, creatorSigs] = await Promise.all([
       this.helius.getSignaturesForAddress(
         token.address,
@@ -577,7 +584,7 @@ export class GraduationStrategy extends EventEmitter {
         this.apiMeta("ENTRY_SCAN", false, this.cfg.tokenSignatureLimit),
       ),
       this.helius.getSignaturesForAddress(
-        token.creator,
+        creator,
         this.cfg.creatorSignatureLimit,
         this.apiMeta("ENTRY_SCAN", false, this.cfg.creatorSignatureLimit),
       ),

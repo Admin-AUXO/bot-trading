@@ -37,7 +37,7 @@ The operator-session cookie is a dashboard boundary, not a backend boundary.
 ## Backend Rules
 
 - mutating backend routes require `requireBearerToken`
-- control-plane writes include pause, resume, manual entry, manual exit, profile create/toggle/delete, and wallet reconcile
+- control-plane writes include pause, resume, reset-daily, manual entry, manual exit, profile create/toggle/delete, and wallet reconcile
 - read routes can stay public, but keep that choice explicit
 
 ## Failure Modes

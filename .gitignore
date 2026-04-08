@@ -31,7 +31,7 @@ Thumbs.db
 # Local workspace state
 .claude/settings.local.json
 trading_bot/.claude/settings.local.json
-.codex/mcp-secrets.env
+.codex/config.toml
 
 # Local scratch and stray generated trees
 audit/

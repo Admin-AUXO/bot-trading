@@ -51,6 +51,7 @@ export class MomentumStrategy extends EventEmitter {
   private scanInterval?: ReturnType<typeof setInterval>;
   private processingTokens: Set<string> = new Set();
   private pendingTranche2: Map<string, ReturnType<typeof setTimeout>> = new Map();
+  private recentRejectCooldownUntil = new Map<string, number>();
   private scanInFlight = false;
   private activeEntryEvaluations = 0;
   private readonly runtimeState?: RuntimeState;
@@ -97,6 +98,7 @@ export class MomentumStrategy extends EventEmitter {
     if (this.scanInterval) clearInterval(this.scanInterval);
     for (const [, handle] of this.pendingTranche2) clearTimeout(handle);
     this.pendingTranche2.clear();
+    this.recentRejectCooldownUntil.clear();
     log.info("S3 momentum strategy stopped");
   }
 
@@ -114,7 +116,9 @@ export class MomentumStrategy extends EventEmitter {
       if (seeds.length === 0) return;
 
       const availableSeeds = seeds.filter((seed) =>
-        !this.processingTokens.has(seed.address) && !this.positionTracker.holdsToken(seed.address, this.scope),
+        !this.processingTokens.has(seed.address)
+        && !this.positionTracker.holdsToken(seed.address, this.scope)
+        && this.shouldInspectSeed(seed.address),
       );
       if (availableSeeds.length === 0) return;
 
@@ -193,7 +197,10 @@ export class MomentumStrategy extends EventEmitter {
       },
     });
 
-    if (!signal.passed) return;
+    if (!signal.passed) {
+      this.noteRejectCooldown(candidate.address, signal.rejectReason);
+      return;
+    }
     if (!overview || !tradeData) return;
 
     const check = this.riskManager.canOpenPosition("S3_MOMENTUM");
@@ -430,6 +437,19 @@ export class MomentumStrategy extends EventEmitter {
     filters.volumeHistory5m = tradeData.volumeHistory5m;
     filters.uniqueWallet5m = tradeData.uniqueWallet5m;
     filters.buyPercent = tradeData.volume5m > 0 ? (tradeData.volumeBuy5m / tradeData.volume5m) * 100 : 0;
+    filters.tradeVolume5m = tradeData.volume5m;
+
+    if (tradeData.volume5m < this.cfg.minVolume5m) {
+      return {
+        passed: false,
+        tokenAddress: candidate.address,
+        tokenSymbol: candidate.symbol,
+        rejectReason: `volume ${tradeData.volume5m.toFixed(0)} < ${this.cfg.minVolume5m}`,
+        filterResults: filters,
+        overview,
+        tradeData,
+      };
+    }
 
     const volumeSpike = tradeData.volumeHistory5m > 0
       ? tradeData.volume5m / tradeData.volumeHistory5m
@@ -537,6 +557,45 @@ export class MomentumStrategy extends EventEmitter {
       pairAddress: prefilter.pairAddress,
       pairCreatedAt: prefilter.pairCreatedAt,
     };
+  }
+
+  private shouldInspectSeed(address: string): boolean {
+    const cooldownUntil = this.recentRejectCooldownUntil.get(address) ?? 0;
+    if (cooldownUntil <= Date.now()) {
+      this.recentRejectCooldownUntil.delete(address);
+      return true;
+    }
+    return false;
+  }
+
+  private noteRejectCooldown(address: string, rejectReason?: string | null): void {
+    const cooldownMs = this.getRejectCooldownMs(rejectReason);
+    if (cooldownMs <= 0) return;
+    this.recentRejectCooldownUntil.set(address, Date.now() + cooldownMs);
+  }
+
+  private getRejectCooldownMs(rejectReason?: string | null): number {
+    if (!rejectReason) return 0;
+
+    const transientCooldownMs = Math.max(this.cfg.scanIntervalMs * 3, 60_000);
+    const structuralCooldownMs = Math.max(this.cfg.scanIntervalMs * 15, 300_000);
+
+    if (
+      rejectReason.startsWith("liquidity ")
+      || rejectReason.startsWith("mcap ")
+      || rejectReason.startsWith("holders ")
+      || rejectReason.startsWith("top10 ")
+      || rejectReason.startsWith("top holder ")
+      || rejectReason === "wash trading detected"
+      || rejectReason === "freezeable"
+      || rejectReason === "mint authority"
+      || rejectReason === "transfer fee"
+      || rejectReason === "already pumped"
+    ) {
+      return structuralCooldownMs;
+    }
+
+    return transientCooldownMs;
   }
 
   private apiMeta(purpose: ApiCallPurpose, essential = false, batchSize?: number) {

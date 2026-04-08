@@ -42,7 +42,7 @@ Prod compose does not run `db:seed`.
 - Docker boot expects `trading_bot/backend/.env.docker` to define:
   `DATABASE_URL`, `REDIS_URL`, `HELIUS_API_KEY`, `HELIUS_RPC_URL`, `HELIUS_WS_URL`, `BIRDEYE_API_KEY`, `CONTROL_API_SECRET`
 - `SOLANA_PUBLIC_KEY` is needed for wallet-aware runtime paths
-- `SOLANA_PRIVATE_KEY` is only required for `TRADE_MODE="LIVE"`
+- `SOLANA_PRIVATE_KEY` is used for `TRADE_MODE="LIVE"`; keep it present in `.env.docker`
 - Keep `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, and `DATABASE_URL` aligned if you override Postgres credentials
 - Compose-internal service URLs stay on `postgres:5432`, `redis:6379`, and `bot:${BOT_PORT:-3001}`
 

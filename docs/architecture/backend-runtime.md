@@ -21,9 +21,9 @@ The backend is assembled in one place. Start here before touching strategy, API,
    `TradeExecutor` for `LIVE`, `DryRunExecutor` for `DRY_RUN`.
 6. Build `ExitMonitor`, `OutcomeTracker`, `MarketTickRecorder`, and strategies `S1`, `S2`, `S3`.
 7. Reload open positions for the active runtime lane and re-arm exits.
-8. Start regime evaluation, reconcile wallet balance in `LIVE`, and start strategies.
+8. Start regime evaluation, reconcile wallet capital when a wallet is configured, and start strategies.
 9. Start the Express API server.
-10. Register periodic intervals for resets, quota sync, persistence, wallet scoring, stats aggregation, and backfills.
+10. Register periodic intervals for resets, quota sync, persistence, wallet reconciliation, wallet scoring, stats aggregation, and backfills.
 
 ## Runtime Invariants
 
@@ -34,7 +34,7 @@ The backend is assembled in one place. Start here before touching strategy, API,
 - S1 wallet scoring can bootstrap in the background; API startup must not block on it.
 - Wallet-backed capital snapshots are separate from the dry-run in-memory risk ledger.
 - Profile switching for the active mode pauses the bot, reloads scope/config, reloads open positions, and restarts runtime services.
-- Wallet reconciliation exists only in `LIVE`.
+- Wallet reconciliation runs when a wallet is configured; `LIVE` also persists wallet balance.
 - Risk persistence is `LIVE`-only. `DRY_RUN` runtime truth stays in memory for the process lifetime.
 
 ## Periodic Work
@@ -43,18 +43,19 @@ The backend is assembled in one place. Start here before touching strategy, API,
 - daily reset check: `RiskManager.checkDailyReset()`
 - state persistence: risk state and quota state
 - quota sync: provider-reported Birdeye usage
+- wallet reconciliation: conditional on `SOLANA_PUBLIC_KEY`
 - wallet scoring: S1 maintenance task, skipped when Helius non-essential work should degrade
 - S2 catch-up scan: plan-aware Birdeye recovery loop
 - stats aggregation: hourly daily-stats recompute
 - outcome price backfills: router-backed price refresh
-- exit fast path: router-backed refresh every `5s`
+- exit monitor batch: router-backed refresh on the configured batch interval
 - would-have-won backfill: DB-only recompute pass
 
 ## Timing Notes
 
 - S2 waits `entryDelayMinutes` after graduation detection before it can buy.
 - S3 only finds new candidates on its scan cadence, then schedules tranche 2 on a fixed follow-on delay.
-- Exit decisions are bounded by the `5s` exit-monitor batch interval on the fast path.
+- Exit decisions are bounded by the exit-monitor batch interval (`5s` in current config).
 
 ## Jupiter Notes
 
@@ -64,7 +65,7 @@ The backend is assembled in one place. Start here before touching strategy, API,
 
 ## Shutdown
 
-Shutdown stops strategies, exit monitoring, regime detector, outcome tracker, market tick recorder, stats worker, provider connections, intervals, and DB access. State is persisted before exit.
+Shutdown stops strategies, exit monitoring, regime detector, outcome tracker, market tick recorder, stats worker, Helius connections, intervals, and DB access. State is persisted before exit.
 
 ## Change Rules
 

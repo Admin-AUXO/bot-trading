@@ -17,7 +17,7 @@ S2 does not buy on first sight. It stages candidates, waits, then re-checks them
 2. run DEX Screener prefilter and only spend Birdeye `meme/detail` on shortlisted recent tokens
 3. drop obvious large-cap seeds before paid detail calls
 4. use Birdeye `meme/list` catch-up on the plan-aware cadence
-5. track pending graduation events and persist analytics records
+5. track pending graduation events and persist analytics records without spending an immediate overview call
 6. after the configured delay, re-check the token
 7. run cheap liquidity, market-cap, holder-count, and live trade-data checks before Helius and Birdeye enrichment
 8. size from `RiskManager`
@@ -46,6 +46,7 @@ S2 does not buy on first sight. It stages candidates, waits, then re-checks them
 - when `S2` is full, catch-up, fallback, and delayed re-checks stop spending Birdeye CU
 - concurrent paid evaluations are capped to remaining `S2` slot count
 - recent-seed DEX liquidity now gates paid `meme/detail`
+- missing creator now hard-rejects before Helius creator-history lookups
 - `S2_ENABLE_NEW_LISTING_FALLBACK` is the explicit flag for the old `new_listing` sweep
 - `LIVE` hard-rejects entries if the graduation timestamp is missing or too old
 - `LIVE` hard-rejects entries when Birdeye trade data is missing

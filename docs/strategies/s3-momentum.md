@@ -51,8 +51,10 @@ This is the only strategy with staged position growth built into entry logic.
 - tranche 2 is a gated follow-through add, not blind DCA
 - S3 hard-requires trade data for entry; quota starvation usually suppresses signals instead of weakening filters
 - incomplete Birdeye trade payloads fail closed
+- minimum 5-minute volume is enforced before the paid security and holder checks
 - DEX Screener liquidity now hard-rejects sub-floor candidates before paid Birdeye calls
 - paid tranche-1 Birdeye scoring short-circuits when `S3` has no remaining entry slots
+- repeated rejected names now cool off for multiple scan cadences instead of being re-scored every loop
 - tranche 2 uses `canIncreasePosition()`, so it obeys balance and safety checks without consuming a brand-new slot
 - signal `source` now reflects the routed seed feed instead of pretending everything came from Birdeye `v3/token/list`
 - exit pricing now comes from `MarketRouter.refreshExitContext()` on the `5s` loop
