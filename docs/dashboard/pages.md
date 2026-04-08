@@ -14,8 +14,7 @@ These are the actual route surfaces. Page wrappers are thin; feature modules own
 ## `/positions`
 
 - Feature file: `dashboard/features/positions/positions-page.tsx`
-- Tabs:
-  open, history, skip queue
+- Tabs: open, history, skip queue
 - Opens with a single action-scope banner so the operator can tell whether manual controls are armed or only inspecting another lane
 - Open tab shows filtered positions but portfolio capacity comes from runtime-wide shell data
 - Manual entry/exit actions only execute on the active runtime lane
@@ -24,8 +23,7 @@ These are the actual route surfaces. Page wrappers are thin; feature modules own
 ## `/trades`
 
 - Feature file: `dashboard/features/trades/trades-page.tsx`
-- Tabs:
-- fills, signals
+- Tabs: fills, signals
 - Fills tab is lane-scoped and emphasizes fee drag and realized execution quality
 - Signals tab shows pass/reject flow; trade-source filtering does not apply to signal rows
 - Exports CSV for executed fills

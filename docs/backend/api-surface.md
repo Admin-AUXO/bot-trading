@@ -31,7 +31,7 @@ Browsers should hit the dashboard proxy. Direct backend route knowledge still ma
 - public reads: `GET /state`, `GET /heartbeat`, `GET /config`
 - authenticated writes: `POST /pause`, `POST /resume`, `POST /reset-daily`, `POST /manual-entry`, `POST /reconcile-wallet`
 - `manual-entry` still goes through `RiskManager.canOpenPosition`
-- `manual-exit` and sell execution still use the shared execution path
+- `manual-exit` lives under `POST /api/positions/:id/manual-exit` and still uses the shared execution path
 - `reconcile-wallet` returns `400` outside `LIVE`
 
 ### `/api/positions`
