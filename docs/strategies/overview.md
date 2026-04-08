@@ -31,6 +31,11 @@ All three strategies eventually go through the same sequence:
 - `S2_GRADUATION`: scans Jupiter recent seeds plus DEX prefilter, uses Birdeye catch-up for missed graduations, then enters after a delay
 - `S3_MOMENTUM`: scans routed Jupiter momentum feeds with DEX prefilter and can stage a second tranche only if follow-through holds
 
+## Strategy Enablement
+
+- each strategy now has an `enabled` flag in runtime config and profile overrides
+- disabled strategies do not start their scan/subscription loops and do not consume their background quota paths
+
 ## Shared Capital And Regime Constraints
 
 - `RISK_OFF` blocks all new entries

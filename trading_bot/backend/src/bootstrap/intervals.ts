@@ -21,6 +21,7 @@ export function registerRuntimeIntervals(deps: {
   riskManager: RiskManager;
   apiBudgetManager: ApiBudgetManager;
   s1: CopyTradeStrategy;
+  isS1Enabled: () => boolean;
   walletReconciler?: () => Promise<number | null>;
 }): ReturnType<typeof setInterval>[] {
   const handles: ReturnType<typeof setInterval>[] = [];
@@ -80,6 +81,10 @@ export function registerRuntimeIntervals(deps: {
 
   handles.push(setInterval(async () => {
     try {
+      if (!deps.isS1Enabled()) {
+        log.info("wallet scoring skipped — S1 disabled");
+        return;
+      }
       if (!deps.apiBudgetManager.shouldRunNonEssential("HELIUS")) {
         log.info("wallet scoring skipped — HELIUS quota in soft/hard limit state");
         return;

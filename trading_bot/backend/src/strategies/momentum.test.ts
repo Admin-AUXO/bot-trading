@@ -154,6 +154,66 @@ test("MomentumStrategy.runScan uses MarketRouter seeds plus DEX prefilter before
   assert.equal(evaluated[0].prefilterLiquidityUsd, 31_000);
 });
 
+test("MomentumStrategy.runScan drops obvious large-cap seeds before paid scoring", async () => {
+  const evaluated: Array<Record<string, unknown>> = [];
+
+  const strategy = new MomentumStrategy(
+    {
+      getEntryCapacity: () => ({
+        allowed: true,
+        globalRemaining: 5,
+        strategyRemaining: 3,
+        remaining: 3,
+      }),
+    } as never,
+    {
+      holdsToken: () => false,
+    } as never,
+    {} as never,
+    {} as never,
+    {
+      getRegime: () => "NORMAL",
+    } as never,
+    {} as never,
+    {} as never,
+  );
+
+  (strategy as any).marketRouter = {
+    getMomentumSeeds: async () => ([
+      {
+        address: "mint_small",
+        symbol: "SMALL",
+        name: "Small",
+        source: "JUPITER_TOP_TRENDING",
+        priceUsd: 0.11,
+        liquidityUsd: 30_000,
+        marketCap: 300_000,
+      },
+      {
+        address: "mint_large",
+        symbol: "LARGE",
+        name: "Large",
+        source: "JUPITER_TOP_TRADED",
+        priceUsd: 2.5,
+        liquidityUsd: 4_000_000,
+        marketCap: 5_000_000,
+      },
+    ]),
+    prefilterCandidates: async () => new Map([
+      ["mint_small", { address: "mint_small", passed: true, source: "DEX_SCREENER", priceUsd: 0.12, liquidityUsd: 31_000 }],
+      ["mint_large", { address: "mint_large", passed: true, source: "DEX_SCREENER", priceUsd: 2.6, liquidityUsd: 4_100_000 }],
+    ]),
+  };
+
+  (strategy as any).evaluateCandidate = async (candidate: Record<string, unknown>) => {
+    evaluated.push(candidate);
+  };
+
+  await (strategy as any).runScan();
+
+  assert.deepEqual(evaluated.map((candidate) => candidate.address), ["mint_small"]);
+});
+
 test("MomentumStrategy.evaluateCandidate records router seed source instead of Birdeye token-list source", async () => {
   const originalCreate = db.signal.create;
   const writes: Array<Record<string, unknown>> = [];
@@ -290,4 +350,66 @@ test("MomentumStrategy.evaluateCandidate limits paid evaluations to remaining sl
   } finally {
     db.signal.create = originalCreate;
   }
+});
+
+test("MomentumStrategy rejects incomplete trade data instead of mislabeling it as weak momentum", async () => {
+  const strategy = new MomentumStrategy(
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {
+      getTokenOverview: async () => ({
+        address: "mint_1",
+        symbol: "TEST",
+        name: "Test Token",
+        price: 0.001,
+        priceChange5m: 15,
+        priceChange1h: 20,
+        volume5m: 90_000,
+        volume1h: 200_000,
+        liquidity: 50_000,
+        marketCap: 300_000,
+        holder: 200,
+        buyPercent: 65,
+        sellPercent: 35,
+      }),
+      getTradeData: async () => ({
+        volume5m: 90_000,
+        volumeHistory5m: 0,
+        volumeBuy5m: 60_000,
+        trade5m: 180,
+        buy5m: 110,
+        uniqueWallet5m: 120,
+      }),
+      getTokenSecurity: async () => ({
+        top10HolderPercent: 35,
+        freezeable: false,
+        mintAuthority: false,
+        transferFeeEnable: false,
+        mutableMetadata: false,
+      }),
+      getTokenHolders: async () => ([
+        { address: "holder_1", percent: 20 },
+      ]),
+    } as never,
+  );
+
+  const result = await (strategy as any).runFilters({
+    address: "mint_1",
+    symbol: "TEST",
+    name: "Test Token",
+    source: "JUPITER_TOP_TRENDING",
+    seedPriceUsd: 0.001,
+    seedLiquidityUsd: 50_000,
+    seedMarketCap: 300_000,
+    prefilterPriceUsd: 0.0011,
+    prefilterLiquidityUsd: 51_000,
+  });
+
+  assert.equal(result.passed, false);
+  assert.equal(result.rejectReason, "incomplete trade data");
+  assert.equal(result.filterResults.tradeDataComplete, false);
 });

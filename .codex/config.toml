@@ -21,14 +21,8 @@ startup_timeout_ms = 20000
 tool_timeout_sec = 90
 
 [mcp_servers.birdeye-mcp]
-args = [
-    "-y",
-    "mcp-remote",
-    "https://mcp.birdeye.so/mcp",
-    "--header",
-    "x-api-key:${BIRDEYE_API_KEY}",
-]
-command = "npx"
+args = [".codex/scripts/start-birdeye-mcp.cjs"]
+command = "node"
 enabled = true
 required = false
 startup_timeout_ms = 20000
@@ -104,8 +98,8 @@ required = false
 startup_timeout_ms = 20000
 
 [mcp_servers.helius]
-args = ["helius-mcp@latest"]
-command = "npx"
+args = [".codex/scripts/start-helius-mcp.cjs"]
+command = "node"
 enabled = true
 required = false
 startup_timeout_ms = 20000

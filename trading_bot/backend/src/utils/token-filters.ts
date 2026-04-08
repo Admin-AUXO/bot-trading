@@ -42,10 +42,19 @@ export function runSecurityChecks(
     return { pass: false, reason: "transfer fee", filterResults };
   }
 
-  if (holders.length > 0 && holders[0].percent > rules.maxSingleHolderPercent) {
+  const topHolderPercent = holders.length > 0
+    ? (holders[0].percent > 0
+      ? holders[0].percent
+      : (holders[0].balanceUi != null && security.totalSupply != null && security.totalSupply > 0
+        ? (holders[0].balanceUi / security.totalSupply) * 100
+        : 0))
+    : 0;
+  filterResults.topHolderPercent = topHolderPercent;
+
+  if (holders.length > 0 && topHolderPercent > rules.maxSingleHolderPercent) {
     return {
       pass: false,
-      reason: `top holder ${holders[0].percent}%`,
+      reason: `top holder ${topHolderPercent}%`,
       filterResults,
     };
   }

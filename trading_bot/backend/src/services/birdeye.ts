@@ -63,6 +63,29 @@ function sanitizeFinite(v: unknown, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function readFinite(source: Record<string, unknown>, ...keys: string[]): number {
+  for (const key of keys) {
+    if (key in source) {
+      const value = sanitizeFinite(source[key], Number.NaN);
+      if (Number.isFinite(value)) return value;
+    }
+  }
+  return 0;
+}
+
+function readBoolean(source: Record<string, unknown>, ...keys: string[]): boolean {
+  for (const key of keys) {
+    const value = source[key];
+    if (value === true || value === "true") return true;
+    if (value === false || value === "false") return false;
+  }
+  return false;
+}
+
+function normalizeFractionalPercent(value: number): number {
+  return value > 0 && value <= 1 ? value * 100 : value;
+}
+
 function estimateBatchCost(batchSize: number, baseCost: number = 5): number {
   return Math.ceil(Math.pow(Math.max(batchSize, 1), 0.8) * baseCost);
 }
@@ -226,20 +249,27 @@ export class BirdeyeService {
         const d = res?.data;
         if (!d) return null;
 
+        const volume5m = readFinite(d, "v5mUSD", "volume5mUSD", "volume_5m_usd");
+        const volume1h = readFinite(d, "v1hUSD", "volume1hUSD", "volume_1h_usd");
+        const volumeBuy5m = readFinite(d, "vBuy5mUSD", "volumeBuy5mUSD", "volume_buy_5m_usd");
+        const volumeSell5m = readFinite(d, "vSell5mUSD", "volumeSell5mUSD", "volume_sell_5m_usd");
+        const buyPercent = readFinite(d, "buy5mPercent") || (volume5m > 0 ? (volumeBuy5m / volume5m) * 100 : 0);
+        const sellPercent = readFinite(d, "sell5mPercent") || (volume5m > 0 ? (volumeSell5m / volume5m) * 100 : 0);
+
         const result: TokenOverview = {
           address: String(d.address ?? ""),
           symbol: String(d.symbol ?? ""),
           name: String(d.name ?? ""),
-          price: sanitizeFinite(d.price),
-          priceChange5m: sanitizeFinite(d.priceChange5mPercent),
-          priceChange1h: sanitizeFinite(d.priceChange1hPercent),
-          volume5m: sanitizeFinite(d.v5mUSD),
-          volume1h: sanitizeFinite(d.v1hUSD),
-          liquidity: sanitizeFinite(d.liquidity),
-          marketCap: sanitizeFinite(d.mc),
-          holder: sanitizeFinite(d.holder),
-          buyPercent: sanitizeFinite(d.buy5mPercent),
-          sellPercent: sanitizeFinite(d.sell5mPercent),
+          price: readFinite(d, "price"),
+          priceChange5m: readFinite(d, "priceChange5mPercent", "price_change_5m_percent"),
+          priceChange1h: readFinite(d, "priceChange1hPercent", "price_change_1h_percent"),
+          volume5m,
+          volume1h,
+          liquidity: readFinite(d, "liquidity"),
+          marketCap: readFinite(d, "marketCap", "mc"),
+          holder: readFinite(d, "holder"),
+          buyPercent,
+          sellPercent,
         };
         this.setCache(cacheKey, result);
         return result;
@@ -271,11 +301,12 @@ export class BirdeyeService {
       if (!d) return null;
 
       const result: TokenSecurity = {
-        top10HolderPercent: sanitizeFinite(d.top10HolderPercent),
-        freezeable: d.freezeable === "true" || d.freezeable === true,
+        top10HolderPercent: normalizeFractionalPercent(readFinite(d, "top10HolderPercent", "top10UserPercent")),
+        freezeable: readBoolean(d, "freezeable"),
         mintAuthority: d.mintAuthority !== null && d.mintAuthority !== "",
-        transferFeeEnable: d.transferFeeEnable === "true" || d.transferFeeEnable === true,
-        mutableMetadata: d.mutableMetadata === "true" || d.mutableMetadata === true,
+        transferFeeEnable: readBoolean(d, "transferFeeEnable"),
+        mutableMetadata: readBoolean(d, "mutableMetadata"),
+        totalSupply: readFinite(d, "totalSupply"),
       };
       this.setCache(cacheKey, result);
       return result;
@@ -306,7 +337,8 @@ export class BirdeyeService {
       const items = (res?.data?.items ?? []) as Record<string, unknown>[];
       const holders = items.map((holder) => ({
         address: String(holder.owner ?? ""),
-        percent: sanitizeFinite(holder.uiAmountPercent),
+        percent: normalizeFractionalPercent(readFinite(holder, "uiAmountPercent", "ui_amount_percent")),
+        balanceUi: readFinite(holder, "uiAmount", "ui_amount"),
       }));
       this.setCache(cacheKey, holders);
       return holders;
@@ -337,12 +369,12 @@ export class BirdeyeService {
       if (!d) return null;
 
       const result: TradeData = {
-        volume5m: sanitizeFinite(d.volume5mUSD),
-        volumeHistory5m: sanitizeFinite(d.volumeHistory5mUSD),
-        volumeBuy5m: sanitizeFinite(d.volumeBuy5mUSD),
-        trade5m: sanitizeFinite(d.trade5m),
-        buy5m: sanitizeFinite(d.buy5m),
-        uniqueWallet5m: sanitizeFinite(d.uniqueWallet5m),
+        volume5m: readFinite(d, "volume_5m_usd", "volume5mUSD", "v5mUSD"),
+        volumeHistory5m: readFinite(d, "volume_history_5m_usd", "volumeHistory5mUSD", "vHistory5mUSD"),
+        volumeBuy5m: readFinite(d, "volume_buy_5m_usd", "volumeBuy5mUSD", "vBuy5mUSD"),
+        trade5m: readFinite(d, "trade_5m", "trade5m"),
+        buy5m: readFinite(d, "buy_5m", "buy5m"),
+        uniqueWallet5m: readFinite(d, "unique_wallet_5m", "uniqueWallet5m"),
       };
       this.setCache(cacheKey, result);
       return result;

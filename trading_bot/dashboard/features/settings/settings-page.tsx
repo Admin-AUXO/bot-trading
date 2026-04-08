@@ -426,7 +426,14 @@ export default function SettingsPage() {
                 return (
                   <div key={key} className={`card card-hover border-l-2 ${STRATEGY_BORDER[key] ?? ""}`}>
                     <div className={`font-bold text-base mb-3 ${STRATEGY_COLORS[key] ?? ""}`}>
-                      {STRATEGY_LABELS[key] ?? key}
+                      <div className="flex items-center justify-between gap-2">
+                        <span>{STRATEGY_LABELS[key] ?? key}</span>
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                          cfg.enabled ? "bg-accent-green/15 text-accent-green" : "bg-accent-yellow/15 text-accent-yellow"
+                        }`}>
+                          {cfg.enabled ? "Enabled" : "Disabled"}
+                        </span>
+                      </div>
                     </div>
 
                     {/* Position slot usage */}

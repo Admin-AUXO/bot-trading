@@ -37,6 +37,7 @@ Source file: `trading_bot/backend/src/strategies/copy-trade.ts`
 
 ## Important Safety Notes
 
+- if `S1` is disabled in runtime config, it does not open the Helius subscription path or run daily wallet scoring
 - `RISK_OFF` blocks new copy entries
 - duplicate signatures and already-held tokens are skipped
 - startup and elite-wallet refresh now prime a per-wallet signature waterline so S1 does not replay pre-existing history on reconnect

@@ -429,6 +429,7 @@ export interface HeartbeatResponse {
 export interface StrategyConfigResponse {
   scope: ExecutionScope;
   strategies: Record<string, {
+    enabled: boolean;
     maxPositions: number;
     configuredPositionSize: number;
     effectivePositionSize: number;

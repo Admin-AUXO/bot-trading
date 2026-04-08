@@ -103,6 +103,7 @@ export function controlRouter(deps: {
       scope,
       strategies: {
         S1_COPY: {
+          enabled: configs.S1_COPY.enabled,
           maxPositions: configs.S1_COPY.maxPositions,
           configuredPositionSize: configs.S1_COPY.positionSizeSol,
           effectivePositionSize: riskManager.getPositionSize("S1_COPY"),
@@ -114,6 +115,7 @@ export function controlRouter(deps: {
           exitPlan: getExitPlan("S1_COPY", configs),
         },
         S2_GRADUATION: {
+          enabled: configs.S2_GRADUATION.enabled,
           maxPositions: configs.S2_GRADUATION.maxPositions,
           configuredPositionSize: configs.S2_GRADUATION.positionSizeSol,
           effectivePositionSize: riskManager.getPositionSize("S2_GRADUATION"),
@@ -127,6 +129,7 @@ export function controlRouter(deps: {
           exitPlan: getExitPlan("S2_GRADUATION", configs),
         },
         S3_MOMENTUM: {
+          enabled: configs.S3_MOMENTUM.enabled,
           maxPositions: configs.S3_MOMENTUM.maxPositions,
           configuredPositionSize: configs.S3_MOMENTUM.positionSizeSol,
           effectivePositionSize: riskManager.getPositionSize("S3_MOMENTUM"),

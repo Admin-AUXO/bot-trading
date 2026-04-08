@@ -6,6 +6,7 @@ Source file: `trading_bot/backend/src/strategies/momentum.ts`
 
 - interval scans of router-backed Jupiter momentum feeds
 - DEX Screener prefilter before any paid Birdeye final-score call
+- router-side seed market-cap sanity drops obvious large-cap mismatches before paid scoring
 
 This is the only strategy with staged position growth built into the entry logic.
 
@@ -13,12 +14,13 @@ This is the only strategy with staged position growth built into the entry logic
 
 1. Pull momentum seeds through `MarketRouter.getMomentumSeeds()`.
 2. Run DEX Screener batch prefilter and drop tokens with no cheap-side market confirmation.
-3. Reject on regime, quota, duplicate exposure, or risk-manager blockers.
-4. Run final Birdeye overview, trade-data, security, and holder checks.
-5. Buy tranche 1 only.
-6. Wait for the configured delay.
-7. Re-check follow-through before tranche 2.
-8. Only then allow size increase through `riskManager.canIncreasePosition`.
+3. Drop obvious large-cap router seeds before paid Birdeye scoring when the seed market cap is already far above the configured S3 ceiling.
+4. Reject on regime, quota, duplicate exposure, or risk-manager blockers.
+5. Run final Birdeye overview, trade-data, security, and holder checks.
+6. Buy tranche 1 only.
+7. Wait for the configured delay.
+8. Re-check follow-through before tranche 2.
+9. Only then allow size increase through `riskManager.canIncreasePosition`.
 
 ## Main Filters
 
@@ -48,6 +50,7 @@ This is the only strategy with staged position growth built into the entry logic
 - `CRITICAL` capital level still allows only S3 in `RiskManager`, so this strategy carries special capital-state importance
 - tranche 2 is not a blind DCA path; it is a gated follow-through add
 - S3 hard-requires trade data for entry; quota starvation usually suppresses signals instead of weakening filters
+- incomplete Birdeye trade payloads fail closed as `incomplete trade data`; missing recent-history fields are not reinterpreted as `0x` momentum
 - paid tranche-1 Birdeye scoring now short-circuits when `S3` has no remaining entry slots, and concurrent candidate evaluations are capped to the remaining slot count
 - tranche 2 uses `canIncreasePosition()`, so it obeys balance and safety checks but is not the same path as opening a brand-new slot
 - signal `source` now reflects the routed seed feed (`JUPITER_TOP_TRENDING` or `JUPITER_TOP_TRADED`) instead of pretending everything came from Birdeye `v3/token/list`

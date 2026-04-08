@@ -64,11 +64,13 @@ export interface TokenSecurity {
   mintAuthority: boolean;
   transferFeeEnable: boolean;
   mutableMetadata: boolean;
+  totalSupply?: number;
 }
 
 export interface TokenHolder {
   address: string;
   percent: number;
+  balanceUi?: number;
 }
 
 export interface TradeData {
@@ -287,6 +289,7 @@ export interface RegimeState {
 }
 
 export interface StrategyOverrides {
+  enabled?: boolean;
   positionSizeSol?: number;
   stopLossPercent?: number;
   tp1Percent?: number;

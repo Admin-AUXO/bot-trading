@@ -138,6 +138,7 @@ export class GraduationStrategy extends EventEmitter {
       const limit = pLimit(this.cfg.fallbackScanConcurrency);
       const shortlisted = available
         .filter((seed) => prefilter.get(seed.address)?.passed)
+        .filter((seed) => seed.marketCap <= 0 || seed.marketCap <= this.cfg.maxMarketCap * 2)
         .slice(0, this.cfg.memeListLimit);
 
       await Promise.allSettled(
@@ -410,11 +411,41 @@ export class GraduationStrategy extends EventEmitter {
       };
     }
 
-    const [security, holders, overview, tradeData, sigs, creatorSigs] = await Promise.all([
-      this.birdeye.getTokenSecurity(token.address, this.apiMeta("ENTRY_SCAN")),
-      this.birdeye.getTokenHolders(token.address, 1, this.apiMeta("ENTRY_SCAN", false, 1)),
+    const [overview, tradeData] = await Promise.all([
       this.birdeye.getTokenOverview(token.address, this.apiMeta("ENTRY_SCAN")),
       this.birdeye.getTradeData(token.address, this.apiMeta("ENTRY_SCAN")),
+    ]);
+
+    if (!overview) return { passed: false, tokenAddress: token.address, tokenSymbol: token.symbol, rejectReason: "no overview", filterResults: filters };
+
+    const tradeDataCheck = runTradeDataChecks(tradeData, {
+      minUniqueBuyers5m: this.cfg.minUniqueBuyers5m,
+      minBuySellRatio: this.cfg.minBuySellRatio,
+      requireTradeData: this.scope.mode === "LIVE" && this.cfg.requireTradeDataInLive,
+    });
+    Object.assign(filters, tradeDataCheck.filterResults);
+    if (!tradeDataCheck.pass) {
+      return { passed: false, tokenAddress: token.address, tokenSymbol: token.symbol, rejectReason: tradeDataCheck.reason, filterResults: filters };
+    }
+
+    const holderCountCheck = runHolderCountCheck(overview, {
+      minHolderCount: this.cfg.minUniqueHolders,
+    });
+    Object.assign(filters, holderCountCheck.filterResults);
+    if (!holderCountCheck.pass) {
+      return { passed: false, tokenAddress: token.address, tokenSymbol: token.symbol, rejectReason: holderCountCheck.reason, filterResults: filters };
+    }
+
+    const liqCapCheck = runLiquidityMarketCapChecks(overview.liquidity, overview.marketCap, {
+      minLiquidity: this.cfg.minLiquidity,
+      maxMarketCap: this.cfg.maxMarketCap,
+    });
+    Object.assign(filters, liqCapCheck.filterResults);
+    if (!liqCapCheck.pass) {
+      return { passed: false, tokenAddress: token.address, tokenSymbol: token.symbol, rejectReason: liqCapCheck.reason, filterResults: filters };
+    }
+
+    const [sigs, creatorSigs] = await Promise.all([
       this.helius.getSignaturesForAddress(
         token.address,
         this.cfg.tokenSignatureLimit,
@@ -426,15 +457,6 @@ export class GraduationStrategy extends EventEmitter {
         this.apiMeta("ENTRY_SCAN", false, this.cfg.creatorSignatureLimit),
       ),
     ]);
-
-    const securityCheck = runSecurityChecks(security, holders, {
-      maxTop10HolderPercent: this.cfg.maxTop10HolderPercent,
-      maxSingleHolderPercent: this.cfg.maxSingleHolderPercent,
-    });
-    Object.assign(filters, securityCheck.filterResults);
-    if (!securityCheck.pass) {
-      return { passed: false, tokenAddress: token.address, tokenSymbol: token.symbol, rejectReason: securityCheck.reason, filterResults: filters };
-    }
 
     const recentTokenTxs = sigs.filter((s: unknown) => {
       const sig = s as Record<string, unknown>;
@@ -457,33 +479,18 @@ export class GraduationStrategy extends EventEmitter {
       return { passed: false, tokenAddress: token.address, tokenSymbol: token.symbol, rejectReason: "serial deployer", filterResults: filters };
     }
 
-    const tradeDataCheck = runTradeDataChecks(tradeData, {
-      minUniqueBuyers5m: this.cfg.minUniqueBuyers5m,
-      minBuySellRatio: this.cfg.minBuySellRatio,
-      requireTradeData: this.scope.mode === "LIVE" && this.cfg.requireTradeDataInLive,
-    });
-    Object.assign(filters, tradeDataCheck.filterResults);
-    if (!tradeDataCheck.pass) {
-      return { passed: false, tokenAddress: token.address, tokenSymbol: token.symbol, rejectReason: tradeDataCheck.reason, filterResults: filters };
-    }
+    const [security, holders] = await Promise.all([
+      this.birdeye.getTokenSecurity(token.address, this.apiMeta("ENTRY_SCAN")),
+      this.birdeye.getTokenHolders(token.address, 1, this.apiMeta("ENTRY_SCAN", false, 1)),
+    ]);
 
-    if (!overview) return { passed: false, tokenAddress: token.address, tokenSymbol: token.symbol, rejectReason: "no overview", filterResults: filters };
-
-    const holderCountCheck = runHolderCountCheck(overview, {
-      minHolderCount: this.cfg.minUniqueHolders,
+    const securityCheck = runSecurityChecks(security, holders, {
+      maxTop10HolderPercent: this.cfg.maxTop10HolderPercent,
+      maxSingleHolderPercent: this.cfg.maxSingleHolderPercent,
     });
-    Object.assign(filters, holderCountCheck.filterResults);
-    if (!holderCountCheck.pass) {
-      return { passed: false, tokenAddress: token.address, tokenSymbol: token.symbol, rejectReason: holderCountCheck.reason, filterResults: filters };
-    }
-
-    const liqCapCheck = runLiquidityMarketCapChecks(overview.liquidity, overview.marketCap, {
-      minLiquidity: this.cfg.minLiquidity,
-      maxMarketCap: this.cfg.maxMarketCap,
-    });
-    Object.assign(filters, liqCapCheck.filterResults);
-    if (!liqCapCheck.pass) {
-      return { passed: false, tokenAddress: token.address, tokenSymbol: token.symbol, rejectReason: liqCapCheck.reason, filterResults: filters };
+    Object.assign(filters, securityCheck.filterResults);
+    if (!securityCheck.pass) {
+      return { passed: false, tokenAddress: token.address, tokenSymbol: token.symbol, rejectReason: securityCheck.reason, filterResults: filters };
     }
 
     return { passed: true, tokenAddress: token.address, tokenSymbol: token.symbol, filterResults: filters };

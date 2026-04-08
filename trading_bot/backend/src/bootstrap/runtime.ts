@@ -106,10 +106,17 @@ export async function startTradingBot(): Promise<void> {
   };
   await reconcileWalletBalance();
 
+  const isStrategyEnabled = (strategy: keyof typeof runtimeState.strategyConfigs) => runtimeState.strategyConfigs[strategy].enabled;
+
   const startStrategies = async (): Promise<void> => {
-    await s1.start();
-    await s2.start();
-    await s3.start();
+    if (isStrategyEnabled("S1_COPY")) await s1.start();
+    else log.info("S1 disabled — skipping copy-trade startup");
+
+    if (isStrategyEnabled("S2_GRADUATION")) await s2.start();
+    else log.info("S2 disabled — skipping graduation startup");
+
+    if (isStrategyEnabled("S3_MOMENTUM")) await s3.start();
+    else log.info("S3 disabled — skipping momentum startup");
   };
 
   const stopStrategies = (): void => {
@@ -192,6 +199,7 @@ export async function startTradingBot(): Promise<void> {
     riskManager,
     apiBudgetManager,
     s1,
+    isS1Enabled: () => isStrategyEnabled("S1_COPY"),
     walletReconciler: canReadWallet ? reconcileWalletBalance : undefined,
   });
 
@@ -201,7 +209,13 @@ export async function startTradingBot(): Promise<void> {
   if (!isLive) {
     log.info("DRY-RUN MODE — no real transactions will be submitted");
   }
-  log.info({ mode: config.tradeMode, profile: runtimeState.scope.configProfile }, "trading bot running — all strategies active");
+  log.info({
+    mode: config.tradeMode,
+    profile: runtimeState.scope.configProfile,
+    enabledStrategies: Object.entries(runtimeState.strategyConfigs)
+      .filter(([, strategyConfig]) => strategyConfig.enabled)
+      .map(([strategy]) => strategy),
+  }, "trading bot running");
 
   const shutdown = async () => {
     log.info("shutting down...");

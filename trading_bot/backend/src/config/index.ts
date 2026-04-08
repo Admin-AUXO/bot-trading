@@ -134,6 +134,7 @@ export const config = {
   strategies: {
     s1: {
       name: "S1_COPY" as const,
+      enabled: false,
       maxPositions: 2,
       positionSizeSol: 0.2,
       stopLossPercent: 20,
@@ -163,6 +164,7 @@ export const config = {
     },
     s2: {
       name: "S2_GRADUATION" as const,
+      enabled: true,
       maxPositions: 2,
       positionSizeSol: 0.2,
       stopLossPercent: 25,
@@ -199,6 +201,7 @@ export const config = {
     },
     s3: {
       name: "S3_MOMENTUM" as const,
+      enabled: true,
       maxPositions: 3,
       positionSizeSol: 0.1,
       tranche1Percent: 60,

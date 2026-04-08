@@ -125,3 +125,64 @@ test("BirdeyeService.getTopTraders reads trader rows from data.items", async () 
     globalThis.fetch = originalFetch;
   }
 });
+
+test("BirdeyeService normalizes current Birdeye overview and trade-data payloads", async () => {
+  const requests: string[] = [];
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async (url: string | URL | Request) => {
+    const requestUrl = String(url);
+    requests.push(requestUrl);
+
+    if (requestUrl.includes("/defi/token_overview")) {
+      return new Response(JSON.stringify({
+        data: {
+          address: "mint_1",
+          symbol: "TEST",
+          name: "Test",
+          price: 0.42,
+          liquidity: 90_000,
+          marketCap: 420_000,
+          holder: 320,
+          priceChange5mPercent: 12,
+          priceChange1hPercent: 18,
+          v5mUSD: 75_000,
+          v1hUSD: 210_000,
+          vBuy5mUSD: 48_000,
+          vSell5mUSD: 27_000,
+        },
+      }), { status: 200 });
+    }
+
+    return new Response(JSON.stringify({
+      data: {
+        volume_5m_usd: 81_000,
+        volume_history_5m_usd: 27_000,
+        volume_buy_5m_usd: 49_000,
+        trade_5m: 135,
+        buy_5m: 82,
+        unique_wallet_5m: 33,
+      },
+    }), { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    const service = new BirdeyeService(createBudgetManager() as never);
+    const overview = await service.getTokenOverview("mint_1");
+    const tradeData = await service.getTradeData("mint_1");
+
+    assert.equal(overview?.marketCap, 420_000);
+    assert.equal(overview?.volume5m, 75_000);
+    assert.equal(overview?.buyPercent, 64);
+    assert.equal(overview?.sellPercent, 36);
+
+    assert.equal(tradeData?.volume5m, 81_000);
+    assert.equal(tradeData?.volumeHistory5m, 27_000);
+    assert.equal(tradeData?.volumeBuy5m, 49_000);
+    assert.equal(tradeData?.trade5m, 135);
+    assert.equal(tradeData?.buy5m, 82);
+    assert.equal(tradeData?.uniqueWallet5m, 33);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

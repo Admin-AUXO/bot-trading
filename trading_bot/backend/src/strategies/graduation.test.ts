@@ -166,6 +166,81 @@ test("GraduationStrategy.runSeedScan uses recent seeds and DEX prefilter before 
   assert.deepEqual(processed, ["mint_1"]);
 });
 
+test("GraduationStrategy.runSeedScan drops obvious large-cap recent seeds before paid meme detail", async () => {
+  let memeDetailCalls = 0;
+  const processed: string[] = [];
+
+  const strategy = new (GraduationStrategy as any)(
+    {
+      getEntryCapacity: () => ({
+        allowed: true,
+        globalRemaining: 5,
+        strategyRemaining: 2,
+        remaining: 2,
+      }),
+    } as never,
+    {
+      holdsToken: () => false,
+    } as never,
+    {} as never,
+    {} as never,
+    {
+      getRegime: () => "NORMAL",
+    } as never,
+    {} as never,
+    {
+      getRecentSeeds: async () => ([
+        {
+          address: "mint_small",
+          symbol: "SMALL",
+          name: "Small",
+          source: "JUPITER_RECENT",
+          priceUsd: 0.11,
+          liquidityUsd: 25_000,
+          marketCap: 90_000,
+        },
+        {
+          address: "mint_large",
+          symbol: "LARGE",
+          name: "Large",
+          source: "JUPITER_RECENT",
+          priceUsd: 0.22,
+          liquidityUsd: 75_000,
+          marketCap: 600_000,
+        },
+      ]),
+      prefilterCandidates: async () => new Map([
+        ["mint_small", { address: "mint_small", passed: true, source: "DEX_SCREENER", pairCreatedAt: 1_700_000_000_000 }],
+        ["mint_large", { address: "mint_large", passed: true, source: "DEX_SCREENER", pairCreatedAt: 1_700_000_100_000 }],
+      ]),
+    } as never,
+    {
+      getMemeTokenDetail: async (address: string) => {
+        memeDetailCalls += 1;
+        return {
+          address,
+          symbol: address === "mint_small" ? "SMALL" : "LARGE",
+          name: address,
+          source: "pumpfun",
+          progressPercent: 80,
+          graduated: false,
+          realSolReserves: 10,
+          creator: `creator_${address}`,
+        };
+      },
+    } as never,
+  );
+
+  (strategy as any).processCandidate = async (token: { address: string }) => {
+    processed.push(token.address);
+  };
+
+  await (strategy as any).runSeedScan();
+
+  assert.equal(memeDetailCalls, 1);
+  assert.deepEqual(processed, ["mint_small"]);
+});
+
 test("GraduationStrategy.runCatchupScan skips Birdeye catch-up when S2 is already at capacity", async () => {
   let memeListCalls = 0;
 

@@ -11,6 +11,7 @@ import type { Strategy, CapitalLevel, BotStateSnapshot, CapitalConfig, Execution
 const log = createChildLogger("risk-manager");
 
 type StrategyRiskConfig = {
+  enabled: boolean;
   maxPositions: number;
   positionSizeSol: number;
 };
@@ -66,14 +67,17 @@ export class RiskManager extends EventEmitter {
       capitalConfig: options?.capitalConfig ?? config.capital,
       strategyConfigs: options?.strategyConfigs ?? {
         S1_COPY: {
+          enabled: config.strategies.s1.enabled,
           maxPositions: config.strategies.s1.maxPositions,
           positionSizeSol: config.strategies.s1.positionSizeSol,
         },
         S2_GRADUATION: {
+          enabled: config.strategies.s2.enabled,
           maxPositions: config.strategies.s2.maxPositions,
           positionSizeSol: config.strategies.s2.positionSizeSol,
         },
         S3_MOMENTUM: {
+          enabled: config.strategies.s3.enabled,
           maxPositions: config.strategies.s3.maxPositions,
           positionSizeSol: config.strategies.s3.positionSizeSol,
         },
@@ -226,6 +230,10 @@ export class RiskManager extends EventEmitter {
   }
 
   private checkStrategySafety(strategy: Strategy, requestedAmountSol?: number): { allowed: boolean; reason?: string } {
+    if (!this.runtimeState.strategyConfigs[strategy].enabled) {
+      return { allowed: false, reason: `${strategy} disabled` };
+    }
+
     const pauseReason = this.getPrimaryPauseReason();
     if (pauseReason) {
       return { allowed: false, reason: pauseReason };

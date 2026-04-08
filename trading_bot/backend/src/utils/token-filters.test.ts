@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { runFreshnessCheck, runHolderCountCheck, runTradeDataChecks } from "./token-filters.js";
+import { runFreshnessCheck, runHolderCountCheck, runSecurityChecks, runTradeDataChecks } from "./token-filters.js";
 
 test("runTradeDataChecks enforces unique-wallet threshold instead of raw buy count", () => {
   const result = runTradeDataChecks(
@@ -93,4 +93,28 @@ test("runFreshnessCheck rejects timestamps older than the configured limit", () 
   assert.equal(result.pass, false);
   assert.equal(result.reason, "source transaction age 40000s > 30s");
   assert.equal(result.filterResults.sourceTxAgeSec, 40000);
+});
+
+test("runSecurityChecks derives top-holder concentration from holder balance when the holder endpoint omits percent", () => {
+  const result = runSecurityChecks(
+    {
+      top10HolderPercent: 36.4,
+      freezeable: false,
+      mintAuthority: false,
+      transferFeeEnable: false,
+      mutableMetadata: false,
+      totalSupply: 67_540.50314606,
+    },
+    [
+      { address: "holder_1", percent: 0, balanceUi: 6_138.60904673 },
+    ],
+    {
+      maxTop10HolderPercent: 40,
+      maxSingleHolderPercent: 8,
+    },
+  );
+
+  assert.equal(result.pass, false);
+  assert.match(result.reason ?? "", /^top holder 9\./);
+  assert.equal(Math.round((result.filterResults.topHolderPercent as number) * 100) / 100, 9.09);
 });

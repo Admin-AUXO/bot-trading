@@ -311,11 +311,9 @@ export class MomentumStrategy extends EventEmitter {
       pairCreatedAt: candidate.pairCreatedAt ?? null,
     };
 
-    const [overview, tradeData, security, holders] = await Promise.all([
+    const [overview, tradeData] = await Promise.all([
       this.birdeye.getTokenOverview(candidate.address, this.apiMeta("ENTRY_SCAN")),
       this.birdeye.getTradeData(candidate.address, this.apiMeta("ENTRY_SCAN")),
-      this.birdeye.getTokenSecurity(candidate.address, this.apiMeta("ENTRY_SCAN")),
-      this.birdeye.getTokenHolders(candidate.address, 1, this.apiMeta("ENTRY_SCAN", false, 1)),
     ]);
 
     if (!overview) {
@@ -385,6 +383,20 @@ export class MomentumStrategy extends EventEmitter {
       };
     }
 
+    const hasCompleteTradeData = tradeData.volume5m > 0 && tradeData.volumeHistory5m > 0 && tradeData.trade5m > 0;
+    filters.tradeDataComplete = hasCompleteTradeData;
+    if (!hasCompleteTradeData) {
+      return {
+        passed: false,
+        tokenAddress: candidate.address,
+        tokenSymbol: candidate.symbol,
+        rejectReason: "incomplete trade data",
+        filterResults: filters,
+        overview,
+        tradeData,
+      };
+    }
+
     filters.volumeHistory5m = tradeData.volumeHistory5m;
     filters.uniqueWallet5m = tradeData.uniqueWallet5m;
     filters.buyPercent = tradeData.volume5m > 0 ? (tradeData.volumeBuy5m / tradeData.volume5m) * 100 : 0;
@@ -446,6 +458,11 @@ export class MomentumStrategy extends EventEmitter {
       };
     }
 
+    const [security, holders] = await Promise.all([
+      this.birdeye.getTokenSecurity(candidate.address, this.apiMeta("ENTRY_SCAN")),
+      this.birdeye.getTokenHolders(candidate.address, 1, this.apiMeta("ENTRY_SCAN", false, 1)),
+    ]);
+
     const securityCheck = runSecurityChecks(security, holders, {
       maxTop10HolderPercent: this.cfg.maxTop10HolderPercent,
       maxSingleHolderPercent: this.cfg.maxSingleHolderPercent,
@@ -475,6 +492,7 @@ export class MomentumStrategy extends EventEmitter {
 
   private buildCandidate(seed: SeedCandidate, prefilter: PrefilterResult | undefined): MomentumCandidate | null {
     if (!prefilter?.passed) return null;
+    if (seed.marketCap > 0 && seed.marketCap > this.cfg.maxMarketCap * 2) return null;
 
     return {
       address: seed.address,

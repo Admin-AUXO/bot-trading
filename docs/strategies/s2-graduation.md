@@ -7,6 +7,7 @@ Source file: `trading_bot/backend/src/strategies/graduation.ts`
 - interval scans over Jupiter `recent` seeds plus DEX Screener prefilter
 - plan-aware Birdeye `meme/list` catch-up to recover what cheap discovery misses
 - optional `new_listing` fallback only when `S2_ENABLE_NEW_LISTING_FALLBACK=true`
+- router-side seed market-cap sanity drops obvious large-cap mismatches before paid `meme/detail`
 
 This strategy does not buy immediately on first sight. It stages candidates, waits, then re-checks them.
 
@@ -14,12 +15,13 @@ This strategy does not buy immediately on first sight. It stages candidates, wai
 
 1. Pull `recent` seeds through `MarketRouter`.
 2. Run DEX Screener prefilter and only spend Birdeye `meme/detail` on shortlisted recent tokens.
-3. Use Birdeye `meme/list` catch-up on the plan-aware cadence to recover missed near-grad and fresh-grad tokens.
-4. Track pending graduation events and persist analytics records.
-5. After the configured delay, re-check the token.
-6. Run token-quality and anti-bot filters.
-7. Size from `RiskManager`.
-8. Execute buy and attach the opened position back to the graduation event.
+3. Drop obvious large-cap recent seeds before paid `meme/detail` when the cheap seed market cap is already far above the configured S2 ceiling.
+4. Use Birdeye `meme/list` catch-up on the plan-aware cadence to recover missed near-grad and fresh-grad tokens.
+5. Track pending graduation events and persist analytics records.
+6. After the configured delay, re-check the token.
+7. Run cheap liquidity, market-cap, holder-count, and live trade-data checks before Helius anti-bot history and Birdeye holder/security enrichment.
+8. Size from `RiskManager`.
+9. Execute buy and attach the opened position back to the graduation event.
 
 ## Main Filters
 
