@@ -1,14 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-
-process.env.DATABASE_URL ??= "postgresql://user:pass@localhost:5432/test";
-process.env.HELIUS_API_KEY ??= "test-helius";
-process.env.HELIUS_RPC_URL ??= "https://rpc.test";
-process.env.HELIUS_WS_URL ??= "wss://ws.test";
-process.env.BIRDEYE_API_KEY ??= "test-birdeye";
-process.env.SOLANA_PRIVATE_KEY ??= JSON.stringify(Array.from({ length: 64 }, (_, index) => index + 1));
-process.env.SOLANA_PUBLIC_KEY ??= "11111111111111111111111111111111";
-process.env.CONTROL_API_SECRET ??= "test-control-secret-123";
+import { stubFetch } from "../test/helpers.js";
 
 const { BirdeyeService } = await import("./birdeye.js");
 
@@ -23,9 +15,7 @@ function createBudgetManager() {
 
 test("BirdeyeService.getMemeTokenList uses the /defi/v3 meme list endpoint", async () => {
   const requests: string[] = [];
-  const originalFetch = globalThis.fetch;
-
-  globalThis.fetch = (async (url: string | URL | Request) => {
+  const restoreFetch = stubFetch(async (url: string | URL | Request) => {
     requests.push(String(url));
     return new Response(JSON.stringify({
       data: {
@@ -43,7 +33,7 @@ test("BirdeyeService.getMemeTokenList uses the /defi/v3 meme list endpoint", asy
         ],
       },
     }), { status: 200 });
-  }) as typeof fetch;
+  });
 
   try {
     const service = new BirdeyeService(createBudgetManager() as never);
@@ -52,20 +42,18 @@ test("BirdeyeService.getMemeTokenList uses the /defi/v3 meme list endpoint", asy
     assert.equal(result.length, 1);
     assert.match(requests[0] ?? "", /^https:\/\/public-api\.birdeye\.so\/defi\/v3\/token\/meme\/list\?/);
   } finally {
-    globalThis.fetch = originalFetch;
+    restoreFetch();
   }
 });
 
 test("BirdeyeService.getNewListings uses the /defi/v2 new listing endpoint", async () => {
   const requests: string[] = [];
-  const originalFetch = globalThis.fetch;
-
-  globalThis.fetch = (async (url: string | URL | Request) => {
+  const restoreFetch = stubFetch(async (url: string | URL | Request) => {
     requests.push(String(url));
     return new Response(JSON.stringify({
       data: [{ address: "mint_1" }],
     }), { status: 200 });
-  }) as typeof fetch;
+  });
 
   try {
     const service = new BirdeyeService(createBudgetManager() as never);
@@ -74,22 +62,20 @@ test("BirdeyeService.getNewListings uses the /defi/v2 new listing endpoint", asy
     assert.equal(result.length, 1);
     assert.equal(requests[0], "https://public-api.birdeye.so/defi/v2/tokens/new_listing?limit=20");
   } finally {
-    globalThis.fetch = originalFetch;
+    restoreFetch();
   }
 });
 
 test("BirdeyeService.getTokenTrending uses the default endpoint and reads data.tokens", async () => {
   const requests: string[] = [];
-  const originalFetch = globalThis.fetch;
-
-  globalThis.fetch = (async (url: string | URL | Request) => {
+  const restoreFetch = stubFetch(async (url: string | URL | Request) => {
     requests.push(String(url));
     return new Response(JSON.stringify({
       data: {
         tokens: [{ address: "mint_1" }, { address: "mint_2" }],
       },
     }), { status: 200 });
-  }) as typeof fetch;
+  });
 
   try {
     const service = new BirdeyeService(createBudgetManager() as never);
@@ -98,22 +84,20 @@ test("BirdeyeService.getTokenTrending uses the default endpoint and reads data.t
     assert.equal(result.length, 2);
     assert.equal(requests[0], "https://public-api.birdeye.so/defi/token_trending");
   } finally {
-    globalThis.fetch = originalFetch;
+    restoreFetch();
   }
 });
 
 test("BirdeyeService.getTopTraders reads trader rows from data.items", async () => {
   const requests: string[] = [];
-  const originalFetch = globalThis.fetch;
-
-  globalThis.fetch = (async (url: string | URL | Request) => {
+  const restoreFetch = stubFetch(async (url: string | URL | Request) => {
     requests.push(String(url));
     return new Response(JSON.stringify({
       data: {
         items: [{ owner: "wallet_1" }],
       },
     }), { status: 200 });
-  }) as typeof fetch;
+  });
 
   try {
     const service = new BirdeyeService(createBudgetManager() as never);
@@ -122,15 +106,13 @@ test("BirdeyeService.getTopTraders reads trader rows from data.items", async () 
     assert.equal(result.length, 1);
     assert.match(requests[0] ?? "", /^https:\/\/public-api\.birdeye\.so\/defi\/v2\/tokens\/top_traders\?/);
   } finally {
-    globalThis.fetch = originalFetch;
+    restoreFetch();
   }
 });
 
 test("BirdeyeService normalizes current Birdeye overview and trade-data payloads", async () => {
   const requests: string[] = [];
-  const originalFetch = globalThis.fetch;
-
-  globalThis.fetch = (async (url: string | URL | Request) => {
+  const restoreFetch = stubFetch(async (url: string | URL | Request) => {
     const requestUrl = String(url);
     requests.push(requestUrl);
 
@@ -164,7 +146,7 @@ test("BirdeyeService normalizes current Birdeye overview and trade-data payloads
         unique_wallet_5m: 33,
       },
     }), { status: 200 });
-  }) as typeof fetch;
+  });
 
   try {
     const service = new BirdeyeService(createBudgetManager() as never);
@@ -183,6 +165,6 @@ test("BirdeyeService normalizes current Birdeye overview and trade-data payloads
     assert.equal(tradeData?.buy5m, 82);
     assert.equal(tradeData?.uniqueWallet5m, 33);
   } finally {
-    globalThis.fetch = originalFetch;
+    restoreFetch();
   }
 });

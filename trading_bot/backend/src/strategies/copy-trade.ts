@@ -14,6 +14,7 @@ import type { BirdeyeService } from "../services/birdeye.js";
 import type { MarketRouter } from "../services/market-router.js";
 import type { ApiCallPurpose, ExecutionScope, SignalResult, JsonValue } from "../utils/types.js";
 import { runFreshnessCheck, runTradeDataChecks } from "../utils/token-filters.js";
+import { buildSignalTimingMetadata } from "../utils/timing-metadata.js";
 
 const log = createChildLogger("s1-copy");
 const DEFAULT_SCOPE: ExecutionScope = { mode: config.tradeMode, configProfile: "default" };
@@ -295,12 +296,23 @@ export class CopyTradeStrategy extends EventEmitter {
       return;
     }
 
+    const filterStartedAtMs = Date.now();
     const signal = await this.withEntryEvaluationSlot(
       "S1 signal",
       tokenAddress,
       () => this.runFilters(tokenAddress, detectedAt, sourceBlockTime),
     );
+    const filterCompletedAtMs = Date.now();
     if (!signal) return;
+
+    const signalCreatedAtMs = Date.now();
+    const signalTimingMetadata = buildSignalTimingMetadata({
+      detectedAtMs: detectedAt,
+      sourceBlockTimeMs: sourceBlockTime && sourceBlockTime > 0 ? sourceBlockTime * 1000 : null,
+      filterStartedAtMs,
+      filterCompletedAtMs,
+      signalCreatedAtMs,
+    });
 
     await db.signal.create({
       data: {
@@ -314,12 +326,14 @@ export class CopyTradeStrategy extends EventEmitter {
         passed: signal.passed,
         rejectReason: signal.rejectReason ?? null,
         filterResults: signal.filterResults,
+        metadata: signalTimingMetadata,
         regime: this.regimeDetector.getRegime(),
         tokenLiquidity: (signal.filterResults.liquidity as number) ?? null,
         tokenMcap: (signal.filterResults.marketCap as number) ?? null,
         tokenVolume5m: (signal.filterResults.volume5m as number) ?? null,
         buyPressure: (signal.filterResults.buyPercent as number) ?? null,
         priceAtSignal: (signal.filterResults.priceAtSignal as number) ?? null,
+        detectedAt: new Date(detectedAt),
       },
     });
 
@@ -351,6 +365,10 @@ export class CopyTradeStrategy extends EventEmitter {
       copyLeadMs: sourceBlockTime && sourceBlockTime > 0
         ? Math.max(0, Date.now() - sourceBlockTime * 1000)
         : Date.now() - detectedAt,
+      signalDetectedAtMs: detectedAt,
+      signalCreatedAtMs,
+      filterCompletedAtMs,
+      timingMetadata: signalTimingMetadata,
     });
 
     if (result.success) {

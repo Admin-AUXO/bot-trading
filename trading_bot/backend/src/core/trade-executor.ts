@@ -10,6 +10,7 @@ import type { HeliusService } from "../services/helius.js";
 import type { ExecutionScope, TradeResult } from "../utils/types.js";
 import { SOL_MINT } from "../utils/types.js";
 import type { BuyParams, ITradeExecutor, SellParams } from "../utils/trade-executor-interface.js";
+import { buildExecutionTimingMetadata } from "../utils/timing-metadata.js";
 
 const log = createChildLogger("trade-executor");
 
@@ -172,6 +173,15 @@ export class TradeExecutor implements ITradeExecutor {
         this.jupiter.getSolPriceUsd(),
       ]);
       const priceUsd = tokenPriceUsd ?? (solPriceUsd ? priceSol * solPriceUsd : null);
+      const tradeTimingMetadata = buildExecutionTimingMetadata({
+        signalDetectedAtMs: params.signalDetectedAtMs,
+        signalCreatedAtMs: params.signalCreatedAtMs,
+        filterCompletedAtMs: params.filterCompletedAtMs,
+        executionStartedAtMs: entryStart,
+        executionCompletedAtMs: Date.now(),
+        copyLeadMs: params.copyLeadMs,
+        extra: params.timingMetadata,
+      });
 
       let positionId = params.positionId;
       let persistedPosition = positionId
@@ -242,6 +252,7 @@ export class TradeExecutor implements ITradeExecutor {
               platform: params.platform,
               tradeSource: params.tradeSource ?? "AUTO",
               copyLeadMs: params.copyLeadMs ?? null,
+              metadata: tradeTimingMetadata,
             },
           });
         });
@@ -281,6 +292,7 @@ export class TradeExecutor implements ITradeExecutor {
   }
 
   async executeSell(params: SellParams): Promise<TradeResult> {
+    const executionStartedAtMs = Date.now();
     const position = this.positionTracker.getById(params.positionId);
     if (!position) return { success: false, error: "position not found" };
     const executionMeta = {
@@ -359,6 +371,13 @@ export class TradeExecutor implements ITradeExecutor {
       ? (priceUsd - resolvedEntryUsd) * fill.amountToken
       : pnlSol * (solPriceUsd ?? 0);
     const pnlPercent = ((priceSol - position.entryPriceSol) / position.entryPriceSol) * 100;
+    const tradeTimingMetadata = buildExecutionTimingMetadata({
+      exitDetectedAtMs: params.exitDetectedAtMs,
+      positionOpenedAtMs: params.positionOpenedAtMs ?? position.openedAt.getTime(),
+      executionStartedAtMs,
+      executionCompletedAtMs: Date.now(),
+      extra: params.timingMetadata,
+    });
 
     const remaining = Math.max(0, position.remainingToken - fill.amountToken);
     const tranche = params.trancheNumber as 1 | 2 | 3;
@@ -400,6 +419,7 @@ export class TradeExecutor implements ITradeExecutor {
             trancheNumber: params.trancheNumber,
             regime: this.riskManager.getSnapshot().regime,
             tradeSource: params.tradeSource ?? "AUTO",
+            metadata: tradeTimingMetadata,
           },
         });
 

@@ -314,6 +314,7 @@ export class ExitMonitor {
     exitReason: ExitReason,
     slippage: number,
   ): Promise<void> {
+    const exitDetectedAtMs = Date.now();
     const sellAmount = pos.remainingToken * sellFraction;
     const result = await this.tradeExecutor.executeSell({
       positionId: pos.id,
@@ -324,6 +325,9 @@ export class ExitMonitor {
       maxSlippageBps: slippage,
       exitReason,
       trancheNumber: tranche,
+      exitDetectedAtMs,
+      positionOpenedAtMs: pos.openedAt.getTime(),
+      timingMetadata: { monitorBatchIntervalMs: BATCH_INTERVAL_MS },
     });
 
     if (!result.success) {
@@ -332,6 +336,7 @@ export class ExitMonitor {
   }
 
   private async executeFullExit(pos: PositionState, exitReason: ExitReason, slippage: number): Promise<void> {
+    const exitDetectedAtMs = Date.now();
     const result = await this.tradeExecutor.executeSell({
       positionId: pos.id,
       tokenAddress: pos.tokenAddress,
@@ -341,6 +346,9 @@ export class ExitMonitor {
       maxSlippageBps: slippage,
       exitReason,
       trancheNumber: 3,
+      exitDetectedAtMs,
+      positionOpenedAtMs: pos.openedAt.getTime(),
+      timingMetadata: { monitorBatchIntervalMs: BATCH_INTERVAL_MS },
     });
 
     if (result.success) {

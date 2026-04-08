@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { db } from "../db/client.js";
+import { config } from "../config/index.js";
+import { captureCreateCalls, stubDateNow } from "../test/helpers.js";
 import { MomentumStrategy } from "./momentum.js";
 
 test("MomentumStrategy rejects tokens that violate the single-holder cap", async () => {
@@ -215,13 +217,7 @@ test("MomentumStrategy.runScan drops obvious large-cap seeds before paid scoring
 });
 
 test("MomentumStrategy.evaluateCandidate records router seed source instead of Birdeye token-list source", async () => {
-  const originalCreate = db.signal.create;
-  const writes: Array<Record<string, unknown>> = [];
-
-  db.signal.create = (async (args: Record<string, unknown>) => {
-    writes.push(args);
-    return {} as never;
-  }) as typeof db.signal.create;
+  const { calls: writes, restore: restoreCreate } = captureCreateCalls(db.signal);
 
   try {
     const strategy = new MomentumStrategy(
@@ -270,24 +266,82 @@ test("MomentumStrategy.evaluateCandidate records router seed source instead of B
     assert.equal(writes.length, 1);
     assert.equal((writes[0].data as Record<string, unknown>).source, "JUPITER_TOP_TRADED");
   } finally {
-    db.signal.create = originalCreate;
+    restoreCreate();
+  }
+});
+
+test("MomentumStrategy.evaluateCandidate records signal timing metadata", async () => {
+  const { calls: writes, restore: restoreCreate } = captureCreateCalls(db.signal);
+  const restoreDateNow = stubDateNow(1_700_000_020_000);
+
+  try {
+    const strategy = new MomentumStrategy(
+      {
+        getEntryCapacity: () => ({
+          allowed: true,
+          globalRemaining: 5,
+          strategyRemaining: 3,
+          remaining: 3,
+        }),
+        canOpenPosition: () => ({ allowed: true }),
+        getPositionSize: () => 0.1,
+      } as never,
+      {
+        holdsToken: () => false,
+      } as never,
+      {
+        executeBuy: async () => ({ success: false }),
+      } as never,
+      {} as never,
+      {
+        getRegime: () => "NORMAL",
+      } as never,
+      {} as never,
+      {} as never,
+    );
+
+    (strategy as any).runFilters = async () => ({
+      passed: false,
+      tokenAddress: "mint_timing",
+      tokenSymbol: "TIME",
+      rejectReason: "filtered",
+      filterResults: {
+        seedSource: "JUPITER_TOP_TRADED",
+      },
+      overview: null,
+      tradeData: null,
+    });
+
+    await (strategy as any).evaluateCandidate({
+      address: "mint_timing",
+      symbol: "TIME",
+      name: "Timing",
+      source: "JUPITER_TOP_TRADED",
+      seedPriceUsd: 0.01,
+      seedLiquidityUsd: 40_000,
+      seedMarketCap: 200_000,
+      prefilterPriceUsd: 0.011,
+      prefilterLiquidityUsd: 41_000,
+    });
+
+    assert.equal(writes.length, 1);
+    const data = writes[0].data as Record<string, unknown>;
+    assert.equal((data.detectedAt as Date).getTime(), 1_700_000_020_000);
+    assert.equal((data.metadata as Record<string, unknown>).cadenceMs, config.strategies.s3.scanIntervalMs);
+    assert.equal((data.metadata as Record<string, unknown>).detectionToSignalMs, 0);
+  } finally {
+    restoreCreate();
+    restoreDateNow();
   }
 });
 
 test("MomentumStrategy.evaluateCandidate limits paid evaluations to remaining slots", async () => {
-  const originalCreate = db.signal.create;
-  const writes: Array<Record<string, unknown>> = [];
+  const { calls: writes, restore: restoreCreate } = captureCreateCalls(db.signal);
   let runFiltersCalls = 0;
   let releaseRunFilters: (() => void) | undefined;
   const runFiltersBlock = new Promise<void>((resolve) => {
     releaseRunFilters = () => resolve();
   });
-
-  db.signal.create = (async (args: Record<string, unknown>) => {
-    writes.push(args);
-    return {} as never;
-  }) as typeof db.signal.create;
-
   try {
     const strategy = new MomentumStrategy(
       {
@@ -348,7 +402,7 @@ test("MomentumStrategy.evaluateCandidate limits paid evaluations to remaining sl
     assert.equal(writes.length, 1);
     assert.equal((writes[0].data as Record<string, unknown>).tokenAddress, "mint_1");
   } finally {
-    db.signal.create = originalCreate;
+    restoreCreate();
   }
 });
 
@@ -412,4 +466,52 @@ test("MomentumStrategy rejects incomplete trade data instead of mislabeling it a
   assert.equal(result.passed, false);
   assert.equal(result.rejectReason, "incomplete trade data");
   assert.equal(result.filterResults.tradeDataComplete, false);
+});
+
+test("MomentumStrategy rejects low-liquidity DEX prefilter candidates before paid scoring", async () => {
+  let birdeyeCalls = 0;
+
+  const strategy = new MomentumStrategy(
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {
+      getTokenOverview: async () => {
+        birdeyeCalls += 1;
+        return null;
+      },
+      getTradeData: async () => {
+        birdeyeCalls += 1;
+        return null;
+      },
+      getTokenSecurity: async () => {
+        birdeyeCalls += 1;
+        return null;
+      },
+      getTokenHolders: async () => {
+        birdeyeCalls += 1;
+        return [];
+      },
+    } as never,
+  );
+
+  const result = await (strategy as any).runFilters({
+    address: "mint_thin",
+    symbol: "THIN",
+    name: "Thin Token",
+    source: "JUPITER_TOP_TRENDING",
+    seedPriceUsd: 0.001,
+    seedLiquidityUsd: 10_000,
+    seedMarketCap: 150_000,
+    prefilterPriceUsd: 0.0011,
+    prefilterLiquidityUsd: 10_000,
+  });
+
+  assert.equal(result.passed, false);
+  assert.equal(result.rejectReason, "liquidity 10000 < 30000");
+  assert.equal(result.filterResults.prefilterLiquidityUsd, 10_000);
+  assert.equal(birdeyeCalls, 0);
 });

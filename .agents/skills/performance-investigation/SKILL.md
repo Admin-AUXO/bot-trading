@@ -16,6 +16,8 @@ Use this skill for latency, throughput, or resource problems.
 - Question duplicate polling when SSE or cache hydration already exists.
 - Prefer batching, caching, dedupe, and shared-service fixes before increasing scan frequency.
 - Use endpoint-level usage evidence before blaming “the network.”
+- In this repo, start provider-cost and latency investigations with `npm run audit:providers` and timing investigations with `npm run audit:timing` before proposing scan-frequency changes.
+- Distinguish config-only timing windows from persisted runtime timing. When DB history is unavailable, say so explicitly instead of pretending estimates are measurements.
 - If the bottleneck analysis changes runtime behavior or operator guidance, update the matching docs in the same pass.
 
 ## Preferred Tools

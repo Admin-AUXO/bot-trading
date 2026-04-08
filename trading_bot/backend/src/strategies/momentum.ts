@@ -21,6 +21,7 @@ import type {
   TokenOverview,
   TradeData,
 } from "../utils/types.js";
+import { buildSignalTimingMetadata } from "../utils/timing-metadata.js";
 
 const log = createChildLogger("s3-momentum");
 const DEFAULT_SCOPE: ExecutionScope = { mode: config.tradeMode, configProfile: "default" };
@@ -141,11 +142,14 @@ export class MomentumStrategy extends EventEmitter {
   private async evaluateCandidate(candidate: MomentumCandidate): Promise<void> {
     if (this.positionTracker.holdsToken(candidate.address, this.scope)) return;
 
+    const detectedAtMs = Date.now();
+    const filterStartedAtMs = Date.now();
     const signal = await this.withEntryEvaluationSlot(
       "S3 candidate evaluation",
       candidate.address,
       () => this.runFilters(candidate),
     );
+    const filterCompletedAtMs = Date.now();
     if (!signal) return;
 
     const overview = signal.overview;
@@ -157,6 +161,14 @@ export class MomentumStrategy extends EventEmitter {
     const signalBuyPressure = tradeData && tradeData.volume5m > 0
       ? (tradeData.volumeBuy5m / tradeData.volume5m) * 100
       : overview?.buyPercent ?? null;
+    const signalCreatedAtMs = Date.now();
+    const signalTimingMetadata = buildSignalTimingMetadata({
+      detectedAtMs,
+      filterStartedAtMs,
+      filterCompletedAtMs,
+      signalCreatedAtMs,
+      cadenceMs: this.cfg.scanIntervalMs,
+    });
 
     await db.signal.create({
       data: {
@@ -170,12 +182,14 @@ export class MomentumStrategy extends EventEmitter {
         passed: signal.passed,
         rejectReason: signal.rejectReason ?? null,
         filterResults: signal.filterResults,
+        metadata: signalTimingMetadata,
         regime: this.regimeDetector.getRegime(),
         tokenLiquidity: signalLiquidity,
         tokenMcap: signalMarketCap,
         tokenVolume5m: signalVolume5m,
         buyPressure: signalBuyPressure,
         priceAtSignal: signalPrice,
+        detectedAt: new Date(detectedAtMs),
       },
     });
 
@@ -202,6 +216,10 @@ export class MomentumStrategy extends EventEmitter {
       entryHolders: overview.holder,
       entryVolume1h: overview.volume1h,
       entryBuyPressure: signalBuyPressure ?? 0,
+      signalDetectedAtMs: detectedAtMs,
+      signalCreatedAtMs,
+      filterCompletedAtMs,
+      timingMetadata: signalTimingMetadata,
     });
 
     if (!result.success) return;
@@ -310,6 +328,18 @@ export class MomentumStrategy extends EventEmitter {
       pairAddress: candidate.pairAddress ?? null,
       pairCreatedAt: candidate.pairCreatedAt ?? null,
     };
+
+    if ((candidate.prefilterLiquidityUsd ?? 0) > 0 && (candidate.prefilterLiquidityUsd ?? 0) < this.cfg.minLiquidity) {
+      return {
+        passed: false,
+        tokenAddress: candidate.address,
+        tokenSymbol: candidate.symbol,
+        rejectReason: `liquidity ${candidate.prefilterLiquidityUsd} < ${this.cfg.minLiquidity}`,
+        filterResults: filters,
+        overview: null,
+        tradeData: null,
+      };
+    }
 
     const [overview, tradeData] = await Promise.all([
       this.birdeye.getTokenOverview(candidate.address, this.apiMeta("ENTRY_SCAN")),

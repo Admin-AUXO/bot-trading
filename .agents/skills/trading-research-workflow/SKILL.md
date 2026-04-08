@@ -13,6 +13,7 @@ Use this skill for current trading and provider research.
 - Distinguish provider facts from strategy recommendations.
 - Summarize impact on this repo's integrations.
 - Capture current plan quotas, endpoint credit/CU costs, and whether repo defaults or docs should be updated to match the provider’s current billing model.
+- Call out when a provider endpoint is dormant in this repo, duplicated by a cheaper path, or only worth probing behind an explicit full-audit mode.
 
 ## Preferred Tools
 - `fetch` for public docs and changelogs.

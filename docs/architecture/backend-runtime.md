@@ -32,6 +32,7 @@ The backend is assembled in one place. Start there before touching strategy, API
 
 - Runtime scope lives in `runtimeState.scope` and drives API/control truth.
 - `DRY_RUN` still writes trades, positions, signals, and analytics rows; it just uses the dry-run executor.
+- Signals should persist the first-seen time in `Signal.detectedAt`; entry and exit execution timing now rides in `Signal.metadata`, `Trade.metadata`, and `Position.entryLatencyMs`.
 - Strategy position sizes come from `RiskManager`, not directly from config constants.
 - S1 wallet scoring can bootstrap in the background when no elite wallets are cached; API startup must not wait on that remote scoring pass.
 - Wallet-backed capital snapshots are refreshed from Helius + SOL spot in any mode when a wallet address is configured. That wallet view is separate from the dry-run risk ledger, which still tracks simulated spend and P&L in memory.
@@ -52,6 +53,13 @@ The backend is assembled in one place. Start there before touching strategy, API
 - Outcome price backfills: router-backed price refresh, no longer tied to Birdeye `multi_price`
 - Exit fast path: router-backed price refresh every `5s`; Jupiter batch first, then throttled quote/Birdeye slow paths only when price data is missing
 - Would-have-won backfill: DB-only recompute pass, no provider quota gate
+
+## Timing Audit Notes
+
+- S2 intentionally waits `entryDelayMinutes` before it even considers a buy after graduation detection.
+- S3 can only discover a new candidate on its scan cadence, then schedules tranche 2 on its fixed follow-on delay.
+- Exit decisions are bounded by the `5s` exit monitor batch interval on the fast path.
+- S3 fade exits additionally require two weak reads and may wait on the Birdeye trade-data slow-path refresh interval when router prices are not enough.
 
 ## Jupiter Notes
 

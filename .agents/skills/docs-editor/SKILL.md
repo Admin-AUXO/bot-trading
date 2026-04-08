@@ -14,6 +14,7 @@ Use this skill for READMEs, AGENTS guides, runbooks, and developer notes.
 - Do not invent commands, routes, or startup behavior.
 - Keep setup and verification steps short and executable.
 - When auth boundaries, DB rollout, quota behavior, or filter contracts change, update every matching doc in the same pass.
+- When provider audits, timing telemetry, or signal/trade evidence paths change, update both the operator docs and any referenced skill docs in the same pass.
 - Prefer one canonical statement over repeating the same repo rule in five files.
 
 ## Preferred Tools

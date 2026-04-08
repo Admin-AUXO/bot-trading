@@ -23,6 +23,7 @@ Use this skill for metrics and performance interpretation.
 - Verify sign conventions, aggregate-row keys, and filter propagation before trusting reported expectancy or date-range slices.
 - Include provider-cost pressure when it changes what can be scanned or executed in production; quota-blind recommendations are incomplete.
 - Prefer endpoint-, purpose-, and scope-level evidence from `ApiUsageDaily` and `ApiEndpointDaily` when data spend or latency is part of the argument.
+- When timing is part of the argument, prefer persisted `Signal.detectedAt`, `Signal.metadata`, `Trade.metadata`, and `Position.entryLatencyMs` over reconstructed timestamps from logs.
 
 ## Preferred Inputs
 - Trade outcomes, daily stats, regime snapshots, and strategy comparisons.

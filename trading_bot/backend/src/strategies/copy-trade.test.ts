@@ -1,14 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-
-process.env.DATABASE_URL ??= "postgresql://user:pass@localhost:5432/test";
-process.env.HELIUS_API_KEY ??= "test-helius";
-process.env.HELIUS_RPC_URL ??= "https://rpc.test";
-process.env.HELIUS_WS_URL ??= "wss://ws.test";
-process.env.BIRDEYE_API_KEY ??= "test-birdeye";
-process.env.SOLANA_PRIVATE_KEY ??= JSON.stringify(Array.from({ length: 64 }, (_, index) => index + 1));
-process.env.SOLANA_PUBLIC_KEY ??= "11111111111111111111111111111111";
-process.env.CONTROL_API_SECRET ??= "test-control-secret-123";
+import { captureCreateCalls, stubDateNow } from "../test/helpers.js";
 
 const [{ db }, { CopyTradeStrategy }] = await Promise.all([
   import("../db/client.js"),
@@ -127,8 +119,7 @@ test("CopyTradeStrategy.runFilters rejects stale source transactions in LIVE bef
     },
   );
 
-  const originalDateNow = Date.now;
-  Date.now = () => 1_700_000_050_000;
+  const restoreDateNow = stubDateNow(1_700_000_050_000);
 
   try {
     const result = await (strategy as any).runFilters("mint_old", Date.now(), 1_700_000_000);
@@ -139,7 +130,7 @@ test("CopyTradeStrategy.runFilters rejects stale source transactions in LIVE bef
     assert.equal(birdeyeOverviewCalls, 0);
     assert.equal(result.filterResults.sourceTxAgeSec, 50);
   } finally {
-    Date.now = originalDateNow;
+    restoreDateNow();
   }
 });
 
@@ -178,6 +169,64 @@ test("CopyTradeStrategy.evaluateAndTrade skips paid scoring when S1 is already a
   await (strategy as any).evaluateAndTrade(tokenAddress, "wallet_1", Date.now(), null);
 
   assert.equal(runFiltersCalls, 0);
+});
+
+test("CopyTradeStrategy.evaluateAndTrade stores real detection timing on the signal", async () => {
+  const { calls: writes, restore: restoreCreate } = captureCreateCalls(db.signal);
+  const restoreDateNow = stubDateNow(1_700_000_005_000);
+
+  try {
+    const strategy = new (CopyTradeStrategy as any)(
+      {
+        getEntryCapacity: () => ({
+          allowed: true,
+          globalRemaining: 5,
+          strategyRemaining: 2,
+          remaining: 2,
+        }),
+        canOpenPosition: () => ({ allowed: true }),
+        getPositionSize: () => 0.2,
+      } as never,
+      {
+        holdsToken: () => false,
+      } as never,
+      {
+        executeBuy: async () => ({ success: false }),
+      } as never,
+      {} as never,
+      {
+        getRegime: () => "NORMAL",
+      } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    (strategy as any).runFilters = async () => ({
+      passed: false,
+        tokenAddress: "So11111111111111111111111111111111111111112",
+        tokenSymbol: "SIG",
+        rejectReason: "filtered",
+        filterResults: {
+          liquidity: 12_000,
+        marketCap: 120_000,
+        volume5m: 45_000,
+        buyPercent: 61,
+        priceAtSignal: 0.12,
+      },
+    });
+
+    await (strategy as any).evaluateAndTrade("So11111111111111111111111111111111111111112", "wallet_sig", 1_700_000_000_000, 1_700_000_000);
+
+    assert.equal(writes.length, 1);
+    const data = writes[0].data as Record<string, unknown>;
+    assert.equal((data.detectedAt as Date).getTime(), 1_700_000_000_000);
+    assert.equal((data.metadata as Record<string, unknown>).detectionToSignalMs, 5_000);
+    assert.equal((data.metadata as Record<string, unknown>).sourceLagMs, 0);
+  } finally {
+    restoreCreate();
+    restoreDateNow();
+  }
 });
 
 test("CopyTradeStrategy.processWalletActivity records router price instead of direct Birdeye multi-price", async () => {

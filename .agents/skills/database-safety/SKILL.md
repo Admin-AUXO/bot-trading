@@ -21,6 +21,8 @@ Use this skill for schema, SQL, or data-access work.
 - Never create standalone migration files in this repo. Keep schema changes in `trading_bot/backend/prisma/schema.prisma` and rollout SQL in `trading_bot/backend/prisma/views/create_views.sql`.
 - In this repo, remember that Prisma schema sync and SQL view rollout are separate steps; the canonical bootstrap is `npm run db:setup`, not `db:push` alone.
 - Preserve analytical fidelity in `ApiCall`, `ApiUsageDaily`, `ApiEndpointDaily`, and `BotState.pauseReasons`; budget, scope, and purpose dimensions should stay queryable after schema changes.
+- Prefer extending existing telemetry fields such as `Signal.metadata`, `Trade.metadata`, and `Position.entryLatencyMs` before proposing new timing tables.
+- `Signal.detectedAt` should represent first-seen time when timing analysis matters; do not silently treat insert time as detection time.
 - If the Prisma client surface changes, verify with `npm run db:generate` before trusting type errors or route breakage reports.
 - If schema, SQL-view shape, or DB-driven behavior changes, update the matching docs in the same pass.
 

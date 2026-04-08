@@ -161,7 +161,9 @@ export class ApiBudgetManager {
       }
 
       const projectedDaily = state.totalCredits + state.pendingCredits + requestedCredits;
-      const protectedReserve = Math.max(1, Math.ceil(state.dailyBudget * 0.15));
+      const protectedReserve = state.dailyBudget > 0
+        ? Math.max(1, Math.ceil(state.dailyBudget * config.apiBudgets.reservePct))
+        : 0;
       if (!normalizedMeta.essential && state.dailyBudget > 0 && projectedDaily > Math.max(0, state.dailyBudget - protectedReserve)) {
         throw new QuotaExceededError(`daily ${service} budget reserved for essential traffic`, service, requestedCredits);
       }

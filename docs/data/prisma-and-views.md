@@ -13,9 +13,9 @@ This repo treats the Prisma schema and SQL views as hand-maintained source, not 
 
 ### Immutable facts
 
-- `Trade`: executed buys and sells, fees, P&L, mode, profile, source
-- `Position`: open and closed position lifecycle
-- `Signal`: pass/reject decisions and filter evidence
+- `Trade`: executed buys and sells, fees, P&L, mode, profile, source, plus execution timing metadata
+- `Position`: open and closed position lifecycle, including persisted entry latency
+- `Signal`: pass/reject decisions, filter evidence, true detection timestamp, and timing metadata
 - `ApiCall`: provider usage telemetry with strategy, mode, profile, purpose, and cache metadata
 - `WalletActivity`: observed wallet trades for copy-trade research
 - `GraduationEvent`: observed graduation candidates and later outcomes
@@ -57,6 +57,8 @@ This repo treats the Prisma schema and SQL views as hand-maintained source, not 
 - If a view shape changes, drop and recreate it in `create_views.sql`. Do not rely on `CREATE OR REPLACE VIEW` to safely rename columns on existing Docker volumes.
 - `DailyStats.seriesKey` is stabilized in SQL so aggregate rows do not duplicate when strategy is `NULL`.
 - Historical analytics must derive from trades, positions, signals, or snapshots. Do not backfill dashboard analytics from mutable singleton runtime state.
+- `Signal.detectedAt` should represent when the opportunity was first seen, not when the row happened to be inserted.
+- `Signal.metadata` and `Trade.metadata` are the current low-risk place for provider-usage provenance and timing telemetry. Prefer extending those JSON blobs before reaching for new tables.
 - App code mainly queries Prisma models directly; the SQL views are convenience/reporting assets, not the primary read path in the audited code.
 
 ## When To Update This Doc

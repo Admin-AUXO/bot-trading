@@ -1,4 +1,4 @@
-import type { Strategy, MarketRegime, ExitReason, TradeResult, TradeSource } from "./types.js";
+import type { Strategy, MarketRegime, ExitReason, TradeResult, TradeSource, JsonValue } from "./types.js";
 
 export interface BuyParams {
   strategy: Strategy;
@@ -20,6 +20,10 @@ export interface BuyParams {
   tradeSource?: TradeSource;
   priceAtSignal?: number;
   copyLeadMs?: number;
+  signalDetectedAtMs?: number;
+  signalCreatedAtMs?: number;
+  filterCompletedAtMs?: number;
+  timingMetadata?: Record<string, JsonValue>;
 }
 
 export interface SellParams {
@@ -32,6 +36,9 @@ export interface SellParams {
   exitReason: ExitReason;
   trancheNumber: number;
   tradeSource?: TradeSource;
+  exitDetectedAtMs?: number;
+  positionOpenedAtMs?: number;
+  timingMetadata?: Record<string, JsonValue>;
 }
 
 export interface ITradeExecutor {

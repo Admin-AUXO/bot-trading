@@ -10,6 +10,7 @@ import type { JupiterService } from "../services/jupiter.js";
 import type { ExecutionScope, TradeResult } from "../utils/types.js";
 import { SOL_MINT } from "../utils/types.js";
 import type { BuyParams, ITradeExecutor, SellParams } from "../utils/trade-executor-interface.js";
+import { buildExecutionTimingMetadata } from "../utils/timing-metadata.js";
 
 const log = createChildLogger("dry-run");
 
@@ -38,6 +39,7 @@ export class DryRunExecutor implements ITradeExecutor {
   }
 
   async executeBuy(params: BuyParams): Promise<TradeResult> {
+    const entryStart = Date.now();
     const shouldTrackPending = !params.positionId;
     const tokenReservationKey = shouldTrackPending ? this.reserveTokenSlot(params.tokenAddress) : null;
     if (!params.positionId) {
@@ -87,6 +89,16 @@ export class DryRunExecutor implements ITradeExecutor {
       const priceSol = params.amountSol / amountToken;
       const priceUsd = tokenPriceUsd ?? (solPriceUsd ? priceSol * solPriceUsd : null);
       const txSig = this.fakeTxSig();
+      const entryLatencyMs = Date.now() - entryStart;
+      const tradeTimingMetadata = buildExecutionTimingMetadata({
+        signalDetectedAtMs: params.signalDetectedAtMs,
+        signalCreatedAtMs: params.signalCreatedAtMs,
+        filterCompletedAtMs: params.filterCompletedAtMs,
+        executionStartedAtMs: entryStart,
+        executionCompletedAtMs: Date.now(),
+        copyLeadMs: params.copyLeadMs,
+        extra: params.timingMetadata,
+      });
 
       let positionId = params.positionId;
       let persistedPosition = positionId
@@ -116,6 +128,7 @@ export class DryRunExecutor implements ITradeExecutor {
             entryVolume1h: params.entryVolume1h,
             entryBuyPressure: params.entryBuyPressure,
             entrySlippageBps: Math.round(quote.priceImpactPct * 100),
+            entryLatencyMs,
             tradeSource: params.tradeSource ?? "AUTO",
           }, tx);
           positionId = persistedPosition.id;
@@ -154,6 +167,8 @@ export class DryRunExecutor implements ITradeExecutor {
             walletAddress: params.walletSource,
             platform: params.platform,
             tradeSource: params.tradeSource ?? "AUTO",
+            copyLeadMs: params.copyLeadMs ?? null,
+            metadata: tradeTimingMetadata,
           },
         });
       });
@@ -188,6 +203,7 @@ export class DryRunExecutor implements ITradeExecutor {
   }
 
   async executeSell(params: SellParams): Promise<TradeResult> {
+    const executionStartedAtMs = Date.now();
     const position = this.positionTracker.getById(params.positionId);
     if (!position) return { success: false, error: "position not found" };
 
@@ -225,6 +241,13 @@ export class DryRunExecutor implements ITradeExecutor {
       ? (priceUsd - resolvedEntryUsd) * params.amountToken
       : pnlSol * (solPriceUsd ?? 0);
     const pnlPercent = ((priceSol - position.entryPriceSol) / position.entryPriceSol) * 100;
+    const tradeTimingMetadata = buildExecutionTimingMetadata({
+      exitDetectedAtMs: params.exitDetectedAtMs,
+      positionOpenedAtMs: params.positionOpenedAtMs ?? position.openedAt.getTime(),
+      executionStartedAtMs,
+      executionCompletedAtMs: Date.now(),
+      extra: params.timingMetadata,
+    });
 
     const remaining = Math.max(0, position.remainingToken - params.amountToken);
     const tranche = params.trancheNumber as 1 | 2 | 3;
@@ -265,6 +288,7 @@ export class DryRunExecutor implements ITradeExecutor {
           trancheNumber: params.trancheNumber,
           regime: position.regime,
           tradeSource: params.tradeSource ?? "AUTO",
+          metadata: tradeTimingMetadata,
         },
       });
 

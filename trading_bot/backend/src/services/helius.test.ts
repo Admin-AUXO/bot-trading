@@ -1,15 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-process.env.DATABASE_URL ??= "postgresql://user:pass@localhost:5432/test";
-process.env.HELIUS_API_KEY ??= "test-helius";
-process.env.HELIUS_RPC_URL ??= "https://rpc.test";
-process.env.HELIUS_WS_URL ??= "wss://ws.test";
-process.env.BIRDEYE_API_KEY ??= "test-birdeye";
-process.env.SOLANA_PRIVATE_KEY ??= JSON.stringify(Array.from({ length: 64 }, (_, index) => index + 1));
-process.env.SOLANA_PUBLIC_KEY ??= "11111111111111111111111111111111";
-process.env.CONTROL_API_SECRET ??= "test-control-secret-123";
-
 const { HeliusService } = await import("./helius.js");
 
 function createBudgetManager() {

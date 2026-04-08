@@ -19,11 +19,25 @@ import type { RegimeDetector } from "../core/regime-detector.js";
 import type { HeliusService } from "../services/helius.js";
 import type { BirdeyeService } from "../services/birdeye.js";
 import type { MarketRouter } from "../services/market-router.js";
-import type { ApiCallPurpose, ExecutionScope, SignalResult, MemeToken, JsonValue } from "../utils/types.js";
+import type {
+  ApiCallPurpose,
+  ExecutionScope,
+  SignalResult,
+  MemeToken,
+  JsonValue,
+  TokenOverview,
+  TradeData,
+} from "../utils/types.js";
+import { buildSignalTimingMetadata } from "../utils/timing-metadata.js";
 
 const log = createChildLogger("s2-graduation");
 const DEFAULT_SCOPE: ExecutionScope = { mode: config.tradeMode, configProfile: "default" };
 type S2RuntimeConfig = RuntimeState["strategyConfigs"]["S2_GRADUATION"];
+
+interface GraduationFilterResult extends SignalResult {
+  overview: TokenOverview | null;
+  tradeData: TradeData | null;
+}
 
 export class GraduationStrategy extends EventEmitter {
   private scanInterval?: ReturnType<typeof setInterval>;
@@ -137,7 +151,11 @@ export class GraduationStrategy extends EventEmitter {
       const prefilter = await this.marketRouter.prefilterCandidates(available.map((seed) => seed.address));
       const limit = pLimit(this.cfg.fallbackScanConcurrency);
       const shortlisted = available
-        .filter((seed) => prefilter.get(seed.address)?.passed)
+        .filter((seed) => {
+          const result = prefilter.get(seed.address);
+          if (!result?.passed) return false;
+          return (result.liquidityUsd ?? 0) <= 0 || (result.liquidityUsd ?? 0) >= this.cfg.minLiquidity;
+        })
         .filter((seed) => seed.marketCap <= 0 || seed.marketCap <= this.cfg.maxMarketCap * 2)
         .slice(0, this.cfg.memeListLimit);
 
@@ -295,6 +313,7 @@ export class GraduationStrategy extends EventEmitter {
   }
 
   private async onGraduated(token: MemeToken): Promise<void> {
+    const detectedAtMs = Date.now();
     await this.withEntryEvaluationSlot("S2 graduated candidate", token.address, async () => {
       const overview = await this.birdeye.getTokenOverview(token.address, this.apiMeta("ENTRY_SCAN"));
 
@@ -315,7 +334,7 @@ export class GraduationStrategy extends EventEmitter {
       const priceAtSignal = overview?.price ?? null;
       const delayMs = this.cfg.entryDelayMinutes * 60_000;
       const handle = setTimeout(() => {
-        this.runFilterAndTrade(token, priceAtSignal).catch((err) => {
+        this.runFilterAndTrade(token, priceAtSignal, detectedAtMs).catch((err) => {
           log.error({ err, token: token.address }, "entry after delay failed");
         });
       }, delayMs);
@@ -324,17 +343,41 @@ export class GraduationStrategy extends EventEmitter {
     });
   }
 
-  private async runFilterAndTrade(token: MemeToken, priceAtSignal: number | null): Promise<void> {
+  private async runFilterAndTrade(token: MemeToken, priceAtSignal: number | null, detectedAtMs: number): Promise<void> {
     this.pendingEntryDelays.delete(token.address);
 
     if (this.positionTracker.holdsToken(token.address, this.scope)) return;
 
+    const filterStartedAtMs = Date.now();
     const signal = await this.withEntryEvaluationSlot(
       "S2 delayed entry",
       token.address,
       () => this.runFilters(token),
     );
+    const filterCompletedAtMs = Date.now();
     if (!signal) return;
+
+    const prefilterLiquidity = typeof signal.filterResults.prefilterLiquidityUsd === "number"
+      ? signal.filterResults.prefilterLiquidityUsd
+      : null;
+    const prefilterPrice = typeof signal.filterResults.prefilterPriceUsd === "number"
+      ? signal.filterResults.prefilterPriceUsd
+      : null;
+    const signalLiquidity = signal.overview?.liquidity ?? prefilterLiquidity;
+    const signalMarketCap = signal.overview?.marketCap ?? null;
+    const signalVolume5m = signal.tradeData?.volume5m ?? signal.overview?.volume5m ?? null;
+    const signalBuyPressure = signal.tradeData && signal.tradeData.volume5m > 0
+      ? (signal.tradeData.volumeBuy5m / signal.tradeData.volume5m) * 100
+      : signal.overview?.buyPercent ?? null;
+    const signalPrice = signal.overview?.price ?? prefilterPrice ?? priceAtSignal;
+    const signalCreatedAtMs = Date.now();
+    const signalTimingMetadata = buildSignalTimingMetadata({
+      detectedAtMs,
+      filterStartedAtMs,
+      filterCompletedAtMs,
+      signalCreatedAtMs,
+      intentionalDelayMs: this.cfg.entryDelayMinutes * 60_000,
+    });
 
     await db.signal.create({
       data: {
@@ -348,12 +391,14 @@ export class GraduationStrategy extends EventEmitter {
         passed: signal.passed,
         rejectReason: signal.rejectReason ?? null,
         filterResults: signal.filterResults,
+        metadata: signalTimingMetadata,
         regime: this.regimeDetector.getRegime(),
-        tokenLiquidity: (signal.filterResults.liquidity as number) ?? null,
-        tokenMcap: (signal.filterResults.marketCap as number) ?? null,
-        tokenVolume5m: (signal.filterResults.volume5m as number) ?? null,
-        buyPressure: (signal.filterResults.buyPercent as number) ?? null,
-        priceAtSignal,
+        tokenLiquidity: signalLiquidity,
+        tokenMcap: signalMarketCap,
+        tokenVolume5m: signalVolume5m,
+        buyPressure: signalBuyPressure,
+        priceAtSignal: signalPrice,
+        detectedAt: new Date(detectedAtMs),
       },
     });
 
@@ -375,9 +420,15 @@ export class GraduationStrategy extends EventEmitter {
       maxSlippageBps: this.cfg.maxSlippageBps,
       regime: this.regimeDetector.getRegime(),
       platform: token.source,
-      entryVolume5m: (signal.filterResults.volume5m as number) ?? 0,
-      entryLiquidity: (signal.filterResults.liquidity as number) ?? undefined,
-      entryMcap: (signal.filterResults.marketCap as number) ?? undefined,
+      entryVolume5m: signal.tradeData?.volume5m ?? signal.overview?.volume5m ?? 0,
+      entryLiquidity: signal.overview?.liquidity ?? undefined,
+      entryMcap: signal.overview?.marketCap ?? undefined,
+      entryHolders: signal.overview?.holder ?? undefined,
+      entryBuyPressure: signalBuyPressure ?? undefined,
+      signalDetectedAtMs: detectedAtMs,
+      signalCreatedAtMs,
+      filterCompletedAtMs,
+      timingMetadata: signalTimingMetadata,
     });
 
     if (result.success) {
@@ -391,7 +442,7 @@ export class GraduationStrategy extends EventEmitter {
     }
   }
 
-  private async runFilters(token: MemeToken): Promise<SignalResult> {
+  private async runFilters(token: MemeToken): Promise<GraduationFilterResult> {
     const filters: Record<string, JsonValue> = { source: token.source };
     const nowSec = Date.now() / 1000;
     const graduationFreshnessCheck = runFreshnessCheck(token.graduatedTime ?? null, {
@@ -408,6 +459,39 @@ export class GraduationStrategy extends EventEmitter {
         tokenSymbol: token.symbol,
         rejectReason: graduationFreshnessCheck.reason,
         filterResults: filters,
+        overview: null,
+        tradeData: null,
+      };
+    }
+
+    const prefilter = await this.marketRouter.prefilterCandidates([token.address]);
+    const prefilterResult = prefilter.get(token.address);
+    filters.prefilterSource = prefilterResult?.source ?? "DEX_SCREENER";
+    filters.prefilterLiquidityUsd = prefilterResult?.liquidityUsd ?? null;
+    filters.prefilterPriceUsd = prefilterResult?.priceUsd ?? null;
+    filters.prefilterReason = prefilterResult?.reason ?? null;
+
+    if (!prefilterResult?.passed) {
+      return {
+        passed: false,
+        tokenAddress: token.address,
+        tokenSymbol: token.symbol,
+        rejectReason: prefilterResult?.reason ?? "no DEX Screener market data",
+        filterResults: filters,
+        overview: null,
+        tradeData: null,
+      };
+    }
+
+    if ((prefilterResult.liquidityUsd ?? 0) > 0 && (prefilterResult.liquidityUsd ?? 0) < this.cfg.minLiquidity) {
+      return {
+        passed: false,
+        tokenAddress: token.address,
+        tokenSymbol: token.symbol,
+        rejectReason: `liquidity ${prefilterResult.liquidityUsd} < ${this.cfg.minLiquidity}`,
+        filterResults: filters,
+        overview: null,
+        tradeData: null,
       };
     }
 
@@ -416,7 +500,24 @@ export class GraduationStrategy extends EventEmitter {
       this.birdeye.getTradeData(token.address, this.apiMeta("ENTRY_SCAN")),
     ]);
 
-    if (!overview) return { passed: false, tokenAddress: token.address, tokenSymbol: token.symbol, rejectReason: "no overview", filterResults: filters };
+    if (!overview) {
+      return {
+        passed: false,
+        tokenAddress: token.address,
+        tokenSymbol: token.symbol,
+        rejectReason: "no overview",
+        filterResults: filters,
+        overview: null,
+        tradeData,
+      };
+    }
+
+    if (tradeData) {
+      filters.volumeHistory5m = tradeData.volumeHistory5m;
+      filters.buyPercent = tradeData.volume5m > 0
+        ? (tradeData.volumeBuy5m / tradeData.volume5m) * 100
+        : overview.buyPercent;
+    }
 
     const tradeDataCheck = runTradeDataChecks(tradeData, {
       minUniqueBuyers5m: this.cfg.minUniqueBuyers5m,
@@ -425,7 +526,15 @@ export class GraduationStrategy extends EventEmitter {
     });
     Object.assign(filters, tradeDataCheck.filterResults);
     if (!tradeDataCheck.pass) {
-      return { passed: false, tokenAddress: token.address, tokenSymbol: token.symbol, rejectReason: tradeDataCheck.reason, filterResults: filters };
+      return {
+        passed: false,
+        tokenAddress: token.address,
+        tokenSymbol: token.symbol,
+        rejectReason: tradeDataCheck.reason,
+        filterResults: filters,
+        overview,
+        tradeData,
+      };
     }
 
     const holderCountCheck = runHolderCountCheck(overview, {
@@ -433,7 +542,15 @@ export class GraduationStrategy extends EventEmitter {
     });
     Object.assign(filters, holderCountCheck.filterResults);
     if (!holderCountCheck.pass) {
-      return { passed: false, tokenAddress: token.address, tokenSymbol: token.symbol, rejectReason: holderCountCheck.reason, filterResults: filters };
+      return {
+        passed: false,
+        tokenAddress: token.address,
+        tokenSymbol: token.symbol,
+        rejectReason: holderCountCheck.reason,
+        filterResults: filters,
+        overview,
+        tradeData,
+      };
     }
 
     const liqCapCheck = runLiquidityMarketCapChecks(overview.liquidity, overview.marketCap, {
@@ -442,7 +559,15 @@ export class GraduationStrategy extends EventEmitter {
     });
     Object.assign(filters, liqCapCheck.filterResults);
     if (!liqCapCheck.pass) {
-      return { passed: false, tokenAddress: token.address, tokenSymbol: token.symbol, rejectReason: liqCapCheck.reason, filterResults: filters };
+      return {
+        passed: false,
+        tokenAddress: token.address,
+        tokenSymbol: token.symbol,
+        rejectReason: liqCapCheck.reason,
+        filterResults: filters,
+        overview,
+        tradeData,
+      };
     }
 
     const [sigs, creatorSigs] = await Promise.all([
@@ -465,7 +590,15 @@ export class GraduationStrategy extends EventEmitter {
     });
     filters.txCount60s = recentTokenTxs.length;
     if (recentTokenTxs.length > this.cfg.maxBotTxs60s) {
-      return { passed: false, tokenAddress: token.address, tokenSymbol: token.symbol, rejectReason: "bot swarm detected", filterResults: filters };
+      return {
+        passed: false,
+        tokenAddress: token.address,
+        tokenSymbol: token.symbol,
+        rejectReason: "bot swarm detected",
+        filterResults: filters,
+        overview,
+        tradeData,
+      };
     }
 
     const recentCreatorTxs = creatorSigs.filter((s: unknown) => {
@@ -476,7 +609,15 @@ export class GraduationStrategy extends EventEmitter {
     filters.creatorTxsLookback = recentCreatorTxs.length;
 
     if (recentCreatorTxs.length > this.cfg.maxSerialDeploys7d) {
-      return { passed: false, tokenAddress: token.address, tokenSymbol: token.symbol, rejectReason: "serial deployer", filterResults: filters };
+      return {
+        passed: false,
+        tokenAddress: token.address,
+        tokenSymbol: token.symbol,
+        rejectReason: "serial deployer",
+        filterResults: filters,
+        overview,
+        tradeData,
+      };
     }
 
     const [security, holders] = await Promise.all([
@@ -490,10 +631,25 @@ export class GraduationStrategy extends EventEmitter {
     });
     Object.assign(filters, securityCheck.filterResults);
     if (!securityCheck.pass) {
-      return { passed: false, tokenAddress: token.address, tokenSymbol: token.symbol, rejectReason: securityCheck.reason, filterResults: filters };
+      return {
+        passed: false,
+        tokenAddress: token.address,
+        tokenSymbol: token.symbol,
+        rejectReason: securityCheck.reason,
+        filterResults: filters,
+        overview,
+        tradeData,
+      };
     }
 
-    return { passed: true, tokenAddress: token.address, tokenSymbol: token.symbol, filterResults: filters };
+    return {
+      passed: true,
+      tokenAddress: token.address,
+      tokenSymbol: token.symbol,
+      filterResults: filters,
+      overview,
+      tradeData,
+    };
   }
 
   private apiMeta(purpose: ApiCallPurpose, essential = false, batchSize?: number) {

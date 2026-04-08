@@ -1,13 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { stubFetch } from "../test/helpers.js";
 import { DexScreenerService } from "./dexscreener.js";
 import { MarketRouter } from "./market-router.js";
 
 test("DexScreenerService batches token lookups in groups of 30", async () => {
   const requests: string[] = [];
-  const originalFetch = globalThis.fetch;
-
-  globalThis.fetch = (async (url: string | URL | Request) => {
+  const restoreFetch = stubFetch(async (url: string | URL | Request) => {
     const href = String(url);
     requests.push(href);
     const addresses = href.split("/").pop()?.split(",") ?? [];
@@ -21,7 +20,7 @@ test("DexScreenerService batches token lookups in groups of 30", async () => {
         pairCreatedAt: 1_700_000_000_000 + index,
       })),
     ), { status: 200 });
-  }) as typeof fetch;
+  });
 
   try {
     const service = new DexScreenerService();
@@ -35,7 +34,7 @@ test("DexScreenerService batches token lookups in groups of 30", async () => {
     assert.equal(rows[0].tokenAddress, "mint_1");
     assert.equal(rows[30].pairAddress, "pair_mint_31");
   } finally {
-    globalThis.fetch = originalFetch;
+    restoreFetch();
   }
 });
 

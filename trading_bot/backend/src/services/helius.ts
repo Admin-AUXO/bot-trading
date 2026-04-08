@@ -268,8 +268,8 @@ export class HeliusService {
           try {
             const result = await this.helius.getTransactionsForAddress([address, sdkOpts]);
             const rows = Array.isArray(result)
-              ? result
-              : ((result as { data?: unknown[] } | null | undefined)?.data ?? []);
+              ? Array.from(result)
+              : Array.from((result as unknown as { data?: readonly unknown[] } | null | undefined)?.data ?? []);
             reservation.commit({
               endpoint: "getTransactionsForAddress",
               credits: config.apiBudgets.helius.credits.getTransactionsForAddress,

@@ -36,6 +36,7 @@ This strategy does not buy immediately on first sight. It stages candidates, wai
 - maximum bot-like transaction count in 60 seconds
 - maximum serial deploys by the creator over the lookback window
 - security checks from Birdeye
+- DEX Screener presence and liquidity still re-check the token before delayed paid entry enrichment, so dead pairs fail before Birdeye overview/trade/security spend
 
 ## Important Safety Notes
 
@@ -45,11 +46,13 @@ This strategy does not buy immediately on first sight. It stages candidates, wai
 - cheap discovery is allowed to miss progress changes; the Birdeye catch-up loop exists to close that gap without keeping paid scans on a `20s` cadence
 - when `S2` is already full, the catch-up loop, fallback loop, and delayed entry re-checks now stop spending Birdeye CU until capacity returns
 - concurrent paid `meme/detail`, overview, and entry-filter evaluations are capped to the remaining `S2` slot count instead of fanning out blindly
+- recent-seed DEX liquidity now gates paid `meme/detail`, so obviously thin pairs do not spend Birdeye detail credits
 - `S2_ENABLE_NEW_LISTING_FALLBACK` is now the explicit feature flag for the old Birdeye `new_listing` sweep, and it defaults off
 - `LIVE` now hard-rejects entries if the graduation timestamp is missing or older than the configured age cap at execution time
 - `LIVE` now hard-rejects entries when Birdeye trade data is missing
 - `DRY_RUN` still soft-fails missing trade data so analytics can keep observing candidates
 - once a position is open, the `5s` exit loop now uses router-backed prices instead of Birdeye `multi_price`
+- delayed-entry signals and opened positions now persist the holder count and buy-pressure fields already fetched during scoring instead of dropping that context on the floor
 
 ## Exit Shape
 

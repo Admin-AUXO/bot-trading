@@ -1,15 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-process.env.DATABASE_URL ??= "postgresql://postgres:postgres@localhost:5432/test";
-process.env.HELIUS_API_KEY ??= "helius-test-key";
-process.env.HELIUS_RPC_URL ??= "https://example-rpc.invalid";
-process.env.HELIUS_WS_URL ??= "wss://example-ws.invalid";
-process.env.BIRDEYE_API_KEY ??= "birdeye-test-key";
-process.env.SOLANA_PRIVATE_KEY ??= JSON.stringify(Array.from({ length: 64 }, (_, index) => index + 1));
-process.env.SOLANA_PUBLIC_KEY ??= "11111111111111111111111111111111";
-process.env.CONTROL_API_SECRET ??= "test-control-secret";
-
 const [{ TradeExecutor }, { config }, { defaultStrategyConfigs }] = await Promise.all([
   import("./trade-executor.js"),
   import("../config/index.js"),
@@ -98,11 +89,12 @@ test("executeBuy blocks duplicate token exposure before risk checks", async () =
 });
 
 test("executeBuy skips sender tip wiring when no sender endpoints are configured", async () => {
+  const mutableHeliusConfig = config.helius as { senderUrls: string[] };
   const originalSenderUrls = [...config.helius.senderUrls];
   let tipCalls = 0;
   let buildOptions: { priorityFee?: number; blockhash?: string; tipLamports?: number; tipAccount?: string | null } | null = null;
 
-  config.helius.senderUrls = [];
+  mutableHeliusConfig.senderUrls = [];
 
   try {
     const executor = new TradeExecutor(
@@ -165,16 +157,17 @@ test("executeBuy skips sender tip wiring when no sender endpoints are configured
       tipAccount: null,
     });
   } finally {
-    config.helius.senderUrls = originalSenderUrls;
+    mutableHeliusConfig.senderUrls = originalSenderUrls;
   }
 });
 
 test("executeBuy rotates sender tip accounts when sender endpoints are configured", async () => {
+  const mutableHeliusConfig = config.helius as { senderUrls: string[] };
   const originalSenderUrls = [...config.helius.senderUrls];
   let tipCalls = 0;
   let buildOptions: { priorityFee?: number; blockhash?: string; tipLamports?: number; tipAccount?: string | null } | null = null;
 
-  config.helius.senderUrls = ["http://lon-sender.helius-rpc.com/fast", "https://sender.helius-rpc.com/fast"];
+  mutableHeliusConfig.senderUrls = ["http://lon-sender.helius-rpc.com/fast", "https://sender.helius-rpc.com/fast"];
 
   try {
     const executor = new TradeExecutor(
@@ -237,6 +230,6 @@ test("executeBuy rotates sender tip accounts when sender endpoints are configure
       tipAccount: "rotatingTipAccount",
     });
   } finally {
-    config.helius.senderUrls = originalSenderUrls;
+    mutableHeliusConfig.senderUrls = originalSenderUrls;
   }
 });

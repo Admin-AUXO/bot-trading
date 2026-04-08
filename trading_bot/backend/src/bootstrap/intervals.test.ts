@@ -1,19 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { registerRuntimeIntervals } from "./intervals.js";
+import { captureIntervals } from "../test/helpers.js";
 
 test("registerRuntimeIntervals still runs would-have-won backfill when Birdeye non-essential work is blocked", async () => {
-  const originalSetInterval = globalThis.setInterval;
-  const callbacks: Array<() => unknown> = [];
-
-  globalThis.setInterval = (((
-    callback: (...args: any[]) => unknown,
-    _delay?: number,
-    ...args: any[]
-  ) => {
-    callbacks.push(() => callback(...args));
-    return callbacks.length as unknown as ReturnType<typeof setInterval>;
-  }) as unknown as typeof setInterval);
+  const { callbacks, restore } = captureIntervals();
 
   try {
     let wouldHaveWonCalled = false;
@@ -49,11 +40,12 @@ test("registerRuntimeIntervals still runs would-have-won backfill when Birdeye n
       s1: {
         runWalletScoring: async () => undefined,
       } as never,
+      isS1Enabled: () => true,
     });
 
     await callbacks.at(-1)?.();
     assert.equal(wouldHaveWonCalled, true);
   } finally {
-    globalThis.setInterval = originalSetInterval;
+    restore();
   }
 });

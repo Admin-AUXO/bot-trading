@@ -57,6 +57,7 @@ Jupiter and Jito are used by execution paths, but the current `ApiBudgetManager`
 - buy execution is treated as non-essential budget traffic; exit monitoring and sell execution stay essential
 - monthly reserve comes from the configured `20%` budget reserve
 - non-essential traffic is blocked before it consumes the protected daily reserve
+- daily reserve enforcement uses the same configured `reservePct`; do not add hidden per-service reserve constants that drift from config
 - `shouldRunNonEssential()` only returns true in `HEALTHY`, so soft-limit state already degrades work
 - paid entry evaluation now short-circuits when a strategy has no remaining global or per-strategy slots, and concurrent Birdeye entry evaluations are capped to the remaining slot count
 - Helius historical RPC methods are not cheap: `getSignaturesForAddress` and `getTransaction` must be accounted at `10` credits each
@@ -73,6 +74,27 @@ Jupiter and Jito are used by execution paths, but the current `ApiBudgetManager`
 - S3 discovery now seeds from Jupiter category feeds plus DEX Screener prefilter before any paid Birdeye final-score calls.
 - `wouldHaveWon` recompute is now a DB-only pass; do not tie it to Birdeye quota state.
 - Birdeye quota sync still matters for paid discovery and final scoring paths that remain on Birdeye.
+
+## Audit Commands
+
+From `trading_bot/backend/`:
+
+- `npm run audit:providers`
+  probes the active paid endpoints that still drive S1, S2, S3, execution, and quota sync
+- `npm run audit:providers -- --provider HELIUS`
+  limits the live probe to Helius surfaces
+- `npm run audit:providers -- --provider BIRDEYE --token <mint> --graduation-token <mint>`
+  lets the Birdeye audit run even when DB context is unavailable
+- `npm run audit:providers -- --full`
+  includes dormant or feature-flagged endpoints such as `new_listing`, `parseTransaction`, and `getAssetsByOwner`
+- `npm run audit:timing`
+  prints configured scan, delay, and exit cadences plus any persisted signal/trade timing history
+
+Rules:
+
+- the provider audit defaults to active endpoints only so the audit itself does not become avoidable paid spend
+- the script uses non-essential quota classification; if a provider is already protecting daily reserve, the live probe skips instead of forcing traffic
+- when Prisma history is unavailable, the script still runs live provider probes if enough CLI context is supplied and falls back to config-only timing windows
 
 ## Current Birdeye Fixed-Cadence Baseline
 
@@ -110,3 +132,4 @@ The S2 `20s` Birdeye meme-list loops, the S3 discovery loop, regime sample, mark
 - adding raw provider fetches outside shared services
 - forgetting to tag calls with strategy, mode, profile, or purpose
 - averaging already-aggregated percentage fields instead of weighting by underlying counts
+- auditing every dormant endpoint by default and then blaming quota for the audit bill

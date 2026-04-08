@@ -666,9 +666,9 @@ export class BirdeyeService {
   async getTokenTradeHistory(address: string, meta?: ApiRequestMeta): Promise<unknown[]> {
     try {
       const res = await this.requestWithBudget<{ data?: { items?: unknown[] } }>({
-        endpoint: "/v3/token/txs",
+        endpoint: "/defi/v3/token/txs",
         params: { address, limit: 100 },
-        estimatedCredits: ENDPOINT_COSTS["/v3/token/txs"],
+        estimatedCredits: ENDPOINT_COSTS["/defi/v3/token/txs"],
         meta: { ...meta, batchSize: 100 },
       });
       return res?.data?.items ?? [];

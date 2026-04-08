@@ -1,22 +1,29 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { db } from "../db/client.js";
 import { config } from "../config/index.js";
+import { captureCreateCalls, stubDateNow, stubProperty } from "../test/helpers.js";
 import { GraduationStrategy } from "./graduation.js";
 
 test("GraduationStrategy.start uses plan-aware catch-up cadence and skips new-listing fallback when disabled", async () => {
-  const originalSetInterval = global.setInterval;
-  const originalClearInterval = global.clearInterval;
   const intervals: number[] = [];
-
-  global.setInterval = (((
-    _fn: (...args: any[]) => void,
-    delay?: number,
-    ..._args: any[]
-  ) => {
-    intervals.push(Number(delay ?? 0));
-    return { delay } as never;
-  }) as unknown as typeof setInterval);
-  global.clearInterval = (((_handle?: ReturnType<typeof setInterval>) => undefined) as typeof clearInterval);
+  const restoreSetInterval = stubProperty(
+    globalThis,
+    "setInterval",
+    (((
+      _fn: (...args: any[]) => void,
+      delay?: number,
+      ..._args: any[]
+    ) => {
+      intervals.push(Number(delay ?? 0));
+      return { delay } as never;
+    }) as unknown as typeof setInterval),
+  );
+  const restoreClearInterval = stubProperty(
+    globalThis,
+    "clearInterval",
+    (((_handle?: ReturnType<typeof setInterval>) => undefined) as typeof clearInterval),
+  );
 
   try {
     const strategy = new (GraduationStrategy as any)(
@@ -47,8 +54,8 @@ test("GraduationStrategy.start uses plan-aware catch-up cadence and skips new-li
     assert.ok(intervals.includes(config.birdeye.s2CatchupIntervalMs));
     assert.ok(!intervals.includes(config.strategies.s2.fallbackScanIntervalMs));
   } finally {
-    global.setInterval = originalSetInterval;
-    global.clearInterval = originalClearInterval;
+    restoreClearInterval();
+    restoreSetInterval();
   }
 });
 
@@ -241,6 +248,81 @@ test("GraduationStrategy.runSeedScan drops obvious large-cap recent seeds before
   assert.deepEqual(processed, ["mint_small"]);
 });
 
+test("GraduationStrategy.runSeedScan drops low-liquidity recent seeds before paid meme detail", async () => {
+  let memeDetailCalls = 0;
+  const processed: string[] = [];
+
+  const strategy = new (GraduationStrategy as any)(
+    {
+      getEntryCapacity: () => ({
+        allowed: true,
+        globalRemaining: 5,
+        strategyRemaining: 2,
+        remaining: 2,
+      }),
+    } as never,
+    {
+      holdsToken: () => false,
+    } as never,
+    {} as never,
+    {} as never,
+    {
+      getRegime: () => "NORMAL",
+    } as never,
+    {} as never,
+    {
+      getRecentSeeds: async () => ([
+        {
+          address: "mint_thin",
+          symbol: "THIN",
+          name: "Thin",
+          source: "JUPITER_RECENT",
+          priceUsd: 0.11,
+          liquidityUsd: 4_000,
+          marketCap: 90_000,
+        },
+        {
+          address: "mint_ok",
+          symbol: "OK",
+          name: "Okay",
+          source: "JUPITER_RECENT",
+          priceUsd: 0.22,
+          liquidityUsd: 25_000,
+          marketCap: 110_000,
+        },
+      ]),
+      prefilterCandidates: async () => new Map([
+        ["mint_thin", { address: "mint_thin", passed: true, source: "DEX_SCREENER", liquidityUsd: 4_000 }],
+        ["mint_ok", { address: "mint_ok", passed: true, source: "DEX_SCREENER", liquidityUsd: 25_000 }],
+      ]),
+    } as never,
+    {
+      getMemeTokenDetail: async (address: string) => {
+        memeDetailCalls += 1;
+        return {
+          address,
+          symbol: address === "mint_ok" ? "OK" : "THIN",
+          name: address,
+          source: "pumpfun",
+          progressPercent: 80,
+          graduated: false,
+          realSolReserves: 10,
+          creator: `creator_${address}`,
+        };
+      },
+    } as never,
+  );
+
+  (strategy as any).processCandidate = async (token: { address: string }) => {
+    processed.push(token.address);
+  };
+
+  await (strategy as any).runSeedScan();
+
+  assert.equal(memeDetailCalls, 1);
+  assert.deepEqual(processed, ["mint_ok"]);
+});
+
 test("GraduationStrategy.runCatchupScan skips Birdeye catch-up when S2 is already at capacity", async () => {
   let memeListCalls = 0;
 
@@ -291,7 +373,11 @@ test("GraduationStrategy.runFilters rejects stale graduations in LIVE before pro
         return [];
       },
     } as never,
-    {} as never,
+    {
+      prefilterCandidates: async () => new Map([
+        ["mint_old", { address: "mint_old", passed: true, source: "DEX_SCREENER", liquidityUsd: 25_000 }],
+      ]),
+    } as never,
     {
       getTokenSecurity: async () => {
         birdeyeCalls += 1;
@@ -315,8 +401,7 @@ test("GraduationStrategy.runFilters rejects stale graduations in LIVE before pro
     },
   );
 
-  const originalDateNow = Date.now;
-  Date.now = () => 1_700_000_250_000;
+  const restoreDateNow = stubDateNow(1_700_000_250_000);
 
   try {
     const result = await (strategy as any).runFilters({
@@ -337,7 +422,7 @@ test("GraduationStrategy.runFilters rejects stale graduations in LIVE before pro
     assert.equal(birdeyeCalls, 0);
     assert.equal(heliusCalls, 0);
   } finally {
-    Date.now = originalDateNow;
+    restoreDateNow();
   }
 });
 
@@ -351,7 +436,11 @@ test("GraduationStrategy.runFilters rejects missing trade data in LIVE", async (
     {
       getSignaturesForAddress: async () => [],
     } as never,
-    {} as never,
+    {
+      prefilterCandidates: async () => new Map([
+        ["mint_live", { address: "mint_live", passed: true, source: "DEX_SCREENER", liquidityUsd: 25_000, priceUsd: 0.1 }],
+      ]),
+    } as never,
     {
       getTokenSecurity: async () => ({
         top10HolderPercent: 20,
@@ -383,8 +472,7 @@ test("GraduationStrategy.runFilters rejects missing trade data in LIVE", async (
     },
   );
 
-  const originalDateNow = Date.now;
-  Date.now = () => 1_700_000_100_000;
+  const restoreDateNow = stubDateNow(1_700_000_100_000);
 
   try {
     const result = await (strategy as any).runFilters({
@@ -403,7 +491,7 @@ test("GraduationStrategy.runFilters rejects missing trade data in LIVE", async (
     assert.equal(result.rejectReason, "no trade data");
     assert.equal(result.filterResults.tradeDataAvailable, false);
   } finally {
-    Date.now = originalDateNow;
+    restoreDateNow();
   }
 });
 
@@ -417,7 +505,11 @@ test("GraduationStrategy.runFilters enforces minUniqueHolders", async () => {
     {
       getSignaturesForAddress: async () => [],
     } as never,
-    {} as never,
+    {
+      prefilterCandidates: async () => new Map([
+        ["mint_holders", { address: "mint_holders", passed: true, source: "DEX_SCREENER", liquidityUsd: 25_000, priceUsd: 0.1 }],
+      ]),
+    } as never,
     {
       getTokenSecurity: async () => ({
         top10HolderPercent: 20,
@@ -453,8 +545,7 @@ test("GraduationStrategy.runFilters enforces minUniqueHolders", async () => {
     } as never,
   );
 
-  const originalDateNow = Date.now;
-  Date.now = () => 1_700_000_100_000;
+  const restoreDateNow = stubDateNow(1_700_000_100_000);
 
   try {
     const result = await (strategy as any).runFilters({
@@ -473,6 +564,169 @@ test("GraduationStrategy.runFilters enforces minUniqueHolders", async () => {
     assert.equal(result.rejectReason, "holders 150 < 200");
     assert.equal(result.filterResults.holderCount, 150);
   } finally {
-    Date.now = originalDateNow;
+    restoreDateNow();
+  }
+});
+
+test("GraduationStrategy.runFilters rejects DEX prefilter failures before paid provider checks", async () => {
+  let birdeyeCalls = 0;
+  let heliusCalls = 0;
+
+  const strategy = new (GraduationStrategy as any)(
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {
+      getSignaturesForAddress: async () => {
+        heliusCalls += 1;
+        return [];
+      },
+    } as never,
+    {
+      prefilterCandidates: async () => new Map([
+        ["mint_prefilter", { address: "mint_prefilter", passed: false, source: "DEX_SCREENER", reason: "no DEX Screener market data" }],
+      ]),
+    } as never,
+    {
+      getTokenSecurity: async () => {
+        birdeyeCalls += 1;
+        return null;
+      },
+      getTokenHolders: async () => {
+        birdeyeCalls += 1;
+        return [];
+      },
+      getTokenOverview: async () => {
+        birdeyeCalls += 1;
+        return null;
+      },
+      getTradeData: async () => {
+        birdeyeCalls += 1;
+        return null;
+      },
+    } as never,
+  );
+
+  const result = await (strategy as any).runFilters({
+    address: "mint_prefilter",
+    symbol: "PREF",
+    name: "Prefilter",
+    source: "pumpfun",
+    progressPercent: 100,
+    graduated: true,
+    graduatedTime: Math.floor(Date.now() / 1000),
+    realSolReserves: 10,
+    creator: "creator_prefilter",
+  });
+
+  assert.equal(result.passed, false);
+  assert.equal(result.rejectReason, "no DEX Screener market data");
+  assert.equal(result.filterResults.prefilterReason, "no DEX Screener market data");
+  assert.equal(birdeyeCalls, 0);
+  assert.equal(heliusCalls, 0);
+});
+
+test("GraduationStrategy.runFilterAndTrade persists buy pressure and entry holders from fetched data", async () => {
+  const { calls: writes, restore: restoreCreate } = captureCreateCalls(db.signal);
+  const buyCalls: Array<Record<string, unknown>> = [];
+  const restoreDateNow = stubDateNow(1_700_000_060_000);
+
+  try {
+    const strategy = new (GraduationStrategy as any)(
+      {
+        getEntryCapacity: () => ({
+          allowed: true,
+          globalRemaining: 5,
+          strategyRemaining: 2,
+          remaining: 2,
+        }),
+        canOpenPosition: () => ({ allowed: true }),
+        getPositionSize: () => 0.2,
+      } as never,
+      {
+        holdsToken: () => false,
+      } as never,
+      {
+        executeBuy: async (params: Record<string, unknown>) => {
+          buyCalls.push(params);
+          return { success: false };
+        },
+      } as never,
+      {} as never,
+      {
+        getRegime: () => "NORMAL",
+      } as never,
+      {} as never,
+      {
+        prefilterCandidates: async () => new Map(),
+      } as never,
+      {} as never,
+    );
+
+    (strategy as any).runFilters = async () => ({
+      passed: true,
+      tokenAddress: "mint_buy",
+      tokenSymbol: "BUY",
+      filterResults: {
+        prefilterLiquidityUsd: 25_000,
+        prefilterPriceUsd: 0.12,
+      },
+      overview: {
+        address: "mint_buy",
+        symbol: "BUY",
+        name: "Buy Token",
+        price: 0.13,
+        priceChange5m: 12,
+        priceChange1h: 18,
+        volume5m: 25_000,
+        volume1h: 70_000,
+        liquidity: 26_000,
+        marketCap: 130_000,
+        holder: 280,
+        buyPercent: 62,
+        sellPercent: 38,
+      },
+      tradeData: {
+        volume5m: 25_000,
+        volumeHistory5m: 12_000,
+        volumeBuy5m: 17_500,
+        trade5m: 120,
+        buy5m: 85,
+        uniqueWallet5m: 90,
+      },
+    });
+
+    await (strategy as any).runFilterAndTrade({
+      address: "mint_buy",
+      symbol: "BUY",
+      name: "Buy Token",
+      source: "pumpfun",
+      progressPercent: 100,
+      graduated: true,
+      graduatedTime: 1_700_000_000,
+      realSolReserves: 10,
+      creator: "creator_buy",
+    }, 0.12, 1_700_000_000_000);
+
+    assert.equal(writes.length, 1);
+    assert.equal((writes[0].data as Record<string, unknown>).buyPressure, 70);
+    assert.equal((writes[0].data as Record<string, unknown>).tokenLiquidity, 26_000);
+    assert.equal((writes[0].data as Record<string, unknown>).tokenMcap, 130_000);
+    assert.equal((writes[0].data as Record<string, unknown>).tokenVolume5m, 25_000);
+    assert.equal(((writes[0].data as Record<string, unknown>).detectedAt as Date).getTime(), 1_700_000_000_000);
+    assert.equal(((writes[0].data as Record<string, unknown>).metadata as Record<string, unknown>).intentionalDelayMs, 60_000);
+    assert.equal(((writes[0].data as Record<string, unknown>).metadata as Record<string, unknown>).detectionToSignalMs, 60_000);
+
+    assert.equal(buyCalls.length, 1);
+    assert.equal(buyCalls[0].entryHolders, 280);
+    assert.equal(buyCalls[0].entryBuyPressure, 70);
+    assert.equal(buyCalls[0].entryVolume5m, 25_000);
+    assert.equal(buyCalls[0].signalDetectedAtMs, 1_700_000_000_000);
+    assert.equal(buyCalls[0].signalCreatedAtMs, 1_700_000_060_000);
+  } finally {
+    restoreCreate();
+    restoreDateNow();
   }
 });
