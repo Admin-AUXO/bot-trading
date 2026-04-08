@@ -147,6 +147,13 @@ export default function PositionsPage() {
         : "Manual controls are unavailable until the runtime scope is known.";
   const manualControlsReady = !controlsLocked && !controlsUnavailable && isAnalysisOnActiveRuntime;
   const analysisStrategyConfig = isAnalysisOnActiveRuntime ? strategyConfig : undefined;
+  const actionScopeCopy = !analysisScopeReady
+    ? "Waiting for the active runtime lane before loading positions and action controls."
+    : !manualControlsReady
+      ? manualControlsHint
+      : !isAnalysisOnActiveRuntime && activeScope
+        ? `Inspecting ${effectiveMode}/${effectiveProfile} while all manual actions still execute on ${activeScope.mode}/${activeScope.configProfile}.`
+        : "Manual entry and exit are armed on the active runtime lane.";
 
   const invalidateDashboardAfterManualAction = async () => {
     await invalidateTradeActivityQueries(queryClient, {
@@ -177,7 +184,6 @@ export default function PositionsPage() {
       (sum, position) => sum + (position.pnlUsd ?? ((position.currentPriceUsd - position.entryPriceUsd) * position.remainingToken)),
       0,
     );
-    const deployedSol = positions.reduce((sum, position) => sum + (position.remainingAmountSol ?? position.amountSol), 0);
     const urgentCount = positions.filter((position) => {
       const stopDistance = getStopDistance(position);
       const timeRemaining = getTimeRemainingMinutes(position, analysisStrategyConfig);
@@ -186,7 +192,7 @@ export default function PositionsPage() {
     const manualCount = positions.filter((position) => position.tradeSource === "MANUAL").length;
     const partialCount = positions.filter((position) => position.status === "PARTIALLY_CLOSED").length;
 
-    return { deployedSol, manualCount, openPnlUsd, partialCount, urgentCount };
+    return { manualCount, openPnlUsd, partialCount, urgentCount };
   }, [analysisStrategyConfig, filteredPositions]);
 
   const historySummary = historyQuery.data?.summary;
@@ -213,65 +219,69 @@ export default function PositionsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-        <div>
-          <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Position Risk</div>
-          <div className="mt-1 text-sm text-text-secondary">
-            {analysisScopeReady
-              ? `${effectiveMode === "LIVE" ? "Live" : "Simulation"} analysis · ${effectiveProfile}`
-              : "Analysis lane pending"}
-            {" · "}{selectedStrategy ? strategyLabel(selectedStrategy) : "All strategies"}
-            {resolvedTradeSource ? ` · ${resolvedTradeSource.toLowerCase()} only` : ""}
-            {!isAnalysisOnActiveRuntime && activeScope ? ` · manual actions stay on ${activeScope.mode}/${activeScope.configProfile}` : ""}
+      <div className="panel-shell">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div className="min-w-0 flex-1">
+            <div className="section-kicker">
+              {tab === "open" ? "Open Risk" : tab === "history" ? "Close Log" : "Skip Queue"}
+            </div>
+            <div className="mt-2 text-sm text-text-secondary">
+              Use this page to decide what stays on, what gets cut, and which blocked entries deserve operator intervention.
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span className="meta-chip">
+                {analysisScopeReady
+                  ? `${effectiveMode === "LIVE" ? "Live" : "Simulation"} / ${effectiveProfile}`
+                  : "Analysis pending"}
+              </span>
+              <span className="meta-chip">{selectedStrategy ? strategyLabel(selectedStrategy) : "All strategies"}</span>
+              {resolvedTradeSource ? <span className="meta-chip">{resolvedTradeSource.toLowerCase()} only</span> : null}
+              {!isAnalysisOnActiveRuntime && activeScope ? (
+                <span className="meta-chip border-accent-yellow/20 bg-accent-yellow/8 text-accent-yellow">
+                  Runtime stays on {activeScope.mode}/{activeScope.configProfile}
+                </span>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3 xl:items-end">
+            <Tabs
+              tabs={[
+                { id: "open", label: "Open", icon: <Crosshair className="h-3.5 w-3.5" />, count: filteredPositions?.length ?? 0 },
+                { id: "history", label: "History", icon: <History className="h-3.5 w-3.5" /> },
+                { id: "skipped", label: "Skip Queue", icon: <LogIn className="h-3.5 w-3.5" />, count: skippedSignalsQuery.data?.total ?? 0 },
+              ]}
+              active={tab}
+              onChange={(nextTab) => {
+                setTab(nextTab);
+                setPage(1);
+                setSkippedPage(1);
+              }}
+            />
+
+            {tab === "history" && historyQuery.data?.data.length ? (
+              <button onClick={handleExportHistory} className="btn-ghost flex items-center gap-1 text-xs">
+                <Download className="h-3.5 w-3.5" />
+                CSV
+              </button>
+            ) : null}
           </div>
         </div>
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <Tabs
-            tabs={[
-              { id: "open", label: "Open", icon: <Crosshair className="h-3.5 w-3.5" />, count: filteredPositions?.length ?? 0 },
-              { id: "history", label: "History", icon: <History className="h-3.5 w-3.5" /> },
-              { id: "skipped", label: "Skipped", icon: <LogIn className="h-3.5 w-3.5" />, count: skippedSignalsQuery.data?.total ?? 0 },
-            ]}
-            active={tab}
-            onChange={(nextTab) => {
-              setTab(nextTab);
-              setPage(1);
-              setSkippedPage(1);
-            }}
-          />
-
-          {tab === "history" && historyQuery.data?.data.length ? (
-            <button onClick={handleExportHistory} className="btn-ghost flex items-center gap-1 text-xs">
-              <Download className="h-3.5 w-3.5" />
-              CSV
-            </button>
-          ) : null}
+        <div className={cn(
+          "mt-4 flex items-center gap-2 rounded-xl px-3 py-2 text-xs",
+          manualControlsReady && isAnalysisOnActiveRuntime
+            ? "border border-accent-green/20 bg-accent-green/8 text-accent-green"
+            : "border border-accent-yellow/20 bg-accent-yellow/8 text-accent-yellow",
+        )}>
+          <ShieldAlert className="h-3.5 w-3.5" />
+          <span>{actionScopeCopy}</span>
         </div>
       </div>
 
-      {!manualControlsReady ? (
-        <div className="flex items-center gap-2 rounded-xl border border-accent-yellow/20 bg-accent-yellow/8 px-3 py-2 text-xs text-accent-yellow">
-          <ShieldAlert className="h-3.5 w-3.5" />
-          {manualControlsHint}
-        </div>
-      ) : null}
-
-      {!isAnalysisOnActiveRuntime && activeScope ? (
-        <div className="rounded-xl border border-bg-border/80 bg-bg-hover/35 px-3 py-2 text-xs text-text-muted">
-          Stop distance comes from each position. Time budgets and staged exit targets only resolve on the active runtime lane.
-        </div>
-      ) : null}
-
-      {!analysisScopeReady ? (
-        <div className="rounded-xl border border-bg-border/80 bg-bg-hover/35 px-3 py-2 text-xs text-text-muted">
-          Waiting for the active runtime lane before loading filtered positions, history, and skipped entries.
-        </div>
-      ) : null}
-
       {tab === "open" ? (
         <>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
             <SummaryTile
               label="Filtered Open"
               value={String(filteredPositions?.length ?? 0)}
@@ -291,11 +301,6 @@ export default function PositionsPage() {
               tone={openSummary.openPnlUsd < 0 ? "danger" : "default"}
             />
             <SummaryTile
-              label="Remaining Size"
-              value={formatSol(openSummary.deployedSol)}
-              sub="Filtered lane only"
-            />
-            <SummaryTile
               label="Urgent Exits"
               value={String(openSummary.urgentCount)}
               sub="Stop or time pressure"
@@ -303,10 +308,10 @@ export default function PositionsPage() {
               tone={openSummary.urgentCount > 0 ? "warning" : "default"}
             />
             <SummaryTile
-              label="Partial Closures"
-              value={String(openSummary.partialCount)}
-              sub="Still consuming capacity"
-              tone={openSummary.partialCount > 0 ? "warning" : "default"}
+              label="Intervention"
+              value={String(openSummary.manualCount + openSummary.partialCount)}
+              sub={`${openSummary.manualCount} manual · ${openSummary.partialCount} partial`}
+              tone={openSummary.manualCount + openSummary.partialCount > 0 ? "warning" : "default"}
             />
           </div>
 
@@ -453,7 +458,7 @@ export default function PositionsPage() {
 
       {tab === "history" ? (
         <>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <SummaryTile
               label="Closed"
               value={String(historySummary?.closedCount ?? 0)}
@@ -477,11 +482,6 @@ export default function PositionsPage() {
               value={`${(historySummary?.avgPnlPercent ?? 0).toFixed(1)}%`}
               sub="Average close outcome"
               valueClass={pnlClass(historySummary?.avgPnlPercent ?? 0)}
-            />
-            <SummaryTile
-              label="Last Page Size"
-              value={String(historyQuery.data?.data.length ?? 0)}
-              sub="Visible rows"
             />
           </div>
 
@@ -558,7 +558,7 @@ export default function PositionsPage() {
 
       {tab === "skipped" ? (
         <>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <SummaryTile
               label="Blocked Signals"
               value={String(skippedSummary?.totalSignals ?? 0)}
@@ -590,12 +590,6 @@ export default function PositionsPage() {
               }
               sub={manualControlsReady ? "Enter from the active runtime queue" : manualControlsHint}
               tone={manualControlsReady ? "positive" : "warning"}
-            />
-            <SummaryTile
-              label="Action Errors"
-              value={actionError ? "1" : "0"}
-              sub={actionError ?? "No current action failures"}
-              tone={actionError ? "danger" : "default"}
             />
           </div>
 

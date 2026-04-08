@@ -109,43 +109,50 @@ function TradesPageContent({
   };
 
   const focusLabel = selectedStrategy ? strategyLabel(selectedStrategy) : "All strategies";
+  const deskCopy = tab === "trades"
+    ? "Read the fill tape for slippage, fee drag, and whether exits are paying the bot."
+    : "Read the signal gate for what passed, what got rejected, and which filter is overreaching.";
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-        <div>
-          <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Execution Tape</div>
-          <div className="mt-1 text-sm text-text-secondary">
-            {mode === "LIVE" ? "Live" : "Simulation"} analysis · {profile} · {focusLabel}
-            {tab === "trades"
-              ? tradeSource ? ` · ${tradeSource.toLowerCase()} only` : ""
-              : tradeSource ? " · source filter applies to fills only" : ""}
-            {tab === "trades"
-              ? " · fills, exits, and fee drag"
-              : " · strategy pass / reject flow"}
+      <div className="panel-shell">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div className="min-w-0 flex-1">
+            <div className="section-kicker">{tab === "trades" ? "Fill Tape" : "Signal Gate"}</div>
+            <div className="mt-2 text-sm text-text-secondary">{deskCopy}</div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span className="meta-chip">{mode === "LIVE" ? "Live" : "Simulation"} / {profile}</span>
+              <span className="meta-chip">{focusLabel}</span>
+              {tradeSource ? <span className="meta-chip">{tradeSource.toLowerCase()} fills only</span> : null}
+              {tab === "signals" && tradeSource ? (
+                <span className="meta-chip border-accent-yellow/20 bg-accent-yellow/8 text-accent-yellow">
+                  Source filter does not narrow raw signal rows
+                </span>
+              ) : null}
+            </div>
           </div>
-        </div>
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <Tabs
-            tabs={[
-              { id: "trades", label: "Trades", icon: <ArrowLeftRight className="h-3.5 w-3.5" /> },
-              { id: "signals", label: "Signals", icon: <Radio className="h-3.5 w-3.5" /> },
-            ]}
-            active={tab}
-            onChange={(nextTab) => {
-              setTab(nextTab);
-              setPage(1);
-              setSignalPage(1);
-            }}
-          />
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Tabs
+              tabs={[
+                { id: "trades", label: "Fills", icon: <ArrowLeftRight className="h-3.5 w-3.5" /> },
+                { id: "signals", label: "Signals", icon: <Radio className="h-3.5 w-3.5" /> },
+              ]}
+              active={tab}
+              onChange={(nextTab) => {
+                setTab(nextTab);
+                setPage(1);
+                setSignalPage(1);
+              }}
+            />
 
-          {tab === "trades" && tradesQuery.data?.data.length ? (
-            <button onClick={handleExportTrades} className="btn-ghost flex items-center gap-1 text-xs">
-              <Download className="h-3.5 w-3.5" />
-              CSV
-            </button>
-          ) : null}
+            {tab === "trades" && tradesQuery.data?.data.length ? (
+              <button onClick={handleExportTrades} className="btn-ghost flex items-center gap-1 text-xs">
+                <Download className="h-3.5 w-3.5" />
+                CSV
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
 
@@ -159,13 +166,13 @@ function TradesPageContent({
         <>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
             <SummaryTile
-              label="Trades"
+              label="Fills"
               value={String(tradesQuery.data?.summary.totalTrades ?? 0)}
               sub={`${focusLabel} · page ${page}`}
               icon={<ArrowLeftRight className="h-3.5 w-3.5 text-accent-blue" />}
             />
             <SummaryTile
-              label="Exits"
+              label="Closed"
               value={String(tradesQuery.data?.summary.totalExits ?? 0)}
               sub={`${tradesQuery.data?.summary.wins ?? 0}W / ${tradesQuery.data?.summary.losses ?? 0}L`}
               icon={<TrendingUp className="h-3.5 w-3.5 text-accent-green" />}
@@ -185,9 +192,9 @@ function TradesPageContent({
               tone={(tradesQuery.data?.summary.netPnlUsd ?? 0) < 0 ? "danger" : "default"}
             />
             <SummaryTile
-              label="Last Trade"
-              value={tradesQuery.data?.summary.lastExecutedAt ? timeAgo(tradesQuery.data.summary.lastExecutedAt) : "—"}
-              sub={`${profile} · most recent execution`}
+              label="Fee Drag"
+              value={formatSol(tradesQuery.data?.summary.totalFeesSol ?? 0)}
+              sub={`${profile} · total gas and tip`}
               icon={<Waves className="h-3.5 w-3.5 text-accent-cyan" />}
             />
           </div>
@@ -198,6 +205,13 @@ function TradesPageContent({
             ) : (
               <>
                 <div className="card overflow-x-auto">
+                  <div className="mb-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <ArrowLeftRight className="h-4 w-4 text-accent-blue" />
+                      <span className="stat-label">Fill Tape</span>
+                    </div>
+                    <span className="text-[11px] text-text-muted">Most recent executions first</span>
+                  </div>
                   <table className="table-sticky-header w-full">
                     <thead>
                       <tr className="border-b border-bg-border">
@@ -352,6 +366,13 @@ function TradesPageContent({
             ) : (
               <>
                 <div className="card overflow-x-auto">
+                  <div className="mb-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Radio className="h-4 w-4 text-accent-purple" />
+                      <span className="stat-label">Signal Gate</span>
+                    </div>
+                    <span className="text-[11px] text-text-muted">Pass and reject decisions</span>
+                  </div>
                   <table className="table-sticky-header w-full">
                     <thead>
                       <tr className="border-b border-bg-border">

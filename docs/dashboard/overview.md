@@ -30,6 +30,11 @@ The dashboard is a thin App Router shell around shared runtime state, page-level
 - `useDashboardFilters()` owns analysis state:
   selected mode, profile, strategy, trade source, and the derived effective analysis lane
 - Capital tiles in the shell and overview should use the wallet-backed overview fields, not the risk ledger's simulated or persisted capital counters.
+- Shared chrome is intentionally compact now:
+  header = runtime status plus analysis controls
+  sidebar = navigation plus runtime capacity
+  footer = connection/update heartbeat only
+- Do not turn header, sidebar, and page hero into three copies of the same metrics.
 
 That separation is deliberate. Do not collapse it.
 
@@ -57,3 +62,4 @@ That separation is deliberate. Do not collapse it.
 - Shared shell data belongs in `useDashboardShell`, not copied into every page
 - Page-specific analysis filters belong in `useDashboardFilters`
 - Keep mixed-scope UI labeled so runtime truth is not confused with filtered analytics subsets
+- Each route should open with a desk-level summary of what matters on that page, not generic restatements of shell data

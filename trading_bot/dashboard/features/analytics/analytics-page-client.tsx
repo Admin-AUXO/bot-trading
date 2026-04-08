@@ -198,34 +198,45 @@ export function AnalyticsPageClient() {
 
   return (
     <motion.div className="space-y-5" variants={motionContainer} initial="hidden" animate="visible">
-      <motion.div variants={motionItem} className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-        <div>
-          <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Expectancy Ledger</div>
-          <div className="mt-1 text-sm text-text-secondary">
-            {activeScope ? `${activeScope.mode}/${activeScope.configProfile}` : "runtime pending"}
-            {" · "}analysis {analysisScopeReady ? `${effectiveMode}/${effectiveProfile}` : "pending"}
-            {resolvedTradeSource ? ` · ${resolvedTradeSource.toLowerCase()} trades` : " · all trade sources"}
-            {" · "}{dateRange} lookback
-            {" · "}scope badges below tell you what is filtered and what is global
+      <motion.div variants={motionItem} className="panel-shell">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div className="min-w-0 flex-1">
+            <div className="section-kicker">Edge Ledger</div>
+            <div className="mt-2 text-sm text-text-secondary">
+              This page is where the system either proves it has an edge or confesses it is paying fees to feel busy.
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span className="meta-chip">
+                Runtime {activeScope ? `${activeScope.mode}/${activeScope.configProfile}` : "pending"}
+              </span>
+              <span className="meta-chip">
+                Analysis {analysisScopeReady ? `${effectiveMode}/${effectiveProfile}` : "pending"}
+              </span>
+              <span className="meta-chip">{dateRange} lookback</span>
+              <span className="meta-chip">
+                {resolvedTradeSource ? `${resolvedTradeSource.toLowerCase()} trades` : "All trade sources"}
+              </span>
+              <span className="meta-chip">Manual share {(summary.aggregateManualShare * 100).toFixed(0)}%</span>
+            </div>
           </div>
-        </div>
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <div className="flex items-center gap-2">
-            {DATE_RANGES.map((range) => (
-              <button
-                key={range}
-                onClick={() => setDateRange(range)}
-                className={`date-range-btn ${dateRange === range ? "date-range-btn-active" : "date-range-btn-inactive"}`}
-              >
-                {range}
-              </button>
-            ))}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="flex items-center gap-2">
+              {DATE_RANGES.map((range) => (
+                <button
+                  key={range}
+                  onClick={() => setDateRange(range)}
+                  className={`date-range-btn ${dateRange === range ? "date-range-btn-active" : "date-range-btn-inactive"}`}
+                >
+                  {range}
+                </button>
+              ))}
+            </div>
+            <button onClick={handleExportStats} disabled={!analysisScopeReady} className="btn-ghost flex items-center gap-1 text-xs disabled:opacity-40">
+              <Download className="h-3.5 w-3.5" />
+              Export
+            </button>
           </div>
-          <button onClick={handleExportStats} disabled={!analysisScopeReady} className="btn-ghost flex items-center gap-1 text-xs disabled:opacity-40">
-            <Download className="h-3.5 w-3.5" />
-            Export
-          </button>
         </div>
       </motion.div>
 
@@ -235,7 +246,7 @@ export function AnalyticsPageClient() {
         </motion.div>
       ) : null}
 
-      <motion.div variants={motionItem} className="grid grid-cols-2 gap-3 xl:grid-cols-6">
+      <motion.div variants={motionItem} className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
         <SummaryTile
           label="Net P&L"
           value={formatUsd(summary.pnl)}
@@ -264,17 +275,11 @@ export function AnalyticsPageClient() {
           tone={summary.profitFactor != null && summary.profitFactor < 1 ? "danger" : "default"}
         />
         <SummaryTile
-          label="Best Day"
-          value={summary.bestDay ? formatUsd(summary.bestDay.netPnlUsd) : "—"}
-          sub={summary.bestDay ? new Date(summary.bestDay.date).toLocaleDateString() : "No closed days"}
-          valueClass={pnlClass(summary.bestDay?.netPnlUsd ?? 0)}
-        />
-        <SummaryTile
-          label="Manual Share"
-          value={`${(summary.aggregateManualShare * 100).toFixed(0)}%`}
-          sub={resolvedTradeSource ? "Scoped to selected source" : "Across execution telemetry"}
+          label="Top Strategy"
+          value={summary.topStrategy ? strategyLabel(summary.topStrategy.strategy) : "—"}
+          sub={summary.topStrategy ? formatUsd(summary.topStrategy.totalPnlUsd) : "No closed trades"}
           icon={<Gauge className="h-3.5 w-3.5 text-accent-yellow" />}
-          tone={summary.aggregateManualShare > 0.45 ? "warning" : "default"}
+          tone={summary.topStrategy ? "positive" : "default"}
         />
       </motion.div>
 

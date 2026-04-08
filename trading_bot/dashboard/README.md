@@ -17,17 +17,21 @@ This is the operator surface for the trading bot. It is a Next.js 16 App Router 
 
 ## Pages
 
-- `/`: runtime overview, quota pressure, regime, and next forced exit
-- `/positions`: open positions, close history, capacity truth, manual controls
-- `/trades`: fills, signals, rejections, and filter evidence
-- `/analytics`: expectancy, execution quality, capital curve, distributions, scope badges
-- `/quota`: provider runway, endpoint concentration, quota-specific blockers
-- `/settings`: bot controls, operator session, strategy config, live-entry guardrails, reconciliation, profile management, profile override visibility, and inline override editing
+- `/`: runtime desk, attention queue, provider pressure, and recent flow
+- `/positions`: open risk, close history, skip queue, and manual controls
+- `/trades`: fill tape, signal gate, fee drag, and filter evidence
+- `/analytics`: edge ledger, expectancy, execution quality, capital curve, and scope badges
+- `/quota`: provider runway, endpoint concentration, and quota-specific blockers
+- `/settings`: command surface, operator session, strategy guardrails, reconciliation, quota summary, and config profiles
 
 ## Data And Scope Rules
 
 - `useDashboardShell()` queries `overview`, `heartbeat`, `operatorSession`, and `strategyConfig`. Shell positions and quota state are derived from overview data; do not add duplicate shell-level queries for the same truth.
 - `useDashboardFilters()` separates analysis filters from the active runtime lane. Chrome and controls reflect runtime truth; analysis pages may inspect other `mode/profile` lanes.
+- Shell chrome is intentionally lean:
+  - header = runtime status plus analysis controls
+  - sidebar = navigation plus capacity
+  - footer = connection/update heartbeat
 - Request params use `profile`; persisted/runtime fields are `configProfile`. Keep the terminology straight.
 - If a query key varies by `days`, `mode`, `profile`, or `tradeSource`, the request and backend route must vary by the same dimensions.
 - `tradeSource` applies to fills and analytics, not raw signal rows.
@@ -43,7 +47,7 @@ This is the operator surface for the trading bot. It is a Next.js 16 App Router 
 - Browser traffic goes through `app/api/[...path]/route.ts`.
 - The proxy injects backend bearer auth for every non-read request and for `GET /api/stream`.
 - Non-read requests also require an authenticated operator-session cookie from `app/api/operator-session/route.ts`.
-- The dashboard secret fallback chain is:
+- Dashboard secret fallback chain:
   - `DASHBOARD_OPERATOR_SECRET`
   - `CONTROL_API_SECRET`
   - `CONTROL_SECRET`

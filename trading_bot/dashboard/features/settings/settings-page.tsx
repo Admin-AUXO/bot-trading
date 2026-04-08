@@ -144,29 +144,38 @@ export default function SettingsPage() {
       variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.05 } } }}
       className="space-y-5"
     >
-      <motion.div variants={sectionItem} className="flex flex-col gap-2 xl:flex-row xl:items-end xl:justify-between">
-        <div>
-          <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Control Plane</div>
-          <div className="mt-1 text-sm text-text-secondary">
-            {activeScope?.mode === "LIVE" ? "Live" : activeScope?.mode === "DRY_RUN" ? "Simulation" : "Runtime"} scope
-            {activeScope ? ` · ${activeScope.configProfile}` : ""}
-            {" · "}bot controls, quota pressure, and profile routing
-          </div>
+      <motion.div variants={sectionItem} className="panel-shell">
+        <div className="section-kicker">Command Surface</div>
+        <div className="mt-2 text-sm text-text-secondary">
+          This page exists for control, guardrails, and runtime routing. If a setting cannot change bot behavior or risk, it does not belong here.
         </div>
-        <div className="text-[11px] text-text-muted">
-          Operator {operatorSession?.authenticated ? "unlocked" : operatorSession?.configured === false ? "unavailable" : "locked"}
+        <div className="mt-3 flex flex-wrap gap-2">
+          <span className="meta-chip">
+            Runtime {activeScope ? `${activeScope.mode}/${activeScope.configProfile}` : "pending"}
+          </span>
+          <span className="meta-chip">
+            Operator {operatorSession?.authenticated ? "unlocked" : operatorSession?.configured === false ? "unavailable" : "locked"}
+          </span>
+          <span className="meta-chip">
+            Process {processHealthLabel.toLowerCase()}
+          </span>
+          {worstQuota ? <span className="meta-chip">{worstQuota.service} {worstQuota.quotaStatus.toLowerCase().replace("_", " ")}</span> : null}
+          <span className="meta-chip">{openPositions.length}/{maxOpenPositions} positions live</span>
         </div>
       </motion.div>
 
       {/* Critical alerts */}
       {criticalAlerts.length > 0 && (
-        <motion.div variants={sectionItem} className="space-y-2">
-          {criticalAlerts.map((alert, i) => (
-            <div key={i} className="flex items-center gap-2 px-4 py-2.5 bg-accent-red/10 border border-accent-red/30 rounded-lg text-sm text-accent-red">
-              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-              {alert}
-            </div>
-          ))}
+        <motion.div variants={sectionItem} className="panel-muted border-accent-red/25 bg-accent-red/7">
+          <div className="section-kicker text-accent-red">Hard Stops</div>
+          <div className="mt-3 space-y-2">
+            {criticalAlerts.map((alert, i) => (
+              <div key={i} className="flex items-center gap-2 text-sm text-accent-red">
+                <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                <span>{alert}</span>
+              </div>
+            ))}
+          </div>
         </motion.div>
       )}
 

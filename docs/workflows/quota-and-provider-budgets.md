@@ -1,6 +1,6 @@
 # Quota And Provider Budgets
 
-Quota pressure is part of the runtime, not an optional dashboard garnish.
+Quota pressure is runtime behavior, not dashboard decoration.
 
 ## Core Files
 
@@ -17,88 +17,67 @@ Quota pressure is part of the runtime, not an optional dashboard garnish.
 - `HELIUS`
 - `BIRDEYE`
 
-Jupiter and Jito are used by execution paths, but the current `ApiBudgetManager` only manages Helius and Birdeye budgets.
+Jupiter and Jito are execution dependencies, but the current budget manager only enforces Helius and Birdeye quotas.
 
-## Jupiter Notes
+## Plan Facts
 
-- Jupiter execution and price reads now use the env-backed `api.jup.ag` host.
-- Current repo config exposes:
-  - `JUPITER_API_KEY`
-  - `JUPITER_BASE_URL`
-  - `JUPITER_PRICE_PATH`
-  - `JUPITER_SWAP_PATH`
-- Jupiter docs now describe separate free-tier buckets for:
-  - `Price API`
-  - `Default` API traffic
-- The repo still does not pause runtime off Jupiter quota state in this phase. Keep Jupiter routing rate-aware in service code instead of inventing new quota blockers.
+- `BIRDEYE_PLAN` currently supports `LITE` and `STARTER`
+- both assume `15 RPS` and no websocket access
+- defaults come from `backend/src/config/provider-plan.ts`
+- current profiles:
+  - `LITE`: `1,500,000 CU/month`, `20%` reserve, S2 catch-up every `30m`
+  - `STARTER`: `5,000,000 CU/month`, `20%` reserve, S2 catch-up every `10m`
+- `/defi/multi_price` cost still follows `ceil(N^0.8 * baseCost)` with base cost `5`
 
-## Birdeye Plan Facts
+Jupiter config currently exposes:
 
-- `BIRDEYE_PLAN` is env-driven and currently supports `LITE` and `STARTER`
-- Lite and Starter both assume:
-  - `15 RPS`
-  - `WebSocket Access: No`
-- plan-specific runtime defaults come from `backend/src/config/provider-plan.ts`
-- current plan profiles are:
-  - `LITE`: `1,500,000 CU/month`, `20%` reserve, `30m` S2 catch-up cadence
-  - `STARTER`: `5,000,000 CU/month`, `20%` reserve, `10m` S2 catch-up cadence
-- Birdeye batch-cost math for `/defi/multi_price` follows the published formula:
-  - `ceil(N^0.8 * baseCost)`
-  - current base cost for `/defi/multi_price` is `5`
+- `JUPITER_API_KEY`
+- `JUPITER_BASE_URL`
+- `JUPITER_PRICE_PATH`
+- `JUPITER_SWAP_PATH`
+
+The repo does not pause runtime off Jupiter quota state in this phase.
 
 ## Runtime Rules
 
-- essential work should keep running as long as possible
-- discovery, scoring, analytics enrichment, and backfills degrade first
-- wallet scoring can be skipped under Helius quota pressure
-- quota blockers come from provider quota state, not relabeled generic pause reasons
-- some strategy filters soft-fail when non-essential provider data is missing; others suppress the candidate entirely
-- `LIVE` S1 and S2 entries now fail closed when required Birdeye trade data is missing; only `DRY_RUN` keeps the old soft-fail analytics behavior
-- buy execution is treated as non-essential budget traffic; exit monitoring and sell execution stay essential
-- monthly reserve comes from the configured `20%` budget reserve
-- non-essential traffic is blocked before it consumes the protected daily reserve
-- daily reserve enforcement uses the same configured `reservePct`; do not add hidden per-service reserve constants that drift from config
-- `shouldRunNonEssential()` only returns true in `HEALTHY`, so soft-limit state already degrades work
-- paid entry evaluation now short-circuits when a strategy has no remaining global or per-strategy slots, and concurrent Birdeye entry evaluations are capped to the remaining slot count
-- Helius historical RPC methods are not cheap: `getSignaturesForAddress` and `getTransaction` must be accounted at `10` credits each
+- Essential work stays alive as long as possible.
+- Discovery, scoring, analytics enrichment, and backfills degrade first.
+- Wallet scoring can be skipped under Helius pressure.
+- Quota blockers come from provider quota state, not relabeled generic pause reasons.
+- `LIVE` S1 and S2 entries fail closed when required Birdeye trade data is missing; `DRY_RUN` keeps the softer analytics path.
+- Buy execution is non-essential budget traffic. Exit monitoring and sell execution stay essential.
+- Monthly and daily reserve enforcement both use the configured `reservePct`.
+- `shouldRunNonEssential()` only returns true in `HEALTHY`.
+- Paid entry evaluation short-circuits when no global or per-strategy slots remain.
+- `getSignaturesForAddress` and `getTransaction` must be accounted at `10` Helius credits each.
 
 ## Current Routing Notes
 
-- Regime breadth and market-tick breadth now come from `MarketRouter` instead of Birdeye trending endpoints.
-- Outcome price backfills now use Jupiter-backed `MarketRouter.refreshExitContext()` instead of Birdeye `multi_price`.
-- Exit fast-path prices now use `MarketRouter.refreshExitContext()` instead of Birdeye `multi_price`; Birdeye only appears on throttled slow-path refreshes when Jupiter cannot price the token.
-- S1 wallet-activity price capture now uses `MarketRouter.refreshExitContext()` instead of single-token Birdeye `multi_price`.
-- S1 entry now uses DEX Screener sanity before paid Birdeye scoring.
-- S2 continuous discovery now uses Jupiter `recent` plus DEX Screener prefilter; Birdeye `meme/list` is catch-up only.
-- S2 catch-up and fallback Birdeye loops now pause completely when `S2` has no remaining entry slots.
-- S3 discovery now seeds from Jupiter category feeds plus DEX Screener prefilter before any paid Birdeye final-score calls.
-- `wouldHaveWon` recompute is now a DB-only pass; do not tie it to Birdeye quota state.
-- Birdeye quota sync still matters for paid discovery and final scoring paths that remain on Birdeye.
+- Regime breadth and market-tick breadth now come from `MarketRouter`, not Birdeye trending endpoints.
+- Outcome backfills, exit fast-path prices, and S1 wallet-activity pricing now use `MarketRouter.refreshExitContext()` first.
+- S1 entry uses DEX Screener sanity before paid Birdeye scoring.
+- S2 continuous discovery uses Jupiter `recent` plus DEX Screener prefilter; Birdeye `meme/list` is catch-up only.
+- S2 catch-up and fallback Birdeye loops pause completely when `S2` has no remaining entry slots.
+- S3 discovery seeds from Jupiter category feeds plus DEX Screener prefilter before paid Birdeye scoring.
+- `wouldHaveWon` recompute is DB-only; do not tie it to Birdeye quota state.
 
 ## Audit Commands
 
 From `trading_bot/backend/`:
 
 - `npm run audit:providers`
-  probes the active paid endpoints that still drive S1, S2, S3, execution, and quota sync
 - `npm run audit:providers -- --provider HELIUS`
-  limits the live probe to Helius surfaces
 - `npm run audit:providers -- --provider BIRDEYE --token <mint> --graduation-token <mint>`
-  lets the Birdeye audit run even when DB context is unavailable
 - `npm run audit:providers -- --full`
-  includes dormant or feature-flagged endpoints such as `new_listing`, `parseTransaction`, and `getAssetsByOwner`
 - `npm run audit:timing`
-  prints configured scan, delay, and exit cadences plus any persisted signal/trade timing history
 
 Rules:
 
-- the provider audit defaults to active endpoints only so the audit itself does not become avoidable paid spend
-- the script uses non-essential quota classification; if a provider is already protecting daily reserve, the live probe skips instead of forcing traffic
-- when Prisma history is unavailable, the script still runs live provider probes if enough CLI context is supplied and falls back to config-only timing windows
+- provider audit defaults to active paid endpoints only
+- the script uses non-essential quota classification and skips probes when reserve protection is already active
+- if Prisma history is unavailable, the script can still run live probes with enough CLI context and otherwise falls back to config-only timing windows
 
-## Current Birdeye Fixed-Cadence Baseline
-
-Current code now matches the planned fixed-cadence shape instead of the old Birdeye-heavy loops:
+## Fixed Birdeye Baseline
 
 | Plan | S2 catch-up cadence | S2 catch-up CU/day | S1 daily wallet seed | Fixed subtotal |
 | --- | --- | ---: | ---: | ---: |
@@ -107,29 +86,25 @@ Current code now matches the planned fixed-cadence shape instead of the old Bird
 
 Optional fallback:
 
-- `S2_ENABLE_NEW_LISTING_FALLBACK=true` adds the old `new_listing` sweep back at about `23,040 CU/day`
-- it defaults off because cheap-side routing plus catch-up is now the base path
-
-The S2 `20s` Birdeye meme-list loops, the S3 discovery loop, regime sample, market-tick sample, backfills, and exit fast path are no longer scheduled Birdeye spend in the default configuration.
+- `S2_ENABLE_NEW_LISTING_FALLBACK=true` adds the old `new_listing` sweep at about `23,040 CU/day`
 
 ## Dashboard Semantics
 
 - shell quota snapshot comes from runtime overview data
-- `/api/overview/api-usage` returns:
-  current snapshot, daily rows, monthly grouped totals, history, and top endpoint rows
-- service totals are global for the selected time window
-- endpoint rows can be narrowed by `mode` and `profile`
+- `/api/overview/api-usage` returns current snapshot, daily rows, monthly grouped totals, history, and top endpoint rows
+- service totals stay global for the selected window
+- endpoint rows can narrow by `mode` and `profile`
 - the quota page labels that split on purpose
 
 ## Change Rules
 
-- if a provider call path changes, keep service wrappers, quota accounting, and API-usage reporting aligned
-- if quota degradation rules change, update both runtime intervals and dashboard copy
-- if new provider metadata is exposed, wire it through API response types and quota UI together
+- Keep service wrappers, quota accounting, and API-usage reporting aligned when provider call paths change.
+- Update runtime intervals and dashboard copy together when degradation rules change.
+- Wire new provider metadata through API response types and quota UI together.
 
 ## Common Mistakes
 
 - adding raw provider fetches outside shared services
 - forgetting to tag calls with strategy, mode, profile, or purpose
-- averaging already-aggregated percentage fields instead of weighting by underlying counts
+- averaging already-aggregated percentage fields instead of weighting by counts
 - auditing every dormant endpoint by default and then blaming quota for the audit bill

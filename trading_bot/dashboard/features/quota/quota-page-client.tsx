@@ -15,7 +15,6 @@ import { SummaryTile } from "@/components/ui/summary-tile";
 import { cn, dateRangeToDays, formatNumber } from "@/lib/utils";
 import {
   Activity,
-  AlarmClockCheck,
   Database,
   Gauge,
   Layers,
@@ -150,26 +149,41 @@ export function QuotaPageClient() {
 
   return (
     <motion.div className="space-y-5" variants={motionContainer} initial="hidden" animate="visible">
-      <motion.div variants={motionItem} className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-        <div>
-          <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Provider Runway</div>
-          <div className="mt-1 text-sm text-text-secondary">
-            {activeScope ? `${activeScope.mode}/${activeScope.configProfile}` : "runtime pending"}
-            {" · "}service budgets are global
-            {" · "}endpoint focus below narrows to {analysisScopeReady ? `${effectiveMode}/${effectiveProfile}` : "pending"}
-            {" · "}{dateRange} window
+      <motion.div variants={motionItem} className="panel-shell">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div className="min-w-0 flex-1">
+            <div className="section-kicker">Provider Runway</div>
+            <div className="mt-2 text-sm text-text-secondary">
+              Quota is not bookkeeping. It is the point where provider pressure starts deciding what the bot can still do safely.
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span className="meta-chip">
+                Runtime {activeScope ? `${activeScope.mode}/${activeScope.configProfile}` : "pending"}
+              </span>
+              <span className="meta-chip">Service budgets stay global</span>
+              <span className="meta-chip">
+                Endpoint drill-down {analysisScopeReady ? `${effectiveMode}/${effectiveProfile}` : "pending"}
+              </span>
+              <span className="meta-chip">{dateRange} window</span>
+              {nextReset?.providerCycleEnd ? (
+                <span className="meta-chip">
+                  Next reset {new Date(nextReset.providerCycleEnd).toLocaleDateString()}
+                </span>
+              ) : null}
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {DATE_RANGES.map((range) => (
-            <button
-              key={range}
-              onClick={() => setDateRange(range)}
-              className={`date-range-btn ${dateRange === range ? "date-range-btn-active" : "date-range-btn-inactive"}`}
-            >
-              {range}
-            </button>
-          ))}
+
+          <div className="flex items-center gap-2">
+            {DATE_RANGES.map((range) => (
+              <button
+                key={range}
+                onClick={() => setDateRange(range)}
+                className={`date-range-btn ${dateRange === range ? "date-range-btn-active" : "date-range-btn-inactive"}`}
+              >
+                {range}
+              </button>
+            ))}
+          </div>
         </div>
       </motion.div>
 
@@ -179,7 +193,7 @@ export function QuotaPageClient() {
         </motion.div>
       ) : null}
 
-      <motion.div variants={motionItem} className="grid grid-cols-2 gap-3 xl:grid-cols-6">
+      <motion.div variants={motionItem} className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
         <SummaryTile
           label="Worst Service"
           value={worstQuota ? `${worstQuota.service}` : "—"}
@@ -193,12 +207,12 @@ export function QuotaPageClient() {
           sub={`${formatNumber(totals.totalCalls)} calls over ${days} days`}
           icon={<Database className="h-3.5 w-3.5 text-accent-blue" />}
         />
-        <SummaryTile
-          label="Cached Calls"
-          value={formatNumber(totals.totalCached)}
-          sub={totals.totalCalls > 0 ? `${((totals.totalCached / totals.totalCalls) * 100).toFixed(0)}% of calls` : "No traffic"}
-          icon={<Layers className="h-3.5 w-3.5 text-accent-cyan" />}
-        />
+            <SummaryTile
+              label="Cache Rate"
+              value={totals.totalCalls > 0 ? `${((totals.totalCached / totals.totalCalls) * 100).toFixed(0)}%` : "—"}
+              sub={`${formatNumber(totals.totalCached)} cached calls`}
+              icon={<Layers className="h-3.5 w-3.5 text-accent-cyan" />}
+            />
         <SummaryTile
           label="Endpoint Dominance"
           value={`${(totals.endpointConcentration * 100).toFixed(0)}%`}
@@ -206,19 +220,13 @@ export function QuotaPageClient() {
           icon={<Gauge className="h-3.5 w-3.5 text-accent-yellow" />}
           tone={totals.endpointConcentration > 0.65 ? "warning" : "default"}
         />
-        <SummaryTile
-          label="Active Blockers"
-          value={String(quotaBlockers.length)}
-          sub={quotaBlockers.length > 0 ? quotaBlockers[0] : "No quota-driven pauses"}
-          icon={<Activity className="h-3.5 w-3.5 text-accent-red" />}
-          tone={quotaBlockers.length > 0 ? "danger" : "positive"}
-        />
-        <SummaryTile
-          label="Next Reset"
-          value={nextReset?.providerCycleEnd ? new Date(nextReset.providerCycleEnd).toLocaleDateString() : "Month end"}
-          sub={nextReset ? `${nextReset.service} cycle` : "No provider cycle metadata"}
-          icon={<AlarmClockCheck className="h-3.5 w-3.5 text-accent-green" />}
-        />
+            <SummaryTile
+              label="Active Blockers"
+              value={String(quotaBlockers.length)}
+              sub={quotaBlockers.length > 0 ? quotaBlockers[0] : "No quota-driven pauses"}
+              icon={<Activity className="h-3.5 w-3.5 text-accent-red" />}
+              tone={quotaBlockers.length > 0 ? "danger" : "positive"}
+            />
       </motion.div>
 
       <motion.div variants={motionItem} className="grid grid-cols-1 gap-4 xl:grid-cols-[1.05fr_0.95fr]">

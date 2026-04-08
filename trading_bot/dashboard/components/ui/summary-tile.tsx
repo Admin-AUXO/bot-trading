@@ -30,7 +30,7 @@ export function SummaryTile({
   className,
 }: SummaryTileProps) {
   return (
-    <div className={cn("card py-3", toneClassMap[tone], className)}>
+    <div className={cn("rounded-xl border px-3 py-3 backdrop-blur-sm", toneClassMap[tone], className)}>
       <div className="mb-1 flex items-center gap-1.5">
         {icon}
         <div className="text-[10px] uppercase tracking-wider text-text-muted">{label}</div>

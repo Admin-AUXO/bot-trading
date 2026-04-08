@@ -6,27 +6,27 @@ export interface DashboardPageMeta {
 export const DASHBOARD_PAGE_META: Record<string, DashboardPageMeta> = {
   "/": {
     title: "Overview",
-    description: "Capital, exposure, regime, and the next decisions that matter.",
+    description: "Runtime capital, forced exits, deployment, and the next thing that can hurt you.",
   },
   "/positions": {
     title: "Positions",
-    description: "Open risk, recent closes, and capacity missed by max-position pressure.",
+    description: "Open risk, close history, and the queue of trades the bot could not take.",
   },
   "/trades": {
     title: "Trades",
-    description: "Execution history, signal flow, and filter-aware trade outcomes.",
+    description: "Fill tape, signal decisions, and whether execution is paying for itself.",
   },
   "/analytics": {
     title: "Analytics",
-    description: "Strategy expectancy, regime fit, and where the edge is leaking.",
+    description: "Edge quality, execution drag, regime fit, and where the system leaks alpha.",
   },
   "/quota": {
     title: "API Quota",
-    description: "Provider runway, endpoint spenders, and when quota pressure starts steering the bot.",
+    description: "Provider runway, endpoint concentration, and where quota starts steering runtime.",
   },
   "/settings": {
     title: "Settings",
-    description: "Bot controls, operator access, risk guardrails, and active profiles.",
+    description: "Command surface, operator access, live guardrails, and profile routing.",
   },
 };
 

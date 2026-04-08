@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useTheme } from "next-themes";
 import { usePathname } from "next/navigation";
 import { motion } from "motion/react";
@@ -17,7 +18,7 @@ import { useDashboardFilters } from "@/hooks/use-dashboard-filters";
 import { useDashboardShell } from "@/hooks/use-dashboard-shell";
 import { ACTIVE_MODE_FILTER, ACTIVE_PROFILE_FILTER, ALL_TRADE_SOURCE_FILTER } from "@/lib/store";
 import { getDashboardPageMeta } from "@/lib/page-meta";
-import { cn, formatPercent, formatUsd, pnlClass, regimeBadge, strategyLabel, timeAgo } from "@/lib/utils";
+import { cn, formatUsd, pnlClass, regimeBadge, strategyLabel, timeAgo } from "@/lib/utils";
 
 const STRATEGY_FILTERS = [
   { value: "", label: "All strategies" },
@@ -63,7 +64,6 @@ export function Header() {
     openPnlUsd,
     openSlots,
     allPositions,
-    deployedCapitalUsd,
     lastUpdatedAt,
     maxOpenPositions,
     worstQuota,
@@ -74,49 +74,62 @@ export function Header() {
   const regime = overview?.regime ? regimeBadge(overview.regime.regime) : null;
   const isRunning = overview?.isRunning ?? heartbeat?.isRunning ?? false;
   const updatedLabel = lastUpdatedAt ? timeAgo(new Date(lastUpdatedAt)) : "awaiting sync";
-  const runtimeModeLabel = activeScope?.mode === "LIVE" ? "Live" : activeScope?.mode === "DRY_RUN" ? "Simulation" : "Runtime";
-  const analysisSummary = [
-    effectiveMode === "LIVE"
-      ? "Live history"
-      : effectiveMode === "DRY_RUN"
-        ? "Simulation history"
-        : "Active lane pending",
-    effectiveProfile ?? "runtime profile pending",
-    selectedTradeSource === ALL_TRADE_SOURCE_FILTER ? "all sources" : `${selectedTradeSource.toLowerCase()} focus`,
-  ].join(" · ");
-  const selectedStrategyRuntimeCount = selectedStrategy
-    ? allPositions.filter((position) => position.strategy === selectedStrategy).length
-    : null;
+  const runtimeModeLabel =
+    activeScope?.mode === "LIVE"
+      ? "Live"
+      : activeScope?.mode === "DRY_RUN"
+        ? "Simulation"
+        : "Runtime";
+  const runtimeLabel = activeScope ? `${runtimeModeLabel} / ${activeScope.configProfile}` : "Runtime pending";
+  const analysisLabel = effectiveMode && effectiveProfile
+    ? `${effectiveMode === "LIVE" ? "Live" : "Simulation"} / ${effectiveProfile}`
+    : "Analysis pending";
   const analysisDiffersFromRuntime = activeScope != null && (
     effectiveMode !== activeScope.mode
     || effectiveProfile !== activeScope.configProfile
     || selectedTradeSource !== ALL_TRADE_SOURCE_FILTER
   );
+  const selectedStrategyRuntimeCount = selectedStrategy
+    ? allPositions.filter((position) => position.strategy === selectedStrategy).length
+    : null;
 
   return (
-    <header className="sticky top-0 z-40 border-b border-bg-border/80 bg-bg-secondary/85 backdrop-blur-xl">
+    <header className="sticky top-0 z-40 border-b border-bg-border/80 bg-bg-secondary/88 backdrop-blur-xl">
       <div className="mx-auto flex w-full max-w-[1680px] flex-col gap-3 px-4 py-3 lg:px-6">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-          <div className="min-w-0 flex-1 space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <BotStateBadge isRunning={isRunning} pauseReasons={pauseReasons} />
-              <StatusChip
-                icon={<Radio className="h-3.5 w-3.5" />}
-                label={connectionState === "online" ? "Realtime" : connectionState === "degraded" ? "Cached" : "Offline"}
-                tone={connectionState === "online" ? "positive" : connectionState === "degraded" ? "warning" : "danger"}
-              />
-              {regime ? <span className={`badge ${regime.class}`}>{regime.label}</span> : null}
-              {activeScope ? (
-                <StatusChip
-                  icon={<Layers3 className="h-3.5 w-3.5" />}
-                  label={`${runtimeModeLabel} / ${activeScope.configProfile}`}
-                  tone={activeScope.mode === "LIVE" ? "positive" : "warning"}
-                />
-              ) : null}
-              {worstQuota ? <QuotaChip service={worstQuota.service} status={worstQuota.quotaStatus} /> : null}
-              <OperatorChip state={operatorAccess} />
-            </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <BotStateBadge isRunning={isRunning} pauseReasons={pauseReasons} />
+          <StatusChip
+            icon={<Radio className="h-3.5 w-3.5" />}
+            label={
+              connectionState === "online"
+                ? "Realtime"
+                : connectionState === "degraded"
+                  ? "Cached"
+                  : "Offline"
+            }
+            tone={connectionState === "online" ? "positive" : connectionState === "degraded" ? "warning" : "danger"}
+          />
+          {regime ? <span className={`badge ${regime.class}`}>{regime.label}</span> : null}
+          {activeScope ? (
+            <StatusChip
+              icon={<Layers3 className="h-3.5 w-3.5" />}
+              label={runtimeLabel}
+              tone={activeScope.mode === "LIVE" ? "positive" : "warning"}
+            />
+          ) : null}
+          {worstQuota ? <QuotaChip service={worstQuota.service} status={worstQuota.quotaStatus} /> : null}
+          {pauseReasons.length > 0 ? (
+            <StatusChip
+              icon={<ShieldAlert className="h-3.5 w-3.5" />}
+              label={`${pauseReasons.length} blocker${pauseReasons.length > 1 ? "s" : ""}`}
+              tone="warning"
+            />
+          ) : null}
+          <OperatorChip state={operatorAccess} />
+        </div>
 
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+          <div className="min-w-0 flex-1 space-y-2">
             <div className="min-w-0">
               <h1 className="truncate text-base font-semibold tracking-tight text-text-primary lg:text-lg">
                 {pageMeta.title}
@@ -126,104 +139,105 @@ export function Header() {
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-text-muted">
-              <span>Updated {updatedLabel}</span>
-              <span>{allPositions.length} open positions</span>
-              {selectedStrategy && selectedStrategyRuntimeCount != null ? (
-                <span>{selectedStrategyRuntimeCount} runtime {strategyLabel(selectedStrategy)} positions</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <MetaChip label={`Updated ${updatedLabel}`} />
+              <MetaChip label={`Analysis ${analysisLabel}`} />
+              {selectedStrategy ? (
+                <MetaChip label={`${strategyLabel(selectedStrategy)} focus`} />
               ) : null}
-              <span>{openSlots}/{maxOpenPositions} slots open</span>
-              <span>Analysis {analysisSummary}</span>
-              {analysisDiffersFromRuntime ? <span>Runtime metrics stay on the active lane</span> : null}
-              {selectedTradeSource !== ALL_TRADE_SOURCE_FILTER ? <span>Source filter applies only where telemetry carries it</span> : null}
-              {heartbeat?.lastTradeAt ? <span>Last trade {timeAgo(heartbeat.lastTradeAt)}</span> : null}
-              {heartbeat?.lastSignalAt ? <span>Last signal {timeAgo(heartbeat.lastSignalAt)}</span> : null}
+              {selectedTradeSource !== ALL_TRADE_SOURCE_FILTER ? (
+                <MetaChip label={`${selectedTradeSource.toLowerCase()} fills only`} tone="warning" />
+              ) : null}
+              {analysisDiffersFromRuntime ? (
+                <MetaChip label={`Runtime fixed to ${runtimeLabel}`} tone="warning" />
+              ) : null}
+              {heartbeat?.lastTradeAt ? <MetaChip label={`Trade ${timeAgo(heartbeat.lastTradeAt)}`} /> : null}
+              {heartbeat?.lastSignalAt ? <MetaChip label={`Signal ${timeAgo(heartbeat.lastSignalAt)}`} /> : null}
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:min-w-[520px]">
-            <HeaderMetric
-              label="Capital"
+          <div className="grid grid-cols-3 gap-2 xl:min-w-[430px]">
+            <CompactMetric
+              label="Wallet"
               value={overview ? formatUsd(overview.walletCapitalUsd) : "—"}
               sub={overview ? `${overview.walletCapitalSol.toFixed(2)} SOL` : "Waiting for feed"}
             />
-            <HeaderMetric
+            <CompactMetric
               label="Open P&L"
               value={formatUsd(openPnlUsd)}
+              sub={`${allPositions.length} live position${allPositions.length === 1 ? "" : "s"}`}
               valueClass={pnlClass(openPnlUsd)}
-              sub={`${allPositions.length} active positions`}
             />
-            <HeaderMetric
-              label="Live Exposure"
-              value={overview ? formatUsd(deployedCapitalUsd) : "—"}
-              sub={overview ? `${Math.min(100, (deployedCapitalUsd / Math.max(overview.walletCapitalUsd + deployedCapitalUsd, 1)) * 100).toFixed(0)}% at work` : "No capital snapshot"}
-            />
-            <HeaderMetric
-              label="Today Realized"
-              value={overview ? formatUsd(overview.todayPnl) : "—"}
-              valueClass={pnlClass(overview?.todayPnl ?? 0)}
-              sub={`${openSlots} slots open`}
+            <CompactMetric
+              label="Slots Open"
+              value={String(openSlots)}
+              sub={`${maxOpenPositions - openSlots}/${maxOpenPositions} used`}
             />
           </div>
         </div>
 
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex flex-1 flex-col gap-2">
-            <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Analysis Filters</div>
-            <div className="flex flex-wrap items-center gap-2">
-              <FilterPillGroup
-                items={MODE_FILTERS.map((filter) => ({
-                  ...filter,
-                  onClick: () => setSelectedMode(filter.value),
-                  selected: selectedMode === filter.value,
-                }))}
-              />
+        <div className="rounded-xl border border-bg-border/80 bg-bg-card/60 p-3">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="min-w-0 flex-1">
+              <div className="section-kicker">Analysis Controls</div>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <FilterPillGroup
+                  items={MODE_FILTERS.map((filter) => ({
+                    ...filter,
+                    onClick: () => setSelectedMode(filter.value),
+                    selected: selectedMode === filter.value,
+                  }))}
+                />
 
-              <HeaderSelect
-                label="Profile"
-                value={selectedProfile}
-                onChange={(value) => setSelectedProfile(value)}
-                options={[
-                  {
-                    value: ACTIVE_PROFILE_FILTER,
-                    label: activeScope ? `Active profile (${activeScope.configProfile})` : "Active profile",
-                  },
-                  ...profileOptions.map((profile) => ({
-                    value: profile.name,
-                    label: profile.isActive ? `${profile.name} · active` : profile.name,
-                  })),
-                ]}
-              />
+                <HeaderSelect
+                  label="Profile"
+                  value={selectedProfile}
+                  onChange={(value) => setSelectedProfile(value)}
+                  options={[
+                    {
+                      value: ACTIVE_PROFILE_FILTER,
+                      label: activeScope ? `Active profile (${activeScope.configProfile})` : "Active profile",
+                    },
+                    ...profileOptions.map((profile) => ({
+                      value: profile.name,
+                      label: profile.isActive ? `${profile.name} · active` : profile.name,
+                    })),
+                  ]}
+                />
 
-              <FilterPillGroup
-                items={TRADE_SOURCE_FILTERS.map((filter) => ({
-                  ...filter,
-                  onClick: () => setSelectedTradeSource(filter.value),
-                  selected: selectedTradeSource === filter.value,
-                }))}
-              />
+                <FilterPillGroup
+                  items={TRADE_SOURCE_FILTERS.map((filter) => ({
+                    ...filter,
+                    onClick: () => setSelectedTradeSource(filter.value),
+                    selected: selectedTradeSource === filter.value,
+                  }))}
+                />
+              </div>
+
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <FilterPillGroup
+                  items={STRATEGY_FILTERS.map((filter) => ({
+                    ...filter,
+                    onClick: () => setSelectedStrategy(filter.value || null),
+                    selected: (selectedStrategy ?? "") === filter.value,
+                  }))}
+                />
+
+                {selectedStrategy && selectedStrategyRuntimeCount != null ? (
+                  <MetaChip
+                    label={`${selectedStrategyRuntimeCount} runtime ${strategyLabel(selectedStrategy).toLowerCase()} position${selectedStrategyRuntimeCount === 1 ? "" : "s"}`}
+                  />
+                ) : null}
+              </div>
             </div>
 
-            <FilterPillGroup
-              items={STRATEGY_FILTERS.map((filter) => ({
-                ...filter,
-                onClick: () => setSelectedStrategy(filter.value || null),
-                selected: (selectedStrategy ?? "") === filter.value,
-              }))}
-            />
-          </div>
-
-          <div className="flex items-center justify-between gap-3 xl:justify-end">
-            <div className="text-right text-[11px] text-text-muted">
-              {overview?.regime ? `SOL ${formatUsd(overview.regime.solPrice)} · ${formatPercent(overview.regime.solChange1h)} 1h` : "Awaiting regime feed"}
-            </div>
             <button
               onClick={() => setTheme(resolvedTheme === "light" ? "dark" : "light")}
-              className="inline-flex items-center gap-2 rounded-lg border border-bg-border bg-bg-card/70 px-3 py-1.5 text-xs text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
+              className="inline-flex items-center justify-center gap-2 self-start rounded-lg border border-bg-border bg-bg-card/80 px-3 py-2 text-xs text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary xl:self-center"
               title="Toggle theme"
             >
               {resolvedTheme === "light" ? <Moon className="h-3.5 w-3.5" /> : <Sun className="h-3.5 w-3.5" />}
-              <span>{resolvedTheme === "light" ? "Dark" : "Light"} theme</span>
+              <span className="hidden sm:inline">{resolvedTheme === "light" ? "Dark" : "Light"} theme</span>
             </button>
           </div>
         </div>
@@ -311,7 +325,7 @@ function StatusChip({
   label,
   tone,
 }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   label: string;
   tone: "positive" | "warning" | "danger";
 }) {
@@ -330,7 +344,7 @@ function StatusChip({
   );
 }
 
-function HeaderMetric({
+function CompactMetric({
   label,
   value,
   sub,
@@ -342,11 +356,25 @@ function HeaderMetric({
   valueClass?: string;
 }) {
   return (
-    <div className="rounded-2xl border border-bg-border/80 bg-bg-card/65 px-3 py-3">
-      <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted">{label}</div>
-      <div className={cn("mt-1 text-sm font-semibold tabular-nums text-text-primary", valueClass)}>{value}</div>
+    <div className="micro-stat">
+      <div className="micro-stat-label">{label}</div>
+      <div className={cn("micro-stat-value", valueClass)}>{value}</div>
       <div className="mt-1 text-[11px] text-text-muted">{sub}</div>
     </div>
+  );
+}
+
+function MetaChip({
+  label,
+  tone = "default",
+}: {
+  label: string;
+  tone?: "default" | "warning";
+}) {
+  return (
+    <span className={cn("meta-chip", tone === "warning" ? "border-accent-yellow/20 bg-accent-yellow/8 text-accent-yellow" : "")}>
+      {label}
+    </span>
   );
 }
 

@@ -30,7 +30,6 @@ import {
   Database,
   Heart,
   Shield,
-  Target,
   TrendingUp,
   Wallet,
   Zap,
@@ -58,6 +57,7 @@ export default function OverviewPage() {
     maxOpenPositions,
     quotaSnapshots,
     pauseReasons,
+    worstQuota,
   } = useDashboardShell();
 
   const apiUsageQuery = useQuery(apiUsageQueryOptions(7));
@@ -80,6 +80,9 @@ export default function OverviewPage() {
   const analysisLabel = analysisScopeReady
     ? `${effectiveMode === "LIVE" ? "live" : "simulation"} ${effectiveProfile}`
     : "analysis lane pending";
+  const dailyLossHeadroom = overview
+    ? Math.max(0, overview.dailyLossLimit - overview.dailyLossUsd)
+    : 0;
 
   const recentFlow = useMemo(() => {
     const totals = recentStats.reduce(
@@ -201,29 +204,54 @@ export default function OverviewPage() {
 
   return (
     <motion.div className="space-y-5" variants={motionContainer} initial="hidden" animate="visible">
-      <motion.div variants={motionItem} className="flex flex-col gap-2 xl:flex-row xl:items-end xl:justify-between">
-        <div>
-          <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Operating Picture</div>
-          <div className="mt-1 text-sm text-text-secondary">
-            {activeScope?.mode === "LIVE" ? "Live" : activeScope?.mode === "DRY_RUN" ? "Simulation" : "Runtime"} scope
-            {activeScope ? ` · ${activeScope.configProfile}` : ""}
-            {analysisScopeReady && (effectiveMode !== activeScope?.mode || effectiveProfile !== activeScope?.configProfile)
-              ? ` · analysis ${analysisLabel}`
-              : !analysisScopeReady
-                ? ` · ${analysisLabel}`
-                : ""}
-            {" · "}updated {updatedLabel}
+      <motion.div variants={motionItem} className="panel-shell">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div className="min-w-0 flex-1">
+            <div className="section-kicker">Runtime Desk</div>
+            <div className="mt-2 text-sm text-text-secondary">
+              Keep this page for capital, forced exits, and runtime pressure. If it is not actionable, it is noise.
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span className="meta-chip">
+                {activeScope?.mode === "LIVE" ? "Live" : activeScope?.mode === "DRY_RUN" ? "Simulation" : "Runtime"}
+                {activeScope ? ` / ${activeScope.configProfile}` : ""}
+              </span>
+              <span className="meta-chip">Updated {updatedLabel}</span>
+              <span className="meta-chip">{activeStrategiesCount} strategies engaged</span>
+              <span className="meta-chip">{manualPositions} manual positions</span>
+              <span className="meta-chip">{openSlots} of {maxOpenPositions} slots open</span>
+              {analysisScopeReady && (effectiveMode !== activeScope?.mode || effectiveProfile !== activeScope?.configProfile) ? (
+                <span className="meta-chip border-accent-yellow/20 bg-accent-yellow/8 text-accent-yellow">
+                  Inspecting analysis lane {analysisLabel}
+                </span>
+              ) : null}
+            </div>
           </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 text-[11px] text-text-muted">
-          <span>{activeStrategiesCount} strategies engaged</span>
-          <span>{manualPositions} manual overrides</span>
-          <span>{openSlots} of {maxOpenPositions} slots available</span>
-          {pauseReasons.length > 0 ? <span>{pauseReasons.length} blockers active</span> : null}
+
+          <div className="panel-muted xl:max-w-[360px]">
+            <div className="section-kicker">{topUrgentPosition ? "Needs Attention" : "Queue Status"}</div>
+            <div className="mt-2 text-sm font-medium text-text-primary">
+              {topUrgentPosition
+                ? `${topUrgentPosition.tokenSymbol} is closest to a forced exit`
+                : pauseReasons.length > 0
+                  ? "Runtime is blocked even without an urgent exit"
+                  : "No position is close to forced action"}
+            </div>
+            <div className="mt-2 text-xs text-text-secondary">
+              {topUrgentPosition
+                ? `${strategyLabel(topUrgentPosition.strategy)} · ${Math.max(0, topUrgentPosition.stopDistance).toFixed(1)}% stop cushion · ${topUrgentPosition.timeRemaining == null ? "time budget pending" : `${Math.max(0, topUrgentPosition.timeRemaining).toFixed(0)}m left`}`
+                : pauseReasons[0] ?? "Stops, time budgets, and quota state are currently clear."}
+            </div>
+            {worstQuota ? (
+              <div className="mt-3 text-[11px] text-text-muted">
+                Worst provider: <span className="font-medium text-text-primary">{worstQuota.service}</span> {worstQuota.quotaStatus.toLowerCase().replace("_", " ")}
+              </div>
+            ) : null}
+          </div>
         </div>
       </motion.div>
 
-      <motion.div variants={motionItem} className="grid grid-cols-2 gap-3 xl:grid-cols-6">
+      <motion.div variants={motionItem} className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
         <SummaryTile
           label="Capital"
           value={formatUsd(overview.walletCapitalUsd)}
@@ -253,20 +281,9 @@ export default function OverviewPage() {
           icon={<Zap className="h-3.5 w-3.5 text-accent-purple" />}
         />
         <SummaryTile
-          label="Next Forced Exit"
-          value={topUrgentPosition
-            ? `${topUrgentPosition.tokenSymbol} · ${topUrgentPosition.timeRemaining == null ? "config pending" : `${Math.max(0, topUrgentPosition.timeRemaining).toFixed(0)}m`}`
-            : "Clear"}
-          sub={topUrgentPosition
-            ? `${strategyLabel(topUrgentPosition.strategy)} · ${Math.max(0, topUrgentPosition.stopDistance).toFixed(1)}% stop cushion`
-            : "Stops and time budgets are clear"}
-          icon={<Target className="h-3.5 w-3.5 text-accent-yellow" />}
-          tone={topUrgentPosition ? "warning" : "positive"}
-        />
-        <SummaryTile
-          label="Loss Utilization"
-          value={`${overview.dailyLossLimit > 0 ? ((overview.dailyLossUsd / overview.dailyLossLimit) * 100).toFixed(0) : "0"}%`}
-          sub={`${formatUsd(overview.dailyLossUsd)} of ${formatUsd(overview.dailyLossLimit)}`}
+          label="Loss Buffer"
+          value={formatUsd(dailyLossHeadroom)}
+          sub={`${overview.dailyLossLimit > 0 ? ((overview.dailyLossUsd / overview.dailyLossLimit) * 100).toFixed(0) : "0"}% of daily limit used`}
           icon={<Shield className="h-3.5 w-3.5 text-accent-red" />}
           tone={overview.dailyLossLimit > 0 && overview.dailyLossUsd / overview.dailyLossLimit > 0.7 ? "danger" : "default"}
         />
@@ -278,7 +295,7 @@ export default function OverviewPage() {
             <div className="mb-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Heart className="h-4 w-4 text-accent-red" />
-                <span className="stat-label">System State</span>
+                <span className="stat-label">Runtime State</span>
               </div>
               {regime ? <span className={`badge ${regime.class}`}>{regime.label}</span> : null}
             </div>
@@ -321,7 +338,7 @@ export default function OverviewPage() {
             <div className="mb-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="h-4 w-4 text-accent-yellow" />
-                <span className="stat-label">Risk Queue</span>
+                <span className="stat-label">Exit Queue</span>
               </div>
               <span className="text-[11px] text-text-muted">{urgentPositions.length ? "Closest to forced action" : "No urgent exits"}</span>
             </div>
@@ -379,7 +396,7 @@ export default function OverviewPage() {
             <div className="mb-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <BarChart3 className="h-4 w-4 text-accent-blue" />
-                <span className="stat-label">Strategy Exposure</span>
+                <span className="stat-label">Deployment</span>
               </div>
               <span className="text-[11px] text-text-muted">{strategyExposure.length || 0} active buckets</span>
             </div>
@@ -414,7 +431,7 @@ export default function OverviewPage() {
             <div className="mb-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Database className="h-4 w-4 text-accent-green" />
-                <span className="stat-label">Quota Pulse</span>
+                <span className="stat-label">Provider Pressure</span>
               </div>
               <span className="text-[11px] text-text-muted">Worst services and top spenders</span>
             </div>
