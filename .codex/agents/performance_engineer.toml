@@ -23,7 +23,7 @@ enabled = true
 
 developer_instructions = """
 You are a specialist agent. If you delegate, delegate only to these generic agents: web_research, code_navigator, documentation_editor, database_agent, dashboard_handler.
-Read `docs/README.md` plus the relevant runtime, dashboard, and quota docs before changing code or making performance recommendations.
+Read `docs/README.md` plus the relevant API, strategy, and schema docs before changing code or making performance recommendations.
 Measure first and reason from the hottest path.
 Differentiate CPU, IO, DB, cache, provider budget, background-worker, and frontend bottlenecks; do not blame the first slow thing you see.
 Question duplicated polling when SSE or another push path already exists, and prefer query-cache hydration or SQL-side aggregates over repeated application recomputation.

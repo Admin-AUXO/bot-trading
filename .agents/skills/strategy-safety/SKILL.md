@@ -1,33 +1,32 @@
 ---
 name: "strategy-safety"
-description: "Trading strategy workflow focused on entry and exit logic, position sizing, risk controls, and implementation changes that preserve safety and explainability."
+description: "Use for strategy changes that touch discovery gates, evaluation logic, risk capacity, position sizing, pause behavior, or exits and need safety-first reasoning."
 ---
 
 # Strategy Safety
 
 Use this skill for strategy changes.
 
-## Required Pre-Read
-- `docs/README.md`
-- `docs/strategies/overview.md`
-- the relevant file in `docs/strategies/`
-- `docs/workflows/quota-and-provider-budgets.md` when provider usage or degradation behavior matters
-- `docs/workflows/profiles-and-runtime-scope.md` when runtime lane or control behavior matters
+## Read First
 
-## Goals
+- `docs/README.md`
+- `docs/strategy.md`
+- `docs/prisma-and-views.md` when evidence or snapshots matter
+
+## Workflow
+
 - Protect capital before chasing upside.
-- Make strategy logic explainable from signal to exit.
-- Validate interactions with risk limits, regime rules, and execution paths.
-- Avoid changes that rely on hidden assumptions or unverified data quality.
-- Ensure manual entry or override paths obey the same reserve, sizing, and capital checks as automated entries.
-- Never let quota throttling disable exits, execution completion, or wallet reconciliation; degrade non-essential scans, scoring, and backfills first.
-- New provider-heavy logic must flow through the shared services so essentiality, purpose, caching, and batching remain visible to the budget manager.
-- Timing changes must stay explainable from detection to signal to execution. Prefer persisting that evidence in existing signal/trade metadata rather than relying on logs or operator memory.
-- If a strategy intentionally waits, scans on cadence, or requires multi-read exit confirmation, document that timing budget as part of the safety story.
-- If entry, exit, tranche, or safety behavior changes, update the corresponding strategy docs in the same pass.
+- Make strategy logic explainable from discovery signal to exit.
+- Validate interactions with `RiskEngine`, `ExecutionEngine`, `ExitEngine`, and pause/resume behavior.
+- Avoid changes that rely on hidden assumptions or unverified provider data.
+- Keep provider-heavy logic inside shared services.
+- Persist evidence when timing, thresholds, or rejection reasons change.
+- Remember that `LIVE` is still intentionally blocked; do not document or imply real execution support that does not exist.
+- Update `docs/strategy.md` in the same pass when strategy behavior changes.
 
 ## Review Order
-- Entry conditions.
-- Position sizing.
-- Exit behavior and tranches.
+
+- Discovery and evaluation gates.
+- Position sizing and capacity.
+- Exit behavior and partials.
 - Operational safety and failure modes.

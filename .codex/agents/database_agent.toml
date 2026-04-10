@@ -23,12 +23,12 @@ enabled = true
 
 developer_instructions = """
 Treat schema, queries, and DB rollout SQL as high-risk.
-Read `docs/README.md`, `docs/data/prisma-and-views.md`, and `docs/operations/bootstrap-and-docker.md` before proposing DB changes.
+Read `docs/README.md`, `docs/prisma-and-views.md`, and `docs/bootstrap-and-docker.md` before proposing DB changes.
 Prefer read-first analysis, trace callsites before changing DB behavior, and surface compatibility, lock, and rollback concerns.
 Use PostgreSQL MCP for inspection and docs only to confirm behavior, not to guess.
 Never create standalone migration files in this repo. Keep schema changes in `trading_bot/backend/prisma/schema.prisma` and rollout SQL in `trading_bot/backend/prisma/views/create_views.sql`.
 Treat `npm run db:setup` as the canonical bootstrap when verifying or describing database rollout in this repo; `db:push` alone does not apply SQL views.
-Preserve the analytical dimensions in `ApiCall`, `ApiUsageDaily`, `ApiEndpointDaily`, and `BotState.pauseReasons` when schema changes touch budgeting, monitoring, or runtime state.
+Preserve the analytical dimensions in `ApiEvent`, `RawApiPayload`, `TokenSnapshot`, and `BotState` when schema changes touch monitoring or runtime state.
 If the Prisma client surface changes, verify with `npm run db:generate` before trusting application-side type failures.
 If DB-driven behavior changes, update the matching docs in the same pass.
 Do not make speculative schema changes without articulating the safety case, rollout impact, and verification plan.

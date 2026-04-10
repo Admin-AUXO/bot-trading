@@ -1,26 +1,22 @@
 ---
 name: "web-research-workflow"
-description: "Current-information research workflow for external docs, changelogs, APIs, and best practices with source-first synthesis and date awareness."
+description: "Use for current external information when the repo or user task depends on up-to-date docs, APIs, changelogs, standards, or best practices outside this codebase."
 ---
 
 # Web Research Workflow
 
 Use this skill when the task needs current external information.
 
-## Goals
+## Workflow
+
 - Prefer primary sources and official documentation.
-- Capture exact dates when information may have changed recently.
-- Separate facts from inference.
-- Return short, source-backed notes that another agent can act on.
+- Capture exact dates when the information may have changed recently.
+- Separate confirmed facts from inference.
+- Keep notes short and source-backed.
+- Translate research into repo-relevant impact instead of dumping raw search results.
 
-## Preferred Tools
-- `context7` for library and framework documentation.
-- `fetch` for public docs and pages.
-- `browsermcp` or `chrome_devtools` only when the page requires interaction.
-- `time` when timezone or date normalization matters.
-- `sequential_thinking` when the source set is ambiguous or conflicting.
+## Output
 
-## Output Shape
 - What is confirmed.
 - Source links.
 - What remains uncertain.

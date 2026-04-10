@@ -8,7 +8,6 @@ COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm,sharing=locked npm ci
 
 FROM deps AS builder
-ENV DATABASE_URL=postgresql://botuser:botpass@postgres:5432/trading_bot
 COPY . .
 RUN npm run db:generate
 RUN npm run build
@@ -26,7 +25,6 @@ COPY --chown=node:node --from=builder /app/package.json ./
 COPY --chown=node:node --from=builder /app/package-lock.json ./
 COPY --chown=node:node --from=builder /app/prisma.config.ts ./
 USER node
-
 CMD ["npm", "run", "db:setup"]
 
 FROM base AS runner

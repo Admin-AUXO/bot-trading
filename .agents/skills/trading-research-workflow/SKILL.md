@@ -1,23 +1,25 @@
 ---
 name: "trading-research-workflow"
-description: "Workflow for current research on Solana trading APIs, protocol changes, execution constraints, and market-data provider behavior with source-backed synthesis."
+description: "Use for current research on Solana trading APIs, provider behavior, execution constraints, pricing, and protocol changes that could affect this repo's integrations or assumptions."
 ---
 
 # Trading Research Workflow
 
-Use this skill for current trading and provider research.
+Use this skill when current external facts about Birdeye, Helius, Solana, or execution constraints matter.
 
-## Goals
-- Prioritize official docs and changelogs.
-- Capture exact dates and version changes.
+Do not use this skill for generic research. Use `web-research-workflow` when the topic is not specifically trading or provider related.
+
+## Workflow
+
+- Prioritize official docs, changelogs, pricing pages, and provider API references.
+- Capture exact dates, version changes, and deprecations.
 - Distinguish provider facts from strategy recommendations.
-- Summarize impact on this repo's integrations.
-- Capture current plan quotas, endpoint credit/CU costs, and whether repo defaults or docs should be updated to match the provider’s current billing model.
-- Call out when a provider endpoint is dormant in this repo, duplicated by a cheaper path, or only worth probing behind an explicit full-audit mode.
+- Summarize impact on this repo's actual integrations, defaults, and dormant surfaces.
+- Capture endpoint costs, quotas, or latency claims only from source-backed material.
+- Call out when a provider path appears redundant, deprecated, or unused in this repo.
 
-## Preferred Tools
-- `fetch` for public docs and changelogs.
-- `browsermcp` or `chrome_devtools` for interactive docs sites.
-- `context7` when library wrappers are involved.
-- `time` for release-date normalization.
-- `sequential_thinking` for comparing provider tradeoffs.
+## Output
+
+- What changed or is confirmed now.
+- Why it matters to this repo.
+- Source links and dates.

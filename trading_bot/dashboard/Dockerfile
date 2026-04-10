@@ -9,19 +9,13 @@ RUN --mount=type=cache,target=/root/.npm,sharing=locked npm ci
 
 FROM deps AS builder
 COPY . .
-ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
 FROM base AS runner
 ENV NODE_ENV=production
-ENV NEXT_TELEMETRY_DISABLED=1
-ENV HOSTNAME=0.0.0.0
-ENV PORT=3000
-COPY --chown=node:node --from=builder /app/.next/standalone ./
-COPY --chown=node:node --from=builder /app/.next/static ./app/.next/static
-
-WORKDIR /app/app
-USER node
-
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./package.json
 EXPOSE 3000
-CMD ["node", "server.js"]
+CMD ["npm", "run", "start"]

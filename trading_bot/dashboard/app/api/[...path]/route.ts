@@ -1,98 +1,42 @@
-import type { NextRequest } from "next/server";
-import {
-  getDashboardControlSecret,
-  hasOperatorSession,
-} from "@/lib/server/operator-session-core";
+import { NextRequest } from "next/server";
 
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
+const API_URL = process.env.API_URL ?? "http://127.0.0.1:3001";
+const CONTROL_SECRET = process.env.CONTROL_SECRET ?? process.env.CONTROL_API_SECRET;
 
-const BACKEND = process.env.API_URL ?? "http://localhost:3001";
+async function proxy(request: NextRequest, path: string[]) {
+  const url = new URL(`${API_URL}/api/${path.join("/")}`);
+  request.nextUrl.searchParams.forEach((value, key) => {
+    url.searchParams.set(key, value);
+  });
 
-function shouldProxyWithControlSecret(
-  method: string,
-  path: string[],
-): boolean {
-  if (!["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase())) {
-    return true;
+  const init: RequestInit = {
+    method: request.method,
+    headers: {
+      "content-type": request.headers.get("content-type") ?? "application/json",
+      ...(CONTROL_SECRET && !["GET", "HEAD"].includes(request.method) ? { "x-control-secret": CONTROL_SECRET } : {}),
+    },
+    cache: "no-store",
+  };
+
+  if (!["GET", "HEAD"].includes(request.method)) {
+    init.body = await request.text();
   }
 
-  return path.length === 1 && path[0] === "stream";
+  const response = await fetch(url, init);
+  return new Response(response.body, {
+    status: response.status,
+    headers: {
+      "content-type": response.headers.get("content-type") ?? "application/json",
+    },
+  });
 }
 
-async function proxy(
-  request: NextRequest,
-  { params }: { params: Promise<{ path: string[] }> }
-): Promise<Response> {
-  const { path } = await params;
-  const controlSecret = getDashboardControlSecret();
-  const requiresControlSecret = shouldProxyWithControlSecret(request.method, path);
-  const target = new URL(`/api/${path.join("/")}${request.nextUrl.search}`, BACKEND);
-
-  if (requiresControlSecret && !controlSecret) {
-    return Response.json(
-      { error: "Dashboard control secret is not configured" },
-      { status: 503 },
-    );
-  }
-
-  if (
-    !["GET", "HEAD", "OPTIONS"].includes(request.method.toUpperCase()) &&
-    !hasOperatorSession(request)
-  ) {
-    return Response.json(
-      { error: "Operator session required" },
-      { status: 401 },
-    );
-  }
-
-  const headers = new Headers(request.headers);
-  headers.delete("host");
-  headers.delete("content-length");
-  headers.delete("connection");
-  headers.delete("transfer-encoding");
-  headers.delete("accept-encoding");
-  headers.delete("authorization");
-
-  if (requiresControlSecret) {
-    headers.set("authorization", `Bearer ${controlSecret}`);
-  }
-
-  const body =
-    request.method !== "GET" && request.method !== "HEAD"
-      ? await request.arrayBuffer()
-      : undefined;
-
-  try {
-    const upstream = await fetch(target, { method: request.method, headers, body });
-    const upstreamCt = upstream.headers.get("content-type") ?? "application/json";
-
-    if (upstreamCt.includes("text/event-stream")) {
-      return new Response(upstream.body, {
-        status: upstream.status,
-        headers: {
-          "content-type": "text/event-stream",
-          "cache-control": "no-cache",
-          connection: "keep-alive",
-        },
-      });
-    }
-
-    return new Response(await upstream.arrayBuffer(), {
-      status: upstream.status,
-      headers: { "content-type": upstreamCt },
-    });
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    const status = code === "ETIMEDOUT" || code === "EHOSTUNREACH" ? 504 : 503;
-    return Response.json({ error: "Backend unavailable" }, { status });
-  }
+export async function GET(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
+  const { path } = await context.params;
+  return proxy(request, path);
 }
 
-export const GET = proxy;
-export const POST = proxy;
-export const PUT = proxy;
-export const DELETE = proxy;
-export const PATCH = proxy;
-export const HEAD = proxy;
-export const OPTIONS = proxy;
+export async function POST(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
+  const { path } = await context.params;
+  return proxy(request, path);
+}

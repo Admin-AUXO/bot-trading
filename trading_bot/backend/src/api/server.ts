@@ -1,205 +1,179 @@
 import express from "express";
-import cors from "cors";
-import helmet from "helmet";
-import compression from "compression";
-import pinoHttp from "pino-http";
-import rateLimit from "express-rate-limit";
-import type { Request, Response, NextFunction } from "express";
-import { config } from "../config/index.js";
-import { logger, createChildLogger } from "../utils/logger.js";
 import { db } from "../db/client.js";
-import { getLaneTodaySummary } from "./lane-summary.js";
-import { getLaneActivity } from "./lane-activity.js";
-import { serializeOpenPosition } from "./serializers/position.js";
-import { overviewRouter } from "./routes/overview.js";
-import { positionsRouter } from "./routes/positions.js";
-import { tradesRouter } from "./routes/trades.js";
-import { analyticsRouter } from "./routes/analytics.js";
-import { controlRouter } from "./routes/control.js";
-import { profilesRouter } from "./routes/profiles.js";
-import { requireBearerToken } from "./middleware/auth.js";
-import type { ApiBudgetManager } from "../core/api-budget-manager.js";
-import type { ExitMonitor } from "../core/exit-monitor.js";
-import type { PositionTracker } from "../core/position-tracker.js";
-import type { RiskManager } from "../core/risk-manager.js";
-import type { RegimeDetector } from "../core/regime-detector.js";
-import type { RuntimeState } from "../core/runtime-state.js";
+import { env } from "../config/env.js";
+import type { BotSettings, RuntimeSnapshot } from "../types/domain.js";
 
-const log = createChildLogger("api");
+function parseLimit(value: unknown, fallback: number, max: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return Math.min(Math.floor(parsed), max);
+}
 
 export function createApiServer(deps: {
-  riskManager: unknown;
-  positionTracker: unknown;
-  exitMonitor?: unknown;
-  regimeDetector: unknown;
-  configProfileManager: unknown;
-  tradeExecutor?: unknown;
-  dbClient?: typeof db;
-  runtimeState?: RuntimeState;
-  apiBudgetManager?: ApiBudgetManager;
-  walletReconciler?: () => Promise<number | null>;
-  applyRuntimeProfile?: (profileName: string) => Promise<{ scope: { mode: "LIVE" | "DRY_RUN"; configProfile: string }; status: "active" | "activated" }>;
+  getSnapshot: () => Promise<RuntimeSnapshot>;
+  getSettings: () => Promise<BotSettings>;
+  patchSettings: (input: Partial<BotSettings>) => Promise<BotSettings>;
+  pause: (reason?: string) => Promise<void>;
+  resume: () => Promise<void>;
+  triggerDiscovery: () => Promise<void>;
+  triggerEvaluation: () => Promise<void>;
+  triggerExitCheck: () => Promise<void>;
 }) {
   const app = express();
-  const database = deps.dbClient ?? db;
-  const streamClients = new Set<Response>();
-  let streamInterval: ReturnType<typeof setInterval> | undefined;
-  let publishInFlight = false;
-  let publishQueued = false;
-  let lastStreamPayload = "";
-  app.use(cors({
-    origin: [
-      `http://localhost:${config.dashboardPort}`,
-      `http://127.0.0.1:${config.dashboardPort}`,
-    ],
-  }));
-  app.use(helmet({ contentSecurityPolicy: false, crossOriginResourcePolicy: { policy: "same-site" } }));
-  app.use(compression());
-  app.use(pinoHttp({ logger }));
   app.use(express.json());
 
-  const controlLimiter = rateLimit({
-    windowMs: config.api.controlRateLimitWindowMs,
-    max: config.api.controlRateLimitMax,
-    standardHeaders: true,
-    legacyHeaders: false,
+  app.use("/api/control", (req, res, next) => {
+    if (!env.CONTROL_API_SECRET) return next();
+    if (req.headers["x-control-secret"] === env.CONTROL_API_SECRET) return next();
+    return res.status(401).json({ error: "unauthorized" });
   });
 
-  app.use("/api/overview", overviewRouter(deps));
-  app.use("/api/positions", positionsRouter({
-    tradeExecutor: deps.tradeExecutor,
-    positionTracker: deps.positionTracker,
-    dbClient: deps.dbClient,
-    runtimeState: deps.runtimeState,
-  }));
-  app.use("/api/trades", tradesRouter({ runtimeState: deps.runtimeState }));
-  app.use("/api/analytics", analyticsRouter({ runtimeState: deps.runtimeState }));
-  app.use("/api/control", controlLimiter, controlRouter({
-    riskManager: deps.riskManager,
-    tradeExecutor: deps.tradeExecutor,
-    positionTracker: deps.positionTracker,
-    exitMonitor: deps.exitMonitor,
-    dbClient: deps.dbClient,
-    runtimeState: deps.runtimeState,
-    walletReconciler: deps.walletReconciler,
-  }));
-  app.use("/api/profiles", profilesRouter({
-    configProfileManager: deps.configProfileManager,
-    dbClient: deps.dbClient,
-    runtimeState: deps.runtimeState,
-    applyRuntimeProfile: deps.applyRuntimeProfile,
-  }));
+  app.use("/api/settings", (req, res, next) => {
+    if (req.method === "GET" || !env.CONTROL_API_SECRET) return next();
+    if (req.headers["x-control-secret"] === env.CONTROL_API_SECRET) return next();
+    return res.status(401).json({ error: "unauthorized" });
+  });
 
-  app.get("/api/health", (_req, res) => {
+  app.get("/health", async (_req, res) => {
+    const state = await db.botState.findUnique({ where: { id: "singleton" } });
     res.json({
-      status: "ok",
-      mode: config.tradeMode,
-      uptime: process.uptime(),
+      ok: true,
+      tradeMode: state?.tradeMode ?? "unknown",
     });
   });
 
-  app.get("/api/stream", requireBearerToken, (req, res) => {
-    res.writeHead(200, {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
+  app.get("/api/status", async (_req, res) => {
+    res.json(await deps.getSnapshot());
+  });
+
+  app.get("/api/candidates", async (req, res) => {
+    const limit = parseLimit(req.query.limit, 50, 200);
+    const rows = await db.candidate.findMany({
+      take: limit,
+      orderBy: { discoveredAt: "desc" },
     });
+    res.json(rows);
+  });
 
-    const riskManager = deps.riskManager as RiskManager;
-    const regimeDetector = deps.regimeDetector as RegimeDetector;
-    const buildStreamPayload = async (): Promise<string> => {
-      const snapshot = riskManager.getSnapshot();
-      const regime = regimeDetector.getState();
-      const scope = deps.runtimeState?.scope ?? snapshot.scope;
-      const [summary, laneActivity] = await Promise.all([
-        getLaneTodaySummary(database, scope),
-        getLaneActivity(database, scope),
-      ]);
+  app.get("/api/positions", async (req, res) => {
+    const limit = parseLimit(req.query.limit, 100, 200);
+    const rows = await db.position.findMany({
+      take: limit,
+      orderBy: { openedAt: "desc" },
+      include: { fills: { orderBy: { createdAt: "asc" } } },
+    });
+    res.json(rows);
+  });
 
-      return JSON.stringify({
-        ...snapshot,
-        regime,
-        quotaSnapshots: deps.apiBudgetManager?.getSnapshots() ?? null,
-        lastTradeAt: laneActivity.lastTradeAt,
-        lastSignalAt: laneActivity.lastSignalAt,
-        todayTrades: summary.todayTrades,
-        todayPnl: summary.todayPnl,
-        todayWins: summary.todayWins,
-        todayLosses: summary.todayLosses,
-        openPositions: snapshot.openPositions.map((position) => serializeOpenPosition(position)),
-      });
-    };
+  app.get("/api/fills", async (req, res) => {
+    const limit = parseLimit(req.query.limit, 100, 500);
+    const rows = await db.fill.findMany({
+      take: limit,
+      orderBy: { createdAt: "desc" },
+    });
+    res.json(rows);
+  });
 
-    const publishSnapshot = async (): Promise<void> => {
-      if (publishInFlight) {
-        publishQueued = true;
-        return;
-      }
+  app.get("/api/provider-usage", async (_req, res) => {
+    const rows = await db.apiEvent.findMany({
+      orderBy: { calledAt: "desc" },
+      take: 250,
+    });
+    res.json(rows);
+  });
 
-      publishInFlight = true;
-      try {
-        lastStreamPayload = await buildStreamPayload();
+  app.get("/api/provider-payloads", async (req, res) => {
+    const limit = parseLimit(req.query.limit, 100, 500);
+    const provider = typeof req.query.provider === "string" ? req.query.provider.toUpperCase() : undefined;
+    const endpoint = typeof req.query.endpoint === "string" ? req.query.endpoint : undefined;
+    const entityKey = typeof req.query.entityKey === "string" ? req.query.entityKey : undefined;
+    const rows = await db.rawApiPayload.findMany({
+      where: {
+        provider: provider === "BIRDEYE" || provider === "HELIUS" ? provider : undefined,
+        endpoint: endpoint || undefined,
+        entityKey: entityKey || undefined,
+      },
+      take: limit,
+      orderBy: { capturedAt: "desc" },
+    });
+    res.json(rows);
+  });
 
-        for (const client of [...streamClients]) {
-          try {
-            client.write(`data: ${lastStreamPayload}\n\n`);
-          } catch (err) {
-            streamClients.delete(client);
-            log.warn({ err }, "dropping stale sse client after write failure");
-          }
-        }
-      } catch (err) {
-        log.warn({ err }, "sse stream publish failed");
-      } finally {
-        publishInFlight = false;
-        if (publishQueued) {
-          publishQueued = false;
-          if (streamClients.size > 0) {
-            void publishSnapshot();
-          }
-        }
-      }
-    };
+  app.get("/api/snapshots", async (req, res) => {
+    const limit = parseLimit(req.query.limit, 100, 500);
+    const mint = typeof req.query.mint === "string" ? req.query.mint : undefined;
+    const trigger = typeof req.query.trigger === "string" ? req.query.trigger : undefined;
+    const candidateId = typeof req.query.candidateId === "string" ? req.query.candidateId : undefined;
+    const rows = await db.tokenSnapshot.findMany({
+      where: {
+        mint: mint || undefined,
+        trigger: trigger || undefined,
+        candidateId: candidateId || undefined,
+      },
+      take: limit,
+      orderBy: { capturedAt: "desc" },
+    });
+    res.json(rows);
+  });
 
-    const ensureStreamLoop = (): void => {
-      if (streamInterval) return;
-      streamInterval = setInterval(() => {
-        void publishSnapshot();
-      }, config.api.streamIntervalMs);
-    };
+  app.get("/api/settings", async (_req, res) => {
+    res.json(await deps.getSettings());
+  });
 
-    const maybeStopStreamLoop = (): void => {
-      if (streamClients.size > 0 || !streamInterval) return;
-      clearInterval(streamInterval);
-      streamInterval = undefined;
-      lastStreamPayload = "";
-    };
+  app.post("/api/settings", async (req, res) => {
+    res.json(await deps.patchSettings(req.body ?? {}));
+  });
 
-    streamClients.add(res);
-    ensureStreamLoop();
-    if (lastStreamPayload) {
-      res.write(`data: ${lastStreamPayload}\n\n`);
-    } else {
-      void publishSnapshot();
+  app.post("/api/control/pause", async (req, res) => {
+    await deps.pause(typeof req.body?.reason === "string" ? req.body.reason : undefined);
+    res.json({ ok: true });
+  });
+
+  app.post("/api/control/resume", async (_req, res) => {
+    await deps.resume();
+    res.json({ ok: true });
+  });
+
+  app.post("/api/control/discover-now", async (_req, res) => {
+    await deps.triggerDiscovery();
+    res.json({ ok: true });
+  });
+
+  app.post("/api/control/evaluate-now", async (_req, res) => {
+    await deps.triggerEvaluation();
+    res.json({ ok: true });
+  });
+
+  app.post("/api/control/exit-check-now", async (_req, res) => {
+    await deps.triggerExitCheck();
+    res.json({ ok: true });
+  });
+
+  app.get("/api/views/:name", async (req, res) => {
+    const allowed = new Set([
+      "v_runtime_overview",
+      "v_candidate_funnel_daily",
+      "v_position_performance",
+      "v_api_provider_daily",
+      "v_api_endpoint_efficiency",
+      "v_raw_api_payload_recent",
+      "v_token_snapshot_enriched",
+      "v_candidate_reject_reason_daily",
+      "v_snapshot_trigger_daily",
+      "v_position_exit_reason_daily",
+      "v_runtime_settings_current",
+      "v_candidate_latest_filter_state",
+    ]);
+    const viewName = req.params.name;
+    if (!allowed.has(viewName)) {
+      return res.status(404).json({ error: "view not available" });
     }
-
-    req.on("close", () => {
-      streamClients.delete(res);
-      maybeStopStreamLoop();
-    });
-  });
-
-  app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
-    log.error({ err, method: req.method, path: req.path }, "unhandled route error");
-    res.status(500).json({ error: "internal server error" });
+    const rows = await db.$queryRawUnsafe(`SELECT * FROM ${viewName} LIMIT 500`);
+    return res.json(rows);
   });
 
   return app;
-}
-
-export function startApiServer(deps: Parameters<typeof createApiServer>[0]): void {
-  const app = createApiServer(deps);
-  app.listen(config.port, () => {
-    log.info({ port: config.port, mode: config.tradeMode }, "API server started");
-  });
 }

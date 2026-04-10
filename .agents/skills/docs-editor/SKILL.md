@@ -1,24 +1,20 @@
 ---
 name: "docs-editor"
-description: "Workflow for researching, editing, and validating repository docs so guidance matches the current code."
+description: "Use for README, AGENTS, SKILL, and other agent-facing docs when they need to be audited, deduplicated, or rewritten to match current code and repo contracts."
 ---
 
 # Docs Editor
 
-Use this skill for READMEs, AGENTS guides, runbooks, and developer notes.
+Use this skill for repo-facing documentation, especially agent-only docs.
 
-## Rules
+## Workflow
 
-- Start at `docs/README.md`, then open only the task-specific docs you need before inspecting code.
-- Verify commands, paths, env vars, ports, and route names against code before editing.
-- Do not invent commands, routes, or startup behavior.
+- Start at `docs/README.md` when the task touches repo docs.
+- For skill docs, read the relevant `SKILL.md` files and tighten trigger language before adding body detail.
+- Open only the task-specific docs you need before inspecting code.
+- Verify commands, paths, env vars, ports, route names, and runtime claims against code before editing.
+- Do not invent commands, routes, startup behavior, or repo capabilities.
 - Keep setup and verification steps short and executable.
-- When auth boundaries, DB rollout, quota behavior, or filter contracts change, update every matching doc in the same pass.
-- When provider audits, timing telemetry, or signal/trade evidence paths change, update both the operator docs and any referenced skill docs in the same pass.
+- When contracts change, update every matching doc in the same pass.
+- When a doc tree is stale and duplicated, delete it instead of rewording it.
 - Prefer one canonical statement over repeating the same repo rule in five files.
-
-## Preferred Tools
-
-- `filesystem` for local docs and manifests
-- `context7` for framework details
-- `fetch` only when external docs are required

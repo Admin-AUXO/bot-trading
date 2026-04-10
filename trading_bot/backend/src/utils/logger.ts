@@ -1,16 +1,15 @@
 import pino from "pino";
-import { config } from "../config/index.js";
+import { env } from "../config/env.js";
 
-const transport = config.env === "development"
-  ? pino.transport({
-      target: "pino-pretty",
-      options: { colorize: true, translateTime: "SYS:HH:MM:ss", sync: false },
-    })
-  : undefined;
-
-export const logger = pino(
-  { level: config.logLevel, base: { pid: false }, timestamp: pino.stdTimeFunctions.isoTime },
-  transport,
-);
-
-export const createChildLogger = (name: string) => logger.child({ module: name });
+export const logger = pino({
+  level: env.LOG_LEVEL,
+  transport: env.NODE_ENV === "production"
+    ? undefined
+    : {
+        target: "pino-pretty",
+        options: {
+          colorize: true,
+          translateTime: "SYS:standard",
+        },
+      },
+});

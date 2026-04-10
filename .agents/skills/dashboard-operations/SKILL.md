@@ -1,39 +1,32 @@
 ---
 name: "dashboard-operations"
-description: "General dashboard workflow for data fetching, UI wiring, query debugging, browser verification, and safe frontend implementation in the existing product style."
+description: "Use for dashboard engineering work: data fetching, page wiring, API integration, table/chart behavior, and safe frontend changes in the existing product style."
 ---
 
 # Dashboard Operations
 
-Use this skill for non-specialist dashboard changes.
+Use this skill for dashboard implementation work that is more about data flow and UI behavior than about visual polish.
 
-## Required Pre-Read
+Do not use this skill for primarily visual refinement. Use `dashboard-ui-ux` for layout, hierarchy, and interaction polish.
+
+## Read First
+
 - `docs/README.md`
-- `docs/dashboard/overview.md`
-- `docs/dashboard/pages.md`
-- `docs/workflows/control-and-auth.md`
-- `docs/workflows/profiles-and-runtime-scope.md`
-- `docs/workflows/quota-and-provider-budgets.md` when quota UI or budget semantics matter
+- `docs/tech-stack.md`
+- `docs/api-surface.md`
 
-## Goals
-- Respect the existing design system and product conventions.
-- Focus on data flow, hooks, charts, filters, and state wiring.
+## Workflow
+
+- Respect the current product style and page structure.
+- Match changes to the live route surface: `/`, `/candidates`, `/positions`, `/telemetry`, `/settings`.
+- Trace page data flow from fetch helper to route to backend source before editing UI code.
+- Keep browser-facing writes on the dashboard proxy.
+- Keep overview pages operational; move heavy forensic detail to dedicated pages instead of bloating the shell.
 - Verify visible behavior in a browser when feasible.
-- Keep changes scoped and readable.
-- Keep query keys, URL params, and backend filters aligned for `days`, `mode`, `configProfile`, and `tradeSource` where those filters matter.
-- Keep active runtime scope separate from analysis filters. `use-dashboard-shell.ts` owns chrome/runtime truth; `use-dashboard-filters.ts` owns page-level lane inspection.
-- Treat `/quota` service totals as global provider budgets. Only endpoint drill-downs should narrow by lane metadata, and only when that metadata exists.
-- Centralize control-plane auth in the dashboard proxy rather than scattering token handling through callers.
-- When using `useSearchParams`, `useQueryState`, or similar client-side search-param hooks at page level, put the client subtree behind the required Suspense boundary.
-- If dashboard behavior, scope labeling, auth flow, or page features change, update the matching docs in the same pass.
+- If auth flow, page features, or route contracts change, update the matching docs in the same pass.
 
-## Preferred Tools
-- `filesystem` for local code inspection.
-- `chrome_devtools` for console, network, and rendering checks.
-- `browsermcp` for interaction-heavy flows.
-- `context7` for framework-specific behavior.
+## Output
 
-## Output Shape
-- Root cause or requested change.
+- Requested change or root cause.
 - Files touched.
 - Verification result.

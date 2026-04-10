@@ -1,0 +1,44 @@
+{
+  "name": "grafana-mcp",
+  "version": "0.1.0",
+  "description": "Local Grafana MCP bridge for this trading bot workspace.",
+  "author": {
+    "name": "bot-trading",
+    "email": "noreply@example.com",
+    "url": "https://github.com/grafana/mcp-grafana"
+  },
+  "homepage": "https://github.com/grafana/mcp-grafana",
+  "repository": "https://github.com/grafana/mcp-grafana",
+  "license": "Apache-2.0",
+  "keywords": [
+    "grafana",
+    "mcp",
+    "dashboards",
+    "postgres",
+    "analytics"
+  ],
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Grafana MCP",
+    "shortDescription": "Local MCP bridge for repo Grafana",
+    "longDescription": "Connect Codex to the repo's Dockerized Grafana stack through the official grafana/mcp-grafana server so dashboard inspection and targeted edits do not require manual API choreography.",
+    "developerName": "Grafana Labs",
+    "category": "Coding",
+    "capabilities": [
+      "Interactive",
+      "Read"
+    ],
+    "websiteURL": "https://grafana.com/",
+    "privacyPolicyURL": "https://grafana.com/legal/privacy-policy/",
+    "termsOfServiceURL": "https://grafana.com/legal/terms/",
+    "defaultPrompt": [
+      "Inspect the local Grafana dashboards for this trading bot",
+      "Check datasource health and dashboard variables in Grafana",
+      "Review config tuning panels through Grafana MCP"
+    ],
+    "brandColor": "#F97316",
+    "composerIcon": "./assets/grafana-mcp.svg",
+    "logo": "./assets/grafana-mcp.svg",
+    "screenshots": []
+  }
+}

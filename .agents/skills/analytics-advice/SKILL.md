@@ -1,31 +1,37 @@
 ---
 name: "analytics-advice"
-description: "Workflow for evaluating trading outcomes, regime performance, strategy metrics, and actionable analytics improvements without overfitting."
+description: "Use for evidence-based analysis of trading outcomes, candidate funnels, position performance, and telemetry-backed recommendations without drifting into unsupported strategy claims."
 ---
 
 # Analytics Advice
 
-Use this skill for metrics and performance interpretation.
+Use this skill when the task is analytical first: explain what happened, quantify it, and turn it into testable follow-up instead of hand-waving.
 
-## Required Pre-Read
+Do not use this skill for direct strategy rewrites. Use `strategy-safety` when the task is changing entry, sizing, or exit logic.
+
+## Read First
+
 - `docs/README.md`
-- `docs/data/prisma-and-views.md`
-- `docs/strategies/overview.md`
-- `docs/workflows/profiles-and-runtime-scope.md`
-- `docs/workflows/quota-and-provider-budgets.md` when spend or provider degradation affects the analysis
+- `docs/prisma-and-views.md`
+- `docs/strategy.md`
 
-## Goals
-- Separate descriptive analysis from proposed strategy changes.
-- Prefer repeatable metrics over anecdotes.
-- Highlight sample-size limits and data quality caveats.
-- Frame recommendations as testable hypotheses.
-- Check that historical metrics come from immutable records or snapshots rather than mutable runtime singleton state.
-- Verify sign conventions, aggregate-row keys, and filter propagation before trusting reported expectancy or date-range slices.
-- Include provider-cost pressure when it changes what can be scanned or executed in production; quota-blind recommendations are incomplete.
-- Prefer endpoint-, purpose-, and scope-level evidence from `ApiUsageDaily` and `ApiEndpointDaily` when data spend or latency is part of the argument.
-- When timing is part of the argument, prefer persisted `Signal.detectedAt`, `Signal.metadata`, `Trade.metadata`, and `Position.entryLatencyMs` over reconstructed timestamps from logs.
+## Workflow
 
-## Preferred Inputs
-- Trade outcomes, daily stats, regime snapshots, and strategy comparisons.
-- Historical context from DB or reports.
-- Current strategy constraints from repo docs.
+- Start from repo-owned evidence tables or views, not from current singleton state.
+- Separate descriptive findings from recommendations.
+- Check sign conventions, denominators, filters, and sampling windows before trusting any edge number.
+- Call out sample-size limits, missing telemetry, and survivorship bias.
+- Treat provider cost or latency as real only when `ApiEvent`, `RawApiPayload`, or code paths support the claim.
+- Convert recommendations into hypotheses that can be tested with current data or a small code change.
+
+## Preferred Evidence
+
+- Positions and fills for realized outcomes.
+- Candidates and token snapshots for entry-gate behavior.
+- `ApiEvent` and `RawApiPayload` when spend, failures, or latency matter.
+
+## Output
+
+- What the data supports.
+- What is still too thin to claim.
+- The smallest useful next test or metric refinement.

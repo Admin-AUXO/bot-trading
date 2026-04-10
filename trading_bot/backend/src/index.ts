@@ -1,10 +1,9 @@
-import "dotenv/config";
-import { startTradingBot } from "./bootstrap/runtime.js";
-import { createChildLogger } from "./utils/logger.js";
+import { BotRuntime } from "./engine/runtime.js";
+import { logger } from "./utils/logger.js";
 
-const log = createChildLogger("main");
+const runtime = new BotRuntime();
 
-startTradingBot().catch((err) => {
-  log.fatal({ err }, "bot crashed");
+runtime.start().catch((error) => {
+  logger.fatal({ err: error }, "trading_bot crashed");
   process.exit(1);
 });

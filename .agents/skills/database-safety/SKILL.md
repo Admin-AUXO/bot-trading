@@ -1,38 +1,35 @@
 ---
 name: "database-safety"
-description: "Database and Prisma workflow focused on schema safety, query correctness, schema-and-views-only changes, read patterns, and production-safe reasoning."
+description: "Use for Prisma, PostgreSQL, schema, SQL-view, and DB-backed route work where safety, rollout order, and historical data correctness matter."
 ---
 
 # Database Safety
 
-Use this skill for schema, SQL, or data-access work.
+Use this skill for schema, SQL, Prisma client, or DB-backed route work.
 
-## Required Pre-Read
+## Read First
+
 - `docs/README.md`
-- `docs/data/prisma-and-views.md`
-- `docs/operations/bootstrap-and-docker.md`
-- `docs/backend/api-surface.md` when route contracts or query shapes are involved
+- `docs/prisma-and-views.md`
+- `docs/bootstrap-and-docker.md`
+- `docs/api-surface.md` when route contracts or query shapes matter
 
-## Goals
-- Treat schema and DB rollout changes as high-risk.
+## Workflow
+
+- Treat schema and rollout changes as high-risk.
 - Prefer read-first analysis before proposing writes.
-- Check performance, indexes, and data shape implications.
-- Surface rollback and compatibility concerns.
-- Never create standalone migration files in this repo. Keep schema changes in `trading_bot/backend/prisma/schema.prisma` and rollout SQL in `trading_bot/backend/prisma/views/create_views.sql`.
-- In this repo, remember that Prisma schema sync and SQL view rollout are separate steps; the canonical bootstrap is `npm run db:setup`, not `db:push` alone.
-- Preserve analytical fidelity in `ApiCall`, `ApiUsageDaily`, `ApiEndpointDaily`, and `BotState.pauseReasons`; budget, scope, and purpose dimensions should stay queryable after schema changes.
-- Prefer extending existing telemetry fields such as `Signal.metadata`, `Trade.metadata`, and `Position.entryLatencyMs` before proposing new timing tables.
-- `Signal.detectedAt` should represent first-seen time when timing analysis matters; do not silently treat insert time as detection time.
-- If the Prisma client surface changes, verify with `npm run db:generate` before trusting type errors or route breakage reports.
-- If schema, SQL-view shape, or DB-driven behavior changes, update the matching docs in the same pass.
+- Check shape, compatibility, indexing, and reporting impact.
+- Never create standalone migration files in this repo.
+- Keep schema edits in `trading_bot/backend/prisma/schema.prisma`.
+- Keep view edits in `trading_bot/backend/prisma/views/create_views.sql`.
+- Remember that Prisma schema sync and SQL-view rollout are separate steps; `npm run db:setup` is the canonical full rollout.
+- Preserve analytical fidelity in `ApiEvent`, `RawApiPayload`, `TokenSnapshot`, `Candidate`, `Position`, and `Fill`.
+- Prefer extending evidence tables over inventing dashboard-only storage.
+- If Prisma client shape changes, run `npm run db:generate` before trusting TypeScript fallout.
+- If schema, view shape, or DB-backed behavior changes, update the matching docs in the same pass.
 
-## Preferred Tools
-- `postgres` for schema inspection and read-only queries when configured.
-- `filesystem` for Prisma schema, SQL views, and seed files.
-- `context7` for Prisma and database framework behavior.
-- `sequential_thinking` for risky schema decisions.
+## Output
 
-## Output Shape
 - Current schema or query behavior.
 - Safety risks.
 - Minimal safe change.

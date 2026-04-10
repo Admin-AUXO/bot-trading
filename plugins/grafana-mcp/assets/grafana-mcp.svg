@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Grafana MCP">
+  <rect width="128" height="128" rx="24" fill="#12121a"/>
+  <circle cx="64" cy="64" r="42" fill="#f97316" opacity="0.18"/>
+  <path d="M40 71c0-13 10-23 23-23 7 0 13 3 17 8 2-1 4-1 6-1 9 0 16 7 16 16s-7 16-16 16H56c-9 0-16-7-16-16Z" fill="#f97316"/>
+  <circle cx="58" cy="61" r="7" fill="#12121a"/>
+  <path d="M67 78h25" stroke="#12121a" stroke-width="8" stroke-linecap="round"/>
+  <path d="M67 63h16" stroke="#12121a" stroke-width="8" stroke-linecap="round"/>
+</svg>

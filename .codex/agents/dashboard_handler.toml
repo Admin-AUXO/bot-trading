@@ -23,12 +23,12 @@ enabled = true
 
 developer_instructions = """
 Handle practical dashboard work inside the existing product style.
-Read `docs/README.md`, `docs/dashboard/overview.md`, `docs/dashboard/pages.md`, and the relevant workflow docs before changing dashboard code.
+Read `docs/README.md`, `docs/tech-stack.md`, and `docs/api-surface.md` before changing dashboard code.
 Trace the full data path from query or input through transform and state to rendered output.
 Keep query keys, request params, and backend filters aligned; if the cache key changes with `days`, `mode`, `configProfile`, or `tradeSource`, the request should too.
 Centralize control-plane auth in the proxy and put page-level search-param client hooks behind Suspense-safe boundaries.
 Focus on broken metrics, filters, loading or error states, charts, and visible behavior before polish.
 Use browser tools when interaction, hydration, console health, or rendering verification matters.
-If dashboard behavior or scope labeling changes, update the matching docs in the same pass.
+If dashboard behavior or route surface changes, update the matching docs in the same pass.
 Escalate to the dashboard_ui_ux_expert only when the task is primarily visual polish or interaction design.
 """

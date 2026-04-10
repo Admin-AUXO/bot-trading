@@ -5,13 +5,16 @@ x-logging-defaults: &logging-defaults
       max-size: "10m"
       max-file: "3"
 
+x-app-defaults: &app-defaults
+  <<: *logging-defaults
+  init: true
+
 services:
   postgres:
     <<: *logging-defaults
     image: postgres:16-alpine
     container_name: trading-postgres
     restart: unless-stopped
-    shm_size: 128mb
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     environment:
@@ -19,30 +22,86 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-botpass}
       POSTGRES_DB: ${POSTGRES_DB:-trading_bot}
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - trading-pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-botuser} -d ${POSTGRES_DB:-trading_bot}"]
-      interval: 30s
+      interval: 15s
       timeout: 5s
       retries: 5
       start_period: 5s
 
-  redis:
-    <<: *logging-defaults
-    image: redis:7-alpine
-    container_name: trading-redis
+  db-setup:
+    <<: *app-defaults
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: migrator
+    restart: on-failure:3
+    env_file:
+      - ./backend/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  bot:
+    <<: *app-defaults
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runner
+    container_name: trading-bot
     restart: unless-stopped
+    stop_grace_period: 30s
     ports:
-      - "${REDIS_PORT:-6379}:6379"
-    volumes:
-      - redisdata:/data
+      - "${BOT_PORT:-3001}:${BOT_PORT:-3001}"
+    env_file:
+      - ./backend/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      db-setup:
+        condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 30s
+      test:
+        - CMD-SHELL
+        - >-
+          node -e "fetch('http://127.0.0.1:' + (process.env.BOT_PORT || 3001) + '/health').then((res) => {
+            if (!res.ok) process.exit(1);
+          }).catch(() => process.exit(1))"
+      interval: 20s
       timeout: 5s
-      retries: 5
-      start_period: 5s
+      retries: 6
+      start_period: 20s
+
+  dashboard:
+    <<: *app-defaults
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: trading-dashboard
+    restart: unless-stopped
+    stop_grace_period: 20s
+    env_file:
+      - ./backend/.env
+    ports:
+      - "${DASHBOARD_PORT:-3000}:3000"
+    environment:
+      API_URL: "http://bot:3001"
+      PORT: 3000
+    depends_on:
+      bot:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          node -e "fetch('http://127.0.0.1:3000').then((res) => {
+            if (!res.ok) process.exit(1);
+          }).catch(() => process.exit(1))"
+      interval: 20s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
 
 volumes:
-  pgdata:
-  redisdata:
+  trading-pgdata:

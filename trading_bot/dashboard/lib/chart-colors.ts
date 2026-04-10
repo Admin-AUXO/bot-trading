@@ -9,7 +9,5 @@ export const chartColors = {
   tooltipBorder: "var(--chart-surface-border)",
   tooltipText: "var(--chart-text)",
   capital: "var(--chart-capital)",
-  s1: "var(--chart-strategy-s1)",
-  s2: "var(--chart-strategy-s2)",
-  s3: "var(--chart-strategy-s3)",
+  focus: "var(--chart-focus)",
 } as const;
