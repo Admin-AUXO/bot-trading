@@ -7,8 +7,9 @@ Purpose: orient an agent to the live app shape and the ownership boundaries that
 - Only live app: [`trading_bot/`](../trading_bot/)
 - Backend stack: Node.js, TypeScript ESM, Express 5, Prisma 7, PostgreSQL 16
 - Dashboard stack: Next.js 16 App Router, React 19, Tailwind CSS 4, Recharts, Motion
-- Providers: Birdeye for discovery and market/security data, Helius for mint and holder checks
+- Providers: Birdeye for discovery and market/security data, Helius for mint and holder checks plus Sender-backed live transaction submission
 - Strategy scope: S2 graduation only
+- Runtime defaults discover all Birdeye meme venues, but only `pump_dot_fun` is tradable until `TRADABLE_SOURCES` is widened
 
 ## Source Map
 
@@ -16,6 +17,7 @@ Purpose: orient an agent to the live app shape and the ownership boundaries that
 - Runtime orchestration: [`trading_bot/backend/src/engine/runtime.ts`](../trading_bot/backend/src/engine/runtime.ts)
 - Strategy engines: [`trading_bot/backend/src/engine/`](../trading_bot/backend/src/engine/)
 - Provider and persistence services: [`trading_bot/backend/src/services/`](../trading_bot/backend/src/services/)
+- Birdeye quota pacing service: [`trading_bot/backend/src/services/provider-budget-service.ts`](../trading_bot/backend/src/services/provider-budget-service.ts)
 - API surface: [`trading_bot/backend/src/api/server.ts`](../trading_bot/backend/src/api/server.ts)
 - Schema and views: [`trading_bot/backend/prisma/schema.prisma`](../trading_bot/backend/prisma/schema.prisma) and [`trading_bot/backend/prisma/views/create_views.sql`](../trading_bot/backend/prisma/views/create_views.sql)
 - Dashboard routes: [`trading_bot/dashboard/app/`](../trading_bot/dashboard/app/)
@@ -23,7 +25,8 @@ Purpose: orient an agent to the live app shape and the ownership boundaries that
 ## Runtime Boundaries
 
 - One runtime process owns discovery, evaluation, exits, maintenance, and the HTTP API.
-- `TRADE_MODE` supports `DRY_RUN` and `LIVE`, but `RiskEngine` blocks all live entries until a swap-routing adapter exists.
+- `TRADE_MODE` supports `DRY_RUN` and `LIVE`; live execution routes through Jupiter quote/swap APIs and Helius Sender once the wallet env is configured.
+- Runtime cadence is daypart-aware: discovery has separate US-hours and off-hours intervals, and evaluation has active and idle intervals.
 - Provider calls belong in [`trading_bot/backend/src/services/`](../trading_bot/backend/src/services/), not in routes or UI code.
 - Browser-facing writes belong on [`trading_bot/dashboard/app/api/[...path]/route.ts`](../trading_bot/dashboard/app/api/[...path]/route.ts).
 - Server-rendered dashboard pages currently read the backend directly through `serverFetch()` and `API_URL`; the proxy is mainly the browser-write boundary.

@@ -29,6 +29,7 @@ Do not use this skill for direct strategy rewrites. Use `strategy-safety` when t
 - Positions and fills for realized outcomes.
 - Candidates and token snapshots for entry-gate behavior.
 - `ApiEvent` and `RawApiPayload` when spend, failures, or latency matter.
+- Runtime status fields such as `entryGate` and `providerBudget` when the question is about daily guard state or Birdeye pacing, but do not mistake singleton state for historical proof.
 
 ## Output
 

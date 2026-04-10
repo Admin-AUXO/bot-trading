@@ -21,7 +21,9 @@ Use this skill for strategy changes.
 - Avoid changes that rely on hidden assumptions or unverified provider data.
 - Keep provider-heavy logic inside shared services.
 - Persist evidence when timing, thresholds, or rejection reasons change.
-- Remember that `LIVE` is still intentionally blocked; do not document or imply real execution support that does not exist.
+- Treat `LIVE` as real and safety-critical now. Verify wallet readiness, persistence-after-fill behavior, and failure handling instead of assuming execution is still blocked.
+- When strategy behavior depends on score, confirm the same score contract is reflected in sizing, queue priority, and exit-profile selection.
+- When Birdeye pacing is involved, check both raw provider spend and the lane-budget behavior instead of reasoning from endpoint cost in isolation.
 - Update `docs/strategy.md` in the same pass when strategy behavior changes.
 
 ## Review Order

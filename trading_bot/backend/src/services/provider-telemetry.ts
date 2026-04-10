@@ -1,4 +1,5 @@
 import type { ProviderName } from "@prisma/client";
+import { env } from "../config/env.js";
 import { db } from "../db/client.js";
 import { toJsonValue } from "../utils/json.js";
 
@@ -40,6 +41,10 @@ export function recordRawApiPayload(input: {
   responseBody?: unknown;
   errorMessage?: string | null;
 }): void {
+  if (input.success && !env.CAPTURE_SUCCESS_RAW_PAYLOADS) {
+    return;
+  }
+
   queueTelemetryWrite(() => {
     const requestParams = input.requestParams === undefined ? undefined : toJsonValue(input.requestParams);
     const responseBody = input.responseBody === undefined ? undefined : toJsonValue(input.responseBody);

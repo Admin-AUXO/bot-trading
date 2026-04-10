@@ -11,17 +11,27 @@ This repo runs one strategy: S2 graduation.
 - Exit lane: [`ExitEngine.run()`](../trading_bot/backend/src/engine/exit-engine.ts)
 - Scheduler and manual triggers: [`BotRuntime`](../trading_bot/backend/src/engine/runtime.ts)
 
+Runtime pacing matters now:
+
+- discovery runs faster during configured US hours and slower off-hours
+- evaluation runs at the active pace while the queue exists, then backs off to the idle pace when the queue is empty
+- exit checks stay on their own cadence
+- Birdeye spend is lane-budgeted across discovery, evaluation, security, and reserve instead of assuming the month will sort itself out
+
 ## Candidate Lifecycle
 
 - Discovery writes new rows as `DISCOVERED`
 - Evaluation only pulls candidates in `DISCOVERED`, `SKIPPED`, or `ERROR` whose `scheduledEvaluationAt <= now`
-- Current code does not actively write `SKIPPED`; it is only part of the due-status allowlist
-- Successful evaluation marks a candidate `ACCEPTED`, then `openDryRunPosition()` immediately moves it to `BOUGHT`
+- Capacity pressure and manual pause now actively write `SKIPPED` and reschedule candidates instead of burning them permanently
+- Successful evaluation marks a candidate `ACCEPTED`, then `ExecutionEngine.openPosition()` immediately moves it to `BOUGHT`
 - Full exit updates linked candidates to `EXITED`
 
 ## Discovery Contract
 
 - Discovery source is Birdeye graduated meme tokens
+- `DISCOVERY_SOURCES="all"` pulls all Birdeye meme-list venues in one scan by default
+- `TRADABLE_SOURCES="pump_dot_fun"` keeps non-pump venues in paper-only mode unless you explicitly widen it
+- Discovery is budget-aware. If the projected Birdeye discovery lane would outrun the monthly Lite pacing target, the loop skips that sweep instead of spending through the cap.
 - Lookback window is `now - DISCOVERY_LOOKBACK_SECONDS`
 - Discovery request size is `evaluationConcurrency * 20`
 - Duplicate mints are ignored before insert
@@ -33,53 +43,71 @@ This repo runs one strategy: S2 graduation.
 
 ## Evaluation Contract
 
-Important nuance: capacity is fetched in parallel with the first Birdeye and Helius calls. A candidate that is going to fail risk capacity can still spend provider units before the reject is recorded.
+Important nuance: evaluation now checks capacity before spending provider units, due candidates are ranked by a freshness/liquidity/momentum priority score instead of raw FIFO order, and the lane is Birdeye-budget aware before it spends detail, trade-data, or security units. Ranked candidates are then processed one by one rather than blasting all provider calls in parallel, because Lite-plan burst discipline matters more than theoretical loop throughput on a `$100` desk.
 
 Evaluation then applies these gates:
 
-1. Capacity from `RiskEngine`
-2. Graduated token confirmation
-3. Graduation age `<= maxGraduationAgeSeconds`
-4. Liquidity floor, market-cap ceiling, holder floor
-5. Trade-data floor checks:
-   - `volume5mUsd >= minVolume5mUsd`
-   - `uniqueWallets5m >= minUniqueBuyers5m`
-   - `buySellRatio >= minBuySellRatio`
-   - `priceChange5mPercent > -maxNegativePriceChange5mPercent`
-6. Mint authority and freeze authority must both be inactive
-7. Holder concentration:
+1. Graduated token confirmation
+2. Graduation age `<= maxGraduationAgeSeconds`
+3. Cheap filter pass:
+   - catastrophic misses still reject immediately
+   - single soft misses are tolerated
+   - two soft weaknesses reject the candidate before deep security spend
+4. Cheap filter dimensions:
+   - liquidity floor and market-cap ceiling
+   - holder floor
+   - `volume5mUsd`
+   - `uniqueWallets5m`
+   - `buySellRatio`
+   - `priceChange5mPercent`
+5. Mint authority and freeze authority must both be inactive
+6. Holder concentration:
    - `top10Percent <= maxTop10HolderPercent`
    - `largestHolderPercent <= maxSingleHolderPercent`
-8. Deep security only when either condition is true:
-   - `liquidityUsd >= securityCheckMinLiquidityUsd`
-   - `volume5mUsd >= minVolume5mUsd * securityCheckVolumeMultiplier`
-9. Deep security rejects on fake token, honeypot, freezeable token, mintable token, or transfer fee above `maxTransferFeePercent`
-10. Entry price must still be available
+7. Deep security on every cheap-filter survivor
+8. Deep security rejects on fake token, honeypot, freezeable token, mintable token, or transfer fee above `maxTransferFeePercent`
+9. Entry price must still be available
+10. Accepted candidates persist `entryScore` plus the derived exit profile (`scalp`, `balanced`, or `runner`) into position metadata
+
+Scoring contract:
+
+- ranking weight is `35%` momentum, `35%` structure, `30%` liquidity and exitability
+- accepted candidates persist the same score family the runtime used to prioritize them
+- score also drives both adaptive position sizing and exit-profile selection
 
 Persistence on evaluation:
 
 - Reject path writes `Candidate.status = REJECTED`, `rejectReason`, updated denormalized filter state, and `TokenSnapshot` with `trigger = "evaluation_reject"`
-- Accept path writes `TokenSnapshot` with `trigger = "evaluation_accept"`, then updates the candidate and opens a dry-run position
+- Retryable capacity failures and budget-pacing deferrals write `Candidate.status = SKIPPED` with a new `scheduledEvaluationAt`
+- Non-retryable runtime failures write `Candidate.status = ERROR` with a new `scheduledEvaluationAt`
+- Candidates from non-tradable venues can still clear the filter stack, but they are persisted as paper-only rejects with `TokenSnapshot.trigger = "evaluation_paper"`
+- Accept path writes `TokenSnapshot` with `trigger = "evaluation_accept"`, then updates the candidate and opens a position in either `DRY_RUN` or `LIVE`
 
 ## Risk And Entry Contract
 
 - Entry sizing comes from [`RiskEngine`](../trading_bot/backend/src/engine/risk-engine.ts), not from ad hoc math in strategy code
-- `LIVE` is always blocked with the explicit reason that no swap-routing adapter exists
+- Entry size is adaptive, not fixed. The desk treats `capital.positionSizeUsd` as the standard cap, scales down toward the `$10-15` floor when score/exposure is weak, and only stretches toward `$30` on high-score setups when exposure is still light.
+- Capacity calculation still blocks on cash and slot count, but the approved ticket size now depends on `entryScore` and current exposure instead of blindly using one constant ticket for every graduate.
+- `LIVE` is allowed only when the trading wallet and live-routing env are valid
 - Capacity also blocks on:
   - `pauseReason` being set
   - `maxOpenPositions` reached
-  - no dry-run capital left
-- `ExecutionEngine.openDryRunPosition()` rechecks capacity inside a transaction, decrements `BotState.cashUsd`, creates the `Position`, creates the `BUY` fill, updates the candidate, and writes a `trade_buy` snapshot
+  - no quote capital left in the bot’s internal capital model
+  - `DAILY_LOSS_LIMIT_USD` breached for the current trading day
+  - `MAX_CONSECUTIVE_LOSSES` breached for the current trading day
+- `ExecutionEngine` serializes wallet-affecting actions so overlapping manual triggers and scheduler loops cannot open or close simultaneously
+- `DRY_RUN` buys are still created entirely inside a DB transaction
+- `LIVE` buys execute onchain first, then persist the fill, `txSignature`, position, and cash update; if persistence fails after a live trade lands, the bot pauses itself for manual intervention
 
 Pause semantics matter:
 
 - `pause` does not stop the scheduler loops
-- Due candidates evaluated while paused are rejected with the pause reason because risk capacity fails
-- `resume` only clears `pauseReason`; it does not resurrect candidates already rejected during the pause
+- Due candidates evaluated while paused are rescheduled as `SKIPPED`
+- `resume` clears `pauseReason`, and rescheduled candidates can become due again automatically
 
 ## Exit Contract
 
-`ExitEngine.run()` prices every open position through Birdeye, updates the running peak, and then applies exits in this order:
+`ExitEngine.run()` prices open positions through Birdeye `/defi/multi_price`, updates the running peak, and then applies exits in this order:
 
 1. stop loss before any partials
 2. TP1 partial sell using `tp1SellFraction`
@@ -90,14 +118,37 @@ Pause semantics matter:
 7. hard time limit after `timeLimitMinutes`
 
 Every sell writes a `SELL` fill, updates remaining size and TP flags, increments `BotState.cashUsd` and `realizedPnlUsd`, and writes a `trade_sell` snapshot.
+Live sells also persist the onchain `txSignature`, and the exit lane tracks in-flight position ids so overlapping checks do not double-trigger the same close.
+
+Exit tuning is now score-aware:
+
+- lower-score entries get the scalp profile: earlier TP1, tighter time-stop, tighter trailing logic
+- mid-score entries use the balanced profile
+- higher-score entries get the runner profile: smaller early trims, wider trail, and more time to work
+- the derived exit plan is stored in `Position.metadata.exitPlan` and used by the exit lane instead of treating every name the same
+
+Profile thresholds in code:
+
+- `entryScore < 0.62` -> `scalp`
+- `0.62 <= entryScore < 0.82` -> `balanced`
+- `entryScore >= 0.82` -> `runner`
 
 ## Settings That Change Behavior
 
 - `cadence.discoveryIntervalMs`
+- `cadence.offHoursDiscoveryIntervalMs`
 - `cadence.evaluationIntervalMs`
+- `cadence.idleEvaluationIntervalMs`
 - `cadence.exitIntervalMs`
 - `cadence.entryDelayMs`
 - `cadence.evaluationConcurrency`
 - `capital.*`
 - `filters.*`
 - `exits.*`
+
+Runtime cadence nuance:
+
+- `discoveryIntervalMs` is the US-hours discovery pace
+- `offHoursDiscoveryIntervalMs` is the slower off-hours discovery pace
+- `evaluationIntervalMs` is used while candidates are queued
+- `idleEvaluationIntervalMs` is used when the queue is empty

@@ -15,7 +15,16 @@ Agent-only repo. The only active app is [`trading_bot/`](trading_bot/).
 - Dashboard: Next.js 16 App Router
 - Providers: Birdeye and Helius
 - Runtime model: one in-process bot runtime plus API server
-- `LIVE` exists in config, but `RiskEngine` blocks live entries until a real swap-routing adapter exists
+- Discovery defaults to all Birdeye graduation venues, while live trading stays `pump_dot_fun` only until `TRADABLE_SOURCES` is widened
+- Strategy runtime now uses adaptive position sizing, score-aware exits, dayparted discovery cadence, and Birdeye lane-budget pacing
+- `LIVE` is wired through Jupiter quote/swap building plus Helius Sender, but it requires a funded trading wallet and live env config
+
+## Canonical Strategy Docs
+
+- Runtime and strategy behavior: [`docs/strategy.md`](docs/strategy.md)
+- Setup, env, and live-routing contracts: [`docs/bootstrap-and-docker.md`](docs/bootstrap-and-docker.md)
+- Backend and dashboard boundaries: [`docs/api-surface.md`](docs/api-surface.md)
+- Schema, views, and evidence tables: [`docs/prisma-and-views.md`](docs/prisma-and-views.md)
 
 ## Non-Features
 

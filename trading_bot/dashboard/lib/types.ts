@@ -11,19 +11,29 @@ export type StatusPayload = {
     lastEvaluationAt: string | null;
     lastExitCheckAt: string | null;
   };
+  entryGate: {
+    allowed: boolean;
+    reason: string | null;
+    retryable: boolean;
+    dailyRealizedPnlUsd: number;
+    consecutiveLosses: number;
+  };
   settings: BotSettings;
   openPositions: number;
   queuedCandidates: number;
   latestCandidates: Array<Record<string, unknown>>;
   latestFills: Array<Record<string, unknown>>;
   providerSummary?: Array<Record<string, unknown>>;
+  providerBudget?: Record<string, unknown>;
 };
 
 export type BotSettings = {
   tradeMode: "DRY_RUN" | "LIVE";
   cadence: {
     discoveryIntervalMs: number;
+    offHoursDiscoveryIntervalMs: number;
     evaluationIntervalMs: number;
+    idleEvaluationIntervalMs: number;
     exitIntervalMs: number;
     entryDelayMs: number;
     evaluationConcurrency: number;

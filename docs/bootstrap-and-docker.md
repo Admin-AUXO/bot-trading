@@ -8,15 +8,17 @@ Use this when you want the app processes on the host but do not want to install 
 
 1. Copy [`trading_bot/backend/.env.example`](../trading_bot/backend/.env.example) to `trading_bot/backend/.env`.
 2. Fill `HELIUS_RPC_URL`, `BIRDEYE_API_KEY`, and `CONTROL_API_SECRET`.
-3. Change `DATABASE_URL` from the compose hostname `postgres` to `127.0.0.1` or `localhost`. The checked-in example is compose-oriented and will not work for a host-run backend as written.
-4. Start only Postgres:
+3. If you intend to trade live, also fill `TRADING_WALLET_PRIVATE_KEY_B58` and review the `LIVE_*` routing values. The wallet must hold enough SOL for fees/tips and enough quote-token balance for entries.
+4. Review `DISCOVERY_SOURCES`, `TRADABLE_SOURCES`, `DAILY_LOSS_LIMIT_USD`, `MAX_CONSECUTIVE_LOSSES`, and the cadence/budget envs (`DISCOVERY_INTERVAL_MS`, `OFF_HOURS_DISCOVERY_INTERVAL_MS`, `IDLE_EVALUATION_INTERVAL_MS`, `BIRDEYE_*_BUDGET_SHARE`) so the venue mix, dayparting, and quota pacing match your desk.
+5. Change `DATABASE_URL` from the compose hostname `postgres` to `127.0.0.1` or `localhost`. The checked-in example is compose-oriented and will not work for a host-run backend as written.
+6. Start only Postgres:
 
 ```bash
 cd trading_bot
 docker compose up -d postgres
 ```
 
-5. Generate Prisma client, apply schema/views, and run the backend:
+7. Generate Prisma client, apply schema/views, and run the backend:
 
 ```bash
 cd trading_bot/backend
@@ -26,7 +28,7 @@ npm run db:setup
 npm run dev
 ```
 
-6. Run the dashboard separately:
+8. Run the dashboard separately:
 
 ```bash
 cd trading_bot/dashboard
@@ -37,7 +39,7 @@ npm run dev
 Notes:
 
 - Host-run dashboard reads the backend from `http://127.0.0.1:3001` unless you override `API_URL`.
-- Keep `TRADE_MODE="DRY_RUN"`. `LIVE` is still blocked in the risk layer.
+- `TRADE_MODE="LIVE"` now works only when the live wallet and routing env are valid. Otherwise the risk layer will refuse entries with the readiness reason.
 
 ## Run Mode B: Full Compose Stack
 
@@ -45,7 +47,9 @@ Use this when you want Postgres, schema setup, backend, and dashboard inside con
 
 1. Copy [`trading_bot/backend/.env.example`](../trading_bot/backend/.env.example) to `trading_bot/backend/.env`.
 2. Keep `DATABASE_URL` on the compose hostname `postgres`.
-3. Start the stack:
+3. If you intend to trade live, fill the trading wallet and `LIVE_*` vars before starting the stack.
+4. Review venue, daypart, and daily-risk envs before boot if you do not want the defaults (`DISCOVERY_SOURCES=all`, `TRADABLE_SOURCES=pump_dot_fun`, `DISCOVERY_INTERVAL_MS=300000`, `OFF_HOURS_DISCOVERY_INTERVAL_MS=900000`, `DAILY_LOSS_LIMIT_USD=8`, `MAX_CONSECUTIVE_LOSSES=2`).
+5. Start the stack:
 
 ```bash
 cd trading_bot

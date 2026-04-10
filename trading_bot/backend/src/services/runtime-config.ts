@@ -8,7 +8,9 @@ const botSettingsSchema = z.object({
   tradeMode: z.enum(["DRY_RUN", "LIVE"]),
   cadence: z.object({
     discoveryIntervalMs: z.number().int().positive(),
+    offHoursDiscoveryIntervalMs: z.number().int().positive(),
     evaluationIntervalMs: z.number().int().positive(),
+    idleEvaluationIntervalMs: z.number().int().positive(),
     exitIntervalMs: z.number().int().positive(),
     entryDelayMs: z.number().int().nonnegative(),
     evaluationConcurrency: z.number().int().positive().max(10),
@@ -92,7 +94,9 @@ export function buildDefaultSettings(): BotSettings {
     tradeMode: env.TRADE_MODE,
     cadence: {
       discoveryIntervalMs: env.DISCOVERY_INTERVAL_MS,
+      offHoursDiscoveryIntervalMs: env.OFF_HOURS_DISCOVERY_INTERVAL_MS,
       evaluationIntervalMs: env.EVALUATION_INTERVAL_MS,
+      idleEvaluationIntervalMs: env.IDLE_EVALUATION_INTERVAL_MS,
       exitIntervalMs: env.EXIT_INTERVAL_MS,
       entryDelayMs: env.ENTRY_DELAY_MS,
       evaluationConcurrency: env.EVALUATION_CONCURRENCY,

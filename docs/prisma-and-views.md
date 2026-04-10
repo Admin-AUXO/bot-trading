@@ -16,8 +16,8 @@ This workflow treats Prisma schema and SQL views as hand-maintained source, not 
 Operational state:
 
 - `Candidate`: current filter state, lifecycle status, rejection reason, and entry linkage for each discovered mint
-- `Position`: open/closed dry-run positions plus exit thresholds and remaining size
-- `Fill`: buy and sell executions attached to positions
+- `Position`: open/closed positions plus exit thresholds, score-derived exit metadata, and remaining size
+- `Fill`: buy and sell executions attached to positions, including live `txSignature` when trades land onchain
 
 Runtime singletons:
 

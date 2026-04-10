@@ -16,6 +16,7 @@ Do not use this skill for generic research. Use `web-research-workflow` when the
 - Distinguish provider facts from strategy recommendations.
 - Summarize impact on this repo's actual integrations, defaults, and dormant surfaces.
 - Capture endpoint costs, quotas, or latency claims only from source-backed material.
+- When pricing or quota docs change, map them back to this repo's current lane-budget assumptions instead of leaving them as abstract provider facts.
 - Call out when a provider path appears redundant, deprecated, or unused in this repo.
 
 ## Output

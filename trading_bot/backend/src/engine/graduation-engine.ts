@@ -1,8 +1,9 @@
-import { CandidateStatus } from "@prisma/client";
+import { CandidateStatus, type Candidate } from "@prisma/client";
 import { db } from "../db/client.js";
 import { env } from "../config/env.js";
 import { BirdeyeClient } from "../services/birdeye-client.js";
 import { HeliusClient } from "../services/helius-client.js";
+import { ProviderBudgetService } from "../services/provider-budget-service.js";
 import { RuntimeConfigService } from "../services/runtime-config.js";
 import { recordTokenSnapshot } from "../services/token-snapshot-recorder.js";
 import { toOptionalDate } from "../utils/dates.js";
@@ -17,10 +18,12 @@ import { toJsonValue } from "../utils/json.js";
 import { logger } from "../utils/logger.js";
 
 const DUE_CANDIDATE_STATUSES: CandidateStatus[] = ["DISCOVERED", "SKIPPED", "ERROR"];
+const EVALUATION_POOL_MULTIPLIER = 6;
 
 export class GraduationEngine {
   private discoveryInFlight = false;
   private evaluationInFlight = false;
+  private readonly providerBudget = new ProviderBudgetService();
 
   constructor(
     private readonly birdeye: BirdeyeClient,
@@ -37,13 +40,28 @@ export class GraduationEngine {
     try {
       const settings = await this.config.getSettings();
       const minGraduatedTime = Math.floor(Date.now() / 1000) - env.DISCOVERY_LOOKBACK_SECONDS;
-      const tokens = await this.birdeye.getGraduatedMemeTokens({
+      const discoverySources = env.DISCOVERY_SOURCES.includes("all")
+        ? ["all"]
+        : [...new Set(env.DISCOVERY_SOURCES)];
+      const discoveryBudget = await this.providerBudget.canSpend("discovery", discoverySources.length * 100);
+      if (!discoveryBudget.allowed) {
+        logger.warn({ reason: discoveryBudget.reason }, "discovery skipped to preserve Birdeye monthly budget");
+        return;
+      }
+      const fetchedGroups = await Promise.all(discoverySources.map((source) => this.birdeye.getGraduatedMemeTokens({
+        source,
         minGraduatedTime,
         limit: settings.cadence.evaluationConcurrency * 20,
         minLiquidityUsd: settings.filters.minLiquidityUsd,
         minVolume5mUsd: settings.filters.minVolume5mUsd,
         minHolders: settings.filters.minHolders,
-      });
+      })));
+      const tokens = [...new Map(
+        fetchedGroups
+          .flat()
+          .sort((left, right) => (right.graduatedAt ?? 0) - (left.graduatedAt ?? 0))
+          .map((token) => [token.mint, token] as const),
+      ).values()];
       const existingMints = new Set(
         (
           await db.candidate.findMany({
@@ -102,13 +120,52 @@ export class GraduationEngine {
           status: { in: DUE_CANDIDATE_STATUSES },
           scheduledEvaluationAt: { lte: new Date() },
         },
-        orderBy: { discoveredAt: "asc" },
-        take: settings.cadence.evaluationConcurrency,
+        orderBy: { scheduledEvaluationAt: "asc" },
+        take: settings.cadence.evaluationConcurrency * EVALUATION_POOL_MULTIPLIER,
       });
 
-      await Promise.all(candidates.map(async (candidate) => {
+      if (candidates.length === 0) {
+        return;
+      }
+
+      const rankedCandidates = [...candidates]
+        .sort((left, right) => this.scoreCandidate(right, settings) - this.scoreCandidate(left, settings))
+        .slice(0, settings.cadence.evaluationConcurrency);
+
+      const capacity = await this.risk.canOpenPosition(settings);
+      if (!capacity.allowed) {
+        await this.deferCandidates(
+          candidates,
+          capacity.retryable ? "SKIPPED" : "ERROR",
+          capacity.reason ?? "risk blocked entry",
+          settings.cadence.evaluationIntervalMs,
+        );
+        await this.risk.touchActivity("lastEvaluationAt");
+        return;
+      }
+
+      for (const candidate of rankedCandidates) {
         try {
-          const evaluation = await this.evaluateCandidate(candidate.mint, candidate.metrics as Record<string, unknown> | null);
+          const evaluation = await this.evaluateCandidate(
+            candidate.mint,
+            candidate.metrics as Record<string, unknown> | null,
+            settings,
+          );
+          if (evaluation.deferReason) {
+            await db.candidate.update({
+              where: { id: candidate.id },
+              data: {
+                status: "SKIPPED",
+                rejectReason: evaluation.deferReason,
+                lastEvaluatedAt: new Date(),
+                scheduledEvaluationAt: new Date(Date.now() + settings.cadence.evaluationIntervalMs),
+                ...this.toCandidateData(evaluation.filterState, true),
+                metrics: toJsonValue(evaluation.metrics),
+              },
+            });
+            continue;
+          }
+
           if (!evaluation.passed) {
             await db.candidate.update({
               where: { id: candidate.id },
@@ -129,7 +186,37 @@ export class GraduationEngine {
               metadata: evaluation.metrics,
               securityRisk: evaluation.rejectReason ?? null,
             });
-            return;
+            continue;
+          }
+
+          const effectiveSource = candidate.source || evaluation.filterState.source || "unknown";
+          if (!this.isTradableSource(effectiveSource)) {
+            await recordTokenSnapshot({
+              candidateId: candidate.id,
+              mint: candidate.mint,
+              symbol: candidate.symbol,
+              trigger: "evaluation_paper",
+              ...evaluation.filterState,
+              metadata: {
+                ...evaluation.metrics,
+                paperOnlySource: effectiveSource,
+              },
+            });
+
+            await db.candidate.update({
+              where: { id: candidate.id },
+              data: {
+                status: "REJECTED",
+                rejectReason: `paper-only source: ${effectiveSource}`,
+                lastEvaluatedAt: new Date(),
+                ...this.toCandidateData(evaluation.filterState, true),
+                metrics: toJsonValue({
+                  ...evaluation.metrics,
+                  paperOnlySource: effectiveSource,
+                }),
+              },
+            });
+            continue;
           }
 
           await recordTokenSnapshot({
@@ -153,7 +240,7 @@ export class GraduationEngine {
             },
           });
 
-          const positionId = await this.execution.openDryRunPosition({
+          const positionId = await this.execution.openPosition({
             candidateId: candidate.id,
             mint: candidate.mint,
             symbol: candidate.symbol,
@@ -161,7 +248,7 @@ export class GraduationEngine {
             metrics: evaluation.metrics,
           });
 
-          logger.info({ mint: candidate.mint, positionId }, "candidate promoted to dry-run position");
+          logger.info({ mint: candidate.mint, positionId, tradeMode: settings.tradeMode }, "candidate promoted to position");
         } catch (error) {
           await db.candidate.update({
             where: { id: candidate.id },
@@ -169,10 +256,11 @@ export class GraduationEngine {
               status: "ERROR",
               rejectReason: error instanceof Error ? error.message : String(error),
               lastEvaluatedAt: new Date(),
+              scheduledEvaluationAt: new Date(Date.now() + settings.cadence.evaluationIntervalMs),
             },
           });
         }
-      }));
+      }
 
       await this.risk.touchActivity("lastEvaluationAt");
     } finally {
@@ -183,41 +271,52 @@ export class GraduationEngine {
   private async evaluateCandidate(
     mint: string,
     baselineMetrics: Record<string, unknown> | null,
+    settings: Awaited<ReturnType<RuntimeConfigService["getSettings"]>>,
   ): Promise<CandidateEvaluation> {
-    const settings = await this.config.getSettings();
-    const [detail, livePriceUsd, mintAuthorities, capacity] = await Promise.all([
-      this.birdeye.getMemeTokenDetail(mint),
-      this.birdeye.getPrice(mint),
-      this.helius.getMintAuthorities(mint),
-      this.risk.canOpenPosition(),
-    ]);
-
-    if (!capacity.allowed) {
+    const baseline = this.extractBaselineDiscovery(baselineMetrics);
+    const baselineMerged = this.mergeDiscoveryMetrics(null, baselineMetrics);
+    const baselineFilterState: CandidateFilterState = {
+      ...baselineMerged,
+      priceUsd: baselineMerged.priceUsd,
+    };
+    const shouldRefreshDetail = this.readBoolean(baseline, "graduated") !== true
+      || this.readNumber(baseline, "graduatedAt") === null
+      || this.readString(baseline, "source") === null;
+    const evaluationBudget = await this.providerBudget.canSpend(
+      "evaluation",
+      (shouldRefreshDetail ? 30 : 0) + 15,
+    );
+    if (!evaluationBudget.allowed) {
       return {
         passed: false,
-        rejectReason: capacity.reason ?? "risk blocked entry",
+        deferReason: evaluationBudget.reason ?? "evaluation lane budget pacing blocked",
         metrics: {
           ...(baselineMetrics ?? {}),
-          capacity,
+          budget: evaluationBudget.snapshot,
         },
-        filterState: {},
+        filterState: baselineFilterState,
       };
     }
+
+    const [detail, mintAuthorities] = await Promise.all([
+      shouldRefreshDetail ? this.birdeye.getMemeTokenDetail(mint) : Promise.resolve(null),
+      this.helius.getMintAuthorities(mint),
+    ]);
 
     const metrics: Record<string, unknown> = {
       ...(baselineMetrics ?? {}),
       detail,
-      livePriceUsd,
       mintAuthorities,
     };
 
     const merged = this.mergeDiscoveryMetrics(detail, baselineMetrics);
     const baseFilterState: CandidateFilterState = {
       ...merged,
-      priceUsd: livePriceUsd ?? merged.priceUsd,
+      priceUsd: merged.priceUsd,
     };
 
-    if (!detail?.graduated || !merged.graduatedAt) {
+    const graduated = detail?.graduated ?? this.readBoolean(baseline, "graduated");
+    if (!graduated || !merged.graduatedAt) {
       return { passed: false, rejectReason: "token is not confirmed as graduated", metrics, filterState: baseFilterState };
     }
 
@@ -228,16 +327,29 @@ export class GraduationEngine {
       return { passed: false, rejectReason: `graduation too old: ${ageSeconds}s`, metrics, filterState: baseFilterState };
     }
 
-    if ((merged.liquidityUsd ?? 0) < settings.filters.minLiquidityUsd) {
-      return { passed: false, rejectReason: "liquidity below floor", metrics, filterState: baseFilterState };
+    const softIssues: string[] = [];
+    const liquidityUsd = merged.liquidityUsd ?? 0;
+    if (liquidityUsd < settings.filters.minLiquidityUsd) {
+      if (liquidityUsd < settings.filters.minLiquidityUsd * 0.65) {
+        return { passed: false, rejectReason: "liquidity far below floor", metrics, filterState: baseFilterState };
+      }
+      softIssues.push("liquidity below floor");
     }
 
-    if ((merged.marketCapUsd ?? Number.MAX_SAFE_INTEGER) > settings.filters.maxMarketCapUsd) {
-      return { passed: false, rejectReason: "market cap above ceiling", metrics, filterState: baseFilterState };
+    const marketCapUsd = merged.marketCapUsd ?? Number.MAX_SAFE_INTEGER;
+    if (marketCapUsd > settings.filters.maxMarketCapUsd) {
+      if (marketCapUsd > settings.filters.maxMarketCapUsd * 1.35) {
+        return { passed: false, rejectReason: "market cap far above ceiling", metrics, filterState: baseFilterState };
+      }
+      softIssues.push("market cap above ceiling");
     }
 
-    if ((merged.holders ?? 0) < settings.filters.minHolders) {
-      return { passed: false, rejectReason: "holder count below floor", metrics, filterState: baseFilterState };
+    const holders = merged.holders ?? 0;
+    if (holders < settings.filters.minHolders) {
+      if (holders < settings.filters.minHolders * 0.65) {
+        return { passed: false, rejectReason: "holder count far below floor", metrics, filterState: baseFilterState };
+      }
+      softIssues.push("holder count below floor");
     }
 
     const tradeData = await this.birdeye.getTradeData(mint);
@@ -292,26 +404,40 @@ export class GraduationEngine {
       priceChange24hPercent: tradeData?.priceChange24hPercent ?? baseFilterState.priceChange24hPercent,
     });
 
-    if ((tradeData?.volume5mUsd ?? 0) < settings.filters.minVolume5mUsd) {
-      return { passed: false, rejectReason: "5m volume below floor", metrics, filterState: baseFilterState };
+    const volume5mUsd = tradeData?.volume5mUsd ?? 0;
+    if (volume5mUsd < settings.filters.minVolume5mUsd) {
+      if (volume5mUsd < settings.filters.minVolume5mUsd * 0.65) {
+        return { passed: false, rejectReason: "5m volume far below floor", metrics, filterState: baseFilterState };
+      }
+      softIssues.push("5m volume below floor");
     }
 
-    if ((tradeData?.uniqueWallets5m ?? 0) < settings.filters.minUniqueBuyers5m) {
-      return { passed: false, rejectReason: "unique buyers below floor", metrics, filterState: baseFilterState };
+    const uniqueBuyers5m = tradeData?.uniqueWallets5m ?? 0;
+    if (uniqueBuyers5m < settings.filters.minUniqueBuyers5m) {
+      if (uniqueBuyers5m < settings.filters.minUniqueBuyers5m * 0.65) {
+        return { passed: false, rejectReason: "unique buyers far below floor", metrics, filterState: baseFilterState };
+      }
+      softIssues.push("unique buyers below floor");
     }
 
     const buySellRatio = (tradeData?.volumeBuy5mUsd ?? 0) / Math.max(tradeData?.volumeSell5mUsd ?? 0, 1);
     metrics.buySellRatio = buySellRatio;
     baseFilterState.buySellRatio = buySellRatio;
     if (buySellRatio < settings.filters.minBuySellRatio) {
-      return { passed: false, rejectReason: "buy/sell ratio too weak", metrics, filterState: baseFilterState };
+      if (buySellRatio < settings.filters.minBuySellRatio * 0.7) {
+        return { passed: false, rejectReason: "buy/sell ratio collapsed", metrics, filterState: baseFilterState };
+      }
+      softIssues.push("buy/sell ratio too weak");
     }
 
     const priceChange5m = tradeData?.priceChange5mPercent ?? merged.priceChange5mPercent ?? 0;
     metrics.priceChange5mPercent = priceChange5m;
     baseFilterState.priceChange5mPercent = priceChange5m;
     if (priceChange5m <= -settings.filters.maxNegativePriceChange5mPercent) {
-      return { passed: false, rejectReason: "price already dumping", metrics, filterState: baseFilterState };
+      if (priceChange5m <= -settings.filters.maxNegativePriceChange5mPercent * 1.5) {
+        return { passed: false, rejectReason: "price already dumping hard", metrics, filterState: baseFilterState };
+      }
+      softIssues.push("price already fading");
     }
 
     if (!mintAuthorities) {
@@ -346,67 +472,99 @@ export class GraduationEngine {
     }
 
     if (holderConcentration.top10Percent > settings.filters.maxTop10HolderPercent) {
-      return { passed: false, rejectReason: "top10 concentration too high", metrics, filterState: baseFilterState };
+      if (holderConcentration.top10Percent > settings.filters.maxTop10HolderPercent * 1.25) {
+        return { passed: false, rejectReason: "top10 concentration far too high", metrics, filterState: baseFilterState };
+      }
+      softIssues.push("top10 concentration too high");
     }
 
     if (holderConcentration.largestHolderPercent > settings.filters.maxSingleHolderPercent) {
-      return { passed: false, rejectReason: "largest holder concentration too high", metrics, filterState: baseFilterState };
+      if (holderConcentration.largestHolderPercent > settings.filters.maxSingleHolderPercent * 1.25) {
+        return { passed: false, rejectReason: "largest holder concentration far too high", metrics, filterState: baseFilterState };
+      }
+      softIssues.push("largest holder concentration too high");
     }
 
-    const shouldRunDeepSecurity = (merged.liquidityUsd ?? 0) >= settings.filters.securityCheckMinLiquidityUsd
-      || (tradeData?.volume5mUsd ?? 0) >= settings.filters.minVolume5mUsd * settings.filters.securityCheckVolumeMultiplier;
-
-    if (shouldRunDeepSecurity) {
-      const security = await this.birdeye.getTokenSecurity(mint);
-      metrics.security = security;
-      Object.assign(baseFilterState, {
-        creatorBalancePercent: security?.creatorBalancePercent,
-        ownerBalancePercent: security?.ownerBalancePercent,
-        updateAuthorityBalancePercent: security?.updateAuthorityBalancePercent,
-        top10UserPercent: security?.top10UserPercent,
-        top10HolderPercent: baseFilterState.top10HolderPercent ?? security?.top10HolderPercent,
-        transferFeeEnabled: security?.transferFeeEnabled,
-        transferFeePercent: security?.transferFeePercent,
-        trueToken: security?.trueToken,
-        token2022: security?.token2022,
-        nonTransferable: security?.nonTransferable,
-        fakeToken: security?.fakeToken,
-        honeypot: security?.honeypot,
-        freezeable: security?.freezeable,
-        mutableMetadata: security?.mutableMetadata,
-        securityCheckedAt: Date.now(),
-      });
-
-      if (!security) {
-        return { passed: false, rejectReason: "deep security unavailable", metrics, filterState: baseFilterState };
-      }
-
-      if (security.fakeToken) {
-        return { passed: false, rejectReason: "fake token flagged by Birdeye", metrics, filterState: baseFilterState };
-      }
-
-      if (security.honeypot) {
-        return { passed: false, rejectReason: "honeypot risk flagged by Birdeye", metrics, filterState: baseFilterState };
-      }
-
-      if (security.freezeable === true) {
-        return { passed: false, rejectReason: "token remains freezeable", metrics, filterState: baseFilterState };
-      }
-
-      if (security.mintAuthorityEnabled === true) {
-        return { passed: false, rejectReason: "token remains mintable", metrics, filterState: baseFilterState };
-      }
-
-      if ((security.transferFeePercent ?? 0) > settings.filters.maxTransferFeePercent) {
-        return { passed: false, rejectReason: "transfer fee above allowed ceiling", metrics, filterState: baseFilterState };
-      }
+    const uniqueSoftIssues = [...new Set(softIssues)];
+    metrics.softIssues = uniqueSoftIssues;
+    metrics.softIssueCount = uniqueSoftIssues.length;
+    if (uniqueSoftIssues.length >= 2) {
+      return {
+        passed: false,
+        rejectReason: `multiple soft weaknesses: ${uniqueSoftIssues.join(", ")}`,
+        metrics,
+        filterState: baseFilterState,
+      };
     }
 
-    const entryPriceUsd = tradeData?.priceUsd ?? livePriceUsd ?? merged.priceUsd;
+    const securityBudget = await this.providerBudget.canSpend("security", 50);
+    if (!securityBudget.allowed) {
+      return {
+        passed: false,
+        deferReason: securityBudget.reason ?? "security lane budget pacing blocked",
+        metrics: {
+          ...metrics,
+          budget: securityBudget.snapshot,
+        },
+        filterState: baseFilterState,
+      };
+    }
+
+    const security = await this.birdeye.getTokenSecurity(mint);
+    metrics.security = security;
+    Object.assign(baseFilterState, {
+      creatorBalancePercent: security?.creatorBalancePercent,
+      ownerBalancePercent: security?.ownerBalancePercent,
+      updateAuthorityBalancePercent: security?.updateAuthorityBalancePercent,
+      top10UserPercent: security?.top10UserPercent,
+      top10HolderPercent: baseFilterState.top10HolderPercent ?? security?.top10HolderPercent,
+      transferFeeEnabled: security?.transferFeeEnabled,
+      transferFeePercent: security?.transferFeePercent,
+      trueToken: security?.trueToken,
+      token2022: security?.token2022,
+      nonTransferable: security?.nonTransferable,
+      fakeToken: security?.fakeToken,
+      honeypot: security?.honeypot,
+      freezeable: security?.freezeable,
+      mutableMetadata: security?.mutableMetadata,
+      securityCheckedAt: Date.now(),
+    });
+
+    if (!security) {
+      return { passed: false, rejectReason: "deep security unavailable", metrics, filterState: baseFilterState };
+    }
+
+    if (security.fakeToken) {
+      return { passed: false, rejectReason: "fake token flagged by Birdeye", metrics, filterState: baseFilterState };
+    }
+
+    if (security.honeypot) {
+      return { passed: false, rejectReason: "honeypot risk flagged by Birdeye", metrics, filterState: baseFilterState };
+    }
+
+    if (security.freezeable === true) {
+      return { passed: false, rejectReason: "token remains freezeable", metrics, filterState: baseFilterState };
+    }
+
+    if (security.mintAuthorityEnabled === true) {
+      return { passed: false, rejectReason: "token remains mintable", metrics, filterState: baseFilterState };
+    }
+
+    if ((security.transferFeePercent ?? 0) > settings.filters.maxTransferFeePercent) {
+      return { passed: false, rejectReason: "transfer fee above allowed ceiling", metrics, filterState: baseFilterState };
+    }
+
+    const entryPriceUsd = tradeData?.priceUsd ?? merged.priceUsd;
     if (!entryPriceUsd || entryPriceUsd <= 0) {
       return { passed: false, rejectReason: "entry price unavailable", metrics, filterState: baseFilterState };
     }
     baseFilterState.priceUsd = entryPriceUsd;
+    const entryScore = this.scoreFilterState(baseFilterState, settings, {
+      graduatedAt: merged.graduatedAt,
+      source: merged.source,
+    });
+    metrics.entryScore = entryScore;
+    metrics.exitProfile = entryScore >= 0.82 ? "runner" : entryScore >= 0.62 ? "balanced" : "scalp";
 
     return {
       passed: true,
@@ -414,6 +572,128 @@ export class GraduationEngine {
       entryPriceUsd,
       filterState: baseFilterState,
     };
+  }
+
+  private async deferCandidates(
+    candidates: Candidate[],
+    status: CandidateStatus,
+    reason: string,
+    delayMs: number,
+  ): Promise<void> {
+    const scheduledEvaluationAt = new Date(Date.now() + delayMs);
+    await Promise.all(candidates.map((candidate) => db.candidate.update({
+      where: { id: candidate.id },
+      data: {
+        status,
+        rejectReason: reason,
+        lastEvaluatedAt: new Date(),
+        scheduledEvaluationAt,
+      },
+    })));
+  }
+
+  private scoreCandidate(candidate: Candidate, settings: Awaited<ReturnType<RuntimeConfigService["getSettings"]>>): number {
+    return this.scoreFilterState({
+      liquidityUsd: Number(candidate.liquidityUsd ?? 0),
+      volume5mUsd: Number(candidate.volume5mUsd ?? 0),
+      buySellRatio: Number(candidate.buySellRatio ?? 0),
+      priceChange5mPercent: Number(candidate.priceChange5mPercent ?? 0),
+      uniqueWallets5m: Number(candidate.uniqueWallets5m ?? 0),
+      holders: Number(candidate.holders ?? 0),
+      top10HolderPercent: Number(candidate.top10HolderPercent ?? settings.filters.maxTop10HolderPercent),
+      largestHolderPercent: Number(candidate.largestHolderPercent ?? settings.filters.maxSingleHolderPercent),
+    }, settings, {
+      graduatedAt: candidate.graduatedAt ? Math.floor(candidate.graduatedAt.getTime() / 1000) : null,
+      discoveredAtMs: candidate.discoveredAt.getTime(),
+      source: candidate.source,
+      status: candidate.status,
+    });
+  }
+
+  private scoreFilterState(
+    filterState: Pick<
+      CandidateFilterState,
+      | "liquidityUsd"
+      | "volume5mUsd"
+      | "buySellRatio"
+      | "priceChange5mPercent"
+      | "uniqueWallets5m"
+      | "holders"
+      | "top10HolderPercent"
+      | "largestHolderPercent"
+    >,
+    settings: Awaited<ReturnType<RuntimeConfigService["getSettings"]>>,
+    input: {
+      graduatedAt?: number | null;
+      discoveredAtMs?: number | null;
+      source?: string | null;
+      status?: CandidateStatus;
+    },
+  ): number {
+    const now = Date.now();
+    const referenceMs = input.graduatedAt
+      ? input.graduatedAt * 1000
+      : input.discoveredAtMs ?? now;
+    const ageSeconds = Math.max(0, (now - referenceMs) / 1000);
+    const ageScore = this.clamp(1 - (ageSeconds / Math.max(settings.filters.maxGraduationAgeSeconds, 1)), 0, 1);
+
+    const volumeScore = this.logScore(Number(filterState.volume5mUsd ?? 0), settings.filters.minVolume5mUsd);
+    const ratioScore = this.clamp(
+      (Number(filterState.buySellRatio ?? 0) - settings.filters.minBuySellRatio)
+        / Math.max(settings.filters.minBuySellRatio, 1),
+      0,
+      1,
+    );
+    const priceScore = this.clamp(
+      (Number(filterState.priceChange5mPercent ?? 0) + settings.filters.maxNegativePriceChange5mPercent)
+        / Math.max(settings.filters.maxNegativePriceChange5mPercent + 20, 1),
+      0,
+      1,
+    );
+    const momentumScore = (volumeScore * 0.45) + (ratioScore * 0.35) + (priceScore * 0.2);
+
+    const uniqueBuyerScore = this.clamp(
+      Number(filterState.uniqueWallets5m ?? 0) / Math.max(settings.filters.minUniqueBuyers5m * 2, 1),
+      0,
+      1,
+    );
+    const holderScore = this.clamp(
+      Number(filterState.holders ?? 0) / Math.max(settings.filters.minHolders * 2, 1),
+      0,
+      1,
+    );
+    const top10Score = this.clamp(
+      1 - (Number(filterState.top10HolderPercent ?? settings.filters.maxTop10HolderPercent) / Math.max(settings.filters.maxTop10HolderPercent, 1)),
+      0,
+      1,
+    );
+    const largestHolderScore = this.clamp(
+      1 - (Number(filterState.largestHolderPercent ?? settings.filters.maxSingleHolderPercent) / Math.max(settings.filters.maxSingleHolderPercent, 1)),
+      0,
+      1,
+    );
+    const structureScore = (uniqueBuyerScore * 0.5) + (holderScore * 0.25) + (top10Score * 0.15) + (largestHolderScore * 0.1);
+
+    const liquidityScore = this.logScore(Number(filterState.liquidityUsd ?? 0), settings.filters.minLiquidityUsd);
+    const exitabilityScore = (liquidityScore * 0.75) + (ageScore * 0.25);
+
+    const sourceBoost = input.source === "pump_dot_fun" ? 0.03 : 0;
+    const statusAdjustment = input.status === "ERROR"
+      ? -0.05
+      : input.status === "SKIPPED"
+        ? -0.01
+        : 0;
+
+    return (momentumScore * 0.35) + (structureScore * 0.35) + (exitabilityScore * 0.3) + sourceBoost + statusAdjustment;
+  }
+
+  private logScore(value: number, floor: number): number {
+    const normalized = Math.log1p(Math.max(value, 0)) / Math.log1p(Math.max(floor * 6, 1));
+    return this.clamp(normalized, 0, 1);
+  }
+
+  private clamp(value: number, min: number, max: number): number {
+    return Math.min(Math.max(value, min), max);
   }
 
   private mergeDiscoveryMetrics(
@@ -507,6 +787,11 @@ export class GraduationEngine {
     return typeof value === "number" && Number.isFinite(value) ? value : null;
   }
 
+  private readBoolean(source: Record<string, unknown>, key: string): boolean | null {
+    const value = source[key];
+    return typeof value === "boolean" ? value : null;
+  }
+
   private readString(source: Record<string, unknown>, key: string): string | null {
     const value = source[key];
     return typeof value === "string" && value.length > 0 ? value : null;
@@ -517,6 +802,14 @@ export class GraduationEngine {
     return baseline.detail && typeof baseline.detail === "object"
       ? baseline.detail as Record<string, unknown>
       : baseline;
+  }
+
+  private isTradableSource(source: string): boolean {
+    if (env.TRADABLE_SOURCES.includes("all")) {
+      return true;
+    }
+
+    return env.TRADABLE_SOURCES.includes(source);
   }
 
   private toCandidateData(input: CandidateFilterState, evaluated: boolean) {

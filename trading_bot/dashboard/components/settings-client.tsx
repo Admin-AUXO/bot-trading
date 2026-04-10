@@ -41,14 +41,14 @@ export function SettingsClient({ initial }: { initial: BotSettings }) {
         aside={(
           <div className="grid gap-3">
             <MiniMetric label="Trade mode" value={settings.tradeMode} />
-            <MiniMetric label="Discovery interval" value={`${formatNumber(settings.cadence.discoveryIntervalMs / 1000)} sec`} />
+            <MiniMetric label="US discovery" value={`${formatNumber(settings.cadence.discoveryIntervalMs / 1000)} sec`} />
             <MiniMetric label="Evaluation concurrency" value={formatNumber(settings.cadence.evaluationConcurrency)} />
           </div>
         )}
       />
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Capital" value={`$${formatNumber(settings.capital.capitalUsd)}`} detail="Current dry-run capital baseline" tone="accent" icon={Gauge} />
+        <StatCard label="Capital" value={`$${formatNumber(settings.capital.capitalUsd)}`} detail="Current capital baseline" tone="accent" icon={Gauge} />
         <StatCard label="Position size" value={`$${formatNumber(settings.capital.positionSizeUsd)}`} detail={`Max ${formatNumber(settings.capital.maxOpenPositions)} open positions`} tone="default" icon={SlidersHorizontal} />
         <StatCard label="Security gate" value={`$${formatNumber(settings.filters.securityCheckMinLiquidityUsd)}`} detail={`${formatNumber(settings.filters.securityCheckVolumeMultiplier)}x volume trigger`} tone="warning" icon={ShieldCheck} />
         <StatCard label="Dirty state" value={dirty ? "Unsaved" : "Clean"} detail={dirty ? "Local edits differ from persisted config" : "No pending config edits"} tone={dirty ? "warning" : "success"} icon={Save} />
@@ -72,8 +72,10 @@ export function SettingsClient({ initial }: { initial: BotSettings }) {
             <NumberField label="Capital USD" value={settings.capital.capitalUsd} onChange={(value) => setSettings({ ...settings, capital: { ...settings.capital, capitalUsd: value } })} />
             <NumberField label="Position size USD" value={settings.capital.positionSizeUsd} onChange={(value) => setSettings({ ...settings, capital: { ...settings.capital, positionSizeUsd: value } })} />
             <NumberField label="Max open positions" value={settings.capital.maxOpenPositions} onChange={(value) => setSettings({ ...settings, capital: { ...settings.capital, maxOpenPositions: value } })} />
-            <ReadOnlyField label="Discovery interval" value={`${formatNumber(settings.cadence.discoveryIntervalMs / 1000)} sec`} />
-            <ReadOnlyField label="Evaluation interval" value={`${formatNumber(settings.cadence.evaluationIntervalMs / 1000)} sec`} />
+            <ReadOnlyField label="US-hours discovery interval" value={`${formatNumber(settings.cadence.discoveryIntervalMs / 1000)} sec`} />
+            <ReadOnlyField label="Off-hours discovery interval" value={`${formatNumber(settings.cadence.offHoursDiscoveryIntervalMs / 1000)} sec`} />
+            <ReadOnlyField label="Queued evaluation interval" value={`${formatNumber(settings.cadence.evaluationIntervalMs / 1000)} sec`} />
+            <ReadOnlyField label="Idle evaluation interval" value={`${formatNumber(settings.cadence.idleEvaluationIntervalMs / 1000)} sec`} />
             <ReadOnlyField label="Exit interval" value={`${formatNumber(settings.cadence.exitIntervalMs / 1000)} sec`} />
             <ReadOnlyField label="Entry delay" value={`${formatNumber(settings.cadence.entryDelayMs / 1000)} sec`} />
             <ReadOnlyField label="Evaluation concurrency" value={formatNumber(settings.cadence.evaluationConcurrency)} />

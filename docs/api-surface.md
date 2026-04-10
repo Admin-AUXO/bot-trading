@@ -17,7 +17,7 @@ Transport model:
 ## Read Routes
 
 - `GET /health`: backend health plus current `tradeMode`
-- `GET /api/status`: runtime snapshot, settings, latest candidates, latest fills, provider daily summary
+- `GET /api/status`: runtime snapshot, current entry-gate state, settings, latest candidates, latest fills, provider daily summary, and Birdeye monthly budget pacing
 - `GET /api/candidates?limit=`: candidates ordered by `discoveredAt DESC`, max `200`
 - `GET /api/positions?limit=`: positions with fills included, ordered by `openedAt DESC`, max `200`
 - `GET /api/fills?limit=`: fills ordered by `createdAt DESC`, max `500`
@@ -26,6 +26,11 @@ Transport model:
 - `GET /api/snapshots?limit=&mint=&trigger=&candidateId=`: token snapshots ordered by `capturedAt DESC`, max `500`
 - `GET /api/settings`: validated merged runtime settings
 - `GET /api/views/:name`: SQL view rows, allowlisted only, hard limit `500`
+
+`GET /api/status` now also carries:
+
+- `entryGate.dailyRealizedPnlUsd` and `entryGate.consecutiveLosses` so the desk can see why the daily guard is active
+- `providerBudget` with current-month Birdeye used units, projected pace, and per-lane budget buckets (`discovery`, `evaluation`, `security`, `reserve`)
 
 ## Write Routes
 

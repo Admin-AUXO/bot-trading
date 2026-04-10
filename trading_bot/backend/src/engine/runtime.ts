@@ -3,6 +3,7 @@ import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
 import { BirdeyeClient } from "../services/birdeye-client.js";
 import { HeliusClient } from "../services/helius-client.js";
+import { ProviderBudgetService } from "../services/provider-budget-service.js";
 import { RuntimeConfigService } from "../services/runtime-config.js";
 import { RiskEngine } from "./risk-engine.js";
 import { ExecutionEngine } from "./execution-engine.js";
@@ -10,12 +11,15 @@ import { ExitEngine } from "./exit-engine.js";
 import { GraduationEngine } from "./graduation-engine.js";
 import { createApiServer } from "../api/server.js";
 
+const QUEUED_CANDIDATE_STATUSES = ["DISCOVERED", "SKIPPED", "ERROR"] as const;
+
 export class BotRuntime {
   private stopped = false;
   private readonly config = new RuntimeConfigService();
   private readonly risk = new RiskEngine(this.config);
   private readonly birdeye = new BirdeyeClient(env.BIRDEYE_API_KEY);
   private readonly helius = new HeliusClient(env.HELIUS_RPC_URL);
+  private readonly providerBudget = new ProviderBudgetService();
   private readonly execution = new ExecutionEngine(this.risk, this.config);
   private readonly exits = new ExitEngine(this.birdeye, this.execution, this.config, this.risk);
   private readonly graduation = new GraduationEngine(this.birdeye, this.helius, this.execution, this.risk, this.config);
@@ -82,11 +86,12 @@ export class BotRuntime {
   }
 
   private async getSnapshot() {
-    const [botState, settings, openPositions, queuedCandidates, latestCandidates, latestFills, providerSummary] = await Promise.all([
+    const settings = await this.config.getSettings();
+    const [botState, entryGate, openPositions, queuedCandidates, latestCandidates, latestFills, providerSummary, providerBudget] = await Promise.all([
       this.risk.getSnapshot(),
-      this.config.getSettings(),
+      this.risk.canOpenPosition(settings),
       db.position.count({ where: { status: "OPEN" } }),
-      db.candidate.count({ where: { status: { in: ["DISCOVERED", "SKIPPED", "ERROR"] } } }),
+      db.candidate.count({ where: { status: { in: [...QUEUED_CANDIDATE_STATUSES] } } }),
       db.candidate.findMany({ take: 20, orderBy: { discoveredAt: "desc" } }),
       db.fill.findMany({ take: 20, orderBy: { createdAt: "desc" } }),
       db.$queryRawUnsafe(`
@@ -95,6 +100,7 @@ export class BotRuntime {
         WHERE session_date = CURRENT_DATE
         ORDER BY provider
       `) as Promise<unknown[]>,
+      this.providerBudget.getBirdeyeBudgetSnapshot(),
     ]);
 
     return {
@@ -108,23 +114,45 @@ export class BotRuntime {
         lastEvaluationAt: botState.lastEvaluationAt,
         lastExitCheckAt: botState.lastExitCheckAt,
       },
+      entryGate: {
+        allowed: entryGate.allowed,
+        reason: entryGate.reason ?? null,
+        retryable: entryGate.retryable ?? false,
+        dailyRealizedPnlUsd: entryGate.dailyRealizedPnlUsd ?? 0,
+        consecutiveLosses: entryGate.consecutiveLosses ?? 0,
+      },
       settings,
       openPositions,
       queuedCandidates,
       latestCandidates,
       latestFills,
       providerSummary,
+      providerBudget,
     };
   }
 
   private scheduleDiscovery(): void {
-    void this.scheduleLoop("discovery loop", async () => this.config.getSettings().then((settings) => settings.cadence.discoveryIntervalMs), () => this.graduation.discover(), (handle) => {
+    void this.scheduleLoop("discovery loop", async () => {
+      const settings = await this.config.getSettings();
+      return this.isUsHours()
+        ? settings.cadence.discoveryIntervalMs
+        : settings.cadence.offHoursDiscoveryIntervalMs;
+    }, () => this.graduation.discover(), (handle) => {
       this.discoveryHandle = handle;
     });
   }
 
   private scheduleEvaluation(): void {
-    void this.scheduleLoop("evaluation loop", async () => this.config.getSettings().then((settings) => settings.cadence.evaluationIntervalMs), () => this.graduation.evaluateDueCandidates(), (handle) => {
+    void this.scheduleLoop("evaluation loop", async () => {
+      const [settings, queuedCandidates] = await Promise.all([
+        this.config.getSettings(),
+        db.candidate.count({ where: { status: { in: [...QUEUED_CANDIDATE_STATUSES] } } }),
+      ]);
+
+      return queuedCandidates > 0
+        ? settings.cadence.evaluationIntervalMs
+        : settings.cadence.idleEvaluationIntervalMs;
+    }, () => this.graduation.evaluateDueCandidates(), (handle) => {
       this.evaluationHandle = handle;
     });
   }
@@ -203,5 +231,20 @@ export class BotRuntime {
         pauseReason: null,
       },
     });
+  }
+
+  private isUsHours(now = new Date()): boolean {
+    try {
+      const formatter = new Intl.DateTimeFormat("en-US", {
+        timeZone: env.US_HOURS_TIMEZONE,
+        hour: "2-digit",
+        hour12: false,
+      });
+      const hour = Number(formatter.format(now));
+      return Number.isFinite(hour) && hour >= env.US_HOURS_START_HOUR && hour < env.US_HOURS_END_HOUR;
+    } catch {
+      const utcHour = now.getUTCHours();
+      return utcHour >= 13 && utcHour < 24;
+    }
   }
 }

@@ -111,12 +111,17 @@ export function DashboardClient(props: {
             </div>
             <div className="mt-4 text-2xl font-semibold tracking-tight text-text-primary">{status.botState.tradeMode}</div>
             <div className="mt-2 text-sm leading-6 text-text-secondary">
-              {status.botState.pauseReason ?? "Dry-run lane is live and polling on schedule."}
+              {status.botState.pauseReason
+                ?? status.entryGate.reason
+                ?? (status.botState.tradeMode === "LIVE"
+                  ? "Live lane is armed and polling on schedule."
+                  : "Dry-run lane is live and polling on schedule.")}
             </div>
             <div className="mt-5 grid gap-3 text-sm">
               <MiniMetric label="Last refresh" value={formatTimestamp(lastRefreshedAt)} />
               <MiniMetric label="Cash on desk" value={formatCurrency(status.botState.cashUsd)} />
               <MiniMetric label="Realized edge" value={formatCompactCurrency(status.botState.realizedPnlUsd)} />
+              <MiniMetric label="Day guard" value={`${formatCurrency(status.entryGate.dailyRealizedPnlUsd)} / ${status.entryGate.consecutiveLosses}L`} />
             </div>
           </div>
         )}
@@ -259,16 +264,16 @@ export function DashboardClient(props: {
         <Panel title="Desk notes" eyebrow="What matters next">
           <div className="space-y-3 text-sm text-muted">
             <DeskNote icon={ShieldAlert} title="Evidence before folklore">
-              Raw Birdeye and Helius payloads stay queryable, so config changes can be justified by real shape instead of operator memory.
+              Error payloads stay queryable by default, and success payload capture is explicit instead of quietly turning telemetry into a storage leak.
             </DeskNote>
             <DeskNote icon={Zap} title="Parallelism without lying">
-              Evaluation concurrency exists, but the entry gate now checks capacity atomically before a position is created.
+              Evaluation still runs concurrently, but capacity gets checked before provider reads and live wallet actions are serialized so the DB and chain do not tell different stories.
             </DeskNote>
             <DeskNote icon={ArrowUpRight} title="This page is for operating">
               Grafana still owns the heavier read path. The shell keeps the runtime lane tight and explicit instead of turning into a BI landfill.
             </DeskNote>
-            <DeskNote icon={AlertTriangle} title="LIVE remains blocked">
-              The backend still refuses live fills until a real swap adapter exists. A prettier button would not change that.
+            <DeskNote icon={AlertTriangle} title="LIVE has prerequisites">
+              The backend can route live fills now, but only if the trading wallet, quote mint, and Sender/Jupiter env are configured sanely. A green badge does not fund the wallet for you.
             </DeskNote>
           </div>
         </Panel>

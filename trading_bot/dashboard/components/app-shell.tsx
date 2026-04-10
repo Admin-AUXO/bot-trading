@@ -134,6 +134,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
             {status?.botState.pauseReason ? (
               <div className="mt-2 text-[11px] leading-5 text-text-muted">{status.botState.pauseReason}</div>
+            ) : status?.entryGate.reason ? (
+              <div className="mt-2 text-[11px] leading-5 text-text-muted">{status.entryGate.reason}</div>
             ) : (
               <div className="mt-2 text-[11px] leading-5 text-text-muted">No runtime blocker recorded.</div>
             )}

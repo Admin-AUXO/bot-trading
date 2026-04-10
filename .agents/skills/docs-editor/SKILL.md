@@ -16,5 +16,6 @@ Use this skill for repo-facing documentation, especially agent-only docs.
 - Do not invent commands, routes, startup behavior, or repo capabilities.
 - Keep setup and verification steps short and executable.
 - When contracts change, update every matching doc in the same pass.
+- If agent-facing skill docs describe runtime capabilities or constraints, update those too; stale `SKILL.md` files are still stale contracts.
 - When a doc tree is stale and duplicated, delete it instead of rewording it.
 - Prefer one canonical statement over repeating the same repo rule in five files.

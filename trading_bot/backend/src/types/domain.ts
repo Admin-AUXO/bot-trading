@@ -127,6 +127,7 @@ export interface HolderConcentration {
 export interface CandidateEvaluation {
   passed: boolean;
   rejectReason?: string;
+  deferReason?: string;
   metrics: Record<string, unknown>;
   entryPriceUsd?: number;
   filterState: CandidateFilterState;
@@ -228,19 +229,29 @@ export interface RuntimeSnapshot {
     lastEvaluationAt: Date | null;
     lastExitCheckAt: Date | null;
   };
+  entryGate: {
+    allowed: boolean;
+    reason: string | null;
+    retryable: boolean;
+    dailyRealizedPnlUsd: number;
+    consecutiveLosses: number;
+  };
   settings: BotSettings;
   openPositions: number;
   queuedCandidates: number;
   latestCandidates: unknown[];
   latestFills: unknown[];
   providerSummary?: unknown[];
+  providerBudget?: unknown;
 }
 
 export interface BotSettings {
   tradeMode: "DRY_RUN" | "LIVE";
   cadence: {
     discoveryIntervalMs: number;
+    offHoursDiscoveryIntervalMs: number;
     evaluationIntervalMs: number;
+    idleEvaluationIntervalMs: number;
     exitIntervalMs: number;
     entryDelayMs: number;
     evaluationConcurrency: number;
