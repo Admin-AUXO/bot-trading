@@ -1,3 +1,18 @@
+---
+type: reference
+status: active
+area: strategy
+date: 2026-04-10
+source_files:
+  - trading_bot/backend/src/engine/graduation-engine.ts
+  - trading_bot/backend/src/engine/research-dry-run-engine.ts
+  - trading_bot/backend/src/engine/exit-engine.ts
+  - trading_bot/backend/src/engine/runtime.ts
+  - trading_bot/backend/src/engine/risk-engine.ts
+graph_checked:
+next_action:
+---
+
 # S2 Strategy
 
 Purpose: describe the actual S2 lifecycle in code, including the parts that are easy to misread from the UI.
@@ -6,10 +21,11 @@ This repo runs one strategy: S2 graduation.
 
 ## Runtime Lanes
 
-- Discovery lane: [`GraduationEngine.discover()`](../trading_bot/backend/src/engine/graduation-engine.ts)
-- Evaluation lane: [`GraduationEngine.evaluateDueCandidates()`](../trading_bot/backend/src/engine/graduation-engine.ts)
-- Exit lane: [`ExitEngine.run()`](../trading_bot/backend/src/engine/exit-engine.ts)
-- Scheduler and manual triggers: [`BotRuntime`](../trading_bot/backend/src/engine/runtime.ts)
+- Live discovery lane: [`GraduationEngine.discover()`](../../trading_bot/backend/src/engine/graduation-engine.ts)
+- Live evaluation lane: [`GraduationEngine.evaluateDueCandidates()`](../../trading_bot/backend/src/engine/graduation-engine.ts)
+- Live exit lane: [`ExitEngine.run()`](../../trading_bot/backend/src/engine/exit-engine.ts)
+- Bounded research dry-run lane: [`ResearchDryRunEngine`](../../trading_bot/backend/src/engine/research-dry-run-engine.ts)
+- Scheduler and manual triggers: [`BotRuntime`](../../trading_bot/backend/src/engine/runtime.ts)
 
 Runtime pacing matters now:
 
@@ -17,8 +33,10 @@ Runtime pacing matters now:
 - evaluation runs at the active pace while the queue exists, then backs off to the idle pace when the queue is empty
 - exit checks stay on their own cadence
 - Birdeye spend is lane-budgeted across discovery, evaluation, security, and reserve instead of assuming the month will sort itself out
+- `LIVE` owns the recurring discovery, evaluation, and exit loops
+- `DRY_RUN` no longer runs those loops at all; it waits for a manual research run, then only keeps the research polling timer alive until the bounded run completes or times out
 
-## Candidate Lifecycle
+## Live Candidate Lifecycle
 
 - Discovery writes new rows as `DISCOVERED`
 - Evaluation only pulls candidates in `DISCOVERED`, `SKIPPED`, or `ERROR` whose `scheduledEvaluationAt <= now`
@@ -33,7 +51,7 @@ Runtime pacing matters now:
 - `TRADABLE_SOURCES="pump_dot_fun"` keeps non-pump venues in paper-only mode unless you explicitly widen it
 - Discovery is budget-aware. If the projected Birdeye discovery lane would outrun the monthly Lite pacing target, the loop skips that sweep instead of spending through the cap.
 - Lookback window is `now - DISCOVERY_LOOKBACK_SECONDS`
-- Discovery request size is `evaluationConcurrency * 20`
+- Live discovery request size is `evaluationConcurrency * 20`
 - Duplicate mints are ignored before insert
 - Each new candidate gets:
   - `status = DISCOVERED`
@@ -41,9 +59,27 @@ Runtime pacing matters now:
   - raw discovery payload in `Candidate.metrics`
   - normalized discovery evidence in `TokenSnapshot` with `trigger = "discovery"`
 
+## Research Dry-Run Contract
+
+- `DRY_RUN` is a bounded research lane, not a rolling paper bot
+- Research starts only from the manual `run-research-dry-run` control
+- Discovery is one Birdeye meme-list page with `source=all`, capped by `research.discoveryLimit`
+- Research discovery does not dedupe against operational `Candidate` history; repeated runs on the same mint are allowed and isolated by `ResearchRun`
+- The page is cheap-scored first across all discovered names
+- Full deep evaluation only runs on the top `research.fullEvaluationLimit`
+- Research stores both `liveTradable` and `researchTradable` on each `ResearchToken`
+- Research mock entries ignore desk cash, `maxOpenPositions`, daily-loss guards, and consecutive-loss guards
+- Research mock sizing is fixed by `research.fixedPositionSizeUsd`
+- Research mock entries are capped by `research.maxMockPositions`
+- Provider spend is capped per run with `research.birdeyeUnitCap` and `research.heliusUnitCap`
+- Research polling cadence is `research.pollIntervalMs`
+- Research max run window is `research.maxRunDurationMs`
+- When the run window expires, any still-open research positions force-close using their last seen cached price
+- Research rows live in dedicated `ResearchRun`, `ResearchToken`, `ResearchPosition`, and `ResearchFill` tables instead of polluting the operational candidate and position lifecycle
+
 ## Evaluation Contract
 
-Important nuance: evaluation now checks capacity before spending provider units, due candidates are ranked by a freshness/liquidity/momentum priority score instead of raw FIFO order, and the lane is Birdeye-budget aware before it spends detail, trade-data, or security units. Ranked candidates are then processed one by one rather than blasting all provider calls in parallel, because Lite-plan burst discipline matters more than theoretical loop throughput on a `$100` desk.
+Important nuance: evaluation now checks capacity before spending provider units, due candidates are ranked by a freshness, liquidity, and momentum priority score instead of raw FIFO order, and the lane is Birdeye-budget aware before it spends detail, trade-data, or security units. Ranked candidates are then processed one by one rather than blasting all provider calls in parallel, because Lite-plan burst discipline matters more than theoretical loop throughput on a `$100` desk.
 
 Evaluation then applies these gates:
 
@@ -81,12 +117,13 @@ Persistence on evaluation:
 - Retryable capacity failures and budget-pacing deferrals write `Candidate.status = SKIPPED` with a new `scheduledEvaluationAt`
 - Non-retryable runtime failures write `Candidate.status = ERROR` with a new `scheduledEvaluationAt`
 - Candidates from non-tradable venues can still clear the filter stack, but they are persisted as paper-only rejects with `TokenSnapshot.trigger = "evaluation_paper"`
-- Accept path writes `TokenSnapshot` with `trigger = "evaluation_accept"`, then updates the candidate and opens a position in either `DRY_RUN` or `LIVE`
+- Accept path writes `TokenSnapshot` with `trigger = "evaluation_accept"`, then updates the candidate and opens a position in `LIVE`
+- Research deep evaluation uses the same filter stack, score, and exit-profile derivation, but persists the result onto `ResearchToken` instead of mutating `Candidate`
 
 ## Risk And Entry Contract
 
-- Entry sizing comes from [`RiskEngine`](../trading_bot/backend/src/engine/risk-engine.ts), not from ad hoc math in strategy code
-- Entry size is adaptive, not fixed. The desk treats `capital.positionSizeUsd` as the standard cap, scales down toward the `$10-15` floor when score/exposure is weak, and only stretches toward `$30` on high-score setups when exposure is still light.
+- Entry sizing comes from [`RiskEngine`](../../trading_bot/backend/src/engine/risk-engine.ts), not from ad hoc math in strategy code
+- Entry size is adaptive, not fixed. The desk treats `capital.positionSizeUsd` as the standard cap, scales down toward the `$10-15` floor when score or exposure is weak, and only stretches toward `$30` on high-score setups when exposure is still light.
 - Capacity calculation still blocks on cash and slot count, but the approved ticket size now depends on `entryScore` and current exposure instead of blindly using one constant ticket for every graduate.
 - `LIVE` is allowed only when the trading wallet and live-routing env are valid
 - Capacity also blocks on:
@@ -96,8 +133,8 @@ Persistence on evaluation:
   - `DAILY_LOSS_LIMIT_USD` breached for the current trading day
   - `MAX_CONSECUTIVE_LOSSES` breached for the current trading day
 - `ExecutionEngine` serializes wallet-affecting actions so overlapping manual triggers and scheduler loops cannot open or close simultaneously
-- `DRY_RUN` buys are still created entirely inside a DB transaction
 - `LIVE` buys execute onchain first, then persist the fill, `txSignature`, position, and cash update; if persistence fails after a live trade lands, the bot pauses itself for manual intervention
+- Research mock buys are written to dedicated research tables and never touch `BotState.cashUsd` or `BotState.realizedPnlUsd`
 
 Pause semantics matter:
 
@@ -107,7 +144,7 @@ Pause semantics matter:
 
 ## Exit Contract
 
-`ExitEngine.run()` prices open positions through Birdeye `/defi/multi_price`, updates the running peak, and then applies exits in this order:
+`ExitEngine.run()` prices live open positions through Birdeye `/defi/multi_price`, updates the running peak, and then applies exits in this order:
 
 1. stop loss before any partials
 2. TP1 partial sell using `tp1SellFraction`
@@ -117,8 +154,7 @@ Pause semantics matter:
 6. time stop after `timeStopMinutes` if return is below `timeStopMinReturnPercent`
 7. hard time limit after `timeLimitMinutes`
 
-Every sell writes a `SELL` fill, updates remaining size and TP flags, increments `BotState.cashUsd` and `realizedPnlUsd`, and writes a `trade_sell` snapshot.
-Live sells also persist the onchain `txSignature`, and the exit lane tracks in-flight position ids so overlapping checks do not double-trigger the same close.
+Every sell writes a `SELL` fill, updates remaining size and TP flags, increments `BotState.cashUsd` and `realizedPnlUsd`, and writes a `trade_sell` snapshot. Live sells also persist the onchain `txSignature`, and the exit lane tracks in-flight position ids so overlapping checks do not double-trigger the same close. Research mock exits use the shared exit-plan helper, write `ResearchFill` rows instead of `Fill`, and never mutate the operational desk singleton.
 
 Exit tuning is now score-aware:
 
@@ -143,6 +179,7 @@ Profile thresholds in code:
 - `cadence.entryDelayMs`
 - `cadence.evaluationConcurrency`
 - `capital.*`
+- `research.*`
 - `filters.*`
 - `exits.*`
 

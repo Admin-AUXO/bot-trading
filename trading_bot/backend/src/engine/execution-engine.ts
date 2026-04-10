@@ -2,6 +2,7 @@ import type { Position, Prisma } from "@prisma/client";
 import { db } from "../db/client.js";
 import { RuntimeConfigService } from "../services/runtime-config.js";
 import { LiveTradeExecutor, type LiveTradeExecution } from "../services/live-trade-executor.js";
+import { buildExitPlan } from "../services/strategy-exit.js";
 import { recordTokenSnapshot } from "../services/token-snapshot-recorder.js";
 import type { BotSettings } from "../types/domain.js";
 import { toJsonValue } from "../utils/json.js";
@@ -50,22 +51,6 @@ type LivePositionContext = {
   quoteDecimals: number;
   wallet: string;
   senderUrl: string | null;
-};
-
-type ExitProfile = "scalp" | "balanced" | "runner";
-
-type ExitPlan = {
-  profile: ExitProfile;
-  stopLossPercent: number;
-  tp1Multiplier: number;
-  tp2Multiplier: number;
-  tp1SellFraction: number;
-  tp2SellFraction: number;
-  postTp1RetracePercent: number;
-  trailingStopPercent: number;
-  timeStopMinutes: number;
-  timeStopMinReturnPercent: number;
-  timeLimitMinutes: number;
 };
 
 type PersistOpenInput = {
@@ -381,7 +366,7 @@ export class ExecutionEngine {
     input: PersistOpenInput,
   ): Promise<{ id: string }> {
     const entryScore = this.readEntryScore(input.input.metrics);
-    const exitPlan = this.buildExitPlan(input.settings, entryScore);
+    const exitPlan = buildExitPlan(input.settings, entryScore);
     const created = await tx.position.create({
       data: {
         mint: input.input.mint,
@@ -560,54 +545,6 @@ export class ExecutionEngine {
   private readEntryScore(metrics: Record<string, unknown>): number {
     const direct = toNumber(metrics.entryScore);
     return direct !== null ? this.clamp(direct, 0, 1) : 0.65;
-  }
-
-  private buildExitPlan(settings: BotSettings, entryScore: number): ExitPlan {
-    if (entryScore >= 0.82) {
-      return {
-        profile: "runner",
-        stopLossPercent: this.clamp(settings.exits.stopLossPercent * 1.05, 12, 35),
-        tp1Multiplier: Math.max(settings.exits.tp1Multiplier + 0.15, 1.55),
-        tp2Multiplier: Math.max(settings.exits.tp2Multiplier + 0.4, 2.6),
-        tp1SellFraction: 0.25,
-        tp2SellFraction: 0.25,
-        postTp1RetracePercent: this.clamp(settings.exits.postTp1RetracePercent + 3, 10, 25),
-        trailingStopPercent: this.clamp(settings.exits.trailingStopPercent + 4, 12, 30),
-        timeStopMinutes: Math.max(settings.exits.timeStopMinutes + 10, 30),
-        timeStopMinReturnPercent: Math.max(settings.exits.timeStopMinReturnPercent + 3, 8),
-        timeLimitMinutes: Math.max(settings.exits.timeLimitMinutes + 15, 60),
-      };
-    }
-
-    if (entryScore >= 0.62) {
-      return {
-        profile: "balanced",
-        stopLossPercent: settings.exits.stopLossPercent,
-        tp1Multiplier: settings.exits.tp1Multiplier,
-        tp2Multiplier: settings.exits.tp2Multiplier,
-        tp1SellFraction: settings.exits.tp1SellFraction,
-        tp2SellFraction: settings.exits.tp2SellFraction,
-        postTp1RetracePercent: settings.exits.postTp1RetracePercent,
-        trailingStopPercent: settings.exits.trailingStopPercent,
-        timeStopMinutes: settings.exits.timeStopMinutes,
-        timeStopMinReturnPercent: settings.exits.timeStopMinReturnPercent,
-        timeLimitMinutes: settings.exits.timeLimitMinutes,
-      };
-    }
-
-    return {
-      profile: "scalp",
-      stopLossPercent: this.clamp(settings.exits.stopLossPercent * 0.8, 10, 25),
-      tp1Multiplier: Math.max(settings.exits.tp1Multiplier - 0.1, 1.28),
-      tp2Multiplier: Math.max(settings.exits.tp2Multiplier - 0.3, 1.8),
-      tp1SellFraction: 0.6,
-      tp2SellFraction: 0.2,
-      postTp1RetracePercent: this.clamp(settings.exits.postTp1RetracePercent - 5, 8, 18),
-      trailingStopPercent: this.clamp(settings.exits.trailingStopPercent - 8, 10, 20),
-      timeStopMinutes: Math.max(settings.exits.timeStopMinutes - 8, 10),
-      timeStopMinReturnPercent: Math.max(settings.exits.timeStopMinReturnPercent - 2, 2),
-      timeLimitMinutes: Math.max(settings.exits.timeLimitMinutes - 15, 25),
-    };
   }
 
   private clamp(value: number, min: number, max: number): number {

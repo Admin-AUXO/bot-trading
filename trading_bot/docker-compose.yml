@@ -16,7 +16,7 @@ services:
     container_name: trading-postgres
     restart: unless-stopped
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_PORT:-56432}:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-botuser}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-botpass}
@@ -53,7 +53,7 @@ services:
     restart: unless-stopped
     stop_grace_period: 30s
     ports:
-      - "${BOT_PORT:-3001}:${BOT_PORT:-3001}"
+      - "${BOT_PORT:-3101}:${BOT_PORT:-3101}"
     env_file:
       - ./backend/.env
     depends_on:
@@ -65,7 +65,7 @@ services:
       test:
         - CMD-SHELL
         - >-
-          node -e "fetch('http://127.0.0.1:' + (process.env.BOT_PORT || 3001) + '/health').then((res) => {
+          node -e "fetch('http://127.0.0.1:' + (process.env.BOT_PORT || 3101) + '/health').then((res) => {
             if (!res.ok) process.exit(1);
           }).catch(() => process.exit(1))"
       interval: 20s
@@ -84,10 +84,11 @@ services:
     env_file:
       - ./backend/.env
     ports:
-      - "${DASHBOARD_PORT:-3000}:3000"
+      - "${DASHBOARD_PORT:-3100}:3100"
     environment:
-      API_URL: "http://bot:3001"
-      PORT: 3000
+      API_URL: "http://bot:3101"
+      DASHBOARD_PORT: 3100
+      PORT: 3100
     depends_on:
       bot:
         condition: service_healthy
@@ -95,7 +96,7 @@ services:
       test:
         - CMD-SHELL
         - >-
-          node -e "fetch('http://127.0.0.1:3000').then((res) => {
+          node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 3100)).then((res) => {
             if (!res.ok) process.exit(1);
           }).catch(() => process.exit(1))"
       interval: 20s
@@ -103,5 +104,26 @@ services:
       retries: 6
       start_period: 20s
 
+  obsidian:
+    <<: *logging-defaults
+    profiles: ["notes"]
+    image: lscr.io/linuxserver/obsidian:latest
+    container_name: trading-obsidian
+    restart: unless-stopped
+    shm_size: "1gb"
+    ports:
+      - "127.0.0.1:${OBSIDIAN_HTTP_PORT:-3110}:3000"
+      - "127.0.0.1:${OBSIDIAN_HTTPS_PORT:-3111}:3001"
+    environment:
+      PUID: ${OBSIDIAN_PUID:-1000}
+      PGID: ${OBSIDIAN_PGID:-1000}
+      TZ: ${OBSIDIAN_TZ:-Europe/London}
+      TITLE: ${OBSIDIAN_TITLE:-bot-trading-notes}
+      FILE_MANAGER_PATH: /config/vaults/bot-trading
+    volumes:
+      - obsidian-config:/config
+      - ../notes:/config/vaults/bot-trading
+
 volumes:
   trading-pgdata:
+  obsidian-config:

@@ -5,7 +5,8 @@ Agent-only repo. The only active app is [`trading_bot/`](trading_bot/).
 ## Start Here
 
 - Repo rules and task routing: [`AGENTS.md`](AGENTS.md)
-- Canonical doc index: [`docs/README.md`](docs/README.md)
+- Obsidian vault guide: [`notes/README.md`](notes/README.md)
+- Canonical reference index: [`notes/reference/index.md`](notes/reference/index.md)
 - App-local rules once you are inside the app: [`trading_bot/AGENTS.md`](trading_bot/AGENTS.md)
 
 ## Current Scope
@@ -21,10 +22,12 @@ Agent-only repo. The only active app is [`trading_bot/`](trading_bot/).
 
 ## Canonical Strategy Docs
 
-- Runtime and strategy behavior: [`docs/strategy.md`](docs/strategy.md)
-- Setup, env, and live-routing contracts: [`docs/bootstrap-and-docker.md`](docs/bootstrap-and-docker.md)
-- Backend and dashboard boundaries: [`docs/api-surface.md`](docs/api-surface.md)
-- Schema, views, and evidence tables: [`docs/prisma-and-views.md`](docs/prisma-and-views.md)
+- Runtime and strategy behavior: [`notes/reference/strategy.md`](notes/reference/strategy.md)
+- Setup, env, and live-routing contracts: [`notes/reference/bootstrap-and-docker.md`](notes/reference/bootstrap-and-docker.md)
+- Backend and dashboard boundaries: [`notes/reference/api-surface.md`](notes/reference/api-surface.md)
+- Schema, views, and evidence tables: [`notes/reference/prisma-and-views.md`](notes/reference/prisma-and-views.md)
+- Repo-local graphify workflow: [`notes/reference/graphify.md`](notes/reference/graphify.md)
+- Repo-local Obsidian workflow: [`notes/reference/obsidian.md`](notes/reference/obsidian.md)
 
 ## Non-Features
 

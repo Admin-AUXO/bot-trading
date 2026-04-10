@@ -33,44 +33,45 @@ export class GraduationEngine {
     private readonly config: RuntimeConfigService,
   ) {}
 
+  async getResearchDiscoveryTokens(limit: number): Promise<DiscoveryToken[]> {
+    const settings = await this.config.getSettings();
+    return this.fetchDiscoveryTokens(settings, limit, false, "all");
+  }
+
+  async evaluateResearchToken(
+    token: DiscoveryToken,
+    settingsOverride?: Awaited<ReturnType<RuntimeConfigService["getSettings"]>>,
+  ): Promise<CandidateEvaluation> {
+    const settings = settingsOverride ?? await this.config.getSettings();
+    return this.evaluateCandidate(token.mint, token as unknown as Record<string, unknown>, settings);
+  }
+
+  scoreDiscoveryToken(
+    token: DiscoveryToken,
+    settings: Awaited<ReturnType<RuntimeConfigService["getSettings"]>>,
+  ): number {
+    const discoveryState = this.toDiscoveryFilterState(token);
+    return this.scoreFilterState(discoveryState, settings, {
+      graduatedAt: token.graduatedAt,
+      source: token.source,
+    });
+  }
+
+  isLiveTradableSource(source: string): boolean {
+    return this.isTradableSource(source);
+  }
+
   async discover(): Promise<void> {
     if (this.discoveryInFlight) return;
     this.discoveryInFlight = true;
 
     try {
       const settings = await this.config.getSettings();
-      const minGraduatedTime = Math.floor(Date.now() / 1000) - env.DISCOVERY_LOOKBACK_SECONDS;
-      const discoverySources = env.DISCOVERY_SOURCES.includes("all")
-        ? ["all"]
-        : [...new Set(env.DISCOVERY_SOURCES)];
-      const discoveryBudget = await this.providerBudget.canSpend("discovery", discoverySources.length * 100);
-      if (!discoveryBudget.allowed) {
-        logger.warn({ reason: discoveryBudget.reason }, "discovery skipped to preserve Birdeye monthly budget");
-        return;
-      }
-      const fetchedGroups = await Promise.all(discoverySources.map((source) => this.birdeye.getGraduatedMemeTokens({
-        source,
-        minGraduatedTime,
-        limit: settings.cadence.evaluationConcurrency * 20,
-        minLiquidityUsd: settings.filters.minLiquidityUsd,
-        minVolume5mUsd: settings.filters.minVolume5mUsd,
-        minHolders: settings.filters.minHolders,
-      })));
-      const tokens = [...new Map(
-        fetchedGroups
-          .flat()
-          .sort((left, right) => (right.graduatedAt ?? 0) - (left.graduatedAt ?? 0))
-          .map((token) => [token.mint, token] as const),
-      ).values()];
-      const existingMints = new Set(
-        (
-          await db.candidate.findMany({
-            where: { mint: { in: tokens.map((token) => token.mint) } },
-            select: { mint: true },
-          })
-        ).map((row) => row.mint),
+      const freshTokens = await this.fetchDiscoveryTokens(
+        settings,
+        settings.cadence.evaluationConcurrency * 20,
+        true,
       );
-      const freshTokens = tokens.filter((token) => !existingMints.has(token.mint));
 
       await Promise.all(freshTokens.map(async (token) => {
         const discoveryState = this.toDiscoveryFilterState(token);
@@ -107,6 +108,55 @@ export class GraduationEngine {
     } finally {
       this.discoveryInFlight = false;
     }
+  }
+
+  private async fetchDiscoveryTokens(
+    settings: Awaited<ReturnType<RuntimeConfigService["getSettings"]>>,
+    limit: number,
+    excludeExistingMints: boolean,
+    sourceMode: "configured" | "all" = "configured",
+  ): Promise<DiscoveryToken[]> {
+    const minGraduatedTime = Math.floor(Date.now() / 1000) - env.DISCOVERY_LOOKBACK_SECONDS;
+    const discoverySources = sourceMode === "all"
+      ? ["all"]
+      : env.DISCOVERY_SOURCES.includes("all")
+      ? ["all"]
+      : [...new Set(env.DISCOVERY_SOURCES)];
+    const discoveryBudget = await this.providerBudget.canSpend("discovery", discoverySources.length * 100);
+    if (!discoveryBudget.allowed) {
+      logger.warn({ reason: discoveryBudget.reason }, "discovery skipped to preserve Birdeye monthly budget");
+      return [];
+    }
+
+    const fetchedGroups = await Promise.all(discoverySources.map((source) => this.birdeye.getGraduatedMemeTokens({
+      source,
+      minGraduatedTime,
+      limit,
+      minLiquidityUsd: settings.filters.minLiquidityUsd,
+      minVolume5mUsd: settings.filters.minVolume5mUsd,
+      minHolders: settings.filters.minHolders,
+    })));
+    const tokens = [...new Map(
+      fetchedGroups
+        .flat()
+        .sort((left, right) => (right.graduatedAt ?? 0) - (left.graduatedAt ?? 0))
+        .map((token) => [token.mint, token] as const),
+    ).values()];
+
+    if (!excludeExistingMints || tokens.length === 0) {
+      return tokens;
+    }
+
+    const existingMints = new Set(
+      (
+        await db.candidate.findMany({
+          where: { mint: { in: tokens.map((token) => token.mint) } },
+          select: { mint: true },
+        })
+      ).map((row) => row.mint),
+    );
+
+    return tokens.filter((token) => !existingMints.has(token.mint));
   }
 
   async evaluateDueCandidates(): Promise<void> {

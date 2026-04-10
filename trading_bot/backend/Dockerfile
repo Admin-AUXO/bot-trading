@@ -34,5 +34,5 @@ COPY --chown=node:node --from=prod-deps /app/node_modules ./node_modules
 COPY --chown=node:node --from=builder /app/package.json ./
 USER node
 
-EXPOSE 3001
+EXPOSE 3101
 CMD ["node", "dist/index.js"]

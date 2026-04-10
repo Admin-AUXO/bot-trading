@@ -15,6 +15,16 @@ const botSettingsSchema = z.object({
     entryDelayMs: z.number().int().nonnegative(),
     evaluationConcurrency: z.number().int().positive().max(10),
   }),
+  research: z.object({
+    discoveryLimit: z.number().int().positive().max(100),
+    fullEvaluationLimit: z.number().int().positive().max(100),
+    maxMockPositions: z.number().int().positive().max(20),
+    fixedPositionSizeUsd: z.number().positive(),
+    pollIntervalMs: z.number().int().positive(),
+    maxRunDurationMs: z.number().int().positive(),
+    birdeyeUnitCap: z.number().int().positive(),
+    heliusUnitCap: z.number().int().positive(),
+  }),
   capital: z.object({
     capitalUsd: z.number().positive(),
     positionSizeUsd: z.number().positive(),
@@ -53,6 +63,30 @@ const botSettingsSchema = z.object({
       code: z.ZodIssueCode.custom,
       message: "position size cannot exceed total capital",
       path: ["capital", "positionSizeUsd"],
+    });
+  }
+
+  if (settings.research.fullEvaluationLimit > settings.research.discoveryLimit) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "research shortlist cannot exceed research discovery limit",
+      path: ["research", "fullEvaluationLimit"],
+    });
+  }
+
+  if (settings.research.maxMockPositions > settings.research.fullEvaluationLimit) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "research mock-position cap cannot exceed research shortlist size",
+      path: ["research", "maxMockPositions"],
+    });
+  }
+
+  if (settings.research.pollIntervalMs > settings.research.maxRunDurationMs) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "research poll interval cannot exceed max research run duration",
+      path: ["research", "pollIntervalMs"],
     });
   }
 
@@ -101,6 +135,16 @@ export function buildDefaultSettings(): BotSettings {
       entryDelayMs: env.ENTRY_DELAY_MS,
       evaluationConcurrency: env.EVALUATION_CONCURRENCY,
     },
+    research: {
+      discoveryLimit: env.RESEARCH_DISCOVERY_LIMIT,
+      fullEvaluationLimit: env.RESEARCH_FULL_EVALUATION_LIMIT,
+      maxMockPositions: env.RESEARCH_MAX_MOCK_POSITIONS,
+      fixedPositionSizeUsd: env.RESEARCH_FIXED_POSITION_SIZE_USD,
+      pollIntervalMs: env.RESEARCH_POLL_INTERVAL_MS,
+      maxRunDurationMs: env.RESEARCH_MAX_RUN_DURATION_MS,
+      birdeyeUnitCap: env.RESEARCH_BIRDEYE_UNIT_CAP,
+      heliusUnitCap: env.RESEARCH_HELIUS_UNIT_CAP,
+    },
     capital: {
       capitalUsd: env.CAPITAL_USD,
       positionSizeUsd: env.POSITION_SIZE_USD,
@@ -140,6 +184,7 @@ function mergeSettings(base: BotSettings, overrides: Partial<BotSettings>): BotS
   return {
     tradeMode: overrides.tradeMode ?? base.tradeMode,
     cadence: { ...base.cadence, ...(overrides.cadence ?? {}) },
+    research: { ...base.research, ...(overrides.research ?? {}) },
     capital: { ...base.capital, ...(overrides.capital ?? {}) },
     filters: { ...base.filters, ...(overrides.filters ?? {}) },
     exits: { ...base.exits, ...(overrides.exits ?? {}) },
@@ -187,13 +232,18 @@ export class RuntimeConfigService {
     const next = validateSettings(mergeSettings(current, input));
     const tradeModeChanged = next.tradeMode !== current.tradeMode;
     const capitalChanged = next.capital.capitalUsd !== current.capital.capitalUsd;
-    const [openPositions, botState] = await Promise.all([
+    const [openPositions, botState, activeResearchRun] = await Promise.all([
       db.position.count({ where: { status: "OPEN" } }),
       db.botState.findUnique({ where: { id: "singleton" } }),
+      db.researchRun.findFirst({ where: { status: "RUNNING" }, select: { id: true } }),
     ]);
 
     if (tradeModeChanged && openPositions > 0) {
       throw new Error("cannot switch trade mode while positions are still open");
+    }
+
+    if (tradeModeChanged && activeResearchRun) {
+      throw new Error("cannot switch trade mode while a research dry run is still active");
     }
 
     if (capitalChanged && openPositions > 0) {

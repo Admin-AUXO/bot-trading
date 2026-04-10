@@ -1,11 +1,23 @@
+---
+type: reference
+status: active
+area: api
+date: 2026-04-10
+source_files:
+  - trading_bot/backend/src/api/server.ts
+  - trading_bot/dashboard/app/api/[...path]/route.ts
+graph_checked:
+next_action:
+---
+
 # API Surface
 
 Purpose: document the real HTTP boundary, including where the dashboard proxy is mandatory and where the dashboard bypasses it.
 
 ## Entry Points
 
-- Backend API: [`trading_bot/backend/src/api/server.ts`](../trading_bot/backend/src/api/server.ts)
-- Dashboard proxy: [`trading_bot/dashboard/app/api/[...path]/route.ts`](../trading_bot/dashboard/app/api/[...path]/route.ts)
+- Backend API: [`../../trading_bot/backend/src/api/server.ts`](../../trading_bot/backend/src/api/server.ts)
+- Dashboard proxy: [`../../trading_bot/dashboard/app/api/[...path]/route.ts`](../../trading_bot/dashboard/app/api/[...path]/route.ts)
 
 Transport model:
 
@@ -17,7 +29,7 @@ Transport model:
 ## Read Routes
 
 - `GET /health`: backend health plus current `tradeMode`
-- `GET /api/status`: runtime snapshot, current entry-gate state, settings, latest candidates, latest fills, provider daily summary, and Birdeye monthly budget pacing
+- `GET /api/status`: runtime snapshot, current entry-gate state, settings, latest candidates, latest fills, provider daily summary, Birdeye monthly budget pacing, and research dry-run status
 - `GET /api/candidates?limit=`: candidates ordered by `discoveredAt DESC`, max `200`
 - `GET /api/positions?limit=`: positions with fills included, ordered by `openedAt DESC`, max `200`
 - `GET /api/fills?limit=`: fills ordered by `createdAt DESC`, max `500`
@@ -31,6 +43,7 @@ Transport model:
 
 - `entryGate.dailyRealizedPnlUsd` and `entryGate.consecutiveLosses` so the desk can see why the daily guard is active
 - `providerBudget` with current-month Birdeye used units, projected pace, and per-lane budget buckets (`discovery`, `evaluation`, `security`, `reserve`)
+- `research.activeRun`, `research.latestCompletedRun`, and `research.previousCompletedRun` so the dashboard can render the bounded dry-run lane without querying the full run tables first
 
 ## Write Routes
 
@@ -40,12 +53,24 @@ Transport model:
 - `POST /api/control/discover-now`
 - `POST /api/control/evaluate-now`
 - `POST /api/control/exit-check-now`
+- `POST /api/control/run-research-dry-run`
+- `GET /api/research-runs?limit=`: latest research runs, max `50`
+- `GET /api/research-runs/:id`: one research-run summary
+- `GET /api/research-runs/:id/tokens`: run-scoped discovery and evaluation evidence
+- `GET /api/research-runs/:id/positions`: run-scoped mock positions with fills
 
 Settings mutation rules:
 
 - `tradeMode` cannot change while open positions exist
+- `tradeMode` cannot change while a research dry run is still active
 - `capital.capitalUsd` cannot change while open positions exist
-- The dashboard UI only edits capital, filters, and exits; cadence is exposed read-only in the UI even though the API can validate it
+- The dashboard UI edits capital, filters, exits, and research-lane settings; live cadence stays read-only in the UI even though the API can validate it
+
+Control-route mode rules:
+
+- `discover-now`, `evaluate-now`, and `exit-check-now` are live-only controls and return an error in `DRY_RUN`
+- `run-research-dry-run` is dry-run-only and returns an error in `LIVE`
+- API errors are returned as JSON `{ "error": "..." }` instead of default HTML
 
 ## Auth Boundary
 

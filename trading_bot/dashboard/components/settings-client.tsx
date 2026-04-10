@@ -37,20 +37,23 @@ export function SettingsClient({ initial }: { initial: BotSettings }) {
       <PageHero
         eyebrow="Runtime controls"
         title="Tune thresholds without pretending the env file is a control panel"
-        description="These values persist in runtime config. Sizing and thresholds are editable here; cadence is shown separately so you can read the lane without accidentally rewriting it."
+        description="These values persist in runtime config. Live sizing stays separate from the bounded research dry-run lane, so you can tune strategy thresholds and the research timer without contaminating the operational desk."
         aside={(
           <div className="grid gap-3">
             <MiniMetric label="Trade mode" value={settings.tradeMode} />
             <MiniMetric label="US discovery" value={`${formatNumber(settings.cadence.discoveryIntervalMs / 1000)} sec`} />
             <MiniMetric label="Evaluation concurrency" value={formatNumber(settings.cadence.evaluationConcurrency)} />
+            <MiniMetric label="Research poll" value={`${formatNumber(settings.research.pollIntervalMs / 1000)} sec`} />
+            <MiniMetric label="Research window" value={`${formatNumber(settings.research.maxRunDurationMs / 60_000)} min`} />
           </div>
         )}
       />
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <StatCard label="Capital" value={`$${formatNumber(settings.capital.capitalUsd)}`} detail="Current capital baseline" tone="accent" icon={Gauge} />
         <StatCard label="Position size" value={`$${formatNumber(settings.capital.positionSizeUsd)}`} detail={`Max ${formatNumber(settings.capital.maxOpenPositions)} open positions`} tone="default" icon={SlidersHorizontal} />
         <StatCard label="Security gate" value={`$${formatNumber(settings.filters.securityCheckMinLiquidityUsd)}`} detail={`${formatNumber(settings.filters.securityCheckVolumeMultiplier)}x volume trigger`} tone="warning" icon={ShieldCheck} />
+        <StatCard label="Research lane" value={`${formatNumber(settings.research.maxRunDurationMs / 60_000)} min`} detail={`Poll every ${formatNumber(settings.research.pollIntervalMs / 1000)} sec`} tone="default" icon={ShieldCheck} />
         <StatCard label="Dirty state" value={dirty ? "Unsaved" : "Clean"} detail={dirty ? "Local edits differ from persisted config" : "No pending config edits"} tone={dirty ? "warning" : "success"} icon={Save} />
       </section>
 
@@ -116,6 +119,30 @@ export function SettingsClient({ initial }: { initial: BotSettings }) {
         </Panel>
       </section>
 
+      <section className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+        <Panel title="Research dry-run lane" eyebrow="Bounded tuning window">
+          <div className="space-y-5">
+            <NumberField label="Discovery limit" value={settings.research.discoveryLimit} onChange={(value) => setSettings({ ...settings, research: { ...settings.research, discoveryLimit: value } })} />
+            <NumberField label="Deep-evaluation shortlist" value={settings.research.fullEvaluationLimit} onChange={(value) => setSettings({ ...settings, research: { ...settings.research, fullEvaluationLimit: value } })} />
+            <NumberField label="Max mock positions" value={settings.research.maxMockPositions} onChange={(value) => setSettings({ ...settings, research: { ...settings.research, maxMockPositions: value } })} />
+            <NumberField label="Fixed ticket USD" value={settings.research.fixedPositionSizeUsd} onChange={(value) => setSettings({ ...settings, research: { ...settings.research, fixedPositionSizeUsd: value } })} />
+            <DurationField label="Poll interval sec" valueMs={settings.research.pollIntervalMs} divisor={1000} onChange={(valueMs) => setSettings({ ...settings, research: { ...settings.research, pollIntervalMs: valueMs } })} />
+            <DurationField label="Max run window min" valueMs={settings.research.maxRunDurationMs} divisor={60_000} onChange={(valueMs) => setSettings({ ...settings, research: { ...settings.research, maxRunDurationMs: valueMs } })} />
+            <NumberField label="Birdeye unit cap" value={settings.research.birdeyeUnitCap} onChange={(value) => setSettings({ ...settings, research: { ...settings.research, birdeyeUnitCap: value } })} />
+            <NumberField label="Helius unit cap" value={settings.research.heliusUnitCap} onChange={(value) => setSettings({ ...settings, research: { ...settings.research, heliusUnitCap: value } })} />
+          </div>
+        </Panel>
+
+        <Panel title="Research contract" eyebrow="What the lane does now">
+          <div className="space-y-3 text-sm leading-6 text-text-secondary">
+            <p>Discovery is one Birdeye page across all sources, capped by the research limit instead of the live queue cadence.</p>
+            <p>The lane cheap-scores the page first, then runs full deep evaluation only on the shortlist to avoid burning Helius and Birdeye units on obvious garbage.</p>
+            <p>Mock positions ignore live desk cash and use the fixed ticket size, capped by the research position count you set here.</p>
+            <p>The run polls exits on the configured cadence, then force-closes any survivors at the last seen price when the research window expires.</p>
+          </div>
+        </Panel>
+      </section>
+
       <div className="flex justify-end">
         <button
           onClick={save}
@@ -150,6 +177,26 @@ function ReadOnlyField(props: { label: string; value: string }) {
       <div className="text-xs uppercase tracking-[0.3em] text-text-muted">{props.label}</div>
       <div className="mt-2 text-sm font-medium text-text-primary">{props.value}</div>
     </div>
+  );
+}
+
+function DurationField(props: {
+  label: string;
+  valueMs: number;
+  divisor: number;
+  onChange: (valueMs: number) => void;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-xs uppercase tracking-[0.3em] text-text-muted">{props.label}</span>
+      <input
+        type="number"
+        step="any"
+        value={props.valueMs / props.divisor}
+        onChange={(event) => props.onChange(Number(event.target.value) * props.divisor)}
+        className="w-full rounded-2xl border border-bg-border bg-bg-hover/35 px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent-blue"
+      />
+    </label>
   );
 }
 

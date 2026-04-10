@@ -1,5 +1,6 @@
 generator client {
   provider = "prisma-client-js"
+  engineType = "client"
 }
 
 datasource db {
@@ -24,6 +25,12 @@ enum PositionStatus {
 enum FillSide {
   BUY
   SELL
+}
+
+enum ResearchRunStatus {
+  RUNNING
+  COMPLETED
+  FAILED
 }
 
 enum ProviderName {
@@ -184,6 +191,128 @@ model Fill {
   txSignature String?
   metadata    Json?
   createdAt   DateTime @default(now())
+
+  @@index([positionId, createdAt])
+}
+
+model ResearchRun {
+  id                     String            @id @default(cuid())
+  status                 ResearchRunStatus @default(RUNNING)
+  startedAt              DateTime          @default(now())
+  completedAt            DateTime?
+  lastPolledAt           DateTime?
+  pollIntervalMs         Int
+  maxRunDurationMs       Int
+  discoveryLimit         Int
+  fullEvaluationLimit    Int
+  maxMockPositions       Int
+  fixedPositionSizeUsd   Decimal           @db.Decimal(18, 9)
+  birdeyeUnitCap         Int
+  heliusUnitCap          Int
+  totalDiscovered        Int               @default(0)
+  totalShortlisted       Int               @default(0)
+  totalEvaluated         Int               @default(0)
+  totalStrategyPassed    Int               @default(0)
+  totalMockOpened        Int               @default(0)
+  totalMockClosed        Int               @default(0)
+  liveTradablePassed     Int               @default(0)
+  researchTradablePassed Int               @default(0)
+  birdeyeCalls           Int               @default(0)
+  birdeyeUnitsUsed       Int               @default(0)
+  heliusCalls            Int               @default(0)
+  heliusUnitsUsed        Int               @default(0)
+  realizedPnlUsd         Decimal           @default(0) @db.Decimal(18, 9)
+  winRatePercent         Decimal?          @db.Decimal(8, 4)
+  averageHoldMinutes     Decimal?          @db.Decimal(12, 4)
+  errorMessage           String?
+  comparison             Json?
+  configSnapshot         Json
+  metadata               Json?
+  updatedAt              DateTime          @updatedAt
+  tokens                 ResearchToken[]
+  positions              ResearchPosition[]
+
+  @@index([status, startedAt])
+  @@index([startedAt])
+}
+
+model ResearchToken {
+  id                   String            @id @default(cuid())
+  runId                String
+  run                  ResearchRun       @relation(fields: [runId], references: [id], onDelete: Cascade)
+  mint                 String
+  symbol               String            @default("")
+  name                 String            @default("")
+  source               String            @default("")
+  creator              String?
+  liveTradable         Boolean           @default(false)
+  researchTradable     Boolean           @default(false)
+  shortlisted          Boolean           @default(false)
+  selectedForMock      Boolean           @default(false)
+  fullEvaluationDone   Boolean           @default(false)
+  strategyPassed       Boolean           @default(false)
+  strategyRejectReason String?
+  evaluationDeferReason String?
+  cheapScore           Decimal?          @db.Decimal(8, 6)
+  entryScore           Decimal?          @db.Decimal(8, 6)
+  exitProfile          String?
+  evaluatedAt          DateTime?
+  mockOpenedAt         DateTime?
+  metrics              Json?
+  filterState          Json?
+  position             ResearchPosition?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+
+  @@unique([runId, mint])
+  @@index([runId, shortlisted, cheapScore])
+  @@index([runId, strategyPassed, entryScore])
+}
+
+model ResearchPosition {
+  id                  String         @id @default(cuid())
+  runId               String
+  run                 ResearchRun    @relation(fields: [runId], references: [id], onDelete: Cascade)
+  tokenId             String         @unique
+  token               ResearchToken  @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+  mint                String
+  symbol              String         @default("")
+  status              PositionStatus @default(OPEN)
+  entryPriceUsd       Decimal        @db.Decimal(18, 9)
+  currentPriceUsd     Decimal        @db.Decimal(18, 9)
+  peakPriceUsd        Decimal        @db.Decimal(18, 9)
+  stopLossPriceUsd    Decimal        @db.Decimal(18, 9)
+  takeProfit1PriceUsd Decimal        @db.Decimal(18, 9)
+  takeProfit2PriceUsd Decimal        @db.Decimal(18, 9)
+  trailingStopPercent Decimal        @db.Decimal(6, 2)
+  amountUsd           Decimal        @db.Decimal(18, 9)
+  amountToken         Decimal        @db.Decimal(24, 9)
+  remainingToken      Decimal        @db.Decimal(24, 9)
+  tp1Done             Boolean        @default(false)
+  tp2Done             Boolean        @default(false)
+  exitReason          String?
+  lastSeenPriceUsd    Decimal?       @db.Decimal(18, 9)
+  lastSeenAt          DateTime?
+  openedAt            DateTime       @default(now())
+  closedAt            DateTime?
+  metadata            Json?
+  fills               ResearchFill[]
+
+  @@index([runId, status, openedAt])
+  @@index([mint, status])
+}
+
+model ResearchFill {
+  id          String           @id @default(cuid())
+  positionId  String
+  position    ResearchPosition @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  side        FillSide
+  priceUsd    Decimal          @db.Decimal(18, 9)
+  amountUsd   Decimal          @db.Decimal(18, 9)
+  amountToken Decimal          @db.Decimal(24, 9)
+  pnlUsd      Decimal?         @db.Decimal(18, 9)
+  metadata    Json?
+  createdAt   DateTime         @default(now())
 
   @@index([positionId, createdAt])
 }

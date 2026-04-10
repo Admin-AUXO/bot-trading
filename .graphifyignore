@@ -1,0 +1,37 @@
+# Generated state
+.git/
+.graphify-venv/
+graphify-out/
+
+# Dependency and build noise
+node_modules/
+.next/
+dist/
+build/
+coverage/
+.turbo/
+.vercel/
+out/
+*.tsbuildinfo
+
+# Lockfiles and logs
+package-lock.json
+*.log
+
+# Local workspace noise
+.DS_Store
+.codex/output-styles/
+trading_bot/dashboard/.next/
+trading_bot/dashboard/node_modules/
+
+# Non-code corpus exclusions for this repo graph
+*.md
+*.txt
+*.rst
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.svg

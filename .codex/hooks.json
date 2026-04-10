@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f AGENTS.md ]; then if [ -f graphify-out/graph.json ]; then echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\"},\"systemMessage\":\"startup order: read AGENTS.md first, then notes/README.md, then notes/reference/index.md, then only the task-relevant reference docs and durable memory notes, then graphify-out/GRAPH_REPORT.md, and only after that open raw code files. If you learn something durable, update the matching note under notes/ before you finish.\"}'; else echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\"},\"systemMessage\":\"startup order: read AGENTS.md first, then notes/README.md, then notes/reference/index.md, then only the task-relevant reference docs and durable memory notes, and only after that open raw code files. Build the graph if you need architecture context, and update notes/ when the task leaves durable memory behind.\"}'; fi; else true; fi"
+          }
+        ]
+      }
+    ]
+  }
+}

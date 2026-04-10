@@ -318,30 +318,33 @@ export class BirdeyeClient {
   }
 
   async getMultiPrice(mints: string[]): Promise<Record<string, number | null>> {
-    const uniqueMints = [...new Set(mints.filter((mint) => mint.trim().length > 0))].slice(0, 100);
+    const uniqueMints = [...new Set(mints.filter((mint) => mint.trim().length > 0))];
     if (uniqueMints.length === 0) {
       return {};
     }
 
-    const response = await this.request<{ data?: Record<string, unknown> }>(
-      "/defi/multi_price",
-      Math.ceil((uniqueMints.length ** 0.8) * 5),
-      {
-        list_address: uniqueMints.join(","),
-        include_liquidity: false,
-      },
-    );
-
     const prices: Record<string, number | null> = {};
-    for (const mint of uniqueMints) {
-      const row = response.data?.[mint];
-      if (typeof row === "number") {
-        prices[mint] = Number.isFinite(row) ? row : null;
-        continue;
-      }
+    for (let index = 0; index < uniqueMints.length; index += 100) {
+      const batch = uniqueMints.slice(index, index + 100);
+      const response = await this.request<{ data?: Record<string, unknown> }>(
+        "/defi/multi_price",
+        Math.ceil((batch.length ** 0.8) * 5),
+        {
+          list_address: batch.join(","),
+          include_liquidity: false,
+        },
+      );
 
-      const record = asRecord(row);
-      prices[mint] = record ? pickNumber(record, "value", "price", "priceUsd") : null;
+      for (const mint of batch) {
+        const row = response.data?.[mint];
+        if (typeof row === "number") {
+          prices[mint] = Number.isFinite(row) ? row : null;
+          continue;
+        }
+
+        const record = asRecord(row);
+        prices[mint] = record ? pickNumber(record, "value", "price", "priceUsd") : null;
+      }
     }
 
     return prices;

@@ -1,19 +1,9 @@
 import { db } from "../db/client.js";
 import { BirdeyeClient } from "../services/birdeye-client.js";
 import { RuntimeConfigService } from "../services/runtime-config.js";
+import { getExitDecision } from "../services/strategy-exit.js";
 import { ExecutionEngine } from "./execution-engine.js";
 import { RiskEngine } from "./risk-engine.js";
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
-}
-
-function asNumber(value: unknown): number | null {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
 
 export class ExitEngine {
   private readonly inFlightPositionIds = new Set<string>();
@@ -56,12 +46,18 @@ export class ExitEngine {
       const priceUsd = prices[position.mint] ?? null;
       if (!priceUsd || priceUsd <= 0) continue;
 
-      const entryPrice = Number(position.entryPriceUsd);
-      const peakPrice = Math.max(Number(position.peakPriceUsd), priceUsd);
-      const pnlPercent = ((priceUsd - entryPrice) / entryPrice) * 100;
-      const openedAt = position.openedAt.getTime();
-      const ageMinutes = (Date.now() - openedAt) / 60_000;
-      const exitPlan = this.readExitPlan(position.metadata, {
+      const exitDecision = getExitDecision({
+        openedAt: position.openedAt,
+        entryPriceUsd: Number(position.entryPriceUsd),
+        peakPriceUsd: Number(position.peakPriceUsd),
+        stopLossPriceUsd: Number(position.stopLossPriceUsd),
+        takeProfit1PriceUsd: Number(position.takeProfit1PriceUsd),
+        takeProfit2PriceUsd: Number(position.takeProfit2PriceUsd),
+        trailingStopPercent: Number(position.trailingStopPercent),
+        tp1Done: position.tp1Done,
+        tp2Done: position.tp2Done,
+        metadata: position.metadata,
+      }, priceUsd, {
         tp1SellFraction: settings.exits.tp1SellFraction,
         tp2SellFraction: settings.exits.tp2SellFraction,
         postTp1RetracePercent: settings.exits.postTp1RetracePercent,
@@ -73,56 +69,14 @@ export class ExitEngine {
 
       this.inFlightPositionIds.add(position.id);
       try {
-        if (!position.tp1Done && priceUsd <= Number(position.stopLossPriceUsd)) {
-          await this.execution.closePosition({ positionId: position.id, reason: "stop_loss", priceUsd, peakPriceUsd: peakPrice });
-          continue;
-        }
-
-        if (!position.tp1Done && priceUsd >= Number(position.takeProfit1PriceUsd)) {
+        if (exitDecision) {
           await this.execution.closePosition({
             positionId: position.id,
-            reason: "take_profit_1",
+            reason: exitDecision.reason,
             priceUsd,
-            fraction: exitPlan.tp1SellFraction,
-            peakPriceUsd: peakPrice,
+            fraction: exitDecision.fraction,
+            peakPriceUsd: exitDecision.peakPriceUsd,
           });
-          continue;
-        }
-
-        if (position.tp1Done && !position.tp2Done && priceUsd >= Number(position.takeProfit2PriceUsd)) {
-          await this.execution.closePosition({
-            positionId: position.id,
-            reason: "take_profit_2",
-            priceUsd,
-            fraction: exitPlan.tp2SellFraction,
-            peakPriceUsd: peakPrice,
-          });
-          continue;
-        }
-
-        if (position.tp1Done && !position.tp2Done) {
-          const retraceFloor = peakPrice * (1 - exitPlan.postTp1RetracePercent / 100);
-          if (priceUsd <= retraceFloor) {
-            await this.execution.closePosition({ positionId: position.id, reason: "post_tp1_retrace", priceUsd, peakPriceUsd: peakPrice });
-            continue;
-          }
-        }
-
-        if (position.tp2Done) {
-          const trailingFloor = peakPrice * (1 - exitPlan.trailingStopPercent / 100);
-          if (priceUsd <= trailingFloor) {
-            await this.execution.closePosition({ positionId: position.id, reason: "trailing_stop", priceUsd, peakPriceUsd: peakPrice });
-            continue;
-          }
-        }
-
-        if (ageMinutes >= exitPlan.timeStopMinutes && pnlPercent < exitPlan.timeStopMinReturnPercent) {
-          await this.execution.closePosition({ positionId: position.id, reason: "time_stop", priceUsd, peakPriceUsd: peakPrice });
-          continue;
-        }
-
-        if (ageMinutes >= exitPlan.timeLimitMinutes) {
-          await this.execution.closePosition({ positionId: position.id, reason: "time_limit", priceUsd, peakPriceUsd: peakPrice });
           continue;
         }
 
@@ -130,7 +84,7 @@ export class ExitEngine {
           where: { id: position.id },
           data: {
             currentPriceUsd: priceUsd,
-            peakPriceUsd: peakPrice,
+            peakPriceUsd: Math.max(Number(position.peakPriceUsd), priceUsd),
           },
         });
       } finally {
@@ -139,31 +93,5 @@ export class ExitEngine {
     }
 
     await this.risk.touchActivity("lastExitCheckAt");
-  }
-
-  private readExitPlan(
-    metadata: unknown,
-    fallback: {
-      tp1SellFraction: number;
-      tp2SellFraction: number;
-      postTp1RetracePercent: number;
-      trailingStopPercent: number;
-      timeStopMinutes: number;
-      timeStopMinReturnPercent: number;
-      timeLimitMinutes: number;
-    },
-  ) {
-    const record = asRecord(metadata);
-    const exitPlan = asRecord(record?.exitPlan);
-
-    return {
-      tp1SellFraction: asNumber(exitPlan?.tp1SellFraction) ?? fallback.tp1SellFraction,
-      tp2SellFraction: asNumber(exitPlan?.tp2SellFraction) ?? fallback.tp2SellFraction,
-      postTp1RetracePercent: asNumber(exitPlan?.postTp1RetracePercent) ?? fallback.postTp1RetracePercent,
-      trailingStopPercent: asNumber(exitPlan?.trailingStopPercent) ?? fallback.trailingStopPercent,
-      timeStopMinutes: asNumber(exitPlan?.timeStopMinutes) ?? fallback.timeStopMinutes,
-      timeStopMinReturnPercent: asNumber(exitPlan?.timeStopMinReturnPercent) ?? fallback.timeStopMinReturnPercent,
-      timeLimitMinutes: asNumber(exitPlan?.timeLimitMinutes) ?? fallback.timeLimitMinutes,
-    };
   }
 }

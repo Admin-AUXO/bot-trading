@@ -11,6 +11,7 @@ import {
   CandlestickChart,
   ChevronRight,
   Clock3,
+  FlaskConical,
   RadioTower,
   Settings2,
   ShieldAlert,
@@ -22,6 +23,7 @@ import type { StatusPayload } from "@/lib/types";
 
 const nav: Array<{ href: Route; label: string; detail: string; icon: React.ComponentType<{ className?: string }> }> = [
   { href: "/", label: "Overview", detail: "Runtime truth first", icon: Activity },
+  { href: "/research", label: "Research", detail: "Bounded dry-run evidence", icon: FlaskConical },
   { href: "/candidates", label: "Candidates", detail: "Filter evidence and payload trail", icon: CandlestickChart },
   { href: "/positions", label: "Positions", detail: "Exposure and realized edge", icon: BarChart3 },
   { href: "/telemetry", label: "Telemetry", detail: "Provider pressure and quota burn", icon: RadioTower },
@@ -32,6 +34,10 @@ const pageMeta: Record<string, { title: string; description: string }> = {
   "/": {
     title: "Overview",
     description: "Runtime truth, provider burn, and current exposure in the same viewport.",
+  },
+  "/research": {
+    title: "Research",
+    description: "Bounded dry-run sessions, shortlisted tokens, and mock-position outcomes without polluting the live desk.",
   },
   "/candidates": {
     title: "Candidates",
@@ -76,9 +82,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const activePage = pageMeta[pathname] ?? pageMeta["/"];
   const paused = Boolean(status?.botState.pauseReason);
+  const isResearchMode = status?.botState.tradeMode === "DRY_RUN";
+  const activeResearchRun = status?.research?.activeRun ?? null;
+  const latestResearchRun = status?.research?.latestCompletedRun ?? null;
+  const headlineResearchRun = activeResearchRun ?? latestResearchRun;
   const maxOpenPositions = status?.settings.capital.maxOpenPositions ?? 0;
   const openPositions = status?.openPositions ?? 0;
   const queuedCandidates = status?.queuedCandidates ?? 0;
+  const researchMaxPositions = status?.settings.research.maxMockPositions ?? 0;
+  const researchOpenPositions = headlineResearchRun
+    ? Math.max(headlineResearchRun.totalMockOpened - headlineResearchRun.totalMockClosed, 0)
+    : 0;
 
   return (
     <div className="min-h-screen bg-bg-primary">
@@ -95,26 +109,36 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="mt-4 panel-muted rounded-2xl p-3">
             <div className="section-kicker">Runtime Desk</div>
             <div className="mt-1 text-sm font-medium text-text-primary">
-              {status ? `${status.botState.tradeMode} / S2_GRADUATION` : "Waiting for runtime scope"}
+              {status
+                ? `${status.botState.tradeMode} / ${isResearchMode ? "RESEARCH_DRY_RUN" : "S2_GRADUATION"}`
+                : "Waiting for runtime scope"}
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2">
-              <SidebarStat label="Open risk" value={`${openPositions}/${maxOpenPositions || "—"}`} />
-              <SidebarStat label="Cash" value={status ? formatCompactCurrency(status.botState.cashUsd) : "—"} />
+              <SidebarStat
+                label={isResearchMode ? "Mock open" : "Open risk"}
+                value={isResearchMode ? `${researchOpenPositions}/${researchMaxPositions || "—"}` : `${openPositions}/${maxOpenPositions || "—"}`}
+              />
+              <SidebarStat
+                label={isResearchMode ? "Run PnL" : "Cash"}
+                value={status ? (isResearchMode ? formatCompactCurrency(headlineResearchRun?.realizedPnlUsd ?? 0) : formatCompactCurrency(status.botState.cashUsd)) : "—"}
+              />
             </div>
             <div className="mt-3">
               <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.18em] text-text-muted">
-                <span>Capacity</span>
-                <span className={openPositions >= maxOpenPositions && maxOpenPositions > 0 ? "text-accent-red" : "text-text-primary"}>
-                  {maxOpenPositions > 0 ? `${Math.max(maxOpenPositions - openPositions, 0)} open` : "pending"}
+                <span>{isResearchMode ? "Research cap" : "Capacity"}</span>
+                <span className={(isResearchMode ? researchOpenPositions >= researchMaxPositions : openPositions >= maxOpenPositions) && (isResearchMode ? researchMaxPositions : maxOpenPositions) > 0 ? "text-accent-red" : "text-text-primary"}>
+                  {isResearchMode
+                    ? researchMaxPositions > 0 ? `${Math.max(researchMaxPositions - researchOpenPositions, 0)} left` : "pending"
+                    : maxOpenPositions > 0 ? `${Math.max(maxOpenPositions - openPositions, 0)} open` : "pending"}
                 </span>
               </div>
               <div className="mt-2 flex gap-1">
-                {Array.from({ length: Math.max(maxOpenPositions, 5) }).map((_, index) => (
+                {Array.from({ length: Math.max(isResearchMode ? researchMaxPositions : maxOpenPositions, 5) }).map((_, index) => (
                   <div
                     key={index}
                     className={clsx(
                       "h-1.5 flex-1 rounded-full transition-colors",
-                      index < openPositions ? "bg-accent-green" : "bg-bg-border",
+                      index < (isResearchMode ? researchOpenPositions : openPositions) ? "bg-accent-green" : "bg-bg-border",
                     )}
                   />
                 ))}
@@ -125,14 +149,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="mt-3 panel-muted rounded-2xl p-3">
             <div className="section-kicker">Desk Status</div>
             <div className="mt-2 flex flex-wrap gap-2">
-              <ShellChip label={paused ? "Paused" : "Running"} tone={paused ? "warning" : "positive"} />
+              <ShellChip
+                label={isResearchMode ? (activeResearchRun ? "Run active" : "Manual start") : (paused ? "Paused" : "Running")}
+                tone={isResearchMode ? (activeResearchRun ? "positive" : "warning") : (paused ? "warning" : "positive")}
+              />
               <ShellChip
                 label={status?.botState.tradeMode ?? "Waiting"}
                 tone={status?.botState.tradeMode === "LIVE" ? "positive" : "warning"}
               />
-              <ShellChip label={`${formatInteger(queuedCandidates)} queued`} tone="default" />
+              <ShellChip label={isResearchMode ? `${formatInteger(headlineResearchRun?.totalDiscovered ?? 0)} discovered` : `${formatInteger(queuedCandidates)} queued`} tone="default" />
             </div>
-            {status?.botState.pauseReason ? (
+            {isResearchMode ? (
+              <div className="mt-2 text-[11px] leading-5 text-text-muted">
+                {activeResearchRun
+                  ? `Polling every ${Math.round(activeResearchRun.pollIntervalMs / 1000)}s with a ${Math.round(activeResearchRun.maxDurationMs / 60000)}m cap.`
+                  : latestResearchRun
+                    ? `Latest run closed at ${formatTimestamp(latestResearchRun.completedAt)}.`
+                    : "No research run has been launched yet."}
+              </div>
+            ) : status?.botState.pauseReason ? (
               <div className="mt-2 text-[11px] leading-5 text-text-muted">{status.botState.pauseReason}</div>
             ) : status?.entryGate.reason ? (
               <div className="mt-2 text-[11px] leading-5 text-text-muted">{status.entryGate.reason}</div>
@@ -186,10 +221,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <header className="sticky top-0 z-30 border-b border-bg-border/80 bg-bg-secondary/90 backdrop-blur-xl shadow-[0_18px_50px_rgba(0,0,0,0.18)]">
           <div className="mx-auto w-full max-w-[1680px] px-4 py-3 lg:px-6">
             <div className="flex flex-wrap items-center gap-2">
-              <ShellChip label={paused ? "Paused" : "Running"} tone={paused ? "warning" : "positive"} />
+              <ShellChip
+                label={isResearchMode ? (activeResearchRun ? "Run active" : "Manual start") : (paused ? "Paused" : "Running")}
+                tone={isResearchMode ? (activeResearchRun ? "positive" : "warning") : (paused ? "warning" : "positive")}
+              />
               <ShellChip label={status?.botState.tradeMode ?? "Waiting"} tone={status?.botState.tradeMode === "LIVE" ? "positive" : "warning"} />
-              <ShellChip label={`${formatInteger(openPositions)} open`} tone="default" />
-              <ShellChip label={`${formatInteger(queuedCandidates)} queued`} tone="default" />
+              <ShellChip label={isResearchMode ? `${formatInteger(researchOpenPositions)} mock open` : `${formatInteger(openPositions)} open`} tone="default" />
+              <ShellChip label={isResearchMode ? `${formatInteger(headlineResearchRun?.totalEvaluated ?? 0)} evaluated` : `${formatInteger(queuedCandidates)} queued`} tone="default" />
               {shellError ? <ShellChip label="Shell degraded" tone="danger" /> : null}
             </div>
 
@@ -221,21 +259,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
               <div className="grid grid-cols-3 gap-2 xl:min-w-[430px]">
                 <HeaderMetric
-                  label="Cash"
-                  value={status ? formatCurrency(status.botState.cashUsd) : "—"}
-                  sub={status ? `Capital ${formatCurrency(status.botState.capitalUsd)}` : "Waiting for feed"}
+                  label={isResearchMode ? "Mock open" : "Cash"}
+                  value={status ? (isResearchMode ? `${formatInteger(researchOpenPositions)}/${formatInteger(researchMaxPositions || 0)}` : formatCurrency(status.botState.cashUsd)) : "—"}
+                  sub={status ? (isResearchMode ? "Research position cap" : `Capital ${formatCurrency(status.botState.capitalUsd)}`) : "Waiting for feed"}
                   icon={Wallet}
                 />
                 <HeaderMetric
-                  label="Realized"
-                  value={status ? formatCompactCurrency(status.botState.realizedPnlUsd) : "—"}
-                  sub="Closed-position edge"
+                  label={isResearchMode ? "Run PnL" : "Realized"}
+                  value={status ? (isResearchMode ? formatCompactCurrency(headlineResearchRun?.realizedPnlUsd ?? 0) : formatCompactCurrency(status.botState.realizedPnlUsd)) : "—"}
+                  sub={isResearchMode ? "Latest research outcome" : "Closed-position edge"}
                   icon={BarChart3}
                 />
                 <HeaderMetric
-                  label="Pressure"
-                  value={status ? `${formatInteger(openPositions)}/${formatInteger(maxOpenPositions)}` : "—"}
-                  sub={`${formatInteger(queuedCandidates)} queued`}
+                  label={isResearchMode ? "Provider burn" : "Pressure"}
+                  value={status ? (isResearchMode ? `${formatInteger(headlineResearchRun?.birdeyeUnitsUsed ?? 0)}/${formatInteger(headlineResearchRun?.birdeyeUnitCap ?? status.settings.research.birdeyeUnitCap)}` : `${formatInteger(openPositions)}/${formatInteger(maxOpenPositions)}`) : "—"}
+                  sub={isResearchMode ? `${formatInteger(headlineResearchRun?.heliusUnitsUsed ?? 0)}/${formatInteger(headlineResearchRun?.heliusUnitCap ?? status?.settings.research.heliusUnitCap ?? 0)} Helius` : `${formatInteger(queuedCandidates)} queued`}
                   icon={ShieldAlert}
                 />
               </div>

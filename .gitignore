@@ -32,6 +32,11 @@ Thumbs.db
 .claude/settings.local.json
 trading_bot/.claude/settings.local.json
 .codex/config.toml
+.graphify-venv/
+graphify-out/
+.graphify_python
+.graphify_*.json
+.graphify_*.txt
 
 # Local scratch and stray generated trees
 audit/

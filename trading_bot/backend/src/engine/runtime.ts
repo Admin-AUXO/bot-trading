@@ -9,6 +9,7 @@ import { RiskEngine } from "./risk-engine.js";
 import { ExecutionEngine } from "./execution-engine.js";
 import { ExitEngine } from "./exit-engine.js";
 import { GraduationEngine } from "./graduation-engine.js";
+import { ResearchDryRunEngine } from "./research-dry-run-engine.js";
 import { createApiServer } from "../api/server.js";
 
 const QUEUED_CANDIDATE_STATUSES = ["DISCOVERED", "SKIPPED", "ERROR"] as const;
@@ -23,10 +24,12 @@ export class BotRuntime {
   private readonly execution = new ExecutionEngine(this.risk, this.config);
   private readonly exits = new ExitEngine(this.birdeye, this.execution, this.config, this.risk);
   private readonly graduation = new GraduationEngine(this.birdeye, this.helius, this.execution, this.risk, this.config);
+  private readonly research = new ResearchDryRunEngine(this.graduation, this.birdeye, this.config);
   private discoveryHandle?: NodeJS.Timeout;
   private evaluationHandle?: NodeJS.Timeout;
   private exitHandle?: NodeJS.Timeout;
   private maintenanceHandle?: NodeJS.Timeout;
+  private researchHandle?: NodeJS.Timeout;
 
   async start(): Promise<void> {
     await this.config.ensure();
@@ -38,22 +41,32 @@ export class BotRuntime {
       patchSettings: (input) => this.config.patchSettings(input),
       pause: (reason) => this.pause(reason),
       resume: () => this.resume(),
-      triggerDiscovery: () => this.safeRun("manual discovery", () => this.graduation.discover()),
-      triggerEvaluation: () => this.safeRun("manual evaluation", () => this.graduation.evaluateDueCandidates()),
-      triggerExitCheck: () => this.safeRun("manual exit check", () => this.exits.run()),
+      triggerDiscovery: () => this.runDiscoveryNow(),
+      triggerEvaluation: () => this.runEvaluationNow(),
+      triggerExitCheck: () => this.runExitCheckNow(),
+      triggerResearchDryRun: () => this.runResearchDryRun(),
+      listResearchRuns: (limit) => this.research.listRuns(limit),
+      getResearchRun: (runId) => this.research.getRun(runId),
+      getResearchRunTokens: (runId) => this.research.listRunTokens(runId),
+      getResearchRunPositions: (runId) => this.research.listRunPositions(runId),
     });
 
     app.listen(env.BOT_PORT, () => {
       logger.info({ port: env.BOT_PORT }, "trading_bot api listening");
     });
 
-    await this.safeRun("initial discovery", () => this.graduation.discover());
-    await this.safeRun("initial evaluation", () => this.graduation.evaluateDueCandidates());
-    await this.safeRun("initial exit check", () => this.exits.run());
+    if (startupSettings.tradeMode === "LIVE") {
+      await this.safeRun("initial discovery", () => this.graduation.discover());
+      await this.safeRun("initial evaluation", () => this.graduation.evaluateDueCandidates());
+      await this.safeRun("initial exit check", () => this.exits.run());
 
-    this.scheduleDiscovery();
-    this.scheduleEvaluation();
-    this.scheduleExit();
+      this.scheduleDiscovery();
+      this.scheduleEvaluation();
+      this.scheduleExit();
+    } else {
+      await this.resumeResearchPolling();
+    }
+
     this.scheduleMaintenance();
 
     logger.info({
@@ -69,6 +82,7 @@ export class BotRuntime {
       if (this.evaluationHandle) clearTimeout(this.evaluationHandle);
       if (this.exitHandle) clearTimeout(this.exitHandle);
       if (this.maintenanceHandle) clearTimeout(this.maintenanceHandle);
+      if (this.researchHandle) clearTimeout(this.researchHandle);
       await db.$disconnect();
       process.exit(0);
     };
@@ -87,7 +101,7 @@ export class BotRuntime {
 
   private async getSnapshot() {
     const settings = await this.config.getSettings();
-    const [botState, entryGate, openPositions, queuedCandidates, latestCandidates, latestFills, providerSummary, providerBudget] = await Promise.all([
+    const [botState, entryGate, openPositions, queuedCandidates, latestCandidates, latestFills, providerSummary, providerBudget, research] = await Promise.all([
       this.risk.getSnapshot(),
       this.risk.canOpenPosition(settings),
       db.position.count({ where: { status: "OPEN" } }),
@@ -101,6 +115,7 @@ export class BotRuntime {
         ORDER BY provider
       `) as Promise<unknown[]>,
       this.providerBudget.getBirdeyeBudgetSnapshot(),
+      this.research.getStatus(),
     ]);
 
     return {
@@ -128,6 +143,7 @@ export class BotRuntime {
       latestFills,
       providerSummary,
       providerBudget,
+      research,
     };
   }
 
@@ -167,6 +183,42 @@ export class BotRuntime {
     void this.scheduleLoop("maintenance loop", async () => env.MAINTENANCE_INTERVAL_MS, () => this.runMaintenance(), (handle) => {
       this.maintenanceHandle = handle;
     });
+  }
+
+  private async resumeResearchPolling(): Promise<void> {
+    const nextDelayMs = await this.research.getNextPollDelayMs();
+    if (nextDelayMs !== null) {
+      this.scheduleResearch(nextDelayMs);
+    }
+  }
+
+  private async runResearchDryRun(): Promise<void> {
+    await this.research.startRun();
+    if (this.researchHandle) {
+      clearTimeout(this.researchHandle);
+    }
+    const nextDelayMs = await this.research.getNextPollDelayMs();
+    if (nextDelayMs !== null) {
+      this.scheduleResearch(nextDelayMs);
+    }
+  }
+
+  private scheduleResearch(delayMs: number): void {
+    if (this.stopped) return;
+    this.researchHandle = setTimeout(async () => {
+      try {
+        const state = await this.research.pollActiveRun();
+        if (!this.stopped && state.active && state.nextDelayMs) {
+          this.scheduleResearch(state.nextDelayMs);
+        }
+      } catch (error) {
+        logger.error({ err: error }, "research polling timer failed");
+        const nextDelayMs = await this.research.getNextPollDelayMs();
+        if (!this.stopped && nextDelayMs !== null) {
+          this.scheduleResearch(nextDelayMs);
+        }
+      }
+    }, delayMs);
   }
 
   private async scheduleLoop(
@@ -213,6 +265,28 @@ export class BotRuntime {
       snapshotDeleted: snapshotResult.count,
       apiEventDeleted: apiEventResult.count,
     }, "runtime maintenance completed");
+  }
+
+  private async runDiscoveryNow(): Promise<void> {
+    await this.ensureLiveControl("manual discovery");
+    await this.graduation.discover();
+  }
+
+  private async runEvaluationNow(): Promise<void> {
+    await this.ensureLiveControl("manual evaluation");
+    await this.graduation.evaluateDueCandidates();
+  }
+
+  private async runExitCheckNow(): Promise<void> {
+    await this.ensureLiveControl("manual exit check");
+    await this.exits.run();
+  }
+
+  private async ensureLiveControl(label: string): Promise<void> {
+    const settings = await this.config.getSettings();
+    if (settings.tradeMode !== "LIVE") {
+      throw new Error(`${label} is only available in LIVE mode`);
+    }
   }
 
   private async pause(reason?: string): Promise<void> {

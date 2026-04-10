@@ -12,6 +12,24 @@ function parseLimit(value: unknown, fallback: number, max: number): number {
   return Math.min(Math.floor(parsed), max);
 }
 
+function errorToStatus(error: unknown): number {
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  if (message.includes("not found")) {
+    return 404;
+  }
+
+  if (
+    message.includes("already active")
+    || message.includes("only available")
+    || message.includes("cannot ")
+    || message.includes("would be exceeded")
+  ) {
+    return 409;
+  }
+
+  return 500;
+}
+
 export function createApiServer(deps: {
   getSnapshot: () => Promise<RuntimeSnapshot>;
   getSettings: () => Promise<BotSettings>;
@@ -21,6 +39,11 @@ export function createApiServer(deps: {
   triggerDiscovery: () => Promise<void>;
   triggerEvaluation: () => Promise<void>;
   triggerExitCheck: () => Promise<void>;
+  triggerResearchDryRun: () => Promise<void>;
+  listResearchRuns: (limit?: number) => Promise<unknown[]>;
+  getResearchRun: (runId: string) => Promise<unknown | null>;
+  getResearchRunTokens: (runId: string) => Promise<unknown[]>;
+  getResearchRunPositions: (runId: string) => Promise<unknown[]>;
 }) {
   const app = express();
   app.use(express.json());
@@ -152,6 +175,32 @@ export function createApiServer(deps: {
     res.json({ ok: true });
   });
 
+  app.post("/api/control/run-research-dry-run", async (_req, res) => {
+    await deps.triggerResearchDryRun();
+    res.json({ ok: true });
+  });
+
+  app.get("/api/research-runs", async (req, res) => {
+    const limit = parseLimit(req.query.limit, 10, 50);
+    res.json(await deps.listResearchRuns(limit));
+  });
+
+  app.get("/api/research-runs/:id", async (req, res) => {
+    const row = await deps.getResearchRun(req.params.id);
+    if (!row) {
+      return res.status(404).json({ error: "research run not found" });
+    }
+    return res.json(row);
+  });
+
+  app.get("/api/research-runs/:id/tokens", async (req, res) => {
+    res.json(await deps.getResearchRunTokens(req.params.id));
+  });
+
+  app.get("/api/research-runs/:id/positions", async (req, res) => {
+    res.json(await deps.getResearchRunPositions(req.params.id));
+  });
+
   app.get("/api/views/:name", async (req, res) => {
     const allowed = new Set([
       "v_runtime_overview",
@@ -173,6 +222,11 @@ export function createApiServer(deps: {
     }
     const rows = await db.$queryRawUnsafe(`SELECT * FROM ${viewName} LIMIT 500`);
     return res.json(rows);
+  });
+
+  app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    const message = error instanceof Error ? error.message : "internal server error";
+    res.status(errorToStatus(error)).json({ error: message });
   });
 
   return app;
