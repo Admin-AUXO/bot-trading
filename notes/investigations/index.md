@@ -18,5 +18,6 @@ Use this folder for debugging, research, and differential diagnosis.
 
 ## Current
 
+- [2026-04-11 Birdeye Discovery Lab Quality Pack Sweep](2026-04-11-birdeye-discovery-lab-quality-pack-sweep.md)
 - [2026-04-11 Birdeye Dry Run Filter Limit And Failure Surfacing](2026-04-11-birdeye-dry-run-filter-limit-and-failure-surfacing.md)
 - [2026-04-10 Dashboard Control Desk Audit](2026-04-10-dashboard-control-desk-audit.md)

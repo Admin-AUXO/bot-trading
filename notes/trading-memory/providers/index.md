@@ -22,3 +22,4 @@ Store durable knowledge about Birdeye, Helius, and any other external provider b
 
 - [2026-04-11 Birdeye Meme List Filter Limit](2026-04-11-birdeye-meme-list-filter-limit.md)
 - [2026-04-11 Birdeye Discovery Endpoint Selection](2026-04-11-birdeye-discovery-endpoint-selection.md)
+- [2026-04-11 Birdeye Quality Pack Source Ranking](2026-04-11-birdeye-quality-pack-source-ranking.md)

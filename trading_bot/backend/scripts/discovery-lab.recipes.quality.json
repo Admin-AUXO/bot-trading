@@ -1,0 +1,117 @@
+{
+  "description": "Quality-biased Birdeye meme-list recipes for graduation plays. These trade some raw recall for stronger tape and holder structure signals inside the provider filter ceiling.",
+  "recipes": [
+    {
+      "name": "grad_30m_volume5m",
+      "mode": "graduated",
+      "description": "Fresh graduates ranked by immediate 5m dollar flow instead of simple recency.",
+      "params": {
+        "graduated": true,
+        "sort_by": "volume_5m_usd",
+        "sort_type": "desc",
+        "min_graduated_time": "now-1800",
+        "min_volume_5m_usd": 5000,
+        "min_trade_5m_count": 60,
+        "limit": 100
+      }
+    },
+    {
+      "name": "grad_60m_trade5m",
+      "mode": "graduated",
+      "description": "Graduates from the last hour ranked by active tape count, not just time.",
+      "params": {
+        "graduated": true,
+        "sort_by": "trade_5m_count",
+        "sort_type": "desc",
+        "min_graduated_time": "now-3600",
+        "min_trade_5m_count": 80,
+        "min_volume_5m_usd": 4000,
+        "limit": 100
+      }
+    },
+    {
+      "name": "grad_4h_volume1h",
+      "mode": "graduated",
+      "description": "Higher-value graduates over four hours ranked by 1h volume with a holder floor.",
+      "params": {
+        "graduated": true,
+        "sort_by": "volume_1h_usd",
+        "sort_type": "desc",
+        "min_graduated_time": "now-14400",
+        "min_volume_1h_usd": 25000,
+        "min_holder": 75,
+        "limit": 100
+      }
+    },
+    {
+      "name": "grad_4h_holder_liquidity",
+      "mode": "graduated",
+      "description": "Quality-biased post-grad scan for names that already have some holder breadth and survivable liquidity.",
+      "params": {
+        "graduated": true,
+        "sort_by": "liquidity",
+        "sort_type": "desc",
+        "min_graduated_time": "now-14400",
+        "min_holder": 100,
+        "min_liquidity": 20000,
+        "limit": 100
+      }
+    },
+    {
+      "name": "pregrad_90_volume5m",
+      "mode": "pregrad",
+      "description": "Near-grad names ranked by 5m dollar flow instead of raw progress alone.",
+      "params": {
+        "graduated": false,
+        "sort_by": "volume_5m_usd",
+        "sort_type": "desc",
+        "min_progress_percent": 90,
+        "min_volume_5m_usd": 3000,
+        "min_trade_5m_count": 50,
+        "limit": 100
+      }
+    },
+    {
+      "name": "pregrad_92_trade5m",
+      "mode": "pregrad",
+      "description": "Near-grad names ranked by 5m tape count with a tighter progress floor.",
+      "params": {
+        "graduated": false,
+        "sort_by": "trade_5m_count",
+        "sort_type": "desc",
+        "min_progress_percent": 92,
+        "min_trade_5m_count": 70,
+        "min_volume_5m_usd": 2500,
+        "limit": 100
+      }
+    },
+    {
+      "name": "pregrad_85_holder_volume1h",
+      "mode": "pregrad",
+      "description": "About-to-graduate higher-value names with some holder breadth and stronger 1h flow.",
+      "params": {
+        "graduated": false,
+        "sort_by": "volume_1h_usd",
+        "sort_type": "desc",
+        "min_progress_percent": 85,
+        "min_volume_1h_usd": 15000,
+        "min_holder": 60,
+        "limit": 100
+      }
+    },
+    {
+      "name": "pregrad_88_recent_volume5m",
+      "mode": "pregrad",
+      "description": "Fresh near-grad names created recently but still filtered through live 5m flow.",
+      "params": {
+        "graduated": false,
+        "sort_by": "volume_5m_usd",
+        "sort_type": "desc",
+        "min_recent_listing_time": "now-14400",
+        "min_progress_percent": 88,
+        "min_volume_5m_usd": 2000,
+        "limit": 100
+      }
+    }
+  ]
+}

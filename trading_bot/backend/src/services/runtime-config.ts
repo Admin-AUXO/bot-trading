@@ -396,7 +396,7 @@ export class RuntimeConfigService {
     if (!latestVersion || JSON.stringify(latestVersion.settings) !== JSON.stringify(row.settings)) {
       await db.runtimeConfigVersion.create({
         data: {
-          settings: row.settings,
+          settings: row.settings === null ? Prisma.JsonNull : toJsonValue(row.settings),
           changedPaths: [],
           liveAffectingPaths: [],
           appliedBy: latestVersion ? "backfill" : "bootstrap",

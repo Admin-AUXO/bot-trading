@@ -18,6 +18,7 @@ Use this folder for handoffs between Codex sessions.
 
 ## Current
 
+- [2026-04-11 Birdeye Discovery Lab Quality Pack](2026-04-11-birdeye-discovery-lab-quality-pack.md)
 - [2026-04-11 Birdeye And Helius MCP Validation Handoff](2026-04-11-birdeye-helius-mcp-validation-handoff.md)
 - [2026-04-11 Entry Discovery Optimization Handoff](2026-04-11-entry-discovery-optimization-handoff.md)
 - [2026-04-11 Dry Run Fixes And Failure Surfacing](2026-04-11-dry-run-fixes-and-failure-surfacing.md)

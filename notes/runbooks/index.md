@@ -19,3 +19,4 @@ Use this folder for procedures you expect to repeat.
 ## Current
 
 - [2026-04-10 Preparing Grafana Dashboard Planning Questions](2026-04-10-preparing-grafana-dashboard-planning-questions.md)
+- [2026-04-11 Birdeye Discovery Lab](2026-04-11-birdeye-discovery-lab.md)

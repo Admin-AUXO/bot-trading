@@ -1,0 +1,117 @@
+{
+  "description": "Pump-focused fast-turn Birdeye meme-list recipes for a small-bankroll graduation play. These prioritize active tape, quick post-grad continuation, and names that can move enough to matter on 10 to 20 USD tickets.",
+  "recipes": [
+    {
+      "name": "grad_15m_trade5m",
+      "mode": "graduated",
+      "description": "Fresh graduates ranked by active 5m tape. Best for immediate churn after crossing the line.",
+      "params": {
+        "graduated": true,
+        "sort_by": "trade_5m_count",
+        "sort_type": "desc",
+        "min_graduated_time": "now-900",
+        "min_trade_5m_count": 70,
+        "min_volume_5m_usd": 2500,
+        "limit": 100
+      }
+    },
+    {
+      "name": "grad_30m_volume5m",
+      "mode": "graduated",
+      "description": "Recent graduates ranked by immediate 5m dollar flow.",
+      "params": {
+        "graduated": true,
+        "sort_by": "volume_5m_usd",
+        "sort_type": "desc",
+        "min_graduated_time": "now-1800",
+        "min_volume_5m_usd": 3000,
+        "min_trade_5m_count": 50,
+        "limit": 100
+      }
+    },
+    {
+      "name": "grad_45m_live_tape",
+      "mode": "graduated",
+      "description": "Graduates that are still printing a live tape, even if they are not the largest names yet.",
+      "params": {
+        "graduated": true,
+        "sort_by": "last_trade_unix_time",
+        "sort_type": "desc",
+        "min_graduated_time": "now-2700",
+        "min_last_trade_unix_time": "now-180",
+        "min_volume_5m_usd": 2500,
+        "limit": 100
+      }
+    },
+    {
+      "name": "grad_60m_trade5m",
+      "mode": "graduated",
+      "description": "One-hour graduate scan ranked by 5m tape count for fast-turn continuation setups.",
+      "params": {
+        "graduated": true,
+        "sort_by": "trade_5m_count",
+        "sort_type": "desc",
+        "min_graduated_time": "now-3600",
+        "min_trade_5m_count": 80,
+        "min_volume_5m_usd": 3000,
+        "limit": 100
+      }
+    },
+    {
+      "name": "grad_90m_volume1h_holder",
+      "mode": "graduated",
+      "description": "Wider fast-turn graduate scan with some holder breadth and stronger 1h flow.",
+      "params": {
+        "graduated": true,
+        "sort_by": "volume_1h_usd",
+        "sort_type": "desc",
+        "min_graduated_time": "now-5400",
+        "min_volume_1h_usd": 15000,
+        "min_holder": 40,
+        "limit": 100
+      }
+    },
+    {
+      "name": "grad_4h_holder_liquidity",
+      "mode": "graduated",
+      "description": "Higher-quality post-grad names with enough holder spread and exitability for small-ticket trades.",
+      "params": {
+        "graduated": true,
+        "sort_by": "liquidity",
+        "sort_type": "desc",
+        "min_graduated_time": "now-14400",
+        "min_holder": 50,
+        "min_liquidity": 12000,
+        "limit": 100
+      }
+    },
+    {
+      "name": "pregrad_92_trade5m_scout",
+      "mode": "pregrad",
+      "description": "Research-only near-grad scout ranked by tape count. Useful to measure whether pregrad is worth the risk in this window.",
+      "params": {
+        "graduated": false,
+        "sort_by": "trade_5m_count",
+        "sort_type": "desc",
+        "min_progress_percent": 92,
+        "min_trade_5m_count": 60,
+        "min_volume_5m_usd": 2000,
+        "limit": 100
+      }
+    },
+    {
+      "name": "pregrad_95_volume5m_scout",
+      "mode": "pregrad",
+      "description": "Research-only near-finish scout ranked by immediate dollar flow.",
+      "params": {
+        "graduated": false,
+        "sort_by": "volume_5m_usd",
+        "sort_type": "desc",
+        "min_progress_percent": 95,
+        "min_volume_5m_usd": 2500,
+        "min_trade_5m_count": 40,
+        "limit": 100
+      }
+    }
+  ]
+}

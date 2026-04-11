@@ -1,0 +1,103 @@
+{
+  "description": "Default Birdeye meme-list recipes for graduation-play research across the core Solana meme launch venues.",
+  "recipes": [
+    {
+      "name": "grad_15m_last_trade",
+      "mode": "graduated",
+      "description": "Very fresh graduates with a live tape. Good for immediate post-grad momentum checks.",
+      "params": {
+        "graduated": true,
+        "sort_by": "last_trade_unix_time",
+        "sort_type": "desc",
+        "min_graduated_time": "now-900",
+        "min_last_trade_unix_time": "now-300",
+        "min_liquidity": 10000,
+        "limit": 100
+      }
+    },
+    {
+      "name": "grad_60m_last_trade",
+      "mode": "graduated",
+      "description": "Fresh graduates over the last hour, still sorted by recent tape.",
+      "params": {
+        "graduated": true,
+        "sort_by": "last_trade_unix_time",
+        "sort_type": "desc",
+        "min_graduated_time": "now-3600",
+        "min_last_trade_unix_time": "now-900",
+        "min_liquidity": 10000,
+        "limit": 100
+      }
+    },
+    {
+      "name": "grad_60m_graduated_time",
+      "mode": "graduated",
+      "description": "Fresh graduates over the last hour, ranked by graduation time instead of tape recency.",
+      "params": {
+        "graduated": true,
+        "sort_by": "graduated_time",
+        "sort_type": "desc",
+        "min_graduated_time": "now-3600",
+        "min_last_trade_unix_time": "now-900",
+        "min_liquidity": 10000,
+        "limit": 100
+      }
+    },
+    {
+      "name": "grad_4h_liquidity",
+      "mode": "graduated",
+      "description": "Graduates from the last four hours ranked by liquidity. Good for higher-value names with some survival time.",
+      "params": {
+        "graduated": true,
+        "sort_by": "liquidity",
+        "sort_type": "desc",
+        "min_graduated_time": "now-14400",
+        "min_last_trade_unix_time": "now-1800",
+        "min_liquidity": 20000,
+        "limit": 100
+      }
+    },
+    {
+      "name": "pregrad_95_progress",
+      "mode": "pregrad",
+      "description": "About-to-graduate names clustered at the top of the bonding curve.",
+      "params": {
+        "graduated": false,
+        "sort_by": "progress_percent",
+        "sort_type": "desc",
+        "min_progress_percent": 95,
+        "min_last_trade_unix_time": "now-300",
+        "min_liquidity": 3000,
+        "limit": 100
+      }
+    },
+    {
+      "name": "pregrad_90_progress",
+      "mode": "pregrad",
+      "description": "Wider near-graduation scan with a little more room before the finish line.",
+      "params": {
+        "graduated": false,
+        "sort_by": "progress_percent",
+        "sort_type": "desc",
+        "min_progress_percent": 90,
+        "min_last_trade_unix_time": "now-600",
+        "min_liquidity": 5000,
+        "limit": 100
+      }
+    },
+    {
+      "name": "pregrad_recent_creation",
+      "mode": "pregrad",
+      "description": "Newly created names with strong progress and active recent trading.",
+      "params": {
+        "graduated": false,
+        "sort_by": "creation_time",
+        "sort_type": "desc",
+        "min_creation_time": "now-7200",
+        "min_progress_percent": 85,
+        "min_last_trade_unix_time": "now-600",
+        "limit": 100
+      }
+    }
+  ]
+}

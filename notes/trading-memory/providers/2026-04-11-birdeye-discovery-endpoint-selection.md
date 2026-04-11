@@ -39,6 +39,14 @@ Birdeye `GET /defi/v3/token/meme/list` is the better primary discovery endpoint 
 - keep coarse API filters only: `min_graduated_time`, `min_last_trade_unix_time`, `min_liquidity`
 - apply extra gates like holders and tighter activity floors after the response
 
+## 2026-04-11 Quality-Pack Follow-Up
+
+- for pump-biased quality scans, the better-performing recipe family in this window did **not** rely on time-only sorts
+- `volume_1h_usd`, `liquidity`, and `trade_5m_count` sorts surfaced better pump candidates than pure recency
+- `moonshot` and `raydium_launchlab` were dead in this sample window
+- `meteora_dynamic_bonding_curve` produced names, but not pass-grade execution candidates under the desk's quality bar
+- use the separate quality-pack memory note before treating `source=all` as the default answer to a quality problem
+
 ## Watchouts
 
 - the repo observed a provider-side meme-list filter ceiling: six concurrent filters caused `400 Maximum 5 concurrently filters`
@@ -49,3 +57,7 @@ Birdeye `GET /defi/v3/token/meme/list` is the better primary discovery endpoint 
 - Birdeye Token List docs: https://docs.birdeye.so/reference/get-defi-v3-token-list
 - Birdeye Meme Token List docs: https://docs.birdeye.so/reference/get-defi-v3-token-meme-list
 - Birdeye changelog 2026-02-10: https://docs.birdeye.so/changelog/20260210-release-extra-intervals-for-token-meme-list
+
+## Linked Notes
+
+- [`2026-04-11-birdeye-quality-pack-source-ranking.md`](2026-04-11-birdeye-quality-pack-source-ranking.md)
