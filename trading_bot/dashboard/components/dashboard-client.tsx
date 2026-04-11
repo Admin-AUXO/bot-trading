@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { Route } from "next";
 import { useEffect, useEffectEvent, useState, useTransition } from "react";
 import {
   AlertTriangle,
@@ -261,9 +262,9 @@ function InterventionStack(props: {
   return (
     <div className="space-y-3">
       {props.items.map((item, index) => (
-        <a
+        <Link
           key={item.id}
-          href={item.href}
+          href={item.href as Route}
           title={`Open ${item.label}`}
           className="group flex items-start justify-between gap-4 rounded-[16px] border border-bg-border bg-bg-hover/40 px-4 py-4 transition hover:border-[rgba(255,255,255,0.12)] hover:bg-[#151517]"
         >
@@ -280,7 +281,7 @@ function InterventionStack(props: {
             </div>
           </div>
           <ArrowUpRight className="mt-1 h-4 w-4 shrink-0 text-text-secondary transition group-hover:text-accent" />
-        </a>
+        </Link>
       ))}
     </div>
   );
@@ -314,14 +315,14 @@ function EventList(props: { events: OperatorEvent[]; emptyText: string }) {
               </div>
               <div className="flex items-center gap-2">
                 {href ? (
-                  <a
-                    href={href}
+                  <Link
+                    href={href as Route}
                     className="btn-ghost inline-flex items-center gap-2 border border-bg-border !px-3 !py-2 text-xs"
                     title="Open related record"
                   >
                     Open
                     <ArrowUpRight className="h-3.5 w-3.5" />
-                  </a>
+                  </Link>
                 ) : null}
                 <div className="text-xs text-text-muted">{formatTimestamp(event.createdAt)}</div>
               </div>

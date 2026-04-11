@@ -1,12 +1,16 @@
 const API_PREFIX = "/api";
 
 export async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const method = init?.method?.toUpperCase() ?? "GET";
+  const isReadMethod = method === "GET" || method === "HEAD";
+  const headers = new Headers(init?.headers ?? {});
+  if (!isReadMethod && !headers.has("content-type")) {
+    headers.set("content-type", "application/json");
+  }
+
   const response = await fetch(`${API_PREFIX}${path}`, {
     ...init,
-    headers: {
-      "content-type": "application/json",
-      ...(init?.headers ?? {}),
-    },
+    headers,
     cache: "no-store",
   });
 

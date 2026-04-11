@@ -18,6 +18,13 @@ const integerFormatter = new Intl.NumberFormat("en-GB", {
   maximumFractionDigits: 0,
 });
 
+const timestampFormatter = new Intl.DateTimeFormat("en-GB", {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+
+const currencyFormatterByDigits = new Map<number, Intl.NumberFormat>();
+
 export function formatTimestamp(value: unknown): string {
   if (!value) return "not yet";
   if (!(typeof value === "string" || typeof value === "number" || value instanceof Date)) {
@@ -25,10 +32,7 @@ export function formatTimestamp(value: unknown): string {
   }
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return "unknown";
-  return new Intl.DateTimeFormat("en-GB", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
+  return timestampFormatter.format(date);
 }
 
 export function formatRelativeMinutes(value: unknown): string {
@@ -42,12 +46,17 @@ export function formatCurrency(value: unknown, digits = 2): string {
   if (value === null || value === undefined || value === "") return "—";
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return "—";
-  return new Intl.NumberFormat("en-GB", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  }).format(numeric);
+  let formatter = currencyFormatterByDigits.get(digits);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat("en-GB", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+    });
+    currencyFormatterByDigits.set(digits, formatter);
+  }
+  return formatter.format(numeric);
 }
 
 export function formatCompactCurrency(value: unknown): string {

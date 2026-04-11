@@ -24,7 +24,7 @@ import { fetchJson } from "@/lib/api";
 import { formatInteger, formatTimestamp } from "@/lib/format";
 import type { ActionResponse, DeskShellPayload } from "@/lib/types";
 import { StatusPill } from "@/components/dashboard-primitives";
-import { PinnedItemsSidebar } from "@/components/pinned-items";
+import { PinnedItemsProvider, PinnedItemsSidebar } from "@/components/pinned-items";
 
 const nav: Array<{ href: Route; label: string; icon: React.ComponentType<{ className?: string }> }> = [
   { href: "/", label: "Desk", icon: Activity },
@@ -174,8 +174,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [commandItems, commandOpen, selectedCommandIndex]);
 
   return (
-    <div className="min-h-screen bg-bg-primary">
-      <aside className="fixed inset-y-0 left-0 hidden w-72 border-r border-bg-border/80 bg-bg-secondary lg:flex lg:flex-col">
+    <PinnedItemsProvider>
+      <div className="min-h-screen bg-bg-primary">
+        <aside className="fixed inset-y-0 left-0 hidden w-72 border-r border-bg-border/80 bg-bg-secondary lg:flex lg:flex-col">
         <div className="border-b border-bg-border px-5 py-5">
           <div className="flex items-center gap-3">
             <div className="rounded-xl border border-bg-border bg-[#111113] p-2 text-accent">
@@ -242,8 +243,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      <div className="min-h-screen lg:pl-72">
-        <header className="sticky top-0 z-30 border-b border-bg-border/80 bg-bg-secondary">
+        <div className="min-h-screen lg:pl-72">
+          <header className="sticky top-0 z-30 border-b border-bg-border/80 bg-bg-secondary">
           <div className="mx-auto flex w-full max-w-[1680px] flex-wrap items-center justify-between gap-3 px-4 py-3 lg:px-6">
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
@@ -306,8 +307,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <main className="px-4 py-4 lg:px-6 lg:py-6">
-          <div className="mx-auto mb-4 overflow-auto pb-1 lg:hidden">
+          <main className="px-4 py-4 lg:px-6 lg:py-6">
+            <div className="mx-auto mb-4 overflow-auto pb-1 lg:hidden">
             <div className="flex min-w-max gap-2">
               {nav.map((item) => {
                 const Icon = item.icon;
@@ -334,77 +335,78 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
-          <div className="mx-auto w-full max-w-[1680px]">{children}</div>
-        </main>
-      </div>
+            <div className="mx-auto w-full max-w-[1680px]">{children}</div>
+          </main>
+        </div>
 
-      {commandOpen ? (
-        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 px-4 py-16" onClick={() => setCommandOpen(false)}>
-          <div
-            className="panel-strong w-full max-w-2xl rounded-[18px] p-4 shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-center gap-3 rounded-[14px] border border-bg-border bg-[#0f0f10] px-4 py-3">
-              <Search className="h-4 w-4 text-text-muted" />
-              <input
-                ref={commandInputRef}
-                value={commandQuery}
-                onChange={(event) => {
-                  setCommandQuery(event.target.value);
-                  setSelectedCommandIndex(0);
-                }}
-                placeholder="Jump to a page or run an action"
-                className="w-full bg-transparent text-sm text-text-primary outline-none placeholder:text-text-muted"
-              />
-              <span className="meta-chip !px-2 !py-1 text-[10px]">Esc</span>
-            </div>
+        {commandOpen ? (
+          <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 px-4 py-16" onClick={() => setCommandOpen(false)}>
+            <div
+              className="panel-strong w-full max-w-2xl rounded-[18px] p-4 shadow-2xl"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-center gap-3 rounded-[14px] border border-bg-border bg-[#0f0f10] px-4 py-3">
+                <Search className="h-4 w-4 text-text-muted" />
+                <input
+                  ref={commandInputRef}
+                  value={commandQuery}
+                  onChange={(event) => {
+                    setCommandQuery(event.target.value);
+                    setSelectedCommandIndex(0);
+                  }}
+                  placeholder="Jump to a page or run an action"
+                  className="w-full bg-transparent text-sm text-text-primary outline-none placeholder:text-text-muted"
+                />
+                <span className="meta-chip !px-2 !py-1 text-[10px]">Esc</span>
+              </div>
 
-            <div className="mt-3 max-h-[26rem] space-y-2 overflow-auto pr-1">
-              {commandItems.length > 0 ? (
-                commandItems.map((item, index) => {
-                  const Icon = item.icon;
-                  const active = index === selectedCommandIndex;
-                  return (
-                    <button
-                      key={item.id}
-                      onMouseEnter={() => setSelectedCommandIndex(index)}
-                      onClick={() => {
-                        item.run();
-                        setCommandOpen(false);
-                      }}
-                      className={clsx(
-                        "flex w-full items-center justify-between rounded-[14px] border px-4 py-3 text-left transition",
-                        active
-                          ? "border-[rgba(163,230,53,0.32)] bg-[#11130f]"
-                          : "border-bg-border bg-[#101012] hover:border-[rgba(255,255,255,0.12)] hover:bg-[#151517]",
-                      )}
+              <div className="mt-3 max-h-[26rem] space-y-2 overflow-auto pr-1">
+                {commandItems.length > 0 ? (
+                  commandItems.map((item, index) => {
+                    const Icon = item.icon;
+                    const active = index === selectedCommandIndex;
+                    return (
+                      <button
+                        key={item.id}
+                        onMouseEnter={() => setSelectedCommandIndex(index)}
+                        onClick={() => {
+                          item.run();
+                          setCommandOpen(false);
+                        }}
+                        className={clsx(
+                          "flex w-full items-center justify-between rounded-[14px] border px-4 py-3 text-left transition",
+                          active
+                            ? "border-[rgba(163,230,53,0.32)] bg-[#11130f]"
+                            : "border-bg-border bg-[#101012] hover:border-[rgba(255,255,255,0.12)] hover:bg-[#151517]",
+                        )}
                       >
-                      <div className="flex items-center gap-3">
-                        <div className={clsx("rounded-[10px] border p-2", active ? "border-[rgba(163,230,53,0.28)] text-accent" : "border-bg-border text-text-secondary")}>
-                          <Icon className="h-4 w-4" />
+                        <div className="flex items-center gap-3">
+                          <div className={clsx("rounded-[10px] border p-2", active ? "border-[rgba(163,230,53,0.28)] text-accent" : "border-bg-border text-text-secondary")}>
+                            <Icon className="h-4 w-4" />
+                          </div>
+                          <div>
+                            <div className="text-sm font-semibold text-text-primary">{item.label}</div>
+                            <div className="text-xs text-text-muted">{item.hint}</div>
+                          </div>
                         </div>
-                        <div>
-                          <div className="text-sm font-semibold text-text-primary">{item.label}</div>
-                          <div className="text-xs text-text-muted">{item.hint}</div>
+                        <div className="flex items-center gap-2 text-xs text-text-muted">
+                          <span>{item.type}</span>
+                          {active ? <CornerDownLeft className="h-3.5 w-3.5" /> : null}
                         </div>
-                      </div>
-                      <div className="flex items-center gap-2 text-xs text-text-muted">
-                        <span>{item.type}</span>
-                        {active ? <CornerDownLeft className="h-3.5 w-3.5" /> : null}
-                      </div>
-                    </button>
-                  );
-                })
-              ) : (
-                <div className="rounded-[14px] border border-bg-border bg-[#101012] px-4 py-6 text-sm text-text-secondary">
-                  Nothing matches that query.
-                </div>
-              )}
+                      </button>
+                    );
+                  })
+                ) : (
+                  <div className="rounded-[14px] border border-bg-border bg-[#101012] px-4 py-6 text-sm text-text-secondary">
+                    Nothing matches that query.
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      ) : null}
-    </div>
+        ) : null}
+      </div>
+    </PinnedItemsProvider>
   );
 }
 

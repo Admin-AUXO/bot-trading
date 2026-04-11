@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import type { Route } from "next";
 import { ArrowUpRight } from "lucide-react";
 import { CopyButton } from "@/components/copy-button";
 import { PinToggleButton, type PinnedItem } from "@/components/pinned-items";
@@ -14,14 +16,14 @@ export function WorkbenchRowActions(props: {
 }) {
   return (
     <div className="row-actions">
-      <a
-        href={props.openHref}
+      <Link
+        href={props.openHref as Route}
         className="btn-ghost inline-flex items-center gap-2 border border-bg-border px-3 py-2 text-xs"
         title={`Open ${props.openLabel}`}
       >
         Open
         <ArrowUpRight className="h-3.5 w-3.5" />
-      </a>
+      </Link>
       <PinToggleButton item={props.pinItem} />
       {props.grafanaHref ? (
         <a

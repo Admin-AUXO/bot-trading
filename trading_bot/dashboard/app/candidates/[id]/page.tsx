@@ -1,4 +1,6 @@
 import { ArrowLeft, ArrowUpRight } from "lucide-react";
+import Link from "next/link";
+import type { Route } from "next";
 import { CopyButton } from "@/components/copy-button";
 import { DataTable, PageHero, Panel, StatusPill } from "@/components/dashboard-primitives";
 import { serverFetch } from "@/lib/api";
@@ -8,7 +10,7 @@ import type { CandidateDetailPayload } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-type SearchParamsInput = Promise<{ bucket?: string | string[] | undefined; sort?: string | string[] | undefined; focus?: string | string[] | undefined }>;
+type SearchParamsInput = Promise<{ bucket?: string | string[] | undefined; sort?: string | string[] | undefined; focus?: string | string[] | undefined; q?: string | string[] | undefined }>;
 
 export default async function CandidateDetailPage(props: {
   params: Promise<{ id: string }>;
@@ -19,8 +21,9 @@ export default async function CandidateDetailPage(props: {
   const bucket = Array.isArray(searchParams.bucket) ? searchParams.bucket[0] : searchParams.bucket;
   const sort = Array.isArray(searchParams.sort) ? searchParams.sort[0] : searchParams.sort;
   const focus = Array.isArray(searchParams.focus) ? searchParams.focus[0] : searchParams.focus;
+  const q = Array.isArray(searchParams.q) ? searchParams.q[0] : searchParams.q;
   const detail = await serverFetch<CandidateDetailPayload>(`/api/operator/candidates/${params.id}`);
-  const backHref = buildCandidateBackHref({ bucket, sort, focus });
+  const backHref = buildCandidateBackHref({ bucket, sort, focus, q });
   const grafanaHref = buildGrafanaDashboardLink("candidate", {
     from: Date.parse(detail.summary.discoveredAt) - 60 * 60 * 1000,
     vars: {
@@ -39,10 +42,10 @@ export default async function CandidateDetailPage(props: {
         meta={<StatusPill value={detail.summary.status} />}
         actions={(
           <>
-            <a href={backHref} className="btn-ghost inline-flex items-center gap-2 border border-bg-border">
+            <Link href={backHref as Route} className="btn-ghost inline-flex items-center gap-2 border border-bg-border">
               <ArrowLeft className="h-4 w-4" />
               Back to candidates
-            </a>
+            </Link>
             <CopyButton value={detail.summary.mint} label="Copy mint" />
             {grafanaHref ? (
               <a
@@ -162,10 +165,11 @@ export default async function CandidateDetailPage(props: {
   );
 }
 
-function buildCandidateBackHref(props: { bucket?: string; sort?: string; focus?: string }) {
+function buildCandidateBackHref(props: { bucket?: string; sort?: string; focus?: string; q?: string }) {
   const params = new URLSearchParams();
   if (props.bucket) params.set("bucket", props.bucket);
   if (props.sort) params.set("sort", props.sort);
+  if (props.q && props.q.trim().length > 0) params.set("q", props.q.trim());
   const query = params.toString();
   const hash = props.focus ? `#candidate-${props.focus}` : "";
   return `/candidates${query ? `?${query}` : ""}${hash}`;

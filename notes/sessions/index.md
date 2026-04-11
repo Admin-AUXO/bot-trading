@@ -18,6 +18,7 @@ Use this folder for handoffs between Codex sessions.
 
 ## Current
 
+- [2026-04-11 Dashboard Performance And Ops Filter Refactor](2026-04-11-dashboard-performance-and-ops-filter-refactor.md)
 - [2026-04-11 Backend Refactor, Pump Defaults, And Clean Dry Run](2026-04-11-backend-refactor-pump-defaults-and-clean-dry-run.md)
 - [2026-04-11 Birdeye Discovery Lab Quality Pack](2026-04-11-birdeye-discovery-lab-quality-pack.md)
 - [2026-04-11 Birdeye And Helius MCP Validation Handoff](2026-04-11-birdeye-helius-mcp-validation-handoff.md)

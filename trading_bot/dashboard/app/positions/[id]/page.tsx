@@ -1,4 +1,6 @@
 import { ArrowLeft, ArrowUpRight } from "lucide-react";
+import Link from "next/link";
+import type { Route } from "next";
 import { CopyButton } from "@/components/copy-button";
 import { DataTable, PageHero, Panel, StatusPill } from "@/components/dashboard-primitives";
 import { serverFetch } from "@/lib/api";
@@ -8,7 +10,7 @@ import type { PositionDetailPayload } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-type SearchParamsInput = Promise<{ book?: string | string[] | undefined; sort?: string | string[] | undefined; focus?: string | string[] | undefined }>;
+type SearchParamsInput = Promise<{ book?: string | string[] | undefined; sort?: string | string[] | undefined; focus?: string | string[] | undefined; q?: string | string[] | undefined }>;
 
 export default async function PositionDetailPage(props: {
   params: Promise<{ id: string }>;
@@ -19,8 +21,9 @@ export default async function PositionDetailPage(props: {
   const book = Array.isArray(searchParams.book) ? searchParams.book[0] : searchParams.book;
   const sort = Array.isArray(searchParams.sort) ? searchParams.sort[0] : searchParams.sort;
   const focus = Array.isArray(searchParams.focus) ? searchParams.focus[0] : searchParams.focus;
+  const q = Array.isArray(searchParams.q) ? searchParams.q[0] : searchParams.q;
   const detail = await serverFetch<PositionDetailPayload>(`/api/operator/positions/${params.id}`);
-  const backHref = buildPositionBackHref({ book, sort, focus });
+  const backHref = buildPositionBackHref({ book, sort, focus, q });
   const grafanaHref = buildGrafanaDashboardLink("position", {
     from: Date.parse(detail.summary.openedAt) - 30 * 60 * 1000,
     to: detail.summary.closedAt ?? "now",
@@ -45,10 +48,10 @@ export default async function PositionDetailPage(props: {
         )}
         actions={(
           <>
-            <a href={backHref} className="btn-ghost inline-flex items-center gap-2 border border-bg-border">
+            <Link href={backHref as Route} className="btn-ghost inline-flex items-center gap-2 border border-bg-border">
               <ArrowLeft className="h-4 w-4" />
               Back to positions
-            </a>
+            </Link>
             <CopyButton value={detail.summary.id} label="Copy id" />
             <CopyButton value={detail.summary.mint} label="Copy mint" />
             {grafanaHref ? (
@@ -161,10 +164,11 @@ export default async function PositionDetailPage(props: {
   );
 }
 
-function buildPositionBackHref(props: { book?: string; sort?: string; focus?: string }) {
+function buildPositionBackHref(props: { book?: string; sort?: string; focus?: string; q?: string }) {
   const params = new URLSearchParams();
   if (props.book) params.set("book", props.book);
   if (props.sort) params.set("sort", props.sort);
+  if (props.q && props.q.trim().length > 0) params.set("q", props.q.trim());
   const query = params.toString();
   const hash = props.focus ? `#position-${props.focus}` : "";
   return `/positions${query ? `?${query}` : ""}${hash}`;

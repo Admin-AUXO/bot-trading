@@ -97,9 +97,9 @@ Control-route mode rules:
 
 Dashboard navigation conventions:
 
-- Candidate workbench state lives in dashboard query params: `/candidates?bucket=<bucket>&sort=<sort>`
-- Position workbench state lives in dashboard query params: `/positions?book=<book>&sort=<sort>`
-- Routed detail pages carry `focus=<row-id>` and return to `#candidate-<id>` or `#position-<id>` anchors so bucket, sort, and scroll target survive the round trip
+- Candidate workbench state lives in dashboard query params: `/candidates?bucket=<bucket>&sort=<sort>&q=<optional-filter>`
+- Position workbench state lives in dashboard query params: `/positions?book=<book>&sort=<sort>&q=<optional-filter>`
+- Routed detail pages carry `focus=<row-id>` and return to `#candidate-<id>` or `#position-<id>` anchors so bucket or book, sort, text filter, and scroll target survive the round trip
 
 ## Auth Boundary
 

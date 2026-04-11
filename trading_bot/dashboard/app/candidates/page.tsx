@@ -1,6 +1,7 @@
 import clsx from "clsx";
 import Link from "next/link";
-import { ArrowUpRight, Filter, PanelTopOpen } from "lucide-react";
+import type { Route } from "next";
+import { ArrowUpRight, Filter, PanelTopOpen, Search } from "lucide-react";
 import { IconAction, PageHero, Panel, StatusPill } from "@/components/dashboard-primitives";
 import { WorkbenchRowActions } from "@/components/workbench-row-actions";
 import { serverFetch } from "@/lib/api";
@@ -10,7 +11,11 @@ import type { CandidateBucket, CandidateQueuePayload } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-type SearchParamsInput = Promise<{ bucket?: string | string[] | undefined; sort?: string | string[] | undefined }>;
+type SearchParamsInput = Promise<{
+  bucket?: string | string[] | undefined;
+  sort?: string | string[] | undefined;
+  q?: string | string[] | undefined;
+}>;
 
 const bucketOrder: CandidateBucket[] = ["ready", "risk", "provider", "data"];
 const sortOrder = ["recent", "liquidity", "volume", "buySell"] as const;
@@ -20,10 +25,14 @@ export default async function CandidatesPage(props: { searchParams?: SearchParam
   const searchParams = props.searchParams ? await props.searchParams : {};
   const requestedBucket = Array.isArray(searchParams.bucket) ? searchParams.bucket[0] : searchParams.bucket;
   const requestedSort = Array.isArray(searchParams.sort) ? searchParams.sort[0] : searchParams.sort;
+  const requestedQuery = Array.isArray(searchParams.q) ? searchParams.q[0] : searchParams.q;
   const bucket = bucketOrder.includes(requestedBucket as CandidateBucket) ? requestedBucket as CandidateBucket : "ready";
   const sort = sortOrder.includes(requestedSort as CandidateSort) ? requestedSort as CandidateSort : "recent";
+  const query = normalizeSearchQuery(requestedQuery);
+
   const payload = await serverFetch<CandidateQueuePayload>(`/api/operator/candidates?bucket=${bucket}`);
-  const rows = [...payload.rows].sort((left, right) => compareCandidateRows(left, right, sort));
+  const sortedRows = [...payload.rows].sort((left, right) => compareCandidateRows(left, right, sort));
+  const rows = query ? sortedRows.filter((row) => matchesCandidateQuery(row, query)) : sortedRows;
   const activeBucket = payload.buckets.find((item) => item.bucket === payload.bucket);
   const grafanaHref = buildGrafanaDashboardLink("candidate", {
     vars: { bucket: payload.bucket },
@@ -38,7 +47,13 @@ export default async function CandidatesPage(props: { searchParams?: SearchParam
         meta={<StatusPill value={payload.bucket} />}
         actions={(
           <div className="flex flex-wrap gap-3">
-            <IconAction href={`/candidates?bucket=${bucket}&sort=${sort}`} icon={Filter} label={sortLabel(sort)} title="Current candidate sort" subtle />
+            <IconAction
+              href={buildCandidatesHref({ bucket, sort, q: query }) as Route}
+              icon={Filter}
+              label={sortLabel(sort)}
+              title="Current candidate sort"
+              subtle
+            />
             {grafanaHref ? (
               <a
                 href={grafanaHref}
@@ -57,9 +72,9 @@ export default async function CandidatesPage(props: { searchParams?: SearchParam
           <div className="panel-muted rounded-[16px] p-4">
             <div className="section-kicker">Snapshot</div>
             <div className="mt-4 grid gap-3">
-              <SummaryRow label="Count" value={formatInteger(rows.length)} />
+              <SummaryRow label="Showing" value={`${formatInteger(rows.length)} / ${formatInteger(sortedRows.length)}`} />
               <SummaryRow label="Sort" value={sortLabel(sort)} />
-              <SummaryRow label="Ready bucket" value={formatInteger(payload.buckets.find((item) => item.bucket === "ready")?.count ?? 0)} />
+              <SummaryRow label="Query" value={query || "None"} />
             </div>
           </div>
         )}
@@ -69,7 +84,7 @@ export default async function CandidatesPage(props: { searchParams?: SearchParam
         {payload.buckets.map((item) => (
           <Link
             key={item.bucket}
-            href={`/candidates?bucket=${item.bucket}&sort=${sort}`}
+              href={buildCandidatesHref({ bucket: item.bucket, sort, q: query }) as Route}
             title={`Open ${item.label}`}
             className={`rounded-[16px] border px-4 py-4 transition ${
               item.bucket === payload.bucket
@@ -84,7 +99,7 @@ export default async function CandidatesPage(props: { searchParams?: SearchParam
       </section>
 
       <section className="workbench-controls sticky top-[5.15rem] z-20">
-        <div className="flex flex-1 flex-wrap gap-2">
+        <div className="flex flex-1 flex-wrap items-center gap-2">
           {([
             ["recent", "Most recent"],
             ["liquidity", "Highest liquidity"],
@@ -93,7 +108,7 @@ export default async function CandidatesPage(props: { searchParams?: SearchParam
           ] as const).map(([value, label]) => (
             <Link
               key={value}
-              href={`/candidates?bucket=${bucket}&sort=${value}`}
+              href={buildCandidatesHref({ bucket, sort: value, q: query }) as Route}
               title={`Sort candidates by ${label.toLowerCase()}`}
               className={`meta-chip ${sort === value ? "border-[rgba(163,230,53,0.28)] bg-[#121511] text-text-primary" : ""}`}
             >
@@ -101,11 +116,27 @@ export default async function CandidatesPage(props: { searchParams?: SearchParam
             </Link>
           ))}
         </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs text-text-muted">
-          <span className="meta-chip">Bucket {activeBucket?.label ?? payload.bucket}</span>
-          <span className="meta-chip">{formatInteger(rows.length)} rows</span>
-          <span className="meta-chip">Inline actions live on each row</span>
-        </div>
+        <form action="/candidates" className="flex w-full max-w-[28rem] items-center gap-2">
+          <input type="hidden" name="bucket" value={bucket} />
+          <input type="hidden" name="sort" value={sort} />
+          <div className="flex flex-1 items-center gap-2 rounded-[12px] border border-bg-border bg-bg-primary/70 px-3 py-2">
+            <Search className="h-4 w-4 text-text-muted" />
+            <input
+              name="q"
+              defaultValue={query}
+              placeholder="Filter symbol, mint, blocker, source"
+              className="w-full bg-transparent text-sm text-text-primary outline-none placeholder:text-text-muted"
+            />
+          </div>
+          <button type="submit" className="btn-ghost border border-bg-border !px-3 !py-2 text-xs">
+            Search
+          </button>
+          {query ? (
+            <Link href={buildCandidatesHref({ bucket, sort }) as Route} className="btn-ghost border border-bg-border !px-3 !py-2 text-xs">
+              Clear
+            </Link>
+          ) : null}
+        </form>
       </section>
 
       <Panel
@@ -116,7 +147,7 @@ export default async function CandidatesPage(props: { searchParams?: SearchParam
       >
         {rows.length === 0 ? (
           <div className="rounded-[14px] border border-bg-border bg-bg-hover/40 px-4 py-4 text-sm text-text-secondary">
-            No candidates in this bucket.
+            {query ? "No candidates match this filter." : "No candidates in this bucket."}
           </div>
         ) : (
           <div className="overflow-hidden rounded-[16px] border border-bg-border bg-bg-card/45">
@@ -131,7 +162,7 @@ export default async function CandidatesPage(props: { searchParams?: SearchParam
                 </thead>
                 <tbody>
                   {rows.map((row, index) => {
-                    const detailHref = `/candidates/${row.id}?bucket=${payload.bucket}&sort=${sort}&focus=${row.id}`;
+                    const detailHref = `/candidates/${row.id}?bucket=${payload.bucket}&sort=${sort}&focus=${row.id}${query ? `&q=${encodeURIComponent(query)}` : ""}`;
                     const actionable = payload.bucket === "ready" && index < 5;
                     const grafanaRowHref = buildGrafanaDashboardLink("candidate", {
                       from: Date.parse(row.discoveredAt) - 60 * 60 * 1000,
@@ -143,61 +174,61 @@ export default async function CandidatesPage(props: { searchParams?: SearchParam
                     });
 
                     return (
-                    <tr
-                      key={row.id}
-                      id={`candidate-${row.id}`}
-                      className={clsx(
-                        "table-row scroll-mt-32 align-top",
-                        actionable && "table-row-actionable",
-                      )}
-                    >
-                      <td className="table-cell">
-                        <a
-                          href={detailHref}
-                          title={`Open ${row.symbol || shortMint(row.mint)} details`}
-                          className="inline-flex items-center gap-2 text-text-primary transition hover:text-accent"
-                        >
-                          <span className="font-semibold">{row.symbol || shortMint(row.mint)}</span>
-                          <ArrowUpRight className="h-4 w-4" />
-                        </a>
-                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-text-muted">
-                          <span className="font-mono">{shortMint(row.mint)}</span>
-                          <span className="meta-chip" title={`Source: ${row.source}`}>{row.source}</span>
-                          {actionable ? <span className="meta-chip border-[rgba(163,230,53,0.26)] bg-[rgba(163,230,53,0.08)] text-text-primary">Front of queue</span> : null}
-                        </div>
-                      </td>
-                      <td className="table-cell">
-                        <div className="font-medium text-text-primary">{row.primaryBlocker}</div>
-                        {row.secondaryReasons.length > 0 ? (
-                          <div className="mt-2 text-xs leading-5 text-text-muted">{row.secondaryReasons.join(" · ")}</div>
-                        ) : null}
-                      </td>
-                      <td className="table-cell"><StatusPill value={row.status} /></td>
-                      <td className="table-cell text-right tabular-nums text-text-secondary">{formatCompactCurrency(row.liquidityUsd)}</td>
-                      <td className="table-cell text-right tabular-nums text-text-secondary">{formatCompactCurrency(row.volume5mUsd)}</td>
-                      <td className="table-cell text-right tabular-nums text-text-secondary">{formatNumber(row.buySellRatio)}</td>
-                      <td className="table-cell text-right tabular-nums text-text-secondary">{row.top10HolderPercent == null ? "—" : formatPercent(row.top10HolderPercent)}</td>
-                      <td className="table-cell whitespace-nowrap text-text-secondary">
-                        {formatTimestamp(row.lastEvaluatedAt ?? row.discoveredAt)}
-                      </td>
-                      <td className="table-cell">
-                        <WorkbenchRowActions
-                          openHref={detailHref}
-                          openLabel={row.symbol || shortMint(row.mint)}
-                          grafanaHref={grafanaRowHref}
-                          pinItem={{
-                            id: row.id,
-                            kind: "candidate",
-                            label: row.symbol || shortMint(row.mint),
-                            href: detailHref,
-                            secondary: row.primaryBlocker,
-                            meta: row.source,
-                          }}
-                          copyValue={row.mint}
-                          copyLabel="Copy"
-                        />
-                      </td>
-                    </tr>
+                      <tr
+                        key={row.id}
+                        id={`candidate-${row.id}`}
+                        className={clsx(
+                          "table-row scroll-mt-32 align-top",
+                          actionable && "table-row-actionable",
+                        )}
+                      >
+                        <td className="table-cell">
+                          <Link
+                            href={detailHref as Route}
+                            title={`Open ${row.symbol || shortMint(row.mint)} details`}
+                            className="inline-flex items-center gap-2 text-text-primary transition hover:text-accent"
+                          >
+                            <span className="font-semibold">{row.symbol || shortMint(row.mint)}</span>
+                            <ArrowUpRight className="h-4 w-4" />
+                          </Link>
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-text-muted">
+                            <span className="font-mono">{shortMint(row.mint)}</span>
+                            <span className="meta-chip" title={`Source: ${row.source}`}>{row.source}</span>
+                            {actionable ? <span className="meta-chip border-[rgba(163,230,53,0.26)] bg-[rgba(163,230,53,0.08)] text-text-primary">Front of queue</span> : null}
+                          </div>
+                        </td>
+                        <td className="table-cell">
+                          <div className="font-medium text-text-primary">{row.primaryBlocker}</div>
+                          {row.secondaryReasons.length > 0 ? (
+                            <div className="mt-2 text-xs leading-5 text-text-muted">{row.secondaryReasons.join(" · ")}</div>
+                          ) : null}
+                        </td>
+                        <td className="table-cell"><StatusPill value={row.status} /></td>
+                        <td className="table-cell text-right tabular-nums text-text-secondary">{formatCompactCurrency(row.liquidityUsd)}</td>
+                        <td className="table-cell text-right tabular-nums text-text-secondary">{formatCompactCurrency(row.volume5mUsd)}</td>
+                        <td className="table-cell text-right tabular-nums text-text-secondary">{formatNumber(row.buySellRatio)}</td>
+                        <td className="table-cell text-right tabular-nums text-text-secondary">{row.top10HolderPercent == null ? "—" : formatPercent(row.top10HolderPercent)}</td>
+                        <td className="table-cell whitespace-nowrap text-text-secondary">
+                          {formatTimestamp(row.lastEvaluatedAt ?? row.discoveredAt)}
+                        </td>
+                        <td className="table-cell">
+                          <WorkbenchRowActions
+                            openHref={detailHref}
+                            openLabel={row.symbol || shortMint(row.mint)}
+                            grafanaHref={grafanaRowHref}
+                            pinItem={{
+                              id: row.id,
+                              kind: "candidate",
+                              label: row.symbol || shortMint(row.mint),
+                              href: detailHref,
+                              secondary: row.primaryBlocker,
+                              meta: row.source,
+                            }}
+                            copyValue={row.mint}
+                            copyLabel="Copy"
+                          />
+                        </td>
+                      </tr>
                     );
                   })}
                 </tbody>
@@ -249,4 +280,37 @@ function compareCandidateRows(left: CandidateQueuePayload["rows"][number], right
     default:
       return Date.parse(right.discoveredAt) - Date.parse(left.discoveredAt);
   }
+}
+
+function normalizeSearchQuery(value: string | undefined) {
+  if (!value) return "";
+  return value.trim().toLowerCase();
+}
+
+function matchesCandidateQuery(row: CandidateQueuePayload["rows"][number], query: string) {
+  const text = [
+    row.symbol,
+    row.mint,
+    row.source,
+    row.status,
+    row.primaryBlocker,
+    ...row.secondaryReasons,
+  ]
+    .join(" ")
+    .toLowerCase();
+  return text.includes(query);
+}
+
+function buildCandidatesHref(input: {
+  bucket: CandidateBucket;
+  sort: CandidateSort;
+  q?: string;
+}) {
+  const params = new URLSearchParams();
+  params.set("bucket", input.bucket);
+  params.set("sort", input.sort);
+  if (input.q && input.q.trim().length > 0) {
+    params.set("q", input.q.trim());
+  }
+  return `/candidates?${params.toString()}`;
 }

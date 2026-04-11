@@ -1,8 +1,10 @@
 "use client";
 
 import clsx from "clsx";
+import Link from "next/link";
+import type { Route } from "next";
 import { Pin, PinOff } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 const STORAGE_KEY = "graduation-control:pins";
 const PIN_EVENT = "graduation-control:pins-changed";
@@ -18,7 +20,16 @@ export type PinnedItem = {
   createdAt: string;
 };
 
-export function usePinnedItems() {
+type PinnedItemsContextValue = {
+  items: PinnedItem[];
+  isPinned: (item: Pick<PinnedItem, "kind" | "id">) => boolean;
+  toggle: (item: Omit<PinnedItem, "createdAt">) => void;
+  remove: (item: Pick<PinnedItem, "kind" | "id">) => void;
+};
+
+const PinnedItemsContext = createContext<PinnedItemsContextValue | null>(null);
+
+export function PinnedItemsProvider(props: { children: React.ReactNode }) {
   const [items, setItems] = useState<PinnedItem[]>([]);
 
   useEffect(() => {
@@ -43,32 +54,52 @@ export function usePinnedItems() {
 
   const ids = useMemo(() => new Set(items.map((item) => pinKey(item.kind, item.id))), [items]);
 
-  const toggle = (item: Omit<PinnedItem, "createdAt">) => {
-    const next = readPinnedItems();
-    const key = pinKey(item.kind, item.id);
-    const existing = next.findIndex((entry) => pinKey(entry.kind, entry.id) === key);
+  const toggle = useCallback((item: Omit<PinnedItem, "createdAt">) => {
+    setItems((current) => {
+      const next = [...current];
+      const key = pinKey(item.kind, item.id);
+      const existing = next.findIndex((entry) => pinKey(entry.kind, entry.id) === key);
 
-    if (existing >= 0) {
-      next.splice(existing, 1);
-    } else {
-      next.unshift({ ...item, createdAt: new Date().toISOString() });
-      next.splice(MAX_PINS);
-    }
+      if (existing >= 0) {
+        next.splice(existing, 1);
+      } else {
+        next.unshift({ ...item, createdAt: new Date().toISOString() });
+        next.splice(MAX_PINS);
+      }
 
-    writePinnedItems(next);
-  };
+      writePinnedItems(next);
+      return next;
+    });
+  }, []);
 
-  const remove = (item: Pick<PinnedItem, "kind" | "id">) => {
-    const next = readPinnedItems().filter((entry) => pinKey(entry.kind, entry.id) !== pinKey(item.kind, item.id));
-    writePinnedItems(next);
-  };
+  const remove = useCallback((item: Pick<PinnedItem, "kind" | "id">) => {
+    setItems((current) => {
+      const next = current.filter((entry) => pinKey(entry.kind, entry.id) !== pinKey(item.kind, item.id));
+      writePinnedItems(next);
+      return next;
+    });
+  }, []);
 
-  return {
+  const value = useMemo<PinnedItemsContextValue>(() => ({
     items,
     isPinned: (item: Pick<PinnedItem, "kind" | "id">) => ids.has(pinKey(item.kind, item.id)),
     toggle,
     remove,
-  };
+  }), [ids, items, remove, toggle]);
+
+  return (
+    <PinnedItemsContext.Provider value={value}>
+      {props.children}
+    </PinnedItemsContext.Provider>
+  );
+}
+
+export function usePinnedItems() {
+  const value = useContext(PinnedItemsContext);
+  if (!value) {
+    throw new Error("usePinnedItems must be used within PinnedItemsProvider");
+  }
+  return value;
 }
 
 export function PinToggleButton(props: {
@@ -117,14 +148,14 @@ export function PinnedItemsSidebar() {
           {items.map((item) => (
             <div key={pinKey(item.kind, item.id)} className="rounded-[12px] border border-bg-border bg-bg-primary/55 px-3 py-3">
               <div className="flex items-start justify-between gap-3">
-                <a href={item.href} className="min-w-0 flex-1" title={`Open ${item.label}`}>
+                <Link href={item.href as Route} className="min-w-0 flex-1" title={`Open ${item.label}`}>
                   <div className="truncate text-sm font-semibold text-text-primary">{item.label}</div>
                   <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-text-muted">
                     <span className="uppercase tracking-[0.18em]">{item.kind}</span>
                     {item.secondary ? <span className="truncate">{item.secondary}</span> : null}
                     {item.meta ? <span className="truncate">{item.meta}</span> : null}
                   </div>
-                </a>
+                </Link>
                 <button
                   type="button"
                   onClick={() => remove(item)}
@@ -160,9 +191,9 @@ export function PinnedItemsStrip(props: { className?: string }) {
       {items.length === 0 ? null : (
         <div className="mt-4 flex gap-3 overflow-x-auto pb-1">
           {items.map((item) => (
-            <a
+            <Link
               key={pinKey(item.kind, item.id)}
-              href={item.href}
+              href={item.href as Route}
               title={`Open ${item.label}`}
               className="min-w-[14rem] rounded-[14px] border border-bg-border bg-[#121214] px-3 py-3 transition hover:border-[rgba(255,255,255,0.12)] hover:bg-[#151517]"
             >
@@ -171,7 +202,7 @@ export function PinnedItemsStrip(props: { className?: string }) {
               <div className="mt-1 truncate text-xs text-text-muted">
                 {[item.secondary, item.meta].filter(Boolean).join(" · ") || item.href}
               </div>
-            </a>
+            </Link>
           ))}
         </div>
       )}

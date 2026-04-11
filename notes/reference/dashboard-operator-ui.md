@@ -99,6 +99,7 @@ Purpose: document the current UI contract for the Next.js operator desk so later
 ## Workbench Rules
 
 - Candidates and positions stay as dense tables, not card grids
+- Both workbenches support URL-backed text filtering through `q` so operators can jump to a symbol, mint, blocker, or exit phrase without leaving keyboard flow
 - Row actions belong inline on the workbench:
   `Open`
   `Pin`
@@ -141,6 +142,7 @@ Purpose: document the current UI contract for the Next.js operator desk so later
 ## Interaction Rules
 
 - Routed detail pages must preserve list context through query state and focus anchors
+- Candidate and position detail return links must preserve `bucket|book`, `sort`, `q`, and `focus` when those params exist
 - Event stream items should expose drill-ins when the backend provides a related entity
 - Research-run events should deep-link into `/research?run=<id>` when the event carries a run entity id
 - Actions must feel trustworthy:
