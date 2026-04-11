@@ -21,7 +21,7 @@ Do not skip ahead to source files before that sequence.
 - This directory is the active app.
 - Backend: TypeScript, Express 5, Prisma 7, PostgreSQL 16
 - Dashboard: Next.js 16 App Router
-- Strategy scope: S2 graduation only
+- Strategy scope: graduation trading only
 - Providers: Birdeye and Helius
 - `LIVE` is available when the trading wallet and live-routing env are configured
 - Runtime behavior now includes adaptive position sizing, score-aware exit profiles, dayparted discovery cadence, and Birdeye lane-budget pacing

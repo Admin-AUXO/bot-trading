@@ -27,7 +27,7 @@ Purpose: orient an agent to the live app shape and the ownership boundaries that
 - Dashboard stack: Next.js 16 App Router, React 19, Tailwind CSS 4, Recharts, Motion
 - Dashboard typography: `Manrope` body, `Space Grotesk` headings, `Geist Mono` identifiers and tabular data
 - Providers: Birdeye for discovery and market and security data, Helius for mint and holder checks plus Sender-backed live transaction submission
-- Strategy scope: S2 graduation only
+- Strategy scope: graduation trading only
 - Runtime defaults discover `pump_dot_fun`, and the desk can widen discovery separately from tradability when it intentionally wants paper-only venue coverage
 
 ## Source Map

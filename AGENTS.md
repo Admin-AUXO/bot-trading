@@ -18,7 +18,7 @@ Do not jump straight into source files before completing that read order.
 
 ## Current Repo
 
-- One active app: the S2 graduation bot in `trading_bot/`
+- One active app: the graduation trading bot in `trading_bot/`
 - Backend: TypeScript, Express 5, Prisma 7, PostgreSQL 16
 - Dashboard: Next.js 16 App Router
 - Providers: Birdeye and Helius

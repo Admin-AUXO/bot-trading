@@ -17,16 +17,18 @@ graph_checked: 2026-04-11
 next_action:
 ---
 
-# S2 Strategy
+# Graduation Strategy
 
-Purpose: describe the actual S2 lifecycle in code, including the parts that are easy to misread from the UI.
+Purpose: describe the actual graduation-trading lifecycle in code, including the parts that are easy to misread from the UI.
 
-This repo still runs one desk thesis, S2 graduation, but it now has two selectable runtime presets:
+This repo runs one graduation-trading thesis, with two selectable runtime presets:
 
 - `FIRST_MINUTE_POSTGRAD_CONTINUATION`
 - `LATE_CURVE_MIGRATION_SNIPE`
 
 `LIVE` and `DRY_RUN` can point at different presets through `settings.strategy.*`.
+
+Use graduation language in repo-facing docs. Keep the preset ids below unchanged because code, env validation, and persisted data already depend on them.
 
 ## Runtime Lanes
 

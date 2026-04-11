@@ -23,7 +23,7 @@ Canonical repo docs live inside the Obsidian vault so Codex can read and update 
 - MCP and tool routing defaults for token-efficient agent work: [`tool-routing.md`](tool-routing.md)
 - Backend routes, dashboard proxy behavior, and auth rules: [`api-surface.md`](api-surface.md)
 - Prisma schema ownership, evidence tables, SQL views, and reporting rules: [`prisma-and-views.md`](prisma-and-views.md)
-- S2 discovery, evaluation, risk, and exit flow: [`strategy.md`](strategy.md)
+- Graduation discovery, evaluation, risk, and exit flow: [`strategy.md`](strategy.md)
 
 ## Minimum Read Order
 

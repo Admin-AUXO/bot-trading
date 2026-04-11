@@ -28,8 +28,8 @@ Purpose: document the current UI contract for the Next.js operator desk so later
 ## Naming
 
 - Product-facing dashboard name: `Graduation Control`
-- Keep the backend and strategy notes free to use the historical `S2` name where code and strategy contracts still do
-- Do not put `S2` back into the operator chrome unless the underlying product naming is changed deliberately across the repo
+- Use `graduation` language in active docs and UI copy
+- Do not put the legacy `S2` label back into operator chrome or current repo docs unless the naming is deliberately changed again
 
 ## Visual Direction
 
