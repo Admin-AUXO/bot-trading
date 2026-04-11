@@ -17,6 +17,7 @@ Canonical repo docs live inside the Obsidian vault so Codex can read and update 
 - Agent workflow, questioning discipline, and vault update rules: [`agent-workflow.md`](agent-workflow.md)
 - Repo shape, ownership boundaries, and non-features: [`tech-stack.md`](tech-stack.md)
 - Dashboard naming, typography, layout rules, and operator UI contract: [`dashboard-operator-ui.md`](dashboard-operator-ui.md)
+- Grafana portfolio, generator layout, and alerting/dashboard guidance: [`grafana-portfolio.md`](grafana-portfolio.md)
 - Setup modes, env handling, Docker flow, and verification commands: [`bootstrap-and-docker.md`](bootstrap-and-docker.md)
 - Graphify workflow and repo-local wrapper commands: [`graphify.md`](graphify.md)
 - Obsidian workflow, Docker sidecar, and note discipline: [`obsidian.md`](obsidian.md)

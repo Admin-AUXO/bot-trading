@@ -12,10 +12,11 @@ source_files:
   - trading_bot/backend/src/services/operator-desk.ts
   - trading_bot/dashboard/lib/grafana.ts
   - trading_bot/docker-compose.yml
+  - trading_bot/grafana/scripts/build-dashboards.mjs
   - trading_bot/grafana/provisioning/datasources/postgres.yaml
   - trading_bot/grafana/provisioning/dashboards/providers.yaml
 graph_checked: 2026-04-11
-next_action: Keep the four-dashboard contract stable, then finish browser verification for candidate and position Grafana pivots once the runtime has real entity rows.
+next_action: Bring the local Grafana service up again and browser-check the regenerated dashboards plus the candidate and position deep links against real entity rows.
 ---
 
 # Decision - Grafana Dashboard Plan
@@ -26,12 +27,19 @@ Grafana planning was too vague. The repo had outbound deep links, but not a clea
 
 ## Decision
 
-Keep four Grafana dashboards and treat Grafana as the historical and RCA surface, not an embedded part of the Next.js operator desk.
+Treat Grafana as the historical and RCA surface, not an embedded part of the Next.js operator desk. The repo now keeps a small dashboard set generated from `trading_bot/grafana/scripts/build-dashboards.mjs` instead of ad hoc JSON edits.
 
-- `control`: desk health, degradation, and top-level funnel drift
-- `telemetry`: provider, endpoint, payload, and budget failures
-- `candidate`: discovery and evaluation outcomes
-- `position`: trade and exit outcomes
+Current dashboard contract:
+
+- `Executive Scorecard`: top-line operating health and config-window rollups
+- `Analyst Insights Overview`: cross-cutting cohort, provider, and config pattern review
+- `Telemetry & Provider Analytics`: provider and endpoint failure RCA
+- `Live Trade Monitor`: current open-risk and intervention priority
+- `Candidate & Funnel Analytics`: discovery and decision evidence
+- `Position & PnL Analytics`: position outcome and execution evidence
+- `Config Change Impact & RCA`: config-window KPI and field-diff review
+- `Source & Cohort Performance`: source-level and cohort-level comparison
+- `Research & Dry-Run Analysis`: bounded research-run review
 
 Shared base env:
 
@@ -50,11 +58,22 @@ Grafana should honor that contract with dashboard variables and sensible default
 
 ## Shared Variable Contract
 
-Keep variables small and ordered:
+Rules:
+
+- broad selectors before narrow selectors
+- multi-select categorical filters by default
+- fuzzy text filters for `mint`, `symbol`, and ids; exact-match textboxes were removed because they were useless
+- one dependent chain at most, such as `provider -> endpoint`
+- preserve time range and variable values in dashboard links
+- keep filter semantics inside the generator so provisioned dashboards stay consistent
+
+Common variables across the suite:
 
 - `provider`
 - `endpoint`
+- `errorFamily`
 - `source`
+- `configVersion`
 - `mint`
 - `symbol`
 - `positionId`
@@ -63,12 +82,12 @@ Keep variables small and ordered:
 - `rejectReason`
 - `positionStatus`
 - `exitReason`
-
-Rules:
-
-- broad selectors before narrow selectors
-- shallow chains only
-- preserve time range and variable values in dashboard and panel links
+- `exitProfile`
+- `daypart`
+- `securityRisk`
+- `interventionBand`
+- `runId`
+- `runStatus`
 
 ## Datasource Strategy
 
@@ -144,6 +163,37 @@ These are still upstream-data problems, not dashboard-layout problems:
 - do not build a single monster dashboard
 - do not let Grafana-side transforms masquerade as missing history
 - keep the app deep-link contract intact when dashboards evolve
+- do not reintroduce top-of-dashboard `Purpose` text panels; the dashboard title, description, and links already carry that load
+- prefer weighted rates and operating ratios over vanity max/min stats
+- keep quick links consistent across dashboards so operators can pivot without rebuilding filters by hand
+
+## 2026-04-11 Optimization Pass
+
+The generated dashboards were audited and tightened in one pass.
+
+What changed:
+
+- removed the filler `Purpose` text panel from every dashboard
+- converted categorical variables to multi-select regex-backed filters
+- replaced exact-match text filters with contains search for `mint`, `symbol`, and ids
+- added missing filters where the old dashboards were effectively blind:
+  `configVersion` on candidate analytics
+  `positionStatus` on position analytics
+  `interventionBand` on the live monitor
+  `errorFamily` on telemetry
+  query-backed `runId` and `runStatus` on research
+- added dependent endpoint filters off provider where endpoint scope matters
+- replaced weak vanity stats with more decision-relevant KPIs:
+  acceptance rate, exposure, affected endpoints, live-affecting path count, median position outcomes
+- trimmed redundant charts and kept each dashboard closer to one job
+- expanded cross-dashboard quick links so pivots are faster and preserve time and variables
+- standardized shared tooltip mode and Monday week start across the suite
+
+Generator rule:
+
+- edit `trading_bot/grafana/scripts/build-dashboards.mjs`
+- regenerate JSON from the script
+- do not hand-edit the emitted dashboard JSON unless the generator itself is being retired
 
 ## Evidence
 

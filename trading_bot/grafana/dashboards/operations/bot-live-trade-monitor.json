@@ -5,7 +5,7 @@
   "description": "Live risk, recent executions, and intervention priority.",
   "editable": false,
   "fiscalYearStartMonth": 0,
-  "graphTooltip": 0,
+  "graphTooltip": 1,
   "id": null,
   "links": [
     {
@@ -31,30 +31,23 @@
       "tooltip": "",
       "type": "link",
       "url": "/d/bot-telemetry-provider"
+    },
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": true,
+      "keepTime": true,
+      "tags": [],
+      "targetBlank": false,
+      "title": "Executive Scorecard",
+      "tooltip": "",
+      "type": "link",
+      "url": "/d/bot-executive-scorecard"
     }
   ],
   "panels": [
     {
       "id": 1,
-      "title": "Purpose",
-      "type": "text",
-      "datasource": {
-        "type": "grafana",
-        "uid": "-- Grafana --"
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 24,
-        "x": 0,
-        "y": 0
-      },
-      "options": {
-        "content": "What is open now, what just traded, and what needs intervention first. If this refreshes and still hides the dangerous row, that is a dashboard defect.",
-        "mode": "markdown"
-      }
-    },
-    {
-      "id": 2,
       "title": "Open Positions",
       "type": "stat",
       "datasource": {
@@ -65,7 +58,7 @@
         "h": 4,
         "w": 5,
         "x": 0,
-        "y": 4
+        "y": 0
       },
       "targets": [
         {
@@ -115,11 +108,12 @@
           "values": false
         },
         "textMode": "auto"
-      }
+      },
+      "description": "Current open-position count from the live runtime snapshot."
     },
     {
-      "id": 3,
-      "title": "Current Capital",
+      "id": 2,
+      "title": "Exposure %",
       "type": "stat",
       "datasource": {
         "type": "postgres",
@@ -129,7 +123,7 @@
         "h": 4,
         "w": 5,
         "x": 5,
-        "y": 4
+        "y": 0
       },
       "targets": [
         {
@@ -140,13 +134,13 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(capital_usd, 0) AS value FROM v_runtime_live_status",
+          "rawSql": "SELECT COALESCE(((capital_usd - cash_usd)::numeric / NULLIF(capital_usd, 0)) * 100, 0) AS value FROM v_runtime_live_status",
           "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "currencyUSD",
+          "unit": "percent",
           "color": {
             "mode": "palette-classic"
           },
@@ -179,11 +173,12 @@
           "values": false
         },
         "textMode": "auto"
-      }
+      },
+      "description": "Current deployed capital as a percentage of total capital."
     },
     {
-      "id": 4,
-      "title": "Current Cash",
+      "id": 3,
+      "title": "Cash On Hand",
       "type": "stat",
       "datasource": {
         "type": "postgres",
@@ -193,7 +188,7 @@
         "h": 4,
         "w": 5,
         "x": 10,
-        "y": 4
+        "y": 0
       },
       "targets": [
         {
@@ -243,10 +238,11 @@
           "values": false
         },
         "textMode": "auto"
-      }
+      },
+      "description": "Current available cash in the trading runtime."
     },
     {
-      "id": 5,
+      "id": 4,
       "title": "Recent Fills",
       "type": "stat",
       "datasource": {
@@ -257,7 +253,7 @@
         "h": 4,
         "w": 5,
         "x": 15,
-        "y": 4
+        "y": 0
       },
       "targets": [
         {
@@ -307,10 +303,11 @@
           "values": false
         },
         "textMode": "auto"
-      }
+      },
+      "description": "Recently landed fills in the current live-monitor window."
     },
     {
-      "id": 6,
+      "id": 5,
       "title": "Stale Positions",
       "type": "stat",
       "datasource": {
@@ -321,7 +318,7 @@
         "h": 4,
         "w": 4,
         "x": 20,
-        "y": 4
+        "y": 0
       },
       "targets": [
         {
@@ -371,10 +368,11 @@
           "values": false
         },
         "textMode": "auto"
-      }
+      },
+      "description": "Open positions missing fresh supporting evidence and likely needing intervention."
     },
     {
-      "id": 7,
+      "id": 6,
       "title": "Open Position Monitor",
       "type": "table",
       "datasource": {
@@ -385,7 +383,7 @@
         "h": 10,
         "w": 16,
         "x": 0,
-        "y": 8
+        "y": 4
       },
       "targets": [
         {
@@ -396,7 +394,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT position_id, mint, symbol, source, exit_profile, tp_stage, live_price_usd, stop_distance_pct, return_pct, stale_minutes, intervention_priority, intervention_band, liquidity_usd, volume_5m_usd, buy_sell_ratio FROM v_open_position_monitor WHERE ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}') AND ('${positionId}' = '' OR position_id = '${positionId}') ORDER BY intervention_priority DESC, stale_minutes DESC",
+          "rawSql": "SELECT position_id, mint, symbol, source, exit_profile, tp_stage, live_price_usd, stop_distance_pct, return_pct, stale_minutes, intervention_priority, intervention_band, liquidity_usd, volume_5m_usd, buy_sell_ratio FROM v_open_position_monitor WHERE COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(intervention_band::text, '') ~* '^(${interventionBand:regex})$' AND ('${mint}' = '' OR COALESCE(mint::text, '') ILIKE '%' || '${mint}' || '%') AND ('${symbol}' = '' OR COALESCE(symbol::text, '') ILIKE '%' || '${symbol}' || '%') AND ('${positionId}' = '' OR COALESCE(position_id::text, '') ILIKE '%' || '${positionId}' || '%') ORDER BY intervention_priority DESC, stale_minutes DESC",
           "refId": "A"
         }
       ],
@@ -412,10 +410,11 @@
           "show": false
         },
         "showHeader": true
-      }
+      },
+      "description": "Priority-ranked open-book table for intervention-first monitoring."
     },
     {
-      "id": 8,
+      "id": 7,
       "title": "Lane Health",
       "type": "table",
       "datasource": {
@@ -426,7 +425,7 @@
         "h": 10,
         "w": 8,
         "x": 16,
-        "y": 8
+        "y": 4
       },
       "targets": [
         {
@@ -453,10 +452,11 @@
           "show": false
         },
         "showHeader": true
-      }
+      },
+      "description": "Current lane staleness and pause context from the runtime health contract."
     },
     {
-      "id": 9,
+      "id": 8,
       "title": "Recent Fill Activity",
       "type": "timeseries",
       "datasource": {
@@ -467,7 +467,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 18
+        "y": 14
       },
       "targets": [
         {
@@ -478,7 +478,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT created_at AS \"time\", side AS metric, amount_usd AS value FROM v_recent_fill_activity WHERE created_at >= $__timeFrom() AND created_at <= $__timeTo() AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}') AND ('${positionId}' = '' OR position_id = '${positionId}') ORDER BY 1, 2",
+          "rawSql": "SELECT created_at AS \"time\", side AS metric, amount_usd AS value FROM v_recent_fill_activity WHERE created_at >= $__timeFrom() AND created_at <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND ('${mint}' = '' OR COALESCE(mint::text, '') ILIKE '%' || '${mint}' || '%') AND ('${symbol}' = '' OR COALESCE(symbol::text, '') ILIKE '%' || '${symbol}' || '%') AND ('${positionId}' = '' OR COALESCE(position_id::text, '') ILIKE '%' || '${positionId}' || '%') ORDER BY 1, 2",
           "refId": "A"
         }
       ],
@@ -532,10 +532,11 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "description": "Recent notional by fill side for the selected scope."
     },
     {
-      "id": 10,
+      "id": 9,
       "title": "Recent Fill Trail",
       "type": "table",
       "datasource": {
@@ -546,7 +547,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 18
+        "y": 14
       },
       "targets": [
         {
@@ -557,7 +558,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT created_at, side, position_id, mint, symbol, source, exit_profile, price_usd, amount_usd, pnl_usd, tx_signature FROM v_recent_fill_activity WHERE created_at >= $__timeFrom() AND created_at <= $__timeTo() AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}') AND ('${positionId}' = '' OR position_id = '${positionId}') ORDER BY created_at DESC LIMIT 100",
+          "rawSql": "SELECT created_at, side, position_id, mint, symbol, source, exit_profile, price_usd, amount_usd, pnl_usd, tx_signature FROM v_recent_fill_activity WHERE created_at >= $__timeFrom() AND created_at <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND ('${mint}' = '' OR COALESCE(mint::text, '') ILIKE '%' || '${mint}' || '%') AND ('${symbol}' = '' OR COALESCE(symbol::text, '') ILIKE '%' || '${symbol}' || '%') AND ('${positionId}' = '' OR COALESCE(position_id::text, '') ILIKE '%' || '${positionId}' || '%') ORDER BY created_at DESC LIMIT 100",
           "refId": "A"
         }
       ],
@@ -573,7 +574,8 @@
           "show": false
         },
         "showHeader": true
-      }
+      },
+      "description": "Recent execution trail for the currently selected book slice."
     }
   ],
   "refresh": "30s",
@@ -586,6 +588,52 @@
   ],
   "templating": {
     "list": [
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": ".*"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "trading-bot-postgres"
+        },
+        "definition": "SELECT DISTINCT source AS __text, source AS __value FROM v_open_position_monitor ORDER BY 1",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Source",
+        "multi": true,
+        "name": "source",
+        "options": [],
+        "query": "SELECT DISTINCT source AS __text, source AS __value FROM v_open_position_monitor ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": ".*"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "trading-bot-postgres"
+        },
+        "definition": "SELECT DISTINCT intervention_band AS __text, intervention_band AS __value FROM v_open_position_monitor ORDER BY 1",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Intervention Band",
+        "multi": true,
+        "name": "interventionBand",
+        "options": [],
+        "query": "SELECT DISTINCT intervention_band AS __text, intervention_band AS __value FROM v_open_position_monitor ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
       {
         "current": {
           "selected": false,
@@ -639,5 +687,5 @@
   "title": "Live Trade Monitor",
   "uid": "bot-live-trade-monitor",
   "version": 1,
-  "weekStart": ""
+  "weekStart": "monday"
 }

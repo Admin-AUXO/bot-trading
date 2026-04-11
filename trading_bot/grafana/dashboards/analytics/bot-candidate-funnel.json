@@ -5,7 +5,7 @@
   "description": "Candidate funnel, decision evidence, and downstream outcome trace.",
   "editable": false,
   "fiscalYearStartMonth": 0,
-  "graphTooltip": 0,
+  "graphTooltip": 1,
   "id": null,
   "links": [
     {
@@ -27,6 +27,30 @@
       "keepTime": true,
       "tags": [],
       "targetBlank": false,
+      "title": "Analyst Insights Overview",
+      "tooltip": "",
+      "type": "link",
+      "url": "/d/bot-analyst-insights"
+    },
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": true,
+      "keepTime": true,
+      "tags": [],
+      "targetBlank": false,
+      "title": "Position & PnL Analytics",
+      "tooltip": "",
+      "type": "link",
+      "url": "/d/bot-position-pnl"
+    },
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": true,
+      "keepTime": true,
+      "tags": [],
+      "targetBlank": false,
       "title": "Config Change Impact & RCA",
       "tooltip": "",
       "type": "link",
@@ -36,25 +60,6 @@
   "panels": [
     {
       "id": 1,
-      "title": "Purpose",
-      "type": "text",
-      "datasource": {
-        "type": "grafana",
-        "uid": "-- Grafana --"
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 24,
-        "x": 0,
-        "y": 0
-      },
-      "options": {
-        "content": "Discovery quality, decision quality, and raw evidence. This dashboard should answer why a token was blocked without sending you spelunking through arbitrary JSON.",
-        "mode": "markdown"
-      }
-    },
-    {
-      "id": 2,
       "title": "Discovered",
       "type": "stat",
       "datasource": {
@@ -63,9 +68,9 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 4,
+        "w": 5,
         "x": 0,
-        "y": 4
+        "y": 0
       },
       "targets": [
         {
@@ -76,7 +81,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COUNT(candidate_id) AS value FROM v_candidate_decision_facts WHERE discovered_at >= $__timeFrom() AND discovered_at <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${securityRisk}' = '__all' OR security_risk = '${securityRisk}') AND ('${daypart}' = '__all' OR daypart = '${daypart}') AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}') AND ('${candidateStatus}' = '__all' OR status = '${candidateStatus}')",
+          "rawSql": "SELECT COUNT(candidate_id) AS value FROM v_candidate_decision_facts WHERE discovered_at >= $__timeFrom() AND discovered_at <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(security_risk::text, '') ~* '^(${securityRisk:regex})$' AND COALESCE(daypart::text, '') ~* '^(${daypart:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVersion:regex})$' AND ('${mint}' = '' OR COALESCE(mint::text, '') ILIKE '%' || '${mint}' || '%') AND ('${symbol}' = '' OR COALESCE(symbol::text, '') ILIKE '%' || '${symbol}' || '%') AND COALESCE(status::text, '') ~* '^(${candidateStatus:regex})$'",
           "refId": "A"
         }
       ],
@@ -115,138 +120,76 @@
           "values": false
         },
         "textMode": "auto"
-      }
+      },
+      "description": "Discovered candidates in the current selection scope."
+    },
+    {
+      "id": 2,
+      "title": "Acceptance Rate",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 5,
+        "y": 0
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE((SUM(CASE WHEN accepted THEN 1 ELSE 0 END)::numeric / NULLIF(COUNT(candidate_id), 0)) * 100, 0) AS value FROM v_candidate_decision_facts WHERE decision_at >= $__timeFrom() AND decision_at <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(security_risk::text, '') ~* '^(${securityRisk:regex})$' AND COALESCE(daypart::text, '') ~* '^(${daypart:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVersion:regex})$' AND ('${mint}' = '' OR COALESCE(mint::text, '') ILIKE '%' || '${mint}' || '%') AND ('${symbol}' = '' OR COALESCE(symbol::text, '') ILIKE '%' || '${symbol}' || '%') AND COALESCE(status::text, '') ~* '^(${candidateStatus:regex})$'",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "description": "Weighted acceptance rate for the selected candidate slice."
     },
     {
       "id": 3,
-      "title": "Accepted",
-      "type": "stat",
-      "datasource": {
-        "type": "postgres",
-        "uid": "trading-bot-postgres"
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 4,
-        "y": 4
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "postgres",
-            "uid": "trading-bot-postgres"
-          },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT COUNT(candidate_id) AS value FROM v_candidate_decision_facts WHERE decision_at >= $__timeFrom() AND decision_at <= $__timeTo() AND accepted = TRUE AND ('${source}' = '__all' OR source = '${source}') AND ('${securityRisk}' = '__all' OR security_risk = '${securityRisk}') AND ('${daypart}' = '__all' OR daypart = '${daypart}') AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}')",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none",
-          "color": {
-            "mode": "palette-classic"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 0
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      }
-    },
-    {
-      "id": 4,
-      "title": "Rejected",
-      "type": "stat",
-      "datasource": {
-        "type": "postgres",
-        "uid": "trading-bot-postgres"
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 8,
-        "y": 4
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "postgres",
-            "uid": "trading-bot-postgres"
-          },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT COUNT(candidate_id) AS value FROM v_candidate_decision_facts WHERE decision_at >= $__timeFrom() AND decision_at <= $__timeTo() AND status = 'REJECTED' AND ('${source}' = '__all' OR source = '${source}') AND ('${securityRisk}' = '__all' OR security_risk = '${securityRisk}') AND ('${daypart}' = '__all' OR daypart = '${daypart}') AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}')",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none",
-          "color": {
-            "mode": "palette-classic"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 0
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      }
-    },
-    {
-      "id": 5,
       "title": "Bought",
       "type": "stat",
       "datasource": {
@@ -256,8 +199,8 @@
       "gridPos": {
         "h": 4,
         "w": 4,
-        "x": 12,
-        "y": 4
+        "x": 10,
+        "y": 0
       },
       "targets": [
         {
@@ -268,7 +211,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COUNT(candidate_id) AS value FROM v_candidate_decision_facts WHERE decision_at >= $__timeFrom() AND decision_at <= $__timeTo() AND bought = TRUE AND ('${source}' = '__all' OR source = '${source}') AND ('${securityRisk}' = '__all' OR security_risk = '${securityRisk}') AND ('${daypart}' = '__all' OR daypart = '${daypart}') AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}')",
+          "rawSql": "SELECT COUNT(candidate_id) AS value FROM v_candidate_decision_facts WHERE decision_at >= $__timeFrom() AND decision_at <= $__timeTo() AND bought = TRUE AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(security_risk::text, '') ~* '^(${securityRisk:regex})$' AND COALESCE(daypart::text, '') ~* '^(${daypart:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVersion:regex})$' AND ('${mint}' = '' OR COALESCE(mint::text, '') ILIKE '%' || '${mint}' || '%') AND ('${symbol}' = '' OR COALESCE(symbol::text, '') ILIKE '%' || '${symbol}' || '%')",
           "refId": "A"
         }
       ],
@@ -307,10 +250,11 @@
           "values": false
         },
         "textMode": "auto"
-      }
+      },
+      "description": "Candidates that progressed to buys in the current slice."
     },
     {
-      "id": 6,
+      "id": 4,
       "title": "Avg Entry Score",
       "type": "stat",
       "datasource": {
@@ -319,9 +263,9 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 4,
-        "x": 16,
-        "y": 4
+        "w": 5,
+        "x": 14,
+        "y": 0
       },
       "targets": [
         {
@@ -332,7 +276,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(AVG(entry_score), 0) AS value FROM v_candidate_decision_facts WHERE decision_at >= $__timeFrom() AND decision_at <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${securityRisk}' = '__all' OR security_risk = '${securityRisk}') AND ('${daypart}' = '__all' OR daypart = '${daypart}') AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}')",
+          "rawSql": "SELECT COALESCE(AVG(entry_score), 0) AS value FROM v_candidate_decision_facts WHERE decision_at >= $__timeFrom() AND decision_at <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(security_risk::text, '') ~* '^(${securityRisk:regex})$' AND COALESCE(daypart::text, '') ~* '^(${daypart:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVersion:regex})$' AND ('${mint}' = '' OR COALESCE(mint::text, '') ILIKE '%' || '${mint}' || '%') AND ('${symbol}' = '' OR COALESCE(symbol::text, '') ILIKE '%' || '${symbol}' || '%')",
           "refId": "A"
         }
       ],
@@ -371,11 +315,12 @@
           "values": false
         },
         "textMode": "auto"
-      }
+      },
+      "description": "Average entry score for the selected decision slice."
     },
     {
-      "id": 7,
-      "title": "Downstream Wins",
+      "id": 5,
+      "title": "Downstream Win Rate",
       "type": "stat",
       "datasource": {
         "type": "postgres",
@@ -383,9 +328,9 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 4,
-        "x": 20,
-        "y": 4
+        "w": 5,
+        "x": 19,
+        "y": 0
       },
       "targets": [
         {
@@ -396,13 +341,13 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COUNT(candidate_id) AS value FROM v_candidate_decision_facts WHERE decision_at >= $__timeFrom() AND decision_at <= $__timeTo() AND downstream_outcome = 'win' AND ('${source}' = '__all' OR source = '${source}') AND ('${securityRisk}' = '__all' OR security_risk = '${securityRisk}') AND ('${daypart}' = '__all' OR daypart = '${daypart}') AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}')",
+          "rawSql": "SELECT COALESCE((SUM(CASE WHEN downstream_outcome = 'win' THEN 1 ELSE 0 END)::numeric / NULLIF(SUM(CASE WHEN downstream_outcome IN ('win', 'loss') THEN 1 ELSE 0 END), 0)) * 100, 0) AS value FROM v_candidate_decision_facts WHERE decision_at >= $__timeFrom() AND decision_at <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(security_risk::text, '') ~* '^(${securityRisk:regex})$' AND COALESCE(daypart::text, '') ~* '^(${daypart:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVersion:regex})$' AND ('${mint}' = '' OR COALESCE(mint::text, '') ILIKE '%' || '${mint}' || '%') AND ('${symbol}' = '' OR COALESCE(symbol::text, '') ILIKE '%' || '${symbol}' || '%')",
           "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "none",
+          "unit": "percent",
           "color": {
             "mode": "palette-classic"
           },
@@ -435,11 +380,12 @@
           "values": false
         },
         "textMode": "auto"
-      }
+      },
+      "description": "How often accepted candidates eventually turned into downstream wins."
     },
     {
-      "id": 8,
-      "title": "Funnel Trend by Source",
+      "id": 6,
+      "title": "Funnel Trend by Status",
       "type": "timeseries",
       "datasource": {
         "type": "postgres",
@@ -449,7 +395,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 8
+        "y": 4
       },
       "targets": [
         {
@@ -460,7 +406,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT DATE_TRUNC('day', decision_at)::timestamp AS \"time\", status AS metric, COUNT(candidate_id)::int AS value FROM v_candidate_decision_facts WHERE decision_at >= $__timeFrom() AND decision_at <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${securityRisk}' = '__all' OR security_risk = '${securityRisk}') AND ('${daypart}' = '__all' OR daypart = '${daypart}') AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}') AND ('${candidateStatus}' = '__all' OR status = '${candidateStatus}') GROUP BY 1, 2 ORDER BY 1, 2",
+          "rawSql": "SELECT DATE_TRUNC('day', decision_at)::timestamp AS \"time\", status AS metric, COUNT(candidate_id)::int AS value FROM v_candidate_decision_facts WHERE decision_at >= $__timeFrom() AND decision_at <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(security_risk::text, '') ~* '^(${securityRisk:regex})$' AND COALESCE(daypart::text, '') ~* '^(${daypart:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVersion:regex})$' AND ('${mint}' = '' OR COALESCE(mint::text, '') ILIKE '%' || '${mint}' || '%') AND ('${symbol}' = '' OR COALESCE(symbol::text, '') ILIKE '%' || '${symbol}' || '%') AND COALESCE(status::text, '') ~* '^(${candidateStatus:regex})$' GROUP BY 1, 2 ORDER BY 1, 2",
           "refId": "A"
         }
       ],
@@ -514,10 +460,11 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "description": "Daily funnel movement by candidate status."
     },
     {
-      "id": 9,
+      "id": 7,
       "title": "Reject Reason Trend",
       "type": "timeseries",
       "datasource": {
@@ -528,7 +475,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 8
+        "y": 4
       },
       "targets": [
         {
@@ -539,7 +486,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT DATE_TRUNC('day', decision_at)::timestamp AS \"time\", COALESCE(reject_reason, 'accepted_or_unknown') AS metric, COUNT(candidate_id)::int AS value FROM v_candidate_decision_facts WHERE decision_at >= $__timeFrom() AND decision_at <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${securityRisk}' = '__all' OR security_risk = '${securityRisk}') AND ('${daypart}' = '__all' OR daypart = '${daypart}') AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}') AND ('${rejectReason}' = '__all' OR COALESCE(reject_reason, 'accepted_or_unknown') = '${rejectReason}') GROUP BY 1, 2 ORDER BY 1, 2",
+          "rawSql": "SELECT DATE_TRUNC('day', decision_at)::timestamp AS \"time\", COALESCE(reject_reason, 'accepted_or_unknown') AS metric, COUNT(candidate_id)::int AS value FROM v_candidate_decision_facts WHERE decision_at >= $__timeFrom() AND decision_at <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(security_risk::text, '') ~* '^(${securityRisk:regex})$' AND COALESCE(daypart::text, '') ~* '^(${daypart:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVersion:regex})$' AND ('${mint}' = '' OR COALESCE(mint::text, '') ILIKE '%' || '${mint}' || '%') AND ('${symbol}' = '' OR COALESCE(symbol::text, '') ILIKE '%' || '${symbol}' || '%') AND COALESCE(COALESCE(reject_reason, 'accepted_or_unknown')::text, '') ~* '^(${rejectReason:regex})$' GROUP BY 1, 2 ORDER BY 1, 2",
           "refId": "A"
         }
       ],
@@ -593,11 +540,12 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "description": "Reject-reason drift over time for the current scope."
     },
     {
-      "id": 10,
-      "title": "Current Candidate Leaderboard",
+      "id": 8,
+      "title": "Candidate Decision Trace",
       "type": "table",
       "datasource": {
         "type": "postgres",
@@ -607,7 +555,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 16
+        "y": 12
       },
       "targets": [
         {
@@ -618,7 +566,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT candidate_id, mint, symbol, source, status, reject_reason, entry_score, exit_profile, daypart, security_risk, liquidity_band, volume_band, downstream_outcome, realized_pnl_usd FROM v_candidate_decision_facts WHERE decision_at >= $__timeFrom() AND decision_at <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${securityRisk}' = '__all' OR security_risk = '${securityRisk}') AND ('${daypart}' = '__all' OR daypart = '${daypart}') AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}') AND ('${candidateStatus}' = '__all' OR status = '${candidateStatus}') AND ('${rejectReason}' = '__all' OR COALESCE(reject_reason, 'accepted_or_unknown') = '${rejectReason}') ORDER BY decision_at DESC LIMIT 100",
+          "rawSql": "SELECT candidate_id, mint, symbol, source, config_version, status, reject_reason, entry_score, exit_profile, daypart, security_risk, liquidity_band, volume_band, downstream_outcome, realized_pnl_usd FROM v_candidate_decision_facts WHERE decision_at >= $__timeFrom() AND decision_at <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(security_risk::text, '') ~* '^(${securityRisk:regex})$' AND COALESCE(daypart::text, '') ~* '^(${daypart:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVersion:regex})$' AND ('${mint}' = '' OR COALESCE(mint::text, '') ILIKE '%' || '${mint}' || '%') AND ('${symbol}' = '' OR COALESCE(symbol::text, '') ILIKE '%' || '${symbol}' || '%') AND COALESCE(status::text, '') ~* '^(${candidateStatus:regex})$' AND COALESCE(COALESCE(reject_reason, 'accepted_or_unknown')::text, '') ~* '^(${rejectReason:regex})$' ORDER BY entry_score DESC NULLS LAST, decision_at DESC LIMIT 100",
           "refId": "A"
         }
       ],
@@ -634,10 +582,11 @@
           "show": false
         },
         "showHeader": true
-      }
+      },
+      "description": "Decision spine for why candidates passed, failed, or eventually paid off."
     },
     {
-      "id": 11,
+      "id": 9,
       "title": "Latest Filter State",
       "type": "table",
       "datasource": {
@@ -648,7 +597,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 16
+        "y": 12
       },
       "targets": [
         {
@@ -659,7 +608,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT mint, symbol, source, status, reject_reason, security_risk, liquidity_usd, volume_5m_usd, buy_sell_ratio, top10_holder_percent, largest_holder_percent, price_usd, market_cap_usd, last_snapshot_at FROM v_candidate_latest_filter_state WHERE ('${source}' = '__all' OR source = '${source}') AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}') ORDER BY discovered_at DESC LIMIT 100",
+          "rawSql": "SELECT mint, symbol, source, status, reject_reason, security_risk, liquidity_usd, volume_5m_usd, buy_sell_ratio, top10_holder_percent, largest_holder_percent, price_usd, market_cap_usd, last_snapshot_at FROM v_candidate_latest_filter_state WHERE COALESCE(source::text, '') ~* '^(${source:regex})$' AND ('${mint}' = '' OR COALESCE(mint::text, '') ILIKE '%' || '${mint}' || '%') AND ('${symbol}' = '' OR COALESCE(symbol::text, '') ILIKE '%' || '${symbol}' || '%') ORDER BY last_snapshot_at DESC LIMIT 100",
           "refId": "A"
         }
       ],
@@ -675,10 +624,11 @@
           "show": false
         },
         "showHeader": true
-      }
+      },
+      "description": "Latest normalized filter evidence for active candidate rows."
     },
     {
-      "id": 12,
+      "id": 10,
       "title": "Snapshot Evidence",
       "type": "table",
       "datasource": {
@@ -689,7 +639,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 24
+        "y": 20
       },
       "targets": [
         {
@@ -700,7 +650,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT captured_at, mint, symbol, trigger, source, config_version, price_usd, liquidity_usd, volume_5m_usd, buy_sell_ratio, top10_holder_percent, security_risk FROM v_token_snapshot_enriched WHERE captured_at >= $__timeFrom() AND captured_at <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}') AND ('${trigger}' = '__all' OR trigger = '${trigger}') ORDER BY captured_at DESC LIMIT 100",
+          "rawSql": "SELECT captured_at, mint, symbol, trigger, source, config_version, price_usd, liquidity_usd, volume_5m_usd, buy_sell_ratio, top10_holder_percent, security_risk FROM v_token_snapshot_enriched WHERE captured_at >= $__timeFrom() AND captured_at <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVersion:regex})$' AND ('${mint}' = '' OR COALESCE(mint::text, '') ILIKE '%' || '${mint}' || '%') AND ('${symbol}' = '' OR COALESCE(symbol::text, '') ILIKE '%' || '${symbol}' || '%') AND COALESCE(trigger::text, '') ~* '^(${trigger:regex})$' ORDER BY captured_at DESC LIMIT 100",
           "refId": "A"
         }
       ],
@@ -716,10 +666,11 @@
           "show": false
         },
         "showHeader": true
-      }
+      },
+      "description": "Snapshot trail for candidate-side RCA."
     },
     {
-      "id": 13,
+      "id": 11,
       "title": "Provider Payload Evidence",
       "type": "table",
       "datasource": {
@@ -730,7 +681,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 24
+        "y": 20
       },
       "targets": [
         {
@@ -741,7 +692,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT captured_at, provider, endpoint, status_code, error_family, entity_key, latency_ms, error_message FROM v_raw_api_payload_recent WHERE captured_at >= $__timeFrom() AND captured_at <= $__timeTo() AND ('${mint}' = '' OR entity_key = '${mint}') ORDER BY captured_at DESC LIMIT 100",
+          "rawSql": "SELECT captured_at, provider, endpoint, status_code, error_family, entity_key, latency_ms, error_message FROM v_raw_api_payload_recent WHERE captured_at >= $__timeFrom() AND captured_at <= $__timeTo() AND ('${mint}' = '' OR entity_key ILIKE '%' || '${mint}' || '%') ORDER BY captured_at DESC LIMIT 100",
           "refId": "A"
         }
       ],
@@ -757,7 +708,8 @@
           "show": false
         },
         "showHeader": true
-      }
+      },
+      "description": "Raw provider failures and payload evidence for mint-focused RCA."
     }
   ],
   "refresh": "5m",
@@ -771,11 +723,11 @@
   "templating": {
     "list": [
       {
-        "allValue": "__all",
+        "allValue": ".*",
         "current": {
           "selected": false,
           "text": "All",
-          "value": "__all"
+          "value": ".*"
         },
         "datasource": {
           "type": "postgres",
@@ -785,10 +737,33 @@
         "hide": 0,
         "includeAll": true,
         "label": "Source",
-        "multi": false,
+        "multi": true,
         "name": "source",
         "options": [],
         "query": "SELECT DISTINCT source AS __text, source AS __value FROM v_candidate_decision_facts ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": ".*"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "trading-bot-postgres"
+        },
+        "definition": "SELECT DISTINCT config_version::text AS __text, config_version::text AS __value FROM v_candidate_decision_facts ORDER BY 1 DESC",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Config Version",
+        "multi": true,
+        "name": "configVersion",
+        "options": [],
+        "query": "SELECT DISTINCT config_version::text AS __text, config_version::text AS __value FROM v_candidate_decision_facts ORDER BY 1 DESC",
         "refresh": 2,
         "sort": 1,
         "type": "query"
@@ -822,11 +797,11 @@
         "type": "textbox"
       },
       {
-        "allValue": "__all",
+        "allValue": ".*",
         "current": {
           "selected": false,
           "text": "All",
-          "value": "__all"
+          "value": ".*"
         },
         "datasource": {
           "type": "postgres",
@@ -836,7 +811,7 @@
         "hide": 0,
         "includeAll": true,
         "label": "Candidate Status",
-        "multi": false,
+        "multi": true,
         "name": "candidateStatus",
         "options": [],
         "query": "SELECT DISTINCT status AS __text, status AS __value FROM v_candidate_decision_facts ORDER BY 1",
@@ -845,11 +820,11 @@
         "type": "query"
       },
       {
-        "allValue": "__all",
+        "allValue": ".*",
         "current": {
           "selected": false,
           "text": "All",
-          "value": "__all"
+          "value": ".*"
         },
         "datasource": {
           "type": "postgres",
@@ -859,7 +834,7 @@
         "hide": 0,
         "includeAll": true,
         "label": "Reject Reason",
-        "multi": false,
+        "multi": true,
         "name": "rejectReason",
         "options": [],
         "query": "SELECT DISTINCT COALESCE(reject_reason, 'accepted_or_unknown') AS __text, COALESCE(reject_reason, 'accepted_or_unknown') AS __value FROM v_candidate_decision_facts ORDER BY 1",
@@ -868,11 +843,11 @@
         "type": "query"
       },
       {
-        "allValue": "__all",
+        "allValue": ".*",
         "current": {
           "selected": false,
           "text": "All",
-          "value": "__all"
+          "value": ".*"
         },
         "datasource": {
           "type": "postgres",
@@ -882,7 +857,7 @@
         "hide": 0,
         "includeAll": true,
         "label": "Trigger",
-        "multi": false,
+        "multi": true,
         "name": "trigger",
         "options": [],
         "query": "SELECT DISTINCT trigger AS __text, trigger AS __value FROM v_snapshot_trigger_daily ORDER BY 1",
@@ -891,11 +866,11 @@
         "type": "query"
       },
       {
-        "allValue": "__all",
+        "allValue": ".*",
         "current": {
           "selected": false,
           "text": "All",
-          "value": "__all"
+          "value": ".*"
         },
         "datasource": {
           "type": "postgres",
@@ -905,7 +880,7 @@
         "hide": 0,
         "includeAll": true,
         "label": "Security Risk",
-        "multi": false,
+        "multi": true,
         "name": "securityRisk",
         "options": [],
         "query": "SELECT DISTINCT security_risk AS __text, security_risk AS __value FROM v_candidate_decision_facts ORDER BY 1",
@@ -914,11 +889,11 @@
         "type": "query"
       },
       {
-        "allValue": "__all",
+        "allValue": ".*",
         "current": {
           "selected": false,
           "text": "All",
-          "value": "__all"
+          "value": ".*"
         },
         "datasource": {
           "type": "postgres",
@@ -928,7 +903,7 @@
         "hide": 0,
         "includeAll": true,
         "label": "Daypart",
-        "multi": false,
+        "multi": true,
         "name": "daypart",
         "options": [],
         "query": "SELECT DISTINCT daypart AS __text, daypart AS __value FROM v_candidate_decision_facts ORDER BY 1",
@@ -947,5 +922,5 @@
   "title": "Candidate & Funnel Analytics",
   "uid": "bot-candidate-funnel",
   "version": 1,
-  "weekStart": ""
+  "weekStart": "monday"
 }

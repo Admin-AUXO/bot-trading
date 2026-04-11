@@ -5,7 +5,7 @@
   "description": "Analyst-first cohort and config view across sources, providers, and outcome patterns.",
   "editable": false,
   "fiscalYearStartMonth": 0,
-  "graphTooltip": 0,
+  "graphTooltip": 1,
   "id": null,
   "links": [
     {
@@ -43,31 +43,24 @@
       "tooltip": "",
       "type": "link",
       "url": "/d/bot-telemetry-provider"
+    },
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": true,
+      "keepTime": true,
+      "tags": [],
+      "targetBlank": false,
+      "title": "Executive Scorecard",
+      "tooltip": "",
+      "type": "link",
+      "url": "/d/bot-executive-scorecard"
     }
   ],
   "panels": [
     {
       "id": 1,
-      "title": "Purpose",
-      "type": "text",
-      "datasource": {
-        "type": "grafana",
-        "uid": "-- Grafana --"
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 24,
-        "x": 0,
-        "y": 0
-      },
-      "options": {
-        "content": "Cross-cutting pattern view. Cohorts, config windows, and provider behavior belong here because they change the conclusion, not because they look pretty in a heatmap.",
-        "mode": "markdown"
-      }
-    },
-    {
-      "id": 2,
-      "title": "Best Source PnL",
+      "title": "Net PnL",
       "type": "stat",
       "datasource": {
         "type": "postgres",
@@ -77,7 +70,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 4
+        "y": 0
       },
       "targets": [
         {
@@ -88,7 +81,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(MAX(realized_pnl_usd), 0) AS value FROM v_source_outcome_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${configVersion}' = '__all' OR config_version = CAST('${configVersion}' AS integer))",
+          "rawSql": "SELECT COALESCE(SUM(realized_pnl_usd), 0) AS value FROM v_source_outcome_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVersion:regex})$'",
           "refId": "A"
         }
       ],
@@ -127,11 +120,12 @@
           "values": false
         },
         "textMode": "auto"
-      }
+      },
+      "description": "Net realized PnL across the current source and config slice."
     },
     {
-      "id": 3,
-      "title": "Worst Reject Share",
+      "id": 2,
+      "title": "Acceptance Rate",
       "type": "stat",
       "datasource": {
         "type": "postgres",
@@ -141,7 +135,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 4
+        "y": 0
       },
       "targets": [
         {
@@ -152,7 +146,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(MAX(100 - acceptance_rate_pct), 0) AS value FROM v_source_outcome_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}')",
+          "rawSql": "SELECT COALESCE((SUM(candidates_accepted)::numeric / NULLIF(SUM(candidates_discovered), 0)) * 100, 0) AS value FROM v_source_outcome_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVersion:regex})$'",
           "refId": "A"
         }
       ],
@@ -191,11 +185,12 @@
           "values": false
         },
         "textMode": "auto"
-      }
+      },
+      "description": "Weighted acceptance rate for the current analytic slice."
     },
     {
-      "id": 4,
-      "title": "Provider Cost / Accepted",
+      "id": 3,
+      "title": "Provider Units / Accepted",
       "type": "stat",
       "datasource": {
         "type": "postgres",
@@ -205,7 +200,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 4
+        "y": 0
       },
       "targets": [
         {
@@ -216,7 +211,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(SUM(provider_units)::numeric / NULLIF(SUM(candidates_accepted), 0), 0) AS value FROM v_kpi_by_config_window",
+          "rawSql": "SELECT COALESCE(SUM(provider_units)::numeric / NULLIF(SUM(candidates_accepted), 0), 0) AS value FROM v_kpi_by_config_window WHERE COALESCE(config_version::text, '') ~* '^(${configVersion:regex})$'",
           "refId": "A"
         }
       ],
@@ -255,11 +250,12 @@
           "values": false
         },
         "textMode": "auto"
-      }
+      },
+      "description": "Provider cost per accepted candidate across selected config windows."
     },
     {
-      "id": 5,
-      "title": "Best Config Delta",
+      "id": 4,
+      "title": "Worst Reject Share",
       "type": "stat",
       "datasource": {
         "type": "postgres",
@@ -269,7 +265,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 4
+        "y": 0
       },
       "targets": [
         {
@@ -280,13 +276,13 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(MAX(realized_pnl_usd), 0) AS value FROM v_kpi_by_config_window",
+          "rawSql": "SELECT COALESCE(MAX(100 - acceptance_rate_pct), 0) AS value FROM v_source_outcome_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVersion:regex})$'",
           "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "currencyUSD",
+          "unit": "percent",
           "color": {
             "mode": "palette-classic"
           },
@@ -319,10 +315,11 @@
           "values": false
         },
         "textMode": "auto"
-      }
+      },
+      "description": "Highest observed reject share in the selected source cohort."
     },
     {
-      "id": 6,
+      "id": 5,
       "title": "Source PnL Trend",
       "type": "timeseries",
       "datasource": {
@@ -333,7 +330,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 8
+        "y": 4
       },
       "targets": [
         {
@@ -344,7 +341,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT session_date::timestamp AS \"time\", source AS metric, realized_pnl_usd AS value FROM v_source_outcome_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${configVersion}' = '__all' OR config_version = CAST('${configVersion}' AS integer)) ORDER BY 1, 2",
+          "rawSql": "SELECT session_date::timestamp AS \"time\", source AS metric, realized_pnl_usd AS value FROM v_source_outcome_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVersion:regex})$' ORDER BY 1, 2",
           "refId": "A"
         }
       ],
@@ -398,10 +395,11 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "description": "Daily PnL trend for source-level comparison."
     },
     {
-      "id": 7,
+      "id": 6,
       "title": "Reject Share Trend",
       "type": "timeseries",
       "datasource": {
@@ -412,7 +410,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 8
+        "y": 4
       },
       "targets": [
         {
@@ -423,7 +421,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT session_date::timestamp AS \"time\", source AS metric, (100 - acceptance_rate_pct) AS value FROM v_source_outcome_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') ORDER BY 1, 2",
+          "rawSql": "SELECT session_date::timestamp AS \"time\", source AS metric, (100 - acceptance_rate_pct) AS value FROM v_source_outcome_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVersion:regex})$' ORDER BY 1, 2",
           "refId": "A"
         }
       ],
@@ -477,10 +475,11 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "description": "Reject-share trend by source for quality drift review."
     },
     {
-      "id": 8,
+      "id": 7,
       "title": "Candidate Cohort Matrix",
       "type": "table",
       "datasource": {
@@ -491,7 +490,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 16
+        "y": 12
       },
       "targets": [
         {
@@ -502,7 +501,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT session_date, source, daypart, security_risk, liquidity_band, volume_band, candidate_count, accepted_count, bought_count, win_count, loss_count, realized_pnl_usd FROM v_candidate_cohort_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${daypart}' = '__all' OR daypart = '${daypart}') AND ('${securityRisk}' = '__all' OR security_risk = '${securityRisk}') AND ('${configVersion}' = '__all' OR config_version = CAST('${configVersion}' AS integer)) ORDER BY session_date DESC, realized_pnl_usd DESC LIMIT 60",
+          "rawSql": "SELECT session_date, source, daypart, security_risk, liquidity_band, volume_band, candidate_count, accepted_count, bought_count, win_count, loss_count, realized_pnl_usd FROM v_candidate_cohort_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(daypart::text, '') ~* '^(${daypart:regex})$' AND COALESCE(security_risk::text, '') ~* '^(${securityRisk:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVersion:regex})$' ORDER BY session_date DESC, realized_pnl_usd DESC LIMIT 60",
           "refId": "A"
         }
       ],
@@ -518,10 +517,11 @@
           "show": false
         },
         "showHeader": true
-      }
+      },
+      "description": "Candidate cohorts for source, daypart, and risk-shape comparison."
     },
     {
-      "id": 9,
+      "id": 8,
       "title": "Position Cohort Matrix",
       "type": "table",
       "datasource": {
@@ -532,7 +532,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 16
+        "y": 12
       },
       "targets": [
         {
@@ -543,7 +543,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT session_date, source, daypart, exit_profile, security_risk, outcome, position_count, avg_return_pct, avg_hold_minutes, win_rate * 100 AS win_rate_pct, realized_pnl_usd FROM v_position_cohort_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${daypart}' = '__all' OR daypart = '${daypart}') AND ('${exitProfile}' = '__all' OR exit_profile = '${exitProfile}') AND ('${securityRisk}' = '__all' OR security_risk = '${securityRisk}') AND ('${configVersion}' = '__all' OR config_version = CAST('${configVersion}' AS integer)) ORDER BY session_date DESC, realized_pnl_usd DESC LIMIT 60",
+          "rawSql": "SELECT session_date, source, daypart, exit_profile, security_risk, outcome, position_count, avg_return_pct, avg_hold_minutes, win_rate * 100 AS win_rate_pct, realized_pnl_usd FROM v_position_cohort_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(daypart::text, '') ~* '^(${daypart:regex})$' AND COALESCE(exit_profile::text, '') ~* '^(${exitProfile:regex})$' AND COALESCE(security_risk::text, '') ~* '^(${securityRisk:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVersion:regex})$' ORDER BY session_date DESC, realized_pnl_usd DESC LIMIT 60",
           "refId": "A"
         }
       ],
@@ -559,10 +559,11 @@
           "show": false
         },
         "showHeader": true
-      }
+      },
+      "description": "Position cohorts for outcome, return, and hold-time comparisons."
     },
     {
-      "id": 10,
+      "id": 9,
       "title": "Provider Pressure by Endpoint",
       "type": "table",
       "datasource": {
@@ -573,7 +574,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 24
+        "y": 20
       },
       "targets": [
         {
@@ -584,7 +585,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT bucket_at, provider, endpoint, total_calls, total_units, avg_latency_ms, error_count FROM v_api_endpoint_hourly WHERE bucket_at >= $__timeFrom() AND bucket_at <= $__timeTo() AND ('${provider}' = '__all' OR provider = '${provider}') ORDER BY bucket_at DESC, total_units DESC LIMIT 80",
+          "rawSql": "SELECT bucket_at, provider, endpoint, total_calls, total_units, avg_latency_ms, error_count FROM v_api_endpoint_hourly WHERE bucket_at >= $__timeFrom() AND bucket_at <= $__timeTo() AND COALESCE(provider::text, '') ~* '^(${provider:regex})$' AND COALESCE(endpoint::text, '') ~* '^(${endpoint:regex})$' ORDER BY bucket_at DESC, total_units DESC LIMIT 80",
           "refId": "A"
         }
       ],
@@ -600,7 +601,8 @@
           "show": false
         },
         "showHeader": true
-      }
+      },
+      "description": "Endpoint-level provider load for cohort-level RCA."
     }
   ],
   "refresh": "15m",
@@ -614,11 +616,11 @@
   "templating": {
     "list": [
       {
-        "allValue": "__all",
+        "allValue": ".*",
         "current": {
           "selected": false,
           "text": "All",
-          "value": "__all"
+          "value": ".*"
         },
         "datasource": {
           "type": "postgres",
@@ -628,7 +630,7 @@
         "hide": 0,
         "includeAll": true,
         "label": "Source",
-        "multi": false,
+        "multi": true,
         "name": "source",
         "options": [],
         "query": "SELECT DISTINCT source AS __text, source AS __value FROM v_source_outcome_daily ORDER BY 1",
@@ -637,11 +639,11 @@
         "type": "query"
       },
       {
-        "allValue": "__all",
+        "allValue": ".*",
         "current": {
           "selected": false,
           "text": "All",
-          "value": "__all"
+          "value": ".*"
         },
         "datasource": {
           "type": "postgres",
@@ -651,7 +653,7 @@
         "hide": 0,
         "includeAll": true,
         "label": "Provider",
-        "multi": false,
+        "multi": true,
         "name": "provider",
         "options": [],
         "query": "SELECT DISTINCT provider AS __text, provider AS __value FROM v_api_provider_daily ORDER BY 1",
@@ -660,11 +662,34 @@
         "type": "query"
       },
       {
-        "allValue": "__all",
+        "allValue": ".*",
         "current": {
           "selected": false,
           "text": "All",
-          "value": "__all"
+          "value": ".*"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "trading-bot-postgres"
+        },
+        "definition": "SELECT DISTINCT endpoint AS __text, endpoint AS __value FROM v_api_endpoint_efficiency WHERE COALESCE(provider::text, '') ~* '^(${provider:regex})$' ORDER BY 1",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Endpoint",
+        "multi": true,
+        "name": "endpoint",
+        "options": [],
+        "query": "SELECT DISTINCT endpoint AS __text, endpoint AS __value FROM v_api_endpoint_efficiency WHERE COALESCE(provider::text, '') ~* '^(${provider:regex})$' ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": ".*"
         },
         "datasource": {
           "type": "postgres",
@@ -674,7 +699,7 @@
         "hide": 0,
         "includeAll": true,
         "label": "Config Version",
-        "multi": false,
+        "multi": true,
         "name": "configVersion",
         "options": [],
         "query": "SELECT config_version::text AS __text, config_version AS __value FROM v_config_change_log ORDER BY config_version DESC",
@@ -683,11 +708,11 @@
         "type": "query"
       },
       {
-        "allValue": "__all",
+        "allValue": ".*",
         "current": {
           "selected": false,
           "text": "All",
-          "value": "__all"
+          "value": ".*"
         },
         "datasource": {
           "type": "postgres",
@@ -697,7 +722,7 @@
         "hide": 0,
         "includeAll": true,
         "label": "Daypart",
-        "multi": false,
+        "multi": true,
         "name": "daypart",
         "options": [],
         "query": "SELECT DISTINCT daypart AS __text, daypart AS __value FROM v_candidate_cohort_daily ORDER BY 1",
@@ -706,11 +731,11 @@
         "type": "query"
       },
       {
-        "allValue": "__all",
+        "allValue": ".*",
         "current": {
           "selected": false,
           "text": "All",
-          "value": "__all"
+          "value": ".*"
         },
         "datasource": {
           "type": "postgres",
@@ -720,7 +745,7 @@
         "hide": 0,
         "includeAll": true,
         "label": "Exit Profile",
-        "multi": false,
+        "multi": true,
         "name": "exitProfile",
         "options": [],
         "query": "SELECT DISTINCT exit_profile AS __text, exit_profile AS __value FROM v_position_cohort_daily ORDER BY 1",
@@ -729,11 +754,11 @@
         "type": "query"
       },
       {
-        "allValue": "__all",
+        "allValue": ".*",
         "current": {
           "selected": false,
           "text": "All",
-          "value": "__all"
+          "value": ".*"
         },
         "datasource": {
           "type": "postgres",
@@ -743,7 +768,7 @@
         "hide": 0,
         "includeAll": true,
         "label": "Security Risk",
-        "multi": false,
+        "multi": true,
         "name": "securityRisk",
         "options": [],
         "query": "SELECT DISTINCT security_risk AS __text, security_risk AS __value FROM v_candidate_cohort_daily ORDER BY 1",
@@ -762,5 +787,5 @@
   "title": "Analyst Insights Overview",
   "uid": "bot-analyst-insights",
   "version": 1,
-  "weekStart": ""
+  "weekStart": "monday"
 }

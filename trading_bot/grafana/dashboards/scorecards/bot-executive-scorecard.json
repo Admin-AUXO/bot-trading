@@ -5,7 +5,7 @@
   "description": "Executive scorecard for health, throughput, and config-aware trend review.",
   "editable": false,
   "fiscalYearStartMonth": 0,
-  "graphTooltip": 0,
+  "graphTooltip": 1,
   "id": null,
   "links": [
     {
@@ -60,25 +60,6 @@
   "panels": [
     {
       "id": 1,
-      "title": "Purpose",
-      "type": "text",
-      "datasource": {
-        "type": "grafana",
-        "uid": "-- Grafana --"
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 24,
-        "x": 0,
-        "y": 0
-      },
-      "options": {
-        "content": "Top-line health, productivity, and config sensitivity. If this looks good while the underlying analytics do not, the scorecard is lying.",
-        "mode": "markdown"
-      }
-    },
-    {
-      "id": 2,
       "title": "Realized PnL",
       "type": "stat",
       "datasource": {
@@ -89,7 +70,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 4
+        "y": 0
       },
       "targets": [
         {
@@ -100,7 +81,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(SUM(realized_pnl_usd), 0) AS value FROM v_fill_pnl_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${configVersion}' = '__all' OR config_version = CAST('${configVersion}' AS integer))",
+          "rawSql": "SELECT COALESCE(SUM(realized_pnl_usd), 0) AS value FROM v_fill_pnl_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVersion:regex})$'",
           "refId": "A"
         }
       ],
@@ -139,10 +120,11 @@
           "values": false
         },
         "textMode": "auto"
-      }
+      },
+      "description": "Top-line realized PnL for the selected sources and config windows."
     },
     {
-      "id": 3,
+      "id": 2,
       "title": "Win Rate",
       "type": "stat",
       "datasource": {
@@ -153,7 +135,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 4
+        "y": 0
       },
       "targets": [
         {
@@ -164,7 +146,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE((SUM(wins)::numeric / NULLIF(SUM(wins + losses), 0)) * 100, 0) AS value FROM v_source_outcome_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${configVersion}' = '__all' OR config_version = CAST('${configVersion}' AS integer))",
+          "rawSql": "SELECT COALESCE((SUM(wins)::numeric / NULLIF(SUM(wins + losses), 0)) * 100, 0) AS value FROM v_source_outcome_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVersion:regex})$'",
           "refId": "A"
         }
       ],
@@ -203,11 +185,12 @@
           "values": false
         },
         "textMode": "auto"
-      }
+      },
+      "description": "Weighted closed-position win rate across the selected scope."
     },
     {
-      "id": 4,
-      "title": "Candidates Discovered",
+      "id": 3,
+      "title": "Acceptance Rate",
       "type": "stat",
       "datasource": {
         "type": "postgres",
@@ -217,7 +200,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 4
+        "y": 0
       },
       "targets": [
         {
@@ -228,13 +211,13 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(SUM(candidates_discovered), 0) AS value FROM v_source_outcome_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${configVersion}' = '__all' OR config_version = CAST('${configVersion}' AS integer))",
+          "rawSql": "SELECT COALESCE((SUM(candidates_accepted)::numeric / NULLIF(SUM(candidates_discovered), 0)) * 100, 0) AS value FROM v_source_outcome_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVersion:regex})$'",
           "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "none",
+          "unit": "percent",
           "color": {
             "mode": "palette-classic"
           },
@@ -267,10 +250,11 @@
           "values": false
         },
         "textMode": "auto"
-      }
+      },
+      "description": "How much discovered flow survives filtering into accepted candidates."
     },
     {
-      "id": 5,
+      "id": 4,
       "title": "Provider Error Rate",
       "type": "stat",
       "datasource": {
@@ -281,7 +265,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 4
+        "y": 0
       },
       "targets": [
         {
@@ -331,10 +315,11 @@
           "values": false
         },
         "textMode": "auto"
-      }
+      },
+      "description": "Weighted provider error rate across the selected time range."
     },
     {
-      "id": 6,
+      "id": 5,
       "title": "Daily Realized PnL",
       "type": "timeseries",
       "datasource": {
@@ -345,7 +330,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 8
+        "y": 4
       },
       "targets": [
         {
@@ -356,7 +341,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT session_date::timestamp AS \"time\", source AS metric, realized_pnl_usd AS value FROM v_source_outcome_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${configVersion}' = '__all' OR config_version = CAST('${configVersion}' AS integer)) ORDER BY 1, 2",
+          "rawSql": "SELECT session_date::timestamp AS \"time\", source AS metric, realized_pnl_usd AS value FROM v_source_outcome_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVersion:regex})$' ORDER BY 1, 2",
           "refId": "A"
         }
       ],
@@ -410,10 +395,11 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "description": "PnL trend broken out by source for the selected config windows."
     },
     {
-      "id": 7,
+      "id": 6,
       "title": "Daily Candidate Funnel",
       "type": "timeseries",
       "datasource": {
@@ -424,7 +410,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 8
+        "y": 4
       },
       "targets": [
         {
@@ -435,7 +421,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT session_date::timestamp AS \"time\", status AS metric, candidate_count AS value FROM v_candidate_funnel_daily_source WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') ORDER BY 1, 2",
+          "rawSql": "SELECT session_date::timestamp AS \"time\", status AS metric, candidate_count AS value FROM v_candidate_funnel_daily_source WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${source:regex})$' ORDER BY 1, 2",
           "refId": "A"
         }
       ],
@@ -489,10 +475,11 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "description": "Daily funnel movement by status so throughput problems are visible next to outcomes."
     },
     {
-      "id": 8,
+      "id": 7,
       "title": "Source Outcome Leaderboard",
       "type": "table",
       "datasource": {
@@ -503,7 +490,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 16
+        "y": 12
       },
       "targets": [
         {
@@ -514,7 +501,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT session_date, source, candidates_discovered, candidates_accepted, positions_closed, wins, losses, realized_pnl_usd, acceptance_rate_pct FROM v_source_outcome_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${configVersion}' = '__all' OR config_version = CAST('${configVersion}' AS integer)) ORDER BY session_date DESC, realized_pnl_usd DESC LIMIT 50",
+          "rawSql": "SELECT session_date, source, candidates_discovered, candidates_accepted, positions_closed, wins, losses, realized_pnl_usd, acceptance_rate_pct FROM v_source_outcome_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVersion:regex})$' ORDER BY session_date DESC, realized_pnl_usd DESC LIMIT 50",
           "refId": "A"
         }
       ],
@@ -530,10 +517,11 @@
           "show": false
         },
         "showHeader": true
-      }
+      },
+      "description": "Daily source leaderboard for quick comparison of throughput and realized outcome."
     },
     {
-      "id": 9,
+      "id": 8,
       "title": "Config Window KPI Delta",
       "type": "table",
       "datasource": {
@@ -544,7 +532,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 16
+        "y": 12
       },
       "targets": [
         {
@@ -555,7 +543,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT config_version, window_start_at, window_end_at, candidates_discovered, candidates_accepted, positions_opened, positions_closed, realized_pnl_usd, win_rate * 100 AS win_rate_pct, provider_units, provider_errors, acceptance_rate_pct, conversion_rate_pct FROM v_kpi_by_config_window ORDER BY config_version DESC LIMIT 20",
+          "rawSql": "SELECT config_version, window_start_at, window_end_at, candidates_discovered, candidates_accepted, positions_opened, positions_closed, realized_pnl_usd, win_rate * 100 AS win_rate_pct, provider_units, provider_errors, acceptance_rate_pct, conversion_rate_pct FROM v_kpi_by_config_window WHERE COALESCE(config_version::text, '') ~* '^(${configVersion:regex})$' ORDER BY config_version DESC LIMIT 20",
           "refId": "A"
         }
       ],
@@ -571,7 +559,8 @@
           "show": false
         },
         "showHeader": true
-      }
+      },
+      "description": "Config-window rollup to compare the operating footprint of each version."
     }
   ],
   "refresh": "15m",
@@ -585,11 +574,11 @@
   "templating": {
     "list": [
       {
-        "allValue": "__all",
+        "allValue": ".*",
         "current": {
           "selected": false,
           "text": "All",
-          "value": "__all"
+          "value": ".*"
         },
         "datasource": {
           "type": "postgres",
@@ -599,7 +588,7 @@
         "hide": 0,
         "includeAll": true,
         "label": "Source",
-        "multi": false,
+        "multi": true,
         "name": "source",
         "options": [],
         "query": "SELECT DISTINCT source AS __text, source AS __value FROM v_source_outcome_daily ORDER BY 1",
@@ -608,11 +597,11 @@
         "type": "query"
       },
       {
-        "allValue": "__all",
+        "allValue": ".*",
         "current": {
           "selected": false,
           "text": "All",
-          "value": "__all"
+          "value": ".*"
         },
         "datasource": {
           "type": "postgres",
@@ -622,7 +611,7 @@
         "hide": 0,
         "includeAll": true,
         "label": "Config Version",
-        "multi": false,
+        "multi": true,
         "name": "configVersion",
         "options": [],
         "query": "SELECT config_version::text AS __text, config_version AS __value FROM v_config_change_log ORDER BY config_version DESC",
@@ -641,5 +630,5 @@
   "title": "Executive Scorecard",
   "uid": "bot-executive-scorecard",
   "version": 1,
-  "weekStart": ""
+  "weekStart": "monday"
 }

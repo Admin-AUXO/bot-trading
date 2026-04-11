@@ -5,9 +5,21 @@
   "description": "Position outcomes, execution history, and raw trade evidence.",
   "editable": false,
   "fiscalYearStartMonth": 0,
-  "graphTooltip": 0,
+  "graphTooltip": 1,
   "id": null,
   "links": [
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": true,
+      "keepTime": true,
+      "tags": [],
+      "targetBlank": false,
+      "title": "Live Trade Monitor",
+      "tooltip": "",
+      "type": "link",
+      "url": "/d/bot-live-trade-monitor"
+    },
     {
       "asDropdown": false,
       "icon": "external link",
@@ -31,30 +43,23 @@
       "tooltip": "",
       "type": "link",
       "url": "/d/bot-source-cohorts"
+    },
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": true,
+      "keepTime": true,
+      "tags": [],
+      "targetBlank": false,
+      "title": "Analyst Insights Overview",
+      "tooltip": "",
+      "type": "link",
+      "url": "/d/bot-analyst-insights"
     }
   ],
   "panels": [
     {
       "id": 1,
-      "title": "Purpose",
-      "type": "text",
-      "datasource": {
-        "type": "grafana",
-        "uid": "-- Grafana --"
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 24,
-        "x": 0,
-        "y": 0
-      },
-      "options": {
-        "content": "Realized outcomes, execution trace, and position-level evidence. If a position loses and this dashboard can’t tell you whether it was config, source, or execution, it failed.",
-        "mode": "markdown"
-      }
-    },
-    {
-      "id": 2,
       "title": "Realized PnL",
       "type": "stat",
       "datasource": {
@@ -63,9 +68,9 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 4,
+        "w": 5,
         "x": 0,
-        "y": 4
+        "y": 0
       },
       "targets": [
         {
@@ -76,7 +81,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(SUM(realized_pnl_usd), 0) AS value FROM v_position_performance WHERE COALESCE(closed_at, opened_at) >= $__timeFrom() AND COALESCE(closed_at, opened_at) <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${exitProfile}' = '__all' OR exit_profile = '${exitProfile}') AND ('${configVersion}' = '__all' OR config_version = CAST('${configVersion}' AS integer)) AND ('${positionId}' = '' OR id = '${positionId}') AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}')",
+          "rawSql": "SELECT COALESCE(SUM(realized_pnl_usd), 0) AS value FROM v_position_performance WHERE COALESCE(closed_at, opened_at) >= $__timeFrom() AND COALESCE(closed_at, opened_at) <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(exit_profile::text, '') ~* '^(${exitProfile:regex})$' AND COALESCE(status::text, '') ~* '^(${positionStatus:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVersion:regex})$' AND ('${positionId}' = '' OR COALESCE(id::text, '') ILIKE '%' || '${positionId}' || '%') AND ('${mint}' = '' OR COALESCE(mint::text, '') ILIKE '%' || '${mint}' || '%') AND ('${symbol}' = '' OR COALESCE(symbol::text, '') ILIKE '%' || '${symbol}' || '%')",
           "refId": "A"
         }
       ],
@@ -115,10 +120,11 @@
           "values": false
         },
         "textMode": "auto"
-      }
+      },
+      "description": "Realized PnL across the selected position set."
     },
     {
-      "id": 3,
+      "id": 2,
       "title": "Win Rate",
       "type": "stat",
       "datasource": {
@@ -127,9 +133,9 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 4,
-        "x": 4,
-        "y": 4
+        "w": 5,
+        "x": 5,
+        "y": 0
       },
       "targets": [
         {
@@ -140,7 +146,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE((SUM(CASE WHEN status = 'CLOSED' AND realized_pnl_usd > 0 THEN 1 ELSE 0 END)::numeric / NULLIF(SUM(CASE WHEN status = 'CLOSED' THEN 1 ELSE 0 END), 0)) * 100, 0) AS value FROM v_position_performance WHERE COALESCE(closed_at, opened_at) >= $__timeFrom() AND COALESCE(closed_at, opened_at) <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${exitProfile}' = '__all' OR exit_profile = '${exitProfile}') AND ('${configVersion}' = '__all' OR config_version = CAST('${configVersion}' AS integer)) AND ('${positionId}' = '' OR id = '${positionId}') AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}')",
+          "rawSql": "SELECT COALESCE((SUM(CASE WHEN status = 'CLOSED' AND realized_pnl_usd > 0 THEN 1 ELSE 0 END)::numeric / NULLIF(SUM(CASE WHEN status = 'CLOSED' THEN 1 ELSE 0 END), 0)) * 100, 0) AS value FROM v_position_performance WHERE COALESCE(closed_at, opened_at) >= $__timeFrom() AND COALESCE(closed_at, opened_at) <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(exit_profile::text, '') ~* '^(${exitProfile:regex})$' AND COALESCE(status::text, '') ~* '^(${positionStatus:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVersion:regex})$' AND ('${positionId}' = '' OR COALESCE(id::text, '') ILIKE '%' || '${positionId}' || '%') AND ('${mint}' = '' OR COALESCE(mint::text, '') ILIKE '%' || '${mint}' || '%') AND ('${symbol}' = '' OR COALESCE(symbol::text, '') ILIKE '%' || '${symbol}' || '%')",
           "refId": "A"
         }
       ],
@@ -179,11 +185,12 @@
           "values": false
         },
         "textMode": "auto"
-      }
+      },
+      "description": "Closed-position win rate for the current slice."
     },
     {
-      "id": 4,
-      "title": "Avg Hold Minutes",
+      "id": 3,
+      "title": "Median Hold Minutes",
       "type": "stat",
       "datasource": {
         "type": "postgres",
@@ -191,9 +198,9 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 4,
-        "x": 8,
-        "y": 4
+        "w": 5,
+        "x": 10,
+        "y": 0
       },
       "targets": [
         {
@@ -204,7 +211,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(AVG(hold_minutes), 0) AS value FROM v_position_performance WHERE COALESCE(closed_at, opened_at) >= $__timeFrom() AND COALESCE(closed_at, opened_at) <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${exitProfile}' = '__all' OR exit_profile = '${exitProfile}') AND ('${configVersion}' = '__all' OR config_version = CAST('${configVersion}' AS integer)) AND ('${positionId}' = '' OR id = '${positionId}') AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}')",
+          "rawSql": "SELECT COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY hold_minutes), 0) AS value FROM v_position_performance WHERE COALESCE(closed_at, opened_at) >= $__timeFrom() AND COALESCE(closed_at, opened_at) <= $__timeTo() AND status = 'CLOSED' AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(exit_profile::text, '') ~* '^(${exitProfile:regex})$' AND COALESCE(status::text, '') ~* '^(${positionStatus:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVersion:regex})$' AND ('${positionId}' = '' OR COALESCE(id::text, '') ILIKE '%' || '${positionId}' || '%') AND ('${mint}' = '' OR COALESCE(mint::text, '') ILIKE '%' || '${mint}' || '%') AND ('${symbol}' = '' OR COALESCE(symbol::text, '') ILIKE '%' || '${symbol}' || '%')",
           "refId": "A"
         }
       ],
@@ -243,11 +250,12 @@
           "values": false
         },
         "textMode": "auto"
-      }
+      },
+      "description": "Median hold time to avoid mean distortion from long-tail positions."
     },
     {
-      "id": 5,
-      "title": "Avg Return %",
+      "id": 4,
+      "title": "Median Return %",
       "type": "stat",
       "datasource": {
         "type": "postgres",
@@ -255,9 +263,9 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 4,
-        "x": 12,
-        "y": 4
+        "w": 5,
+        "x": 15,
+        "y": 0
       },
       "targets": [
         {
@@ -268,7 +276,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(AVG(realized_pnl_pct), 0) AS value FROM v_position_performance WHERE COALESCE(closed_at, opened_at) >= $__timeFrom() AND COALESCE(closed_at, opened_at) <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${exitProfile}' = '__all' OR exit_profile = '${exitProfile}') AND ('${configVersion}' = '__all' OR config_version = CAST('${configVersion}' AS integer)) AND ('${positionId}' = '' OR id = '${positionId}') AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}')",
+          "rawSql": "SELECT COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY realized_pnl_pct), 0) AS value FROM v_position_performance WHERE COALESCE(closed_at, opened_at) >= $__timeFrom() AND COALESCE(closed_at, opened_at) <= $__timeTo() AND status = 'CLOSED' AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(exit_profile::text, '') ~* '^(${exitProfile:regex})$' AND COALESCE(status::text, '') ~* '^(${positionStatus:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVersion:regex})$' AND ('${positionId}' = '' OR COALESCE(id::text, '') ILIKE '%' || '${positionId}' || '%') AND ('${mint}' = '' OR COALESCE(mint::text, '') ILIKE '%' || '${mint}' || '%') AND ('${symbol}' = '' OR COALESCE(symbol::text, '') ILIKE '%' || '${symbol}' || '%')",
           "refId": "A"
         }
       ],
@@ -307,10 +315,11 @@
           "values": false
         },
         "textMode": "auto"
-      }
+      },
+      "description": "Median realized return to keep one outlier from lying about the book."
     },
     {
-      "id": 6,
+      "id": 5,
       "title": "Closed Positions",
       "type": "stat",
       "datasource": {
@@ -320,72 +329,8 @@
       "gridPos": {
         "h": 4,
         "w": 4,
-        "x": 16,
-        "y": 4
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "postgres",
-            "uid": "trading-bot-postgres"
-          },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT COUNT(*) AS value FROM v_position_performance WHERE COALESCE(closed_at, opened_at) >= $__timeFrom() AND COALESCE(closed_at, opened_at) <= $__timeTo() AND status = 'CLOSED' AND ('${source}' = '__all' OR source = '${source}') AND ('${exitProfile}' = '__all' OR exit_profile = '${exitProfile}') AND ('${configVersion}' = '__all' OR config_version = CAST('${configVersion}' AS integer)) AND ('${positionId}' = '' OR id = '${positionId}') AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}')",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none",
-          "color": {
-            "mode": "palette-classic"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 0
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      }
-    },
-    {
-      "id": 7,
-      "title": "Open Positions",
-      "type": "stat",
-      "datasource": {
-        "type": "postgres",
-        "uid": "trading-bot-postgres"
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 4,
         "x": 20,
-        "y": 4
+        "y": 0
       },
       "targets": [
         {
@@ -396,7 +341,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(open_positions, 0) AS value FROM v_runtime_live_status",
+          "rawSql": "SELECT COUNT(*) AS value FROM v_position_performance WHERE COALESCE(closed_at, opened_at) >= $__timeFrom() AND COALESCE(closed_at, opened_at) <= $__timeTo() AND status = 'CLOSED' AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(exit_profile::text, '') ~* '^(${exitProfile:regex})$' AND COALESCE(status::text, '') ~* '^(${positionStatus:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVersion:regex})$' AND ('${positionId}' = '' OR COALESCE(id::text, '') ILIKE '%' || '${positionId}' || '%') AND ('${mint}' = '' OR COALESCE(mint::text, '') ILIKE '%' || '${mint}' || '%') AND ('${symbol}' = '' OR COALESCE(symbol::text, '') ILIKE '%' || '${symbol}' || '%')",
           "refId": "A"
         }
       ],
@@ -435,10 +380,11 @@
           "values": false
         },
         "textMode": "auto"
-      }
+      },
+      "description": "Closed positions contributing to the selected result set."
     },
     {
-      "id": 8,
+      "id": 6,
       "title": "Daily Realized PnL",
       "type": "timeseries",
       "datasource": {
@@ -449,7 +395,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 8
+        "y": 4
       },
       "targets": [
         {
@@ -460,7 +406,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT session_date::timestamp AS \"time\", exit_profile AS metric, realized_pnl_usd AS value FROM v_position_pnl_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${exitProfile}' = '__all' OR exit_profile = '${exitProfile}') AND ('${configVersion}' = '__all' OR config_version = CAST('${configVersion}' AS integer)) ORDER BY 1, 2",
+          "rawSql": "SELECT session_date::timestamp AS \"time\", exit_profile AS metric, realized_pnl_usd AS value FROM v_position_pnl_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(exit_profile::text, '') ~* '^(${exitProfile:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVersion:regex})$' ORDER BY 1, 2",
           "refId": "A"
         }
       ],
@@ -514,10 +460,11 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "description": "Daily PnL split by exit profile."
     },
     {
-      "id": 9,
+      "id": 7,
       "title": "Exit Reason Trend",
       "type": "timeseries",
       "datasource": {
@@ -528,7 +475,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 8
+        "y": 4
       },
       "targets": [
         {
@@ -539,7 +486,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT session_date::timestamp AS \"time\", exit_reason AS metric, position_count AS value FROM v_position_exit_reason_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${exitReason}' = '__all' OR exit_reason = '${exitReason}') AND ('${configVersion}' = '__all' OR config_version = CAST('${configVersion}' AS integer)) ORDER BY 1, 2",
+          "rawSql": "SELECT session_date::timestamp AS \"time\", exit_reason AS metric, position_count AS value FROM v_position_exit_reason_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(exit_reason::text, '') ~* '^(${exitReason:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVersion:regex})$' ORDER BY 1, 2",
           "refId": "A"
         }
       ],
@@ -593,10 +540,11 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "description": "Exit-reason trend to separate strategy behavior from execution fallout."
     },
     {
-      "id": 10,
+      "id": 8,
       "title": "Position Performance",
       "type": "table",
       "datasource": {
@@ -607,7 +555,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 16
+        "y": 12
       },
       "targets": [
         {
@@ -618,7 +566,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT id, mint, symbol, source, config_version, exit_profile, status, exit_reason, opened_at, closed_at, amount_usd, gross_exit_usd, realized_pnl_usd, realized_pnl_pct, hold_minutes FROM v_position_performance WHERE COALESCE(closed_at, opened_at) >= $__timeFrom() AND COALESCE(closed_at, opened_at) <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${exitProfile}' = '__all' OR exit_profile = '${exitProfile}') AND ('${configVersion}' = '__all' OR config_version = CAST('${configVersion}' AS integer)) AND ('${positionId}' = '' OR id = '${positionId}') AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}') ORDER BY opened_at DESC LIMIT 100",
+          "rawSql": "SELECT id, mint, symbol, source, config_version, exit_profile, status, exit_reason, opened_at, closed_at, amount_usd, gross_exit_usd, realized_pnl_usd, realized_pnl_pct, hold_minutes FROM v_position_performance WHERE COALESCE(closed_at, opened_at) >= $__timeFrom() AND COALESCE(closed_at, opened_at) <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(exit_profile::text, '') ~* '^(${exitProfile:regex})$' AND COALESCE(status::text, '') ~* '^(${positionStatus:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVersion:regex})$' AND ('${positionId}' = '' OR COALESCE(id::text, '') ILIKE '%' || '${positionId}' || '%') AND ('${mint}' = '' OR COALESCE(mint::text, '') ILIKE '%' || '${mint}' || '%') AND ('${symbol}' = '' OR COALESCE(symbol::text, '') ILIKE '%' || '${symbol}' || '%') ORDER BY opened_at DESC LIMIT 100",
           "refId": "A"
         }
       ],
@@ -634,10 +582,11 @@
           "show": false
         },
         "showHeader": true
-      }
+      },
+      "description": "Position-level outcome table for focused drill-downs."
     },
     {
-      "id": 11,
+      "id": 9,
       "title": "Fill Trail",
       "type": "table",
       "datasource": {
@@ -648,7 +597,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 16
+        "y": 12
       },
       "targets": [
         {
@@ -659,7 +608,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT created_at, side, position_id, mint, symbol, source, config_version, exit_profile, price_usd, amount_usd, pnl_usd, tx_signature FROM v_recent_fill_activity WHERE created_at >= $__timeFrom() AND created_at <= $__timeTo() AND ('${positionId}' = '' OR position_id = '${positionId}') AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}') ORDER BY created_at DESC LIMIT 100",
+          "rawSql": "SELECT created_at, side, position_id, mint, symbol, source, config_version, exit_profile, price_usd, amount_usd, pnl_usd, tx_signature FROM v_recent_fill_activity WHERE created_at >= $__timeFrom() AND created_at <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND ('${positionId}' = '' OR COALESCE(position_id::text, '') ILIKE '%' || '${positionId}' || '%') AND ('${mint}' = '' OR COALESCE(mint::text, '') ILIKE '%' || '${mint}' || '%') AND ('${symbol}' = '' OR COALESCE(symbol::text, '') ILIKE '%' || '${symbol}' || '%') ORDER BY created_at DESC LIMIT 100",
           "refId": "A"
         }
       ],
@@ -675,10 +624,11 @@
           "show": false
         },
         "showHeader": true
-      }
+      },
+      "description": "Execution trail for the selected position slice."
     },
     {
-      "id": 12,
+      "id": 10,
       "title": "Snapshot Evidence",
       "type": "table",
       "datasource": {
@@ -689,7 +639,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 24
+        "y": 20
       },
       "targets": [
         {
@@ -700,7 +650,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT captured_at, mint, symbol, trigger, source, config_version, price_usd, liquidity_usd, volume_5m_usd, buy_sell_ratio, top10_holder_percent, security_risk, position_status, position_exit_reason FROM v_token_snapshot_enriched WHERE captured_at >= $__timeFrom() AND captured_at <= $__timeTo() AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}') ORDER BY captured_at DESC LIMIT 100",
+          "rawSql": "SELECT captured_at, mint, symbol, trigger, source, config_version, price_usd, liquidity_usd, volume_5m_usd, buy_sell_ratio, top10_holder_percent, security_risk, position_status, position_exit_reason FROM v_token_snapshot_enriched WHERE captured_at >= $__timeFrom() AND captured_at <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${source:regex})$' AND ('${mint}' = '' OR COALESCE(mint::text, '') ILIKE '%' || '${mint}' || '%') AND ('${symbol}' = '' OR COALESCE(symbol::text, '') ILIKE '%' || '${symbol}' || '%') ORDER BY captured_at DESC LIMIT 100",
           "refId": "A"
         }
       ],
@@ -716,7 +666,8 @@
           "show": false
         },
         "showHeader": true
-      }
+      },
+      "description": "Position-linked snapshot trail for trade RCA."
     }
   ],
   "refresh": "5m",
@@ -730,11 +681,11 @@
   "templating": {
     "list": [
       {
-        "allValue": "__all",
+        "allValue": ".*",
         "current": {
           "selected": false,
           "text": "All",
-          "value": "__all"
+          "value": ".*"
         },
         "datasource": {
           "type": "postgres",
@@ -744,10 +695,33 @@
         "hide": 0,
         "includeAll": true,
         "label": "Source",
-        "multi": false,
+        "multi": true,
         "name": "source",
         "options": [],
         "query": "SELECT DISTINCT source AS __text, source AS __value FROM v_position_pnl_daily ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": ".*"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "trading-bot-postgres"
+        },
+        "definition": "SELECT DISTINCT status AS __text, status AS __value FROM v_position_performance ORDER BY 1",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Position Status",
+        "multi": true,
+        "name": "positionStatus",
+        "options": [],
+        "query": "SELECT DISTINCT status AS __text, status AS __value FROM v_position_performance ORDER BY 1",
         "refresh": 2,
         "sort": 1,
         "type": "query"
@@ -795,11 +769,11 @@
         "type": "textbox"
       },
       {
-        "allValue": "__all",
+        "allValue": ".*",
         "current": {
           "selected": false,
           "text": "All",
-          "value": "__all"
+          "value": ".*"
         },
         "datasource": {
           "type": "postgres",
@@ -809,7 +783,7 @@
         "hide": 0,
         "includeAll": true,
         "label": "Exit Reason",
-        "multi": false,
+        "multi": true,
         "name": "exitReason",
         "options": [],
         "query": "SELECT DISTINCT exit_reason AS __text, exit_reason AS __value FROM v_position_exit_reason_daily ORDER BY 1",
@@ -818,11 +792,11 @@
         "type": "query"
       },
       {
-        "allValue": "__all",
+        "allValue": ".*",
         "current": {
           "selected": false,
           "text": "All",
-          "value": "__all"
+          "value": ".*"
         },
         "datasource": {
           "type": "postgres",
@@ -832,7 +806,7 @@
         "hide": 0,
         "includeAll": true,
         "label": "Exit Profile",
-        "multi": false,
+        "multi": true,
         "name": "exitProfile",
         "options": [],
         "query": "SELECT DISTINCT exit_profile AS __text, exit_profile AS __value FROM v_position_pnl_daily ORDER BY 1",
@@ -841,11 +815,11 @@
         "type": "query"
       },
       {
-        "allValue": "__all",
+        "allValue": ".*",
         "current": {
           "selected": false,
           "text": "All",
-          "value": "__all"
+          "value": ".*"
         },
         "datasource": {
           "type": "postgres",
@@ -855,7 +829,7 @@
         "hide": 0,
         "includeAll": true,
         "label": "Config Version",
-        "multi": false,
+        "multi": true,
         "name": "configVersion",
         "options": [],
         "query": "SELECT config_version::text AS __text, config_version AS __value FROM v_config_change_log ORDER BY config_version DESC",
@@ -874,5 +848,5 @@
   "title": "Position & PnL Analytics",
   "uid": "bot-position-pnl",
   "version": 1,
-  "weekStart": ""
+  "weekStart": "monday"
 }

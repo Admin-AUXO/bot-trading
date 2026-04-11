@@ -5,7 +5,7 @@
   "description": "Research dry-run summaries, token funnel, and mock position outcomes.",
   "editable": false,
   "fiscalYearStartMonth": 0,
-  "graphTooltip": 0,
+  "graphTooltip": 1,
   "id": null,
   "links": [
     {
@@ -31,30 +31,23 @@
       "tooltip": "",
       "type": "link",
       "url": "/d/bot-analyst-insights"
+    },
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": true,
+      "keepTime": true,
+      "tags": [],
+      "targetBlank": false,
+      "title": "Candidate & Funnel Analytics",
+      "tooltip": "",
+      "type": "link",
+      "url": "/d/bot-candidate-funnel"
     }
   ],
   "panels": [
     {
       "id": 1,
-      "title": "Purpose",
-      "type": "text",
-      "datasource": {
-        "type": "grafana",
-        "uid": "-- Grafana --"
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 24,
-        "x": 0,
-        "y": 0
-      },
-      "options": {
-        "content": "Bounded dry-run review. Research should be auditable enough to compare sessions without pretending the mock lane is the live lane.",
-        "mode": "markdown"
-      }
-    },
-    {
-      "id": 2,
       "title": "Latest Run PnL",
       "type": "stat",
       "datasource": {
@@ -65,7 +58,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 4
+        "y": 0
       },
       "targets": [
         {
@@ -76,7 +69,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(\"realizedPnlUsd\", 0)::numeric AS value FROM \"ResearchRun\" WHERE status = 'COMPLETED' AND \"startedAt\" >= $__timeFrom() AND \"startedAt\" <= $__timeTo() ORDER BY \"startedAt\" DESC LIMIT 1",
+          "rawSql": "SELECT COALESCE(\"realizedPnlUsd\", 0)::numeric AS value FROM \"ResearchRun\" WHERE COALESCE(id::text, '') ~* '^(${runId:regex})$' AND COALESCE(status::text, '') ~* '^(${runStatus:regex})$' AND \"startedAt\" >= $__timeFrom() AND \"startedAt\" <= $__timeTo() ORDER BY \"startedAt\" DESC LIMIT 1",
           "refId": "A"
         }
       ],
@@ -115,10 +108,11 @@
           "values": false
         },
         "textMode": "auto"
-      }
+      },
+      "description": "Latest completed dry-run PnL in the selected research slice."
     },
     {
-      "id": 3,
+      "id": 2,
       "title": "Latest Win Rate",
       "type": "stat",
       "datasource": {
@@ -129,7 +123,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 4
+        "y": 0
       },
       "targets": [
         {
@@ -140,7 +134,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(\"winRatePercent\", 0)::numeric AS value FROM \"ResearchRun\" WHERE status = 'COMPLETED' AND \"startedAt\" >= $__timeFrom() AND \"startedAt\" <= $__timeTo() ORDER BY \"startedAt\" DESC LIMIT 1",
+          "rawSql": "SELECT COALESCE(\"winRatePercent\", 0)::numeric AS value FROM \"ResearchRun\" WHERE COALESCE(id::text, '') ~* '^(${runId:regex})$' AND COALESCE(status::text, '') ~* '^(${runStatus:regex})$' AND \"startedAt\" >= $__timeFrom() AND \"startedAt\" <= $__timeTo() ORDER BY \"startedAt\" DESC LIMIT 1",
           "refId": "A"
         }
       ],
@@ -179,10 +173,11 @@
           "values": false
         },
         "textMode": "auto"
-      }
+      },
+      "description": "Latest dry-run win rate in the selected research slice."
     },
     {
-      "id": 4,
+      "id": 3,
       "title": "Latest Discovered",
       "type": "stat",
       "datasource": {
@@ -193,7 +188,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 4
+        "y": 0
       },
       "targets": [
         {
@@ -204,7 +199,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(\"totalDiscovered\", 0) AS value FROM \"ResearchRun\" WHERE \"startedAt\" >= $__timeFrom() AND \"startedAt\" <= $__timeTo() ORDER BY \"startedAt\" DESC LIMIT 1",
+          "rawSql": "SELECT COALESCE(\"totalDiscovered\", 0) AS value FROM \"ResearchRun\" WHERE COALESCE(id::text, '') ~* '^(${runId:regex})$' AND COALESCE(status::text, '') ~* '^(${runStatus:regex})$' AND \"startedAt\" >= $__timeFrom() AND \"startedAt\" <= $__timeTo() ORDER BY \"startedAt\" DESC LIMIT 1",
           "refId": "A"
         }
       ],
@@ -243,10 +238,11 @@
           "values": false
         },
         "textMode": "auto"
-      }
+      },
+      "description": "Latest dry-run discovery count in the selected scope."
     },
     {
-      "id": 5,
+      "id": 4,
       "title": "Strategy Passed",
       "type": "stat",
       "datasource": {
@@ -257,7 +253,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 4
+        "y": 0
       },
       "targets": [
         {
@@ -268,7 +264,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(\"totalStrategyPassed\", 0) AS value FROM \"ResearchRun\" WHERE \"startedAt\" >= $__timeFrom() AND \"startedAt\" <= $__timeTo() ORDER BY \"startedAt\" DESC LIMIT 1",
+          "rawSql": "SELECT COALESCE(\"totalStrategyPassed\", 0) AS value FROM \"ResearchRun\" WHERE COALESCE(id::text, '') ~* '^(${runId:regex})$' AND COALESCE(status::text, '') ~* '^(${runStatus:regex})$' AND \"startedAt\" >= $__timeFrom() AND \"startedAt\" <= $__timeTo() ORDER BY \"startedAt\" DESC LIMIT 1",
           "refId": "A"
         }
       ],
@@ -307,10 +303,11 @@
           "values": false
         },
         "textMode": "auto"
-      }
+      },
+      "description": "Latest count of tokens that passed strategy gates."
     },
     {
-      "id": 6,
+      "id": 5,
       "title": "Run History",
       "type": "table",
       "datasource": {
@@ -321,7 +318,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 8
+        "y": 4
       },
       "targets": [
         {
@@ -332,7 +329,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT id, status, \"startedAt\" AS started_at, \"completedAt\" AS completed_at, \"totalDiscovered\" AS total_discovered, \"totalStrategyPassed\" AS total_strategy_passed, \"totalMockOpened\" AS total_mock_opened, \"totalMockClosed\" AS total_mock_closed, \"realizedPnlUsd\"::numeric AS realized_pnl_usd, \"winRatePercent\"::numeric AS win_rate_percent, \"averageHoldMinutes\"::numeric AS average_hold_minutes FROM \"ResearchRun\" WHERE \"startedAt\" >= $__timeFrom() AND \"startedAt\" <= $__timeTo() AND ('${runId}' = '' OR id = '${runId}') ORDER BY \"startedAt\" DESC LIMIT 50",
+          "rawSql": "SELECT id, status, \"startedAt\" AS started_at, \"completedAt\" AS completed_at, \"totalDiscovered\" AS total_discovered, \"totalStrategyPassed\" AS total_strategy_passed, \"totalMockOpened\" AS total_mock_opened, \"totalMockClosed\" AS total_mock_closed, \"realizedPnlUsd\"::numeric AS realized_pnl_usd, \"winRatePercent\"::numeric AS win_rate_percent, \"averageHoldMinutes\"::numeric AS average_hold_minutes FROM \"ResearchRun\" WHERE \"startedAt\" >= $__timeFrom() AND \"startedAt\" <= $__timeTo() AND COALESCE(id::text, '') ~* '^(${runId:regex})$' AND COALESCE(status::text, '') ~* '^(${runStatus:regex})$' ORDER BY \"startedAt\" DESC LIMIT 50",
           "refId": "A"
         }
       ],
@@ -348,10 +345,11 @@
           "show": false
         },
         "showHeader": true
-      }
+      },
+      "description": "Run-level history for dry-run comparisons."
     },
     {
-      "id": 7,
+      "id": 6,
       "title": "Research Token Funnel",
       "type": "table",
       "datasource": {
@@ -362,7 +360,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 16
+        "y": 12
       },
       "targets": [
         {
@@ -373,7 +371,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT rt.\"runId\" AS run_id, rt.mint, rt.symbol, rt.source, rt.shortlisted, rt.\"fullEvaluationDone\" AS full_evaluation_done, rt.\"strategyPassed\" AS strategy_passed, rt.\"strategyRejectReason\" AS strategy_reject_reason, rt.\"evaluationDeferReason\" AS evaluation_defer_reason, rt.\"liveTradable\" AS live_tradable, rt.\"researchTradable\" AS research_tradable, rt.\"entryScore\"::numeric AS entry_score, rt.\"exitProfile\" AS exit_profile FROM \"ResearchToken\" rt WHERE ('${runId}' = '' OR rt.\"runId\" = '${runId}') AND ('${source}' = '__all' OR rt.source = '${source}') ORDER BY rt.\"createdAt\" DESC LIMIT 100",
+          "rawSql": "SELECT rt.\"runId\" AS run_id, rt.mint, rt.symbol, rt.source, rt.shortlisted, rt.\"fullEvaluationDone\" AS full_evaluation_done, rt.\"strategyPassed\" AS strategy_passed, rt.\"strategyRejectReason\" AS strategy_reject_reason, rt.\"evaluationDeferReason\" AS evaluation_defer_reason, rt.\"liveTradable\" AS live_tradable, rt.\"researchTradable\" AS research_tradable, rt.\"entryScore\"::numeric AS entry_score, rt.\"exitProfile\" AS exit_profile FROM \"ResearchToken\" rt JOIN \"ResearchRun\" rr ON rr.id = rt.\"runId\" WHERE COALESCE(rt.\"runId\"::text, '') ~* '^(${runId:regex})$' AND COALESCE(rr.status::text, '') ~* '^(${runStatus:regex})$' AND COALESCE(rt.source::text, '') ~* '^(${source:regex})$' ORDER BY rt.\"createdAt\" DESC LIMIT 100",
           "refId": "A"
         }
       ],
@@ -389,10 +387,11 @@
           "show": false
         },
         "showHeader": true
-      }
+      },
+      "description": "Token-level dry-run funnel evidence."
     },
     {
-      "id": 8,
+      "id": 7,
       "title": "Research Position Outcomes",
       "type": "table",
       "datasource": {
@@ -403,7 +402,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 16
+        "y": 12
       },
       "targets": [
         {
@@ -414,7 +413,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT rp.\"runId\" AS run_id, rp.id AS position_id, rp.mint, rp.symbol, rp.status, rp.\"openedAt\" AS opened_at, rp.\"closedAt\" AS closed_at, rp.\"entryPriceUsd\"::numeric AS entry_price_usd, rp.\"currentPriceUsd\"::numeric AS current_price_usd, rp.\"amountUsd\"::numeric AS amount_usd, rp.\"remainingToken\"::numeric AS remaining_token, rp.\"exitReason\" AS exit_reason FROM \"ResearchPosition\" rp WHERE ('${runId}' = '' OR rp.\"runId\" = '${runId}') ORDER BY rp.\"openedAt\" DESC LIMIT 100",
+          "rawSql": "SELECT rp.\"runId\" AS run_id, rp.id AS position_id, rp.mint, rp.symbol, rp.status, rp.\"openedAt\" AS opened_at, rp.\"closedAt\" AS closed_at, rp.\"entryPriceUsd\"::numeric AS entry_price_usd, rp.\"currentPriceUsd\"::numeric AS current_price_usd, rp.\"amountUsd\"::numeric AS amount_usd, rp.\"remainingToken\"::numeric AS remaining_token, rp.\"exitReason\" AS exit_reason FROM \"ResearchPosition\" rp JOIN \"ResearchRun\" rr ON rr.id = rp.\"runId\" WHERE COALESCE(rp.\"runId\"::text, '') ~* '^(${runId:regex})$' AND COALESCE(rr.status::text, '') ~* '^(${runStatus:regex})$' ORDER BY rp.\"openedAt\" DESC LIMIT 100",
           "refId": "A"
         }
       ],
@@ -430,10 +429,11 @@
           "show": false
         },
         "showHeader": true
-      }
+      },
+      "description": "Mock-position outcomes for dry-run analysis."
     },
     {
-      "id": 9,
+      "id": 8,
       "title": "Research Fill Trail",
       "type": "table",
       "datasource": {
@@ -444,7 +444,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 24
+        "y": 20
       },
       "targets": [
         {
@@ -455,7 +455,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT rf.\"createdAt\" AS created_at, rp.\"runId\" AS run_id, rp.id AS position_id, rp.mint, rp.symbol, rf.side, rf.\"priceUsd\"::numeric AS price_usd, rf.\"amountUsd\"::numeric AS amount_usd, rf.\"pnlUsd\"::numeric AS pnl_usd FROM \"ResearchFill\" rf JOIN \"ResearchPosition\" rp ON rp.id = rf.\"positionId\" WHERE ('${runId}' = '' OR rp.\"runId\" = '${runId}') ORDER BY rf.\"createdAt\" DESC LIMIT 100",
+          "rawSql": "SELECT rf.\"createdAt\" AS created_at, rp.\"runId\" AS run_id, rp.id AS position_id, rp.mint, rp.symbol, rf.side, rf.\"priceUsd\"::numeric AS price_usd, rf.\"amountUsd\"::numeric AS amount_usd, rf.\"pnlUsd\"::numeric AS pnl_usd FROM \"ResearchFill\" rf JOIN \"ResearchPosition\" rp ON rp.id = rf.\"positionId\" JOIN \"ResearchRun\" rr ON rr.id = rp.\"runId\" WHERE COALESCE(rp.\"runId\"::text, '') ~* '^(${runId:regex})$' AND COALESCE(rr.status::text, '') ~* '^(${runStatus:regex})$' ORDER BY rf.\"createdAt\" DESC LIMIT 100",
           "refId": "A"
         }
       ],
@@ -471,7 +471,8 @@
           "show": false
         },
         "showHeader": true
-      }
+      },
+      "description": "Mock execution trail for the selected dry-run slice."
     }
   ],
   "refresh": "15m",
@@ -485,25 +486,57 @@
   "templating": {
     "list": [
       {
-        "current": {
-          "selected": false,
-          "text": "",
-          "value": ""
-        },
-        "hide": 0,
-        "label": "Research Run ID",
-        "name": "runId",
-        "options": [],
-        "query": "",
-        "skipUrlSync": false,
-        "type": "textbox"
-      },
-      {
-        "allValue": "__all",
+        "allValue": ".*",
         "current": {
           "selected": false,
           "text": "All",
-          "value": "__all"
+          "value": ".*"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "trading-bot-postgres"
+        },
+        "definition": "SELECT TO_CHAR(\"startedAt\", 'YYYY-MM-DD HH24:MI') || ' · ' || status || ' · ' || LEFT(id, 8) AS __text, id AS __value FROM \"ResearchRun\" ORDER BY \"startedAt\" DESC",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Research Run",
+        "multi": false,
+        "name": "runId",
+        "options": [],
+        "query": "SELECT TO_CHAR(\"startedAt\", 'YYYY-MM-DD HH24:MI') || ' · ' || status || ' · ' || LEFT(id, 8) AS __text, id AS __value FROM \"ResearchRun\" ORDER BY \"startedAt\" DESC",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": ".*"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "trading-bot-postgres"
+        },
+        "definition": "SELECT DISTINCT status AS __text, status AS __value FROM \"ResearchRun\" ORDER BY 1",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Run Status",
+        "multi": true,
+        "name": "runStatus",
+        "options": [],
+        "query": "SELECT DISTINCT status AS __text, status AS __value FROM \"ResearchRun\" ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": ".*"
         },
         "datasource": {
           "type": "postgres",
@@ -513,7 +546,7 @@
         "hide": 0,
         "includeAll": true,
         "label": "Source",
-        "multi": false,
+        "multi": true,
         "name": "source",
         "options": [],
         "query": "SELECT DISTINCT source AS __text, source AS __value FROM \"ResearchToken\" ORDER BY 1",
@@ -532,5 +565,5 @@
   "title": "Research & Dry-Run Analysis",
   "uid": "bot-research-dry-run",
   "version": 1,
-  "weekStart": ""
+  "weekStart": "monday"
 }
