@@ -1,0 +1,42 @@
+apiVersion: 1
+
+providers:
+  - name: trading-bot-scorecards
+    orgId: 1
+    folder: scorecards
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/dashboards/scorecards
+
+  - name: trading-bot-operations
+    orgId: 1
+    folder: operations
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/dashboards/operations
+
+  - name: trading-bot-analytics
+    orgId: 1
+    folder: analytics
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/dashboards/analytics
+
+  - name: trading-bot-research
+    orgId: 1
+    folder: research
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/dashboards/research

@@ -1,10 +1,12 @@
 import { SettingsClient } from "@/components/settings-client";
 import { serverFetch } from "@/lib/api";
-import type { BotSettings } from "@/lib/types";
+import { buildGrafanaDashboardLink } from "@/lib/grafana";
+import type { SettingsControlState } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const settings = await serverFetch<BotSettings>("/api/settings");
-  return <SettingsClient initial={settings} />;
+  const settings = await serverFetch<SettingsControlState>("/api/settings/control");
+  const grafanaHref = buildGrafanaDashboardLink("config");
+  return <SettingsClient initial={settings} grafanaHref={grafanaHref} />;
 }

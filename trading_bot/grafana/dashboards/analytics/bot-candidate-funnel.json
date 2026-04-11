@@ -1,0 +1,951 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "description": "Candidate funnel, decision evidence, and downstream outcome trace.",
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": true,
+      "keepTime": true,
+      "tags": [],
+      "targetBlank": false,
+      "title": "Source & Cohort Performance",
+      "tooltip": "",
+      "type": "link",
+      "url": "/d/bot-source-cohorts"
+    },
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": true,
+      "keepTime": true,
+      "tags": [],
+      "targetBlank": false,
+      "title": "Config Change Impact & RCA",
+      "tooltip": "",
+      "type": "link",
+      "url": "/d/bot-config-impact"
+    }
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Purpose",
+      "type": "text",
+      "datasource": {
+        "type": "grafana",
+        "uid": "-- Grafana --"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "content": "Discovery quality, decision quality, and raw evidence. This dashboard should answer why a token was blocked without sending you spelunking through arbitrary JSON.",
+        "mode": "markdown"
+      }
+    },
+    {
+      "id": 2,
+      "title": "Discovered",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(candidate_id) AS value FROM v_candidate_decision_facts WHERE discovered_at >= $__timeFrom() AND discovered_at <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${securityRisk}' = '__all' OR security_risk = '${securityRisk}') AND ('${daypart}' = '__all' OR daypart = '${daypart}') AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}') AND ('${candidateStatus}' = '__all' OR status = '${candidateStatus}')",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 3,
+      "title": "Accepted",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(candidate_id) AS value FROM v_candidate_decision_facts WHERE decision_at >= $__timeFrom() AND decision_at <= $__timeTo() AND accepted = TRUE AND ('${source}' = '__all' OR source = '${source}') AND ('${securityRisk}' = '__all' OR security_risk = '${securityRisk}') AND ('${daypart}' = '__all' OR daypart = '${daypart}') AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}')",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 4,
+      "title": "Rejected",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(candidate_id) AS value FROM v_candidate_decision_facts WHERE decision_at >= $__timeFrom() AND decision_at <= $__timeTo() AND status = 'REJECTED' AND ('${source}' = '__all' OR source = '${source}') AND ('${securityRisk}' = '__all' OR security_risk = '${securityRisk}') AND ('${daypart}' = '__all' OR daypart = '${daypart}') AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}')",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 5,
+      "title": "Bought",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(candidate_id) AS value FROM v_candidate_decision_facts WHERE decision_at >= $__timeFrom() AND decision_at <= $__timeTo() AND bought = TRUE AND ('${source}' = '__all' OR source = '${source}') AND ('${securityRisk}' = '__all' OR security_risk = '${securityRisk}') AND ('${daypart}' = '__all' OR daypart = '${daypart}') AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}')",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 6,
+      "title": "Avg Entry Score",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(AVG(entry_score), 0) AS value FROM v_candidate_decision_facts WHERE decision_at >= $__timeFrom() AND decision_at <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${securityRisk}' = '__all' OR security_risk = '${securityRisk}') AND ('${daypart}' = '__all' OR daypart = '${daypart}') AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}')",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 7,
+      "title": "Downstream Wins",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(candidate_id) AS value FROM v_candidate_decision_facts WHERE decision_at >= $__timeFrom() AND decision_at <= $__timeTo() AND downstream_outcome = 'win' AND ('${source}' = '__all' OR source = '${source}') AND ('${securityRisk}' = '__all' OR security_risk = '${securityRisk}') AND ('${daypart}' = '__all' OR daypart = '${daypart}') AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}')",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 8,
+      "title": "Funnel Trend by Source",
+      "type": "timeseries",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT DATE_TRUNC('day', decision_at)::timestamp AS \"time\", status AS metric, COUNT(candidate_id)::int AS value FROM v_candidate_decision_facts WHERE decision_at >= $__timeFrom() AND decision_at <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${securityRisk}' = '__all' OR security_risk = '${securityRisk}') AND ('${daypart}' = '__all' OR daypart = '${daypart}') AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}') AND ('${candidateStatus}' = '__all' OR status = '${candidateStatus}') GROUP BY 1, 2 ORDER BY 1, 2",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "Reject Reason Trend",
+      "type": "timeseries",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT DATE_TRUNC('day', decision_at)::timestamp AS \"time\", COALESCE(reject_reason, 'accepted_or_unknown') AS metric, COUNT(candidate_id)::int AS value FROM v_candidate_decision_facts WHERE decision_at >= $__timeFrom() AND decision_at <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${securityRisk}' = '__all' OR security_risk = '${securityRisk}') AND ('${daypart}' = '__all' OR daypart = '${daypart}') AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}') AND ('${rejectReason}' = '__all' OR COALESCE(reject_reason, 'accepted_or_unknown') = '${rejectReason}') GROUP BY 1, 2 ORDER BY 1, 2",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "Current Candidate Leaderboard",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT candidate_id, mint, symbol, source, status, reject_reason, entry_score, exit_profile, daypart, security_risk, liquidity_band, volume_band, downstream_outcome, realized_pnl_usd FROM v_candidate_decision_facts WHERE decision_at >= $__timeFrom() AND decision_at <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${securityRisk}' = '__all' OR security_risk = '${securityRisk}') AND ('${daypart}' = '__all' OR daypart = '${daypart}') AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}') AND ('${candidateStatus}' = '__all' OR status = '${candidateStatus}') AND ('${rejectReason}' = '__all' OR COALESCE(reject_reason, 'accepted_or_unknown') = '${rejectReason}') ORDER BY decision_at DESC LIMIT 100",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "enablePagination": false,
+          "reducer": [],
+          "show": false
+        },
+        "showHeader": true
+      }
+    },
+    {
+      "id": 11,
+      "title": "Latest Filter State",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT mint, symbol, source, status, reject_reason, security_risk, liquidity_usd, volume_5m_usd, buy_sell_ratio, top10_holder_percent, largest_holder_percent, price_usd, market_cap_usd, last_snapshot_at FROM v_candidate_latest_filter_state WHERE ('${source}' = '__all' OR source = '${source}') AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}') ORDER BY discovered_at DESC LIMIT 100",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "enablePagination": false,
+          "reducer": [],
+          "show": false
+        },
+        "showHeader": true
+      }
+    },
+    {
+      "id": 12,
+      "title": "Snapshot Evidence",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT captured_at, mint, symbol, trigger, source, config_version, price_usd, liquidity_usd, volume_5m_usd, buy_sell_ratio, top10_holder_percent, security_risk FROM v_token_snapshot_enriched WHERE captured_at >= $__timeFrom() AND captured_at <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${mint}' = '' OR mint = '${mint}') AND ('${symbol}' = '' OR symbol = '${symbol}') AND ('${trigger}' = '__all' OR trigger = '${trigger}') ORDER BY captured_at DESC LIMIT 100",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "enablePagination": false,
+          "reducer": [],
+          "show": false
+        },
+        "showHeader": true
+      }
+    },
+    {
+      "id": 13,
+      "title": "Provider Payload Evidence",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT captured_at, provider, endpoint, status_code, error_family, entity_key, latency_ms, error_message FROM v_raw_api_payload_recent WHERE captured_at >= $__timeFrom() AND captured_at <= $__timeTo() AND ('${mint}' = '' OR entity_key = '${mint}') ORDER BY captured_at DESC LIMIT 100",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "enablePagination": false,
+          "reducer": [],
+          "show": false
+        },
+        "showHeader": true
+      }
+    }
+  ],
+  "refresh": "5m",
+  "schemaVersion": 41,
+  "style": "dark",
+  "tags": [
+    "bot-trading",
+    "analytics",
+    "candidate"
+  ],
+  "templating": {
+    "list": [
+      {
+        "allValue": "__all",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "__all"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "trading-bot-postgres"
+        },
+        "definition": "SELECT DISTINCT source AS __text, source AS __value FROM v_candidate_decision_facts ORDER BY 1",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Source",
+        "multi": false,
+        "name": "source",
+        "options": [],
+        "query": "SELECT DISTINCT source AS __text, source AS __value FROM v_candidate_decision_facts ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": "",
+          "value": ""
+        },
+        "hide": 0,
+        "label": "Mint",
+        "name": "mint",
+        "options": [],
+        "query": "",
+        "skipUrlSync": false,
+        "type": "textbox"
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": "",
+          "value": ""
+        },
+        "hide": 0,
+        "label": "Symbol",
+        "name": "symbol",
+        "options": [],
+        "query": "",
+        "skipUrlSync": false,
+        "type": "textbox"
+      },
+      {
+        "allValue": "__all",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "__all"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "trading-bot-postgres"
+        },
+        "definition": "SELECT DISTINCT status AS __text, status AS __value FROM v_candidate_decision_facts ORDER BY 1",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Candidate Status",
+        "multi": false,
+        "name": "candidateStatus",
+        "options": [],
+        "query": "SELECT DISTINCT status AS __text, status AS __value FROM v_candidate_decision_facts ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": "__all",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "__all"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "trading-bot-postgres"
+        },
+        "definition": "SELECT DISTINCT COALESCE(reject_reason, 'accepted_or_unknown') AS __text, COALESCE(reject_reason, 'accepted_or_unknown') AS __value FROM v_candidate_decision_facts ORDER BY 1",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Reject Reason",
+        "multi": false,
+        "name": "rejectReason",
+        "options": [],
+        "query": "SELECT DISTINCT COALESCE(reject_reason, 'accepted_or_unknown') AS __text, COALESCE(reject_reason, 'accepted_or_unknown') AS __value FROM v_candidate_decision_facts ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": "__all",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "__all"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "trading-bot-postgres"
+        },
+        "definition": "SELECT DISTINCT trigger AS __text, trigger AS __value FROM v_snapshot_trigger_daily ORDER BY 1",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Trigger",
+        "multi": false,
+        "name": "trigger",
+        "options": [],
+        "query": "SELECT DISTINCT trigger AS __text, trigger AS __value FROM v_snapshot_trigger_daily ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": "__all",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "__all"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "trading-bot-postgres"
+        },
+        "definition": "SELECT DISTINCT security_risk AS __text, security_risk AS __value FROM v_candidate_decision_facts ORDER BY 1",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Security Risk",
+        "multi": false,
+        "name": "securityRisk",
+        "options": [],
+        "query": "SELECT DISTINCT security_risk AS __text, security_risk AS __value FROM v_candidate_decision_facts ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": "__all",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "__all"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "trading-bot-postgres"
+        },
+        "definition": "SELECT DISTINCT daypart AS __text, daypart AS __value FROM v_candidate_decision_facts ORDER BY 1",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Daypart",
+        "multi": false,
+        "name": "daypart",
+        "options": [],
+        "query": "SELECT DISTINCT daypart AS __text, daypart AS __value FROM v_candidate_decision_facts ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-14d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Candidate & Funnel Analytics",
+  "uid": "bot-candidate-funnel",
+  "version": 1,
+  "weekStart": ""
+}

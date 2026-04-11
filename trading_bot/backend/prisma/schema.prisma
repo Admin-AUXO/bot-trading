@@ -336,6 +336,44 @@ model RuntimeConfig {
   updatedAt DateTime @updatedAt
 }
 
+model RuntimeConfigVersion {
+  id                 Int      @id @default(autoincrement())
+  settings           Json
+  changedPaths       Json?
+  liveAffectingPaths Json?
+  dryRunSummary      Json?
+  appliedBy          String   @default("system")
+  basedOnUpdatedAt   DateTime?
+  activatedAt        DateTime @default(now())
+
+  @@index([activatedAt])
+  @@index([appliedBy, activatedAt])
+}
+
+model RuntimeConfigDraft {
+  id              String   @id @default("singleton")
+  draftSettings   Json
+  basedOnUpdatedAt DateTime
+  dryRunSummary   Json?
+  updatedAt       DateTime @updatedAt
+}
+
+model OperatorEvent {
+  id         String   @id @default(cuid())
+  kind       String
+  level      String   @default("info")
+  title      String
+  detail     String?
+  entityType String?
+  entityId   String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([kind, createdAt])
+  @@index([entityType, entityId, createdAt])
+}
+
 model ApiEvent {
   id         String       @id @default(cuid())
   provider   ProviderName

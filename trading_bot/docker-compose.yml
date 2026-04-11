@@ -16,7 +16,7 @@ services:
     container_name: trading-postgres
     restart: unless-stopped
     ports:
-      - "${POSTGRES_PORT:-56432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-56432}:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-botuser}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-botpass}
@@ -88,6 +88,16 @@ services:
     environment:
       API_URL: "http://bot:3101"
       DASHBOARD_PORT: 3100
+      GRAFANA_BASE_URL: ${GRAFANA_BASE_URL:-http://127.0.0.1:3400}
+      GRAFANA_EXECUTIVE_DASHBOARD_UID: ${GRAFANA_EXECUTIVE_DASHBOARD_UID:-bot-executive-scorecard}
+      GRAFANA_ANALYST_DASHBOARD_UID: ${GRAFANA_ANALYST_DASHBOARD_UID:-bot-analyst-insights}
+      GRAFANA_LIVE_DASHBOARD_UID: ${GRAFANA_LIVE_DASHBOARD_UID:-bot-live-trade-monitor}
+      GRAFANA_TELEMETRY_DASHBOARD_UID: ${GRAFANA_TELEMETRY_DASHBOARD_UID:-bot-telemetry-provider}
+      GRAFANA_CANDIDATE_DASHBOARD_UID: ${GRAFANA_CANDIDATE_DASHBOARD_UID:-bot-candidate-funnel}
+      GRAFANA_POSITION_DASHBOARD_UID: ${GRAFANA_POSITION_DASHBOARD_UID:-bot-position-pnl}
+      GRAFANA_CONFIG_DASHBOARD_UID: ${GRAFANA_CONFIG_DASHBOARD_UID:-bot-config-impact}
+      GRAFANA_SOURCE_DASHBOARD_UID: ${GRAFANA_SOURCE_DASHBOARD_UID:-bot-source-cohorts}
+      GRAFANA_RESEARCH_DASHBOARD_UID: ${GRAFANA_RESEARCH_DASHBOARD_UID:-bot-research-dry-run}
       PORT: 3100
     depends_on:
       bot:
@@ -99,6 +109,45 @@ services:
           node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 3100)).then((res) => {
             if (!res.ok) process.exit(1);
           }).catch(() => process.exit(1))"
+      interval: 20s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  grafana:
+    <<: *app-defaults
+    image: grafana/grafana:12.2.0
+    container_name: trading-grafana
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3400}:3000"
+    env_file:
+      - ./backend/.env
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SERVER_ROOT_URL: ${GRAFANA_BASE_URL:-http://127.0.0.1:3400}
+      POSTGRES_HOST: postgres:5432
+      POSTGRES_DB: ${POSTGRES_DB:-trading_bot}
+      POSTGRES_USER: ${POSTGRES_USER:-botuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-botpass}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      db-setup:
+        condition: service_completed_successfully
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q -O- http://127.0.0.1:3000/api/health | grep -Eq '\"database\"[[:space:]]*:[[:space:]]*\"ok\"'",
+        ]
       interval: 20s
       timeout: 5s
       retries: 6
@@ -126,4 +175,5 @@ services:
 
 volumes:
   trading-pgdata:
+  grafana-data:
   obsidian-config:

@@ -32,8 +32,21 @@ function errorToStatus(error: unknown): number {
 
 export function createApiServer(deps: {
   getSnapshot: () => Promise<RuntimeSnapshot>;
+  getDeskShell: () => Promise<unknown>;
+  getDeskHome: () => Promise<unknown>;
+  listDeskEvents: (limit?: number) => Promise<unknown[]>;
+  listCandidateQueue: (bucket: "ready" | "risk" | "provider" | "data") => Promise<unknown>;
+  getCandidateDetail: (candidateId: string) => Promise<unknown | null>;
+  listPositionBook: (book: "open" | "closed") => Promise<unknown>;
+  getPositionDetail: (positionId: string) => Promise<unknown | null>;
+  getDiagnostics: () => Promise<unknown>;
   getSettings: () => Promise<BotSettings>;
+  getSettingsControl: () => Promise<unknown>;
   patchSettings: (input: Partial<BotSettings>) => Promise<BotSettings>;
+  patchSettingsDraft: (input: Partial<BotSettings>) => Promise<unknown>;
+  discardSettingsDraft: () => Promise<unknown>;
+  runSettingsDryRun: () => Promise<unknown>;
+  promoteSettingsDraft: () => Promise<unknown>;
   pause: (reason?: string) => Promise<void>;
   resume: () => Promise<void>;
   triggerDiscovery: () => Promise<void>;
@@ -47,6 +60,17 @@ export function createApiServer(deps: {
 }) {
   const app = express();
   app.use(express.json());
+
+  async function respondWithDeskState(
+    res: express.Response,
+    action: string,
+  ): Promise<void> {
+    const [shell, home] = await Promise.all([
+      deps.getDeskShell(),
+      deps.getDeskHome(),
+    ]);
+    res.json({ ok: true, action, shell, home });
+  }
 
   app.use("/api/control", (req, res, next) => {
     if (!env.CONTROL_API_SECRET) return next();
@@ -70,6 +94,51 @@ export function createApiServer(deps: {
 
   app.get("/api/status", async (_req, res) => {
     res.json(await deps.getSnapshot());
+  });
+
+  app.get("/api/desk/shell", async (_req, res) => {
+    res.json(await deps.getDeskShell());
+  });
+
+  app.get("/api/desk/home", async (_req, res) => {
+    res.json(await deps.getDeskHome());
+  });
+
+  app.get("/api/desk/events", async (req, res) => {
+    const limit = parseLimit(req.query.limit, 20, 100);
+    res.json(await deps.listDeskEvents(limit));
+  });
+
+  app.get("/api/operator/candidates", async (req, res) => {
+    const bucket = typeof req.query.bucket === "string" ? req.query.bucket : "ready";
+    const normalized = ["ready", "risk", "provider", "data"].includes(bucket) ? bucket as "ready" | "risk" | "provider" | "data" : "ready";
+    res.json(await deps.listCandidateQueue(normalized));
+  });
+
+  app.get("/api/operator/candidates/:id", async (req, res) => {
+    const row = await deps.getCandidateDetail(req.params.id);
+    if (!row) {
+      return res.status(404).json({ error: "candidate not found" });
+    }
+    return res.json(row);
+  });
+
+  app.get("/api/operator/positions", async (req, res) => {
+    const book = typeof req.query.book === "string" ? req.query.book : "open";
+    const normalized = book === "closed" ? "closed" : "open";
+    res.json(await deps.listPositionBook(normalized));
+  });
+
+  app.get("/api/operator/positions/:id", async (req, res) => {
+    const row = await deps.getPositionDetail(req.params.id);
+    if (!row) {
+      return res.status(404).json({ error: "position not found" });
+    }
+    return res.json(row);
+  });
+
+  app.get("/api/operator/diagnostics", async (_req, res) => {
+    res.json(await deps.getDiagnostics());
   });
 
   app.get("/api/candidates", async (req, res) => {
@@ -146,38 +215,58 @@ export function createApiServer(deps: {
     res.json(await deps.getSettings());
   });
 
+  app.get("/api/settings/control", async (_req, res) => {
+    res.json(await deps.getSettingsControl());
+  });
+
   app.post("/api/settings", async (req, res) => {
     res.json(await deps.patchSettings(req.body ?? {}));
   });
 
+  app.post("/api/settings/draft", async (req, res) => {
+    res.json(await deps.patchSettingsDraft(req.body ?? {}));
+  });
+
+  app.post("/api/settings/draft/discard", async (_req, res) => {
+    res.json(await deps.discardSettingsDraft());
+  });
+
+  app.post("/api/settings/dry-run", async (_req, res) => {
+    res.json(await deps.runSettingsDryRun());
+  });
+
+  app.post("/api/settings/promote", async (_req, res) => {
+    res.json(await deps.promoteSettingsDraft());
+  });
+
   app.post("/api/control/pause", async (req, res) => {
     await deps.pause(typeof req.body?.reason === "string" ? req.body.reason : undefined);
-    res.json({ ok: true });
+    await respondWithDeskState(res, "pause");
   });
 
   app.post("/api/control/resume", async (_req, res) => {
     await deps.resume();
-    res.json({ ok: true });
+    await respondWithDeskState(res, "resume");
   });
 
   app.post("/api/control/discover-now", async (_req, res) => {
     await deps.triggerDiscovery();
-    res.json({ ok: true });
+    await respondWithDeskState(res, "discover-now");
   });
 
   app.post("/api/control/evaluate-now", async (_req, res) => {
     await deps.triggerEvaluation();
-    res.json({ ok: true });
+    await respondWithDeskState(res, "evaluate-now");
   });
 
   app.post("/api/control/exit-check-now", async (_req, res) => {
     await deps.triggerExitCheck();
-    res.json({ ok: true });
+    await respondWithDeskState(res, "exit-check-now");
   });
 
   app.post("/api/control/run-research-dry-run", async (_req, res) => {
     await deps.triggerResearchDryRun();
-    res.json({ ok: true });
+    await respondWithDeskState(res, "run-research-dry-run");
   });
 
   app.get("/api/research-runs", async (req, res) => {
@@ -215,6 +304,26 @@ export function createApiServer(deps: {
       "v_position_exit_reason_daily",
       "v_runtime_settings_current",
       "v_candidate_latest_filter_state",
+      "v_api_provider_hourly",
+      "v_api_endpoint_hourly",
+      "v_payload_failure_hourly",
+      "v_runtime_lane_health",
+      "v_runtime_live_status",
+      "v_open_position_monitor",
+      "v_recent_fill_activity",
+      "v_position_snapshot_latest",
+      "v_fill_pnl_daily",
+      "v_fill_daily",
+      "v_position_pnl_daily",
+      "v_source_outcome_daily",
+      "v_candidate_cohort_daily",
+      "v_position_cohort_daily",
+      "v_candidate_funnel_daily_source",
+      "v_candidate_reject_reason_daily_source",
+      "v_candidate_decision_facts",
+      "v_config_change_log",
+      "v_kpi_by_config_window",
+      "v_config_field_change",
     ]);
     const viewName = req.params.name;
     if (!allowed.has(viewName)) {

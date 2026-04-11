@@ -47,7 +47,8 @@ Runtime pacing matters now:
 ## Discovery Contract
 
 - Discovery source is Birdeye graduated meme tokens
-- `DISCOVERY_SOURCES="all"` pulls all Birdeye meme-list venues in one scan by default
+- `DISCOVERY_SOURCES="pump_dot_fun"` keeps live discovery aligned with the current pump-only tradable desk by default
+- You can still widen discovery with `DISCOVERY_SOURCES="all"` or a venue list when the desk is intentionally researching or papering non-pump venues
 - `TRADABLE_SOURCES="pump_dot_fun"` keeps non-pump venues in paper-only mode unless you explicitly widen it
 - Discovery is budget-aware. If the projected Birdeye discovery lane would outrun the monthly Lite pacing target, the loop skips that sweep instead of spending through the cap.
 - Lookback window is `now - DISCOVERY_LOOKBACK_SECONDS`
@@ -63,7 +64,7 @@ Runtime pacing matters now:
 
 - `DRY_RUN` is a bounded research lane, not a rolling paper bot
 - Research starts only from the manual `run-research-dry-run` control
-- Discovery is one Birdeye meme-list page with `source=all`, capped by `research.discoveryLimit`
+- Discovery is one Birdeye meme-list page from the currently tradable source set, capped by `research.discoveryLimit`
 - Research discovery does not dedupe against operational `Candidate` history; repeated runs on the same mint are allowed and isolated by `ResearchRun`
 - The page is cheap-scored first across all discovered names
 - Full deep evaluation only runs on the top `research.fullEvaluationLimit`

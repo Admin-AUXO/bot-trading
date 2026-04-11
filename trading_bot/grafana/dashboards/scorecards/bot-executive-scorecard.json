@@ -1,0 +1,645 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "description": "Executive scorecard for health, throughput, and config-aware trend review.",
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": true,
+      "keepTime": true,
+      "tags": [],
+      "targetBlank": false,
+      "title": "Live Trade Monitor",
+      "tooltip": "",
+      "type": "link",
+      "url": "/d/bot-live-trade-monitor"
+    },
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": true,
+      "keepTime": true,
+      "tags": [],
+      "targetBlank": false,
+      "title": "Telemetry & Provider Analytics",
+      "tooltip": "",
+      "type": "link",
+      "url": "/d/bot-telemetry-provider"
+    },
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": true,
+      "keepTime": true,
+      "tags": [],
+      "targetBlank": false,
+      "title": "Candidate & Funnel Analytics",
+      "tooltip": "",
+      "type": "link",
+      "url": "/d/bot-candidate-funnel"
+    },
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": true,
+      "keepTime": true,
+      "tags": [],
+      "targetBlank": false,
+      "title": "Config Change Impact & RCA",
+      "tooltip": "",
+      "type": "link",
+      "url": "/d/bot-config-impact"
+    }
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Purpose",
+      "type": "text",
+      "datasource": {
+        "type": "grafana",
+        "uid": "-- Grafana --"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "content": "Top-line health, productivity, and config sensitivity. If this looks good while the underlying analytics do not, the scorecard is lying.",
+        "mode": "markdown"
+      }
+    },
+    {
+      "id": 2,
+      "title": "Realized PnL",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(SUM(realized_pnl_usd), 0) AS value FROM v_fill_pnl_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${configVersion}' = '__all' OR config_version = CAST('${configVersion}' AS integer))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 3,
+      "title": "Win Rate",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE((SUM(wins)::numeric / NULLIF(SUM(wins + losses), 0)) * 100, 0) AS value FROM v_source_outcome_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${configVersion}' = '__all' OR config_version = CAST('${configVersion}' AS integer))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 4,
+      "title": "Candidates Discovered",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(SUM(candidates_discovered), 0) AS value FROM v_source_outcome_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${configVersion}' = '__all' OR config_version = CAST('${configVersion}' AS integer))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 5,
+      "title": "Provider Error Rate",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE((SUM(error_count)::numeric / NULLIF(SUM(total_calls), 0)) * 100, 0) AS value FROM v_api_provider_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo()",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 6,
+      "title": "Daily Realized PnL",
+      "type": "timeseries",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT session_date::timestamp AS \"time\", source AS metric, realized_pnl_usd AS value FROM v_source_outcome_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${configVersion}' = '__all' OR config_version = CAST('${configVersion}' AS integer)) ORDER BY 1, 2",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Daily Candidate Funnel",
+      "type": "timeseries",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT session_date::timestamp AS \"time\", status AS metric, candidate_count AS value FROM v_candidate_funnel_daily_source WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') ORDER BY 1, 2",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Source Outcome Leaderboard",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT session_date, source, candidates_discovered, candidates_accepted, positions_closed, wins, losses, realized_pnl_usd, acceptance_rate_pct FROM v_source_outcome_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${configVersion}' = '__all' OR config_version = CAST('${configVersion}' AS integer)) ORDER BY session_date DESC, realized_pnl_usd DESC LIMIT 50",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "enablePagination": false,
+          "reducer": [],
+          "show": false
+        },
+        "showHeader": true
+      }
+    },
+    {
+      "id": 9,
+      "title": "Config Window KPI Delta",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT config_version, window_start_at, window_end_at, candidates_discovered, candidates_accepted, positions_opened, positions_closed, realized_pnl_usd, win_rate * 100 AS win_rate_pct, provider_units, provider_errors, acceptance_rate_pct, conversion_rate_pct FROM v_kpi_by_config_window ORDER BY config_version DESC LIMIT 20",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "enablePagination": false,
+          "reducer": [],
+          "show": false
+        },
+        "showHeader": true
+      }
+    }
+  ],
+  "refresh": "15m",
+  "schemaVersion": 41,
+  "style": "dark",
+  "tags": [
+    "bot-trading",
+    "scorecards",
+    "executive"
+  ],
+  "templating": {
+    "list": [
+      {
+        "allValue": "__all",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "__all"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "trading-bot-postgres"
+        },
+        "definition": "SELECT DISTINCT source AS __text, source AS __value FROM v_source_outcome_daily ORDER BY 1",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Source",
+        "multi": false,
+        "name": "source",
+        "options": [],
+        "query": "SELECT DISTINCT source AS __text, source AS __value FROM v_source_outcome_daily ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": "__all",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "__all"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "trading-bot-postgres"
+        },
+        "definition": "SELECT config_version::text AS __text, config_version AS __value FROM v_config_change_log ORDER BY config_version DESC",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Config Version",
+        "multi": false,
+        "name": "configVersion",
+        "options": [],
+        "query": "SELECT config_version::text AS __text, config_version AS __value FROM v_config_change_log ORDER BY config_version DESC",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Executive Scorecard",
+  "uid": "bot-executive-scorecard",
+  "version": 1,
+  "weekStart": ""
+}

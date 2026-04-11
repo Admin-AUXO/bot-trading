@@ -1,210 +1,591 @@
 "use client";
 
+import clsx from "clsx";
 import { useMemo, useState, useTransition } from "react";
-import { Gauge, Save, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { ArrowUpRight, FilePenLine, FlaskConical, Rocket, ShieldCheck } from "lucide-react";
 import { fetchJson } from "@/lib/api";
-import { formatNumber } from "@/lib/format";
-import type { BotSettings } from "@/lib/types";
-import { PageHero, Panel, StatCard } from "@/components/dashboard-primitives";
+import { formatInteger, formatTimestamp, smartFormatValue } from "@/lib/format";
+import type { BotSettings, SettingsControlState } from "@/lib/types";
+import { PageHero, Panel, StatusPill } from "@/components/dashboard-primitives";
 
-export function SettingsClient({ initial }: { initial: BotSettings }) {
-  const [baseline, setBaseline] = useState(initial);
-  const [settings, setSettings] = useState(initial);
-  const [saveMessage, setSaveMessage] = useState<string | null>(null);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+type SectionId = SettingsControlState["sections"][number]["id"];
 
-  const dirty = useMemo(() => JSON.stringify(settings) !== JSON.stringify(baseline), [baseline, settings]);
+const fieldGroups: Array<{
+  section: SectionId;
+  title: string;
+  description: string;
+  fields: Array<{ path: string; label: string; step?: string; readOnly?: boolean }>;
+}> = [
+  {
+    section: "capital",
+    title: "Capital",
+    description: "Mode and exposure.",
+    fields: [
+      { path: "tradeMode", label: "Trade mode" },
+      { path: "capital.capitalUsd", label: "Capital USD" },
+      { path: "capital.positionSizeUsd", label: "Position size USD" },
+      { path: "capital.maxOpenPositions", label: "Max open positions", step: "1" },
+    ],
+  },
+  {
+    section: "entry",
+    title: "Entry",
+    description: "Discovery filters.",
+    fields: [
+      { path: "filters.minLiquidityUsd", label: "Min liquidity USD" },
+      { path: "filters.maxMarketCapUsd", label: "Max market cap USD" },
+      { path: "filters.minHolders", label: "Min holders", step: "1" },
+      { path: "filters.minUniqueBuyers5m", label: "Min unique buyers 5m", step: "1" },
+      { path: "filters.minBuySellRatio", label: "Min buy/sell ratio" },
+      { path: "filters.maxTop10HolderPercent", label: "Max top10 holder %" },
+      { path: "filters.maxSingleHolderPercent", label: "Max single holder %" },
+      { path: "filters.maxGraduationAgeSeconds", label: "Max graduation age sec", step: "1" },
+      { path: "filters.minVolume5mUsd", label: "Min 5m volume USD" },
+      { path: "filters.maxNegativePriceChange5mPercent", label: "Max negative 5m change %" },
+      { path: "filters.securityCheckMinLiquidityUsd", label: "Security min liquidity USD" },
+      { path: "filters.securityCheckVolumeMultiplier", label: "Security volume multiplier" },
+      { path: "filters.maxTransferFeePercent", label: "Max transfer fee %" },
+    ],
+  },
+  {
+    section: "exit",
+    title: "Exit",
+    description: "Exit thresholds.",
+    fields: [
+      { path: "exits.stopLossPercent", label: "Stop loss %" },
+      { path: "exits.tp1Multiplier", label: "TP1 multiplier" },
+      { path: "exits.tp2Multiplier", label: "TP2 multiplier" },
+      { path: "exits.tp1SellFraction", label: "TP1 sell fraction" },
+      { path: "exits.tp2SellFraction", label: "TP2 sell fraction" },
+      { path: "exits.postTp1RetracePercent", label: "Post TP1 retrace %" },
+      { path: "exits.trailingStopPercent", label: "Trailing stop %" },
+      { path: "exits.timeStopMinutes", label: "Time stop minutes" },
+      { path: "exits.timeStopMinReturnPercent", label: "Min return at time stop %" },
+      { path: "exits.timeLimitMinutes", label: "Hard time limit minutes" },
+    ],
+  },
+  {
+    section: "research",
+    title: "Research",
+    description: "Dry-run caps.",
+    fields: [
+      { path: "research.discoveryLimit", label: "Discovery limit", step: "1" },
+      { path: "research.fullEvaluationLimit", label: "Deep-evaluation shortlist", step: "1" },
+      { path: "research.maxMockPositions", label: "Max mock positions", step: "1" },
+      { path: "research.fixedPositionSizeUsd", label: "Fixed ticket USD" },
+      { path: "research.pollIntervalMs", label: "Poll interval ms", step: "1000" },
+      { path: "research.maxRunDurationMs", label: "Max run window ms", step: "60000" },
+      { path: "research.birdeyeUnitCap", label: "Birdeye unit cap", step: "1" },
+      { path: "research.heliusUnitCap", label: "Helius unit cap", step: "1" },
+    ],
+  },
+  {
+    section: "advanced",
+    title: "Advanced",
+    description: "Read-only timing.",
+    fields: [
+      { path: "cadence.discoveryIntervalMs", label: "US-hours discovery interval", readOnly: true },
+      { path: "cadence.offHoursDiscoveryIntervalMs", label: "Off-hours discovery interval", readOnly: true },
+      { path: "cadence.evaluationIntervalMs", label: "Queued evaluation interval", readOnly: true },
+      { path: "cadence.idleEvaluationIntervalMs", label: "Idle evaluation interval", readOnly: true },
+      { path: "cadence.exitIntervalMs", label: "Exit interval", readOnly: true },
+      { path: "cadence.entryDelayMs", label: "Entry delay", readOnly: true },
+      { path: "cadence.evaluationConcurrency", label: "Evaluation concurrency", readOnly: true },
+    ],
+  },
+];
 
-  const save = () => startTransition(async () => {
+const fieldHelp: Partial<Record<string, string>> = {
+  tradeMode: "Changing trade mode is live-affecting and can be blocked while open positions or research activity exist.",
+  "capital.capitalUsd": "Capital changes are gated because they alter available risk budget immediately.",
+  "capital.positionSizeUsd": "Ticket size changes alter exposure per entry and need review before promotion.",
+  "capital.maxOpenPositions": "Open-position cap changes can change live capacity on the next cycle.",
+  "exits.stopLossPercent": "Stop-loss changes alter live downside handling. Dry run before promotion.",
+  "exits.trailingStopPercent": "Trailing stop changes change live exit posture, not just reporting.",
+  "research.birdeyeUnitCap": "Research unit caps can block or distort dry-run review if set too low.",
+  "research.heliusUnitCap": "Research provider caps need a dry-run pass before promotion.",
+};
+
+export function SettingsClient({ initial, grafanaHref }: { initial: SettingsControlState; grafanaHref: string | null }) {
+  const [serverState, setServerState] = useState(initial);
+  const [draftValues, setDraftValues] = useState<BotSettings>(initial.draft ?? initial.active);
+  const [activeSection, setActiveSection] = useState<SectionId>("capital");
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  const baseline = serverState.draft ?? serverState.active;
+  const localDirty = useMemo(
+    () => JSON.stringify(draftValues) !== JSON.stringify(baseline),
+    [baseline, draftValues],
+  );
+
+  const saveDraft = () => startTransition(async () => {
     try {
-      const next = await fetchJson<BotSettings>("/settings", {
+      const next = await fetchJson<SettingsControlState>("/settings/draft", {
         method: "POST",
-        body: JSON.stringify(settings),
+        body: JSON.stringify(draftValues),
       });
-      setBaseline(next);
-      setSettings(next);
-      setSaveError(null);
-      setSaveMessage("Runtime config saved.");
-    } catch (error) {
-      setSaveMessage(null);
-      setSaveError(error instanceof Error ? error.message : "save failed");
+      setServerState(next);
+      setDraftValues(next.draft ?? next.active);
+      setMessage("Draft saved.");
+      setError(null);
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : "failed to save draft");
+      setMessage(null);
     }
   });
 
+  const runDryRun = () => startTransition(async () => {
+    try {
+      const next = await fetchJson<SettingsControlState>("/settings/dry-run", { method: "POST" });
+      setServerState(next);
+      setDraftValues(next.draft ?? next.active);
+      setMessage("Dry run updated.");
+      setError(null);
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : "failed to run dry run");
+      setMessage(null);
+    }
+  });
+
+  const promote = () => startTransition(async () => {
+    try {
+      const next = await fetchJson<SettingsControlState>("/settings/promote", { method: "POST" });
+      setServerState(next);
+      setDraftValues(next.draft ?? next.active);
+      setMessage("Draft promoted.");
+      setError(null);
+      window.dispatchEvent(new CustomEvent("desk-refresh"));
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : "failed to promote draft");
+      setMessage(null);
+    }
+  });
+
+  const discardDraft = () => startTransition(async () => {
+    try {
+      const next = await fetchJson<SettingsControlState>("/settings/draft/discard", { method: "POST" });
+      setServerState(next);
+      setDraftValues(next.active);
+      setMessage("Draft discarded.");
+      setError(null);
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : "failed to discard draft");
+      setMessage(null);
+    }
+  });
+
+  const updatePath = (path: string, rawValue: string) => {
+    setDraftValues((current) => {
+      const next = structuredClone(current);
+      const segments = path.split(".");
+      let target: Record<string, unknown> = next as unknown as Record<string, unknown>;
+      while (segments.length > 1) {
+        const segment = segments.shift()!;
+        target = target[segment] as Record<string, unknown>;
+      }
+      const finalSegment = segments[0]!;
+      if (path === "tradeMode") {
+        target[finalSegment] = rawValue as BotSettings["tradeMode"];
+      } else {
+        target[finalSegment] = Number(rawValue);
+      }
+      return next;
+    });
+  };
+
+  const canPromote = Boolean(
+    serverState.draft
+    && serverState.validation.ok
+    && (!serverState.liveAffectingPaths.length || serverState.dryRun?.safeToPromote),
+  );
+
+  const selectedGroup = fieldGroups.find((group) => group.section === activeSection) ?? fieldGroups[0];
+  const draftBehindActive = Boolean(
+    serverState.draft
+    && serverState.basedOnUpdatedAt
+    && serverState.basedOnUpdatedAt !== serverState.activeUpdatedAt,
+  );
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <PageHero
-        eyebrow="Runtime controls"
-        title="Tune thresholds without pretending the env file is a control panel"
-        description="These values persist in runtime config. Live sizing stays separate from the bounded research dry-run lane, so you can tune strategy thresholds and the research timer without contaminating the operational desk."
+        eyebrow="Settings"
+        title="Draft and promote"
+        description={undefined}
+        meta={<StatusPill value={serverState.validation.ok ? "pass" : "fail"} />}
+        actions={grafanaHref ? (
+          <a
+            href={grafanaHref}
+            target="_blank"
+            rel="noreferrer"
+            className="btn-primary inline-flex items-center gap-2"
+            title="Open configuration analytics in Grafana"
+          >
+            Open Grafana
+            <ArrowUpRight className="h-4 w-4" />
+          </a>
+        ) : null}
         aside={(
-          <div className="grid gap-3">
-            <MiniMetric label="Trade mode" value={settings.tradeMode} />
-            <MiniMetric label="US discovery" value={`${formatNumber(settings.cadence.discoveryIntervalMs / 1000)} sec`} />
-            <MiniMetric label="Evaluation concurrency" value={formatNumber(settings.cadence.evaluationConcurrency)} />
-            <MiniMetric label="Research poll" value={`${formatNumber(settings.research.pollIntervalMs / 1000)} sec`} />
-            <MiniMetric label="Research window" value={`${formatNumber(settings.research.maxRunDurationMs / 60_000)} min`} />
+          <div className="panel-muted rounded-[16px] p-4">
+            <div className="section-kicker">Active</div>
+            <div className="mt-4 grid gap-3">
+              <SummaryRow label="Updated" value={formatTimestamp(serverState.activeUpdatedAt)} />
+              <SummaryRow label="Draft" value={serverState.draft ? "Open" : "None"} />
+              <SummaryRow label="Changed paths" value={formatInteger(serverState.changedPaths.length)} />
+            </div>
           </div>
         )}
       />
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <StatCard label="Capital" value={`$${formatNumber(settings.capital.capitalUsd)}`} detail="Current capital baseline" tone="accent" icon={Gauge} />
-        <StatCard label="Position size" value={`$${formatNumber(settings.capital.positionSizeUsd)}`} detail={`Max ${formatNumber(settings.capital.maxOpenPositions)} open positions`} tone="default" icon={SlidersHorizontal} />
-        <StatCard label="Security gate" value={`$${formatNumber(settings.filters.securityCheckMinLiquidityUsd)}`} detail={`${formatNumber(settings.filters.securityCheckVolumeMultiplier)}x volume trigger`} tone="warning" icon={ShieldCheck} />
-        <StatCard label="Research lane" value={`${formatNumber(settings.research.maxRunDurationMs / 60_000)} min`} detail={`Poll every ${formatNumber(settings.research.pollIntervalMs / 1000)} sec`} tone="default" icon={ShieldCheck} />
-        <StatCard label="Dirty state" value={dirty ? "Unsaved" : "Clean"} detail={dirty ? "Local edits differ from persisted config" : "No pending config edits"} tone={dirty ? "warning" : "success"} icon={Save} />
+      <section className="grid gap-6 2xl:grid-cols-[1.18fr_0.82fr]">
+        <Panel title="Promotion rail" eyebrow="Draft -> Validate -> Dry run -> Promote">
+          <div className="grid gap-3 lg:grid-cols-4">
+            <WorkflowStepCard
+              title="Draft"
+              detail={localDirty ? "Local form differs from saved draft." : serverState.draft ? `${formatInteger(serverState.changedPaths.length)} changed path(s).` : "No draft open."}
+              status={localDirty ? "warning" : serverState.draft ? "pass" : "idle"}
+              icon={FilePenLine}
+            />
+            <WorkflowStepCard
+              title="Validate"
+              detail={serverState.validation.ok ? "Draft passes schema checks." : `${formatInteger(serverState.validation.issues.length)} blocking issue(s).`}
+              status={serverState.validation.ok ? "pass" : "danger"}
+              icon={ShieldCheck}
+            />
+            <WorkflowStepCard
+              title="Dry run"
+              detail={
+                serverState.liveAffectingPaths.length === 0
+                  ? "No live-affecting path changed."
+                  : serverState.dryRun
+                    ? `${serverState.dryRun.safeToPromote ? "Passing" : "Blocked"} run ${formatTimestamp(serverState.dryRun.ranAt)}`
+                    : "Live-affecting changes still need review."
+              }
+              status={
+                serverState.liveAffectingPaths.length === 0
+                  ? "idle"
+                  : serverState.dryRun?.safeToPromote
+                    ? "pass"
+                    : "warning"
+              }
+              icon={FlaskConical}
+            />
+            <WorkflowStepCard
+              title="Promote"
+              detail={canPromote ? "Ready to push active." : "Promotion gate still closed."}
+              status={canPromote ? "pass" : "warning"}
+              icon={Rocket}
+            />
+          </div>
+        </Panel>
+
+        <Panel title="Gate summary" eyebrow="Current state" tone={draftBehindActive ? "warning" : "passive"}>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <SummaryRow label="Draft" value={serverState.draft ? "Open" : "None"} />
+            <SummaryRow label="Local edits" value={localDirty ? "Unsaved" : "Synced"} />
+            <SummaryRow label="Live paths" value={formatInteger(serverState.liveAffectingPaths.length)} />
+            <SummaryRow label="Dry run" value={serverState.dryRun ? formatTimestamp(serverState.dryRun.ranAt) : "None"} />
+          </div>
+          {draftBehindActive ? (
+            <div className="mt-3 rounded-[14px] border border-[rgba(250,204,21,0.18)] bg-[rgba(250,204,21,0.08)] px-4 py-3 text-sm text-text-primary">
+              Active settings moved after this draft was based. Re-review before promotion.
+            </div>
+          ) : null}
+        </Panel>
       </section>
 
-      {saveError ? (
-        <div className="panel-muted rounded-2xl border-accent-red/20 bg-accent-red/8 px-5 py-4 text-sm text-accent-red">
-          Save failed: {saveError}
+      {error ? (
+        <div className="rounded-[16px] border border-[rgba(251,113,133,0.25)] bg-[rgba(251,113,133,0.08)] px-5 py-4 text-sm text-[var(--danger)]">
+          {error}
         </div>
       ) : null}
 
-      {saveMessage ? (
-        <div className="panel-muted rounded-2xl border-accent-green/20 bg-accent-green/8 px-5 py-4 text-sm text-accent-green">
-          {saveMessage}
+      {message ? (
+        <div className="rounded-[16px] border border-[rgba(163,230,53,0.25)] bg-[rgba(163,230,53,0.08)] px-5 py-4 text-sm text-[var(--success)]">
+          {message}
         </div>
       ) : null}
 
-      <section className="grid gap-6 2xl:grid-cols-[1fr_1.15fr_1fr]">
-        <Panel title="Capital and cadence" eyebrow="Desk shape">
-          <div className="space-y-5">
-            <NumberField label="Capital USD" value={settings.capital.capitalUsd} onChange={(value) => setSettings({ ...settings, capital: { ...settings.capital, capitalUsd: value } })} />
-            <NumberField label="Position size USD" value={settings.capital.positionSizeUsd} onChange={(value) => setSettings({ ...settings, capital: { ...settings.capital, positionSizeUsd: value } })} />
-            <NumberField label="Max open positions" value={settings.capital.maxOpenPositions} onChange={(value) => setSettings({ ...settings, capital: { ...settings.capital, maxOpenPositions: value } })} />
-            <ReadOnlyField label="US-hours discovery interval" value={`${formatNumber(settings.cadence.discoveryIntervalMs / 1000)} sec`} />
-            <ReadOnlyField label="Off-hours discovery interval" value={`${formatNumber(settings.cadence.offHoursDiscoveryIntervalMs / 1000)} sec`} />
-            <ReadOnlyField label="Queued evaluation interval" value={`${formatNumber(settings.cadence.evaluationIntervalMs / 1000)} sec`} />
-            <ReadOnlyField label="Idle evaluation interval" value={`${formatNumber(settings.cadence.idleEvaluationIntervalMs / 1000)} sec`} />
-            <ReadOnlyField label="Exit interval" value={`${formatNumber(settings.cadence.exitIntervalMs / 1000)} sec`} />
-            <ReadOnlyField label="Entry delay" value={`${formatNumber(settings.cadence.entryDelayMs / 1000)} sec`} />
-            <ReadOnlyField label="Evaluation concurrency" value={formatNumber(settings.cadence.evaluationConcurrency)} />
+      <section className="grid gap-6 xl:grid-cols-[0.24fr_0.76fr]">
+        <Panel title="Sections" eyebrow="Edit surface">
+          <div className="space-y-2">
+            {serverState.sections.map((section) => (
+              <button
+                key={section.id}
+                onClick={() => setActiveSection(section.id)}
+                title={`Open ${section.label}`}
+                className={`w-full rounded-[14px] border px-4 py-3 text-left transition ${
+                  activeSection === section.id
+                    ? "border-[rgba(163,230,53,0.28)] bg-[#121511] text-text-primary"
+                    : "border-bg-border bg-bg-hover/30 text-text-secondary hover:bg-bg-hover/50"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-medium">{section.label}</span>
+                  <StatusPill value={section.editable ? "editable" : "read-only"} />
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-text-muted">
+                  <span>{formatInteger(section.paths.length)} paths</span>
+                  <span>{formatInteger(serverState.changedPaths.filter((path) => section.paths.includes(path)).length)} changed</span>
+                  {serverState.liveAffectingPaths.some((path) => section.paths.includes(path)) ? <span className="meta-chip !px-2 !py-1 text-[10px]">Live</span> : null}
+                </div>
+              </button>
+            ))}
           </div>
         </Panel>
 
-        <Panel title="Entry filters" eyebrow="What gets through">
-          <div className="space-y-5">
-            <NumberField label="Min liquidity USD" value={settings.filters.minLiquidityUsd} onChange={(value) => setSettings({ ...settings, filters: { ...settings.filters, minLiquidityUsd: value } })} />
-            <NumberField label="Max market cap USD" value={settings.filters.maxMarketCapUsd} onChange={(value) => setSettings({ ...settings, filters: { ...settings.filters, maxMarketCapUsd: value } })} />
-            <NumberField label="Min holders" value={settings.filters.minHolders} onChange={(value) => setSettings({ ...settings, filters: { ...settings.filters, minHolders: value } })} />
-            <NumberField label="Min unique buyers 5m" value={settings.filters.minUniqueBuyers5m} onChange={(value) => setSettings({ ...settings, filters: { ...settings.filters, minUniqueBuyers5m: value } })} />
-            <NumberField label="Min buy/sell ratio" value={settings.filters.minBuySellRatio} onChange={(value) => setSettings({ ...settings, filters: { ...settings.filters, minBuySellRatio: value } })} />
-            <NumberField label="Max top10 holder %" value={settings.filters.maxTop10HolderPercent} onChange={(value) => setSettings({ ...settings, filters: { ...settings.filters, maxTop10HolderPercent: value } })} />
-            <NumberField label="Max single holder %" value={settings.filters.maxSingleHolderPercent} onChange={(value) => setSettings({ ...settings, filters: { ...settings.filters, maxSingleHolderPercent: value } })} />
-            <NumberField label="Max graduation age sec" value={settings.filters.maxGraduationAgeSeconds} onChange={(value) => setSettings({ ...settings, filters: { ...settings.filters, maxGraduationAgeSeconds: value } })} />
-            <NumberField label="Min 5m volume USD" value={settings.filters.minVolume5mUsd} onChange={(value) => setSettings({ ...settings, filters: { ...settings.filters, minVolume5mUsd: value } })} />
-            <NumberField label="Max negative 5m change %" value={settings.filters.maxNegativePriceChange5mPercent} onChange={(value) => setSettings({ ...settings, filters: { ...settings.filters, maxNegativePriceChange5mPercent: value } })} />
-            <NumberField label="Security min liquidity USD" value={settings.filters.securityCheckMinLiquidityUsd} onChange={(value) => setSettings({ ...settings, filters: { ...settings.filters, securityCheckMinLiquidityUsd: value } })} />
-            <NumberField label="Security volume multiplier" value={settings.filters.securityCheckVolumeMultiplier} onChange={(value) => setSettings({ ...settings, filters: { ...settings.filters, securityCheckVolumeMultiplier: value } })} />
-            <NumberField label="Max transfer fee %" value={settings.filters.maxTransferFeePercent} onChange={(value) => setSettings({ ...settings, filters: { ...settings.filters, maxTransferFeePercent: value } })} />
-          </div>
-        </Panel>
+        <Panel title={selectedGroup.title} eyebrow={selectedGroup.description} tone={selectedGroup.section === "advanced" ? "passive" : "default"}>
+          <div className="grid gap-4 md:grid-cols-2">
+            {selectedGroup.fields.map((field) => {
+              const value = readValue(draftValues, field.path);
+              const activeValue = readValue(serverState.active, field.path);
+              const baselineValue = readValue(baseline, field.path);
+              const isChangedFromActive = !isSameValue(value, activeValue);
+              const isUnsaved = !isSameValue(value, baselineValue);
+              const isLiveAffecting = serverState.liveAffectingPaths.includes(field.path);
+              const issues = serverState.validation.issues.filter((issue) => matchesField(issue.path, field.path));
+              const help = fieldHelp[field.path];
 
-        <Panel title="Exit controls" eyebrow="How edge gets kept">
-          <div className="space-y-5">
-            <NumberField label="Stop loss %" value={settings.exits.stopLossPercent} onChange={(value) => setSettings({ ...settings, exits: { ...settings.exits, stopLossPercent: value } })} />
-            <NumberField label="TP1 multiplier" value={settings.exits.tp1Multiplier} onChange={(value) => setSettings({ ...settings, exits: { ...settings.exits, tp1Multiplier: value } })} />
-            <NumberField label="TP2 multiplier" value={settings.exits.tp2Multiplier} onChange={(value) => setSettings({ ...settings, exits: { ...settings.exits, tp2Multiplier: value } })} />
-            <NumberField label="TP1 sell fraction" value={settings.exits.tp1SellFraction} onChange={(value) => setSettings({ ...settings, exits: { ...settings.exits, tp1SellFraction: value } })} />
-            <NumberField label="TP2 sell fraction" value={settings.exits.tp2SellFraction} onChange={(value) => setSettings({ ...settings, exits: { ...settings.exits, tp2SellFraction: value } })} />
-            <NumberField label="Post TP1 retrace %" value={settings.exits.postTp1RetracePercent} onChange={(value) => setSettings({ ...settings, exits: { ...settings.exits, postTp1RetracePercent: value } })} />
-            <NumberField label="Trailing stop %" value={settings.exits.trailingStopPercent} onChange={(value) => setSettings({ ...settings, exits: { ...settings.exits, trailingStopPercent: value } })} />
-            <NumberField label="Time stop min" value={settings.exits.timeStopMinutes} onChange={(value) => setSettings({ ...settings, exits: { ...settings.exits, timeStopMinutes: value } })} />
-            <NumberField label="Min return at time stop %" value={settings.exits.timeStopMinReturnPercent} onChange={(value) => setSettings({ ...settings, exits: { ...settings.exits, timeStopMinReturnPercent: value } })} />
-            <NumberField label="Hard time limit min" value={settings.exits.timeLimitMinutes} onChange={(value) => setSettings({ ...settings, exits: { ...settings.exits, timeLimitMinutes: value } })} />
+              if (field.path === "tradeMode") {
+                return (
+                  <label
+                    key={field.path}
+                    className={clsx(
+                      "block rounded-[16px] border px-4 py-4 transition",
+                      isChangedFromActive ? "border-[rgba(163,230,53,0.2)] bg-[rgba(163,230,53,0.06)]" : "border-bg-border bg-bg-hover/30",
+                    )}
+                    title={help}
+                  >
+                    <FieldLabel
+                      label={field.label}
+                      isChangedFromActive={isChangedFromActive}
+                      isUnsaved={isUnsaved}
+                      isLiveAffecting={isLiveAffecting}
+                    />
+                    <select
+                      value={String(value)}
+                      onChange={(event) => updatePath(field.path, event.target.value)}
+                      className="mt-3 w-full rounded-[12px] border border-bg-border bg-bg-primary/65 px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent"
+                    >
+                      <option value="DRY_RUN">DRY_RUN</option>
+                      <option value="LIVE">LIVE</option>
+                    </select>
+                    <FieldDiff path={field.path} activeValue={activeValue} value={value} issues={issues} />
+                  </label>
+                );
+              }
+
+              if (field.readOnly) {
+                return (
+                  <div key={field.path} className="rounded-[14px] border border-bg-border bg-bg-primary/45 px-4 py-3 opacity-80">
+                    <div className="micro-stat-label">{field.label}</div>
+                    <div className="mt-2 text-sm font-medium text-text-primary">{smartFormatValue(field.path, value)}</div>
+                  </div>
+                );
+              }
+
+              return (
+                <label
+                  key={field.path}
+                  className={clsx(
+                    "block rounded-[16px] border px-4 py-4 transition",
+                    isChangedFromActive ? "border-[rgba(163,230,53,0.2)] bg-[rgba(163,230,53,0.06)]" : "border-bg-border bg-bg-hover/30",
+                    issues.length > 0 && "border-[rgba(251,113,133,0.2)] bg-[rgba(251,113,133,0.06)]",
+                  )}
+                  title={help}
+                >
+                  <FieldLabel
+                    label={field.label}
+                    isChangedFromActive={isChangedFromActive}
+                    isUnsaved={isUnsaved}
+                    isLiveAffecting={isLiveAffecting}
+                  />
+                  <input
+                    type="number"
+                    step={field.step ?? "any"}
+                    value={String(value)}
+                    onChange={(event) => updatePath(field.path, event.target.value)}
+                    className="mt-3 w-full rounded-[12px] border border-bg-border bg-bg-primary/65 px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent"
+                  />
+                  <FieldDiff path={field.path} activeValue={activeValue} value={value} issues={issues} />
+                </label>
+              );
+            })}
           </div>
         </Panel>
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-        <Panel title="Research dry-run lane" eyebrow="Bounded tuning window">
-          <div className="space-y-5">
-            <NumberField label="Discovery limit" value={settings.research.discoveryLimit} onChange={(value) => setSettings({ ...settings, research: { ...settings.research, discoveryLimit: value } })} />
-            <NumberField label="Deep-evaluation shortlist" value={settings.research.fullEvaluationLimit} onChange={(value) => setSettings({ ...settings, research: { ...settings.research, fullEvaluationLimit: value } })} />
-            <NumberField label="Max mock positions" value={settings.research.maxMockPositions} onChange={(value) => setSettings({ ...settings, research: { ...settings.research, maxMockPositions: value } })} />
-            <NumberField label="Fixed ticket USD" value={settings.research.fixedPositionSizeUsd} onChange={(value) => setSettings({ ...settings, research: { ...settings.research, fixedPositionSizeUsd: value } })} />
-            <DurationField label="Poll interval sec" valueMs={settings.research.pollIntervalMs} divisor={1000} onChange={(valueMs) => setSettings({ ...settings, research: { ...settings.research, pollIntervalMs: valueMs } })} />
-            <DurationField label="Max run window min" valueMs={settings.research.maxRunDurationMs} divisor={60_000} onChange={(valueMs) => setSettings({ ...settings, research: { ...settings.research, maxRunDurationMs: valueMs } })} />
-            <NumberField label="Birdeye unit cap" value={settings.research.birdeyeUnitCap} onChange={(value) => setSettings({ ...settings, research: { ...settings.research, birdeyeUnitCap: value } })} />
-            <NumberField label="Helius unit cap" value={settings.research.heliusUnitCap} onChange={(value) => setSettings({ ...settings, research: { ...settings.research, heliusUnitCap: value } })} />
-          </div>
+      <section className="grid gap-6 2xl:grid-cols-[0.9fr_1.1fr]">
+        <Panel title="Validation summary" eyebrow="Structural issues" tone={serverState.validation.issues.length > 0 ? "critical" : "passive"}>
+          {serverState.validation.issues.length === 0 ? (
+            <div className="rounded-[14px] border border-bg-border bg-bg-hover/40 px-4 py-4 text-sm text-text-secondary">
+              No validation issue is blocking this draft.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {serverState.validation.issues.map((issue) => (
+                <div key={`${issue.path}-${issue.message}`} className="rounded-[14px] border border-bg-border bg-bg-hover/40 px-4 py-3">
+                  <div className="text-xs uppercase tracking-[0.24em] text-text-muted">{issue.path || "settings"}</div>
+                  <div className="mt-2 text-sm text-text-primary">{issue.message}</div>
+                </div>
+              ))}
+            </div>
+          )}
         </Panel>
 
-        <Panel title="Research contract" eyebrow="What the lane does now">
-          <div className="space-y-3 text-sm leading-6 text-text-secondary">
-            <p>Discovery is one Birdeye page across all sources, capped by the research limit instead of the live queue cadence.</p>
-            <p>The lane cheap-scores the page first, then runs full deep evaluation only on the shortlist to avoid burning Helius and Birdeye units on obvious garbage.</p>
-            <p>Mock positions ignore live desk cash and use the fixed ticket size, capped by the research position count you set here.</p>
-            <p>The run polls exits on the configured cadence, then force-closes any survivors at the last seen price when the research window expires.</p>
-          </div>
+        <Panel title="Dry-run review" eyebrow="Promotion gate" tone={serverState.dryRun?.safeToPromote ? "passive" : "warning"}>
+          {serverState.dryRun ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <StatusPill value={serverState.dryRun.safeToPromote ? "ready" : "blocked"} />
+                <span className="text-sm text-text-secondary">Ran {formatTimestamp(serverState.dryRun.ranAt)}</span>
+              </div>
+              <ReviewMetric label="Current gate" value={serverState.dryRun.currentGate.allowed ? "Allowed" : serverState.dryRun.currentGate.reason ?? "Blocked"} />
+              <ReviewMetric label="Draft gate" value={serverState.dryRun.draftGate.allowed ? "Allowed" : serverState.dryRun.draftGate.reason ?? "Blocked"} />
+              <ReviewMetric label="No new blocker" value={serverState.dryRun.noNewBlocker ? "Yes" : "No"} />
+              <ReviewMetric label="Queued candidates" value={String(serverState.dryRun.queuedCandidates)} />
+              <ReviewMetric label="Open positions" value={String(serverState.dryRun.openPositions)} />
+            </div>
+          ) : (
+            <div className="rounded-[14px] border border-bg-border bg-bg-hover/40 px-4 py-4 text-sm text-text-secondary">
+              No dry-run summary recorded yet.
+            </div>
+          )}
         </Panel>
       </section>
 
-      <div className="flex justify-end">
-        <button
-          onClick={save}
-          className="btn-primary disabled:cursor-not-allowed disabled:opacity-60"
-          disabled={pending || !dirty}
-        >
-          {pending ? "Saving..." : dirty ? "Save runtime config" : "Runtime config saved"}
-        </button>
+      <div className="sticky bottom-4 z-20 rounded-[16px] border border-bg-border bg-bg-secondary p-4 shadow-[0_18px_50px_rgba(0,0,0,0.22)]">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div>
+            <div className="text-sm font-medium text-text-primary">Save the draft, run dry run, then promote.</div>
+            <div className="mt-1 text-sm text-text-secondary">
+              Active settings updated at {formatTimestamp(serverState.activeUpdatedAt)}.
+              {serverState.basedOnUpdatedAt ? ` Draft is based on ${formatTimestamp(serverState.basedOnUpdatedAt)}.` : ""}
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={discardDraft} disabled={isPending || (!serverState.draft && !localDirty)} className="btn-ghost border border-bg-border disabled:cursor-not-allowed disabled:opacity-50" title="Throw away the current draft">
+              Discard draft
+            </button>
+            <button onClick={saveDraft} disabled={isPending || !localDirty} className="btn-ghost border border-bg-border disabled:cursor-not-allowed disabled:opacity-50" title="Persist the current draft">
+              Save draft
+            </button>
+            <button onClick={runDryRun} disabled={isPending || !serverState.draft || !serverState.validation.ok} className="btn-ghost border border-bg-border disabled:cursor-not-allowed disabled:opacity-50" title="Run the dry-run promotion gate">
+              Run dry run
+            </button>
+            <button onClick={promote} disabled={isPending || !canPromote} className="btn-primary disabled:cursor-not-allowed disabled:opacity-50" title="Promote the reviewed draft to active">
+              Promote active
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-function NumberField(props: { label: string; value: number; onChange: (value: number) => void }) {
-  return (
-    <label className="block">
-      <span className="mb-2 block text-xs uppercase tracking-[0.3em] text-text-muted">{props.label}</span>
-      <input
-        type="number"
-        step="any"
-        value={props.value}
-        onChange={(event) => props.onChange(Number(event.target.value))}
-        className="w-full rounded-2xl border border-bg-border bg-bg-hover/35 px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent-blue"
-      />
-    </label>
-  );
-}
+function WorkflowStepCard(props: {
+  title: string;
+  detail: string;
+  status: "pass" | "warning" | "danger" | "idle";
+  icon: React.ComponentType<{ className?: string }>;
+}) {
+  const Icon = props.icon;
+  const toneClass = {
+    pass: "border-[rgba(163,230,53,0.18)] bg-[rgba(163,230,53,0.08)]",
+    warning: "border-[rgba(250,204,21,0.18)] bg-[rgba(250,204,21,0.08)]",
+    danger: "border-[rgba(251,113,133,0.2)] bg-[rgba(251,113,133,0.08)]",
+    idle: "border-bg-border bg-bg-hover/30",
+  }[props.status];
 
-function ReadOnlyField(props: { label: string; value: string }) {
   return (
-    <div className="panel-muted rounded-2xl px-4 py-3">
-      <div className="text-xs uppercase tracking-[0.3em] text-text-muted">{props.label}</div>
-      <div className="mt-2 text-sm font-medium text-text-primary">{props.value}</div>
+    <div className={`rounded-[16px] border px-4 py-4 ${toneClass}`}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="section-kicker">{props.title}</div>
+        <Icon className="h-4 w-4 text-text-secondary" />
+      </div>
+      <div className="mt-3">
+        <StatusPill value={props.status === "idle" ? "waiting" : props.status} />
+      </div>
+      <div className="mt-3 text-sm leading-6 text-text-secondary">{props.detail}</div>
     </div>
   );
 }
 
-function DurationField(props: {
-  label: string;
-  valueMs: number;
-  divisor: number;
-  onChange: (valueMs: number) => void;
-}) {
+function SummaryRow(props: { label: string; value: string }) {
   return (
-    <label className="block">
-      <span className="mb-2 block text-xs uppercase tracking-[0.3em] text-text-muted">{props.label}</span>
-      <input
-        type="number"
-        step="any"
-        value={props.valueMs / props.divisor}
-        onChange={(event) => props.onChange(Number(event.target.value) * props.divisor)}
-        className="w-full rounded-2xl border border-bg-border bg-bg-hover/35 px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent-blue"
-      />
-    </label>
+    <div className="rounded-[12px] border border-bg-border bg-bg-primary/55 px-3 py-3">
+      <div className="text-xs uppercase tracking-[0.18em] text-text-muted">{props.label}</div>
+      <div className="mt-2 text-sm font-semibold text-text-primary">{props.value}</div>
+    </div>
   );
 }
 
-function MiniMetric(props: { label: string; value: string }) {
+function ReviewMetric(props: { label: string; value: string }) {
   return (
-    <div className="micro-stat rounded-[22px] px-4 py-3">
+    <div className="micro-stat">
       <div className="micro-stat-label">{props.label}</div>
       <div className="mt-2 text-sm font-medium text-text-primary">{props.value}</div>
     </div>
   );
+}
+
+function FieldLabel(props: {
+  label: string;
+  isChangedFromActive: boolean;
+  isUnsaved: boolean;
+  isLiveAffecting: boolean;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <div>
+        <span className="block text-xs uppercase tracking-[0.3em] text-text-muted">{props.label}</span>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {props.isChangedFromActive ? <StatusPill value="changed" /> : <span className="meta-chip !px-2 !py-1 text-[10px]">Active match</span>}
+          {props.isUnsaved ? <span className="meta-chip !px-2 !py-1 text-[10px]">Unsaved</span> : null}
+          {props.isLiveAffecting ? <span className="meta-chip !px-2 !py-1 text-[10px]">Live gate</span> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FieldDiff(props: {
+  path: string;
+  activeValue: string | number;
+  value: string | number;
+  issues: SettingsControlState["validation"]["issues"];
+}) {
+  return (
+    <div className="mt-3 space-y-2">
+      <div className="flex flex-wrap items-center gap-2 text-xs text-text-muted">
+        <span>Active</span>
+        <span className="font-mono text-text-primary">{smartFormatValue(props.path, props.activeValue)}</span>
+        <span>→</span>
+        <span className="font-mono text-text-primary">{smartFormatValue(props.path, props.value)}</span>
+      </div>
+      {props.issues.length > 0 ? (
+        <div className="space-y-1">
+          {props.issues.map((issue) => (
+            <div key={`${issue.path}-${issue.message}`} className="text-xs text-[var(--danger)]">
+              {issue.message}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function readValue(settings: BotSettings, path: string): string | number {
+  return path.split(".").reduce<unknown>((current, segment) => (current as Record<string, unknown>)[segment], settings as unknown) as string | number;
+}
+
+function isSameValue(left: string | number, right: string | number) {
+  return String(left) === String(right);
+}
+
+function matchesField(issuePath: string, fieldPath: string) {
+  return issuePath === fieldPath || issuePath.startsWith(`${fieldPath}.`) || fieldPath.startsWith(`${issuePath}.`);
 }

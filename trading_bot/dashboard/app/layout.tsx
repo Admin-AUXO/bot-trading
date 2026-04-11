@@ -1,28 +1,36 @@
 import type { Metadata } from "next";
-import { IBM_Plex_Mono, Space_Grotesk } from "next/font/google";
+import { Geist_Mono, Manrope, Space_Grotesk } from "next/font/google";
 import { AppShell } from "@/components/app-shell";
 import "./globals.css";
 
-const space = Space_Grotesk({
+const manrope = Manrope({
   subsets: ["latin"],
-  variable: "--font-space",
+  variable: "--font-body",
+  display: "swap",
 });
 
-const plexMono = IBM_Plex_Mono({
+const space = Space_Grotesk({
+  subsets: ["latin"],
+  variable: "--font-heading",
+  display: "swap",
+  weight: ["500", "600", "700"],
+});
+
+const geistMono = Geist_Mono({
   subsets: ["latin"],
   variable: "--font-mono",
-  weight: ["400", "500", "600"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "Trading Bot",
-  description: "Operator shell for the S2-only graduation bot",
+  title: "Graduation Control",
+  description: "Operator dashboard for the graduation bot",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className={`${space.variable} ${plexMono.variable} font-sans`}>
+      <body className={`${manrope.variable} ${space.variable} ${geistMono.variable} font-sans antialiased`}>
         <AppShell>{children}</AppShell>
       </body>
     </html>

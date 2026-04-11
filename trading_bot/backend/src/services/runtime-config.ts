@@ -1,8 +1,139 @@
+import { Prisma } from "@prisma/client";
+import { z } from "zod";
 import { db } from "../db/client.js";
 import { env } from "../config/env.js";
 import type { BotSettings } from "../types/domain.js";
 import { toJsonValue } from "../utils/json.js";
-import { z } from "zod";
+
+export type SettingsValidationIssue = {
+  path: string;
+  message: string;
+};
+
+export type SettingsDryRunSummary = {
+  ranAt: string;
+  basedOnUpdatedAt: string;
+  changedPaths: string[];
+  liveAffectingPaths: string[];
+  currentGate: {
+    allowed: boolean;
+    reason: string | null;
+  };
+  draftGate: {
+    allowed: boolean;
+    reason: string | null;
+  };
+  openPositions: number;
+  queuedCandidates: number;
+  noNewBlocker: boolean;
+  safeToPromote: boolean;
+};
+
+export type SettingsControlState = {
+  active: BotSettings;
+  draft: BotSettings | null;
+  dirty: boolean;
+  changedPaths: string[];
+  liveAffectingPaths: string[];
+  validation: {
+    ok: boolean;
+    issues: SettingsValidationIssue[];
+  };
+  dryRun: SettingsDryRunSummary | null;
+  activeUpdatedAt: string;
+  basedOnUpdatedAt: string | null;
+  sections: Array<{
+    id: "capital" | "entry" | "exit" | "research" | "advanced";
+    label: string;
+    editable: boolean;
+    paths: string[];
+  }>;
+};
+
+type ApplySettingsMetadata = {
+  appliedBy: "bootstrap" | "backfill" | "direct_patch" | "draft_promote";
+  changedPaths?: string[];
+  liveAffectingPaths?: string[];
+  dryRunSummary?: SettingsDryRunSummary | null;
+  basedOnUpdatedAt?: string | null;
+};
+
+const SETTINGS_SECTIONS: SettingsControlState["sections"] = [
+  {
+    id: "capital",
+    label: "Capital",
+    editable: true,
+    paths: ["tradeMode", "capital.capitalUsd", "capital.positionSizeUsd", "capital.maxOpenPositions"],
+  },
+  {
+    id: "entry",
+    label: "Entry",
+    editable: true,
+    paths: [
+      "filters.minLiquidityUsd",
+      "filters.maxMarketCapUsd",
+      "filters.minHolders",
+      "filters.minUniqueBuyers5m",
+      "filters.minBuySellRatio",
+      "filters.maxTop10HolderPercent",
+      "filters.maxSingleHolderPercent",
+      "filters.maxGraduationAgeSeconds",
+      "filters.minVolume5mUsd",
+      "filters.maxNegativePriceChange5mPercent",
+      "filters.securityCheckMinLiquidityUsd",
+      "filters.securityCheckVolumeMultiplier",
+      "filters.maxTransferFeePercent",
+    ],
+  },
+  {
+    id: "exit",
+    label: "Exit",
+    editable: true,
+    paths: [
+      "exits.stopLossPercent",
+      "exits.tp1Multiplier",
+      "exits.tp2Multiplier",
+      "exits.tp1SellFraction",
+      "exits.tp2SellFraction",
+      "exits.postTp1RetracePercent",
+      "exits.trailingStopPercent",
+      "exits.timeStopMinutes",
+      "exits.timeStopMinReturnPercent",
+      "exits.timeLimitMinutes",
+    ],
+  },
+  {
+    id: "research",
+    label: "Research",
+    editable: true,
+    paths: [
+      "research.discoveryLimit",
+      "research.fullEvaluationLimit",
+      "research.maxMockPositions",
+      "research.fixedPositionSizeUsd",
+      "research.pollIntervalMs",
+      "research.maxRunDurationMs",
+      "research.birdeyeUnitCap",
+      "research.heliusUnitCap",
+    ],
+  },
+  {
+    id: "advanced",
+    label: "Advanced",
+    editable: false,
+    paths: [
+      "cadence.discoveryIntervalMs",
+      "cadence.offHoursDiscoveryIntervalMs",
+      "cadence.evaluationIntervalMs",
+      "cadence.idleEvaluationIntervalMs",
+      "cadence.exitIntervalMs",
+      "cadence.entryDelayMs",
+      "cadence.evaluationConcurrency",
+    ],
+  },
+];
+
+const LIVE_AFFECTING_PREFIXES = ["tradeMode", "capital.", "filters.", "exits.", "research."];
 
 const botSettingsSchema = z.object({
   tradeMode: z.enum(["DRY_RUN", "LIVE"]),
@@ -195,6 +326,55 @@ function validateSettings(input: BotSettings): BotSettings {
   return botSettingsSchema.parse(input);
 }
 
+function safeValidateSettings(input: BotSettings): { ok: boolean; issues: SettingsValidationIssue[] } {
+  const parsed = botSettingsSchema.safeParse(input);
+  if (parsed.success) {
+    return { ok: true, issues: [] };
+  }
+
+  return {
+    ok: false,
+    issues: parsed.error.issues.map((issue) => ({
+      path: issue.path.join("."),
+      message: issue.message,
+    })),
+  };
+}
+
+function getChangedPaths(active: BotSettings, draft: BotSettings): string[] {
+  return diffPaths(active as unknown as Record<string, unknown>, draft as unknown as Record<string, unknown>);
+}
+
+function getLiveAffectingPaths(paths: string[]): string[] {
+  return paths.filter((path) => LIVE_AFFECTING_PREFIXES.some((prefix) => path === prefix.replace(/\.$/, "") || path.startsWith(prefix)));
+}
+
+function diffPaths(left: Record<string, unknown>, right: Record<string, unknown>, prefix = ""): string[] {
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+  const changed: string[] = [];
+
+  for (const key of keys) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    const leftValue = left[key];
+    const rightValue = right[key];
+
+    if (isPlainObject(leftValue) && isPlainObject(rightValue)) {
+      changed.push(...diffPaths(leftValue, rightValue, path));
+      continue;
+    }
+
+    if (JSON.stringify(leftValue) !== JSON.stringify(rightValue)) {
+      changed.push(path);
+    }
+  }
+
+  return changed;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
 export class RuntimeConfigService {
   private cachedSettings: BotSettings | null = null;
 
@@ -208,7 +388,24 @@ export class RuntimeConfigService {
         settings: toJsonValue(defaults),
       },
     });
-    this.cachedSettings = validateSettings(mergeSettings(defaults, row.settings as Partial<BotSettings>));
+    const active = validateSettings(mergeSettings(defaults, row.settings as Partial<BotSettings>));
+    const latestVersion = await db.runtimeConfigVersion.findFirst({
+      orderBy: [{ activatedAt: "desc" }, { id: "desc" }],
+    });
+
+    if (!latestVersion || JSON.stringify(latestVersion.settings) !== JSON.stringify(row.settings)) {
+      await db.runtimeConfigVersion.create({
+        data: {
+          settings: row.settings,
+          changedPaths: [],
+          liveAffectingPaths: [],
+          appliedBy: latestVersion ? "backfill" : "bootstrap",
+          activatedAt: row.updatedAt,
+        },
+      });
+    }
+
+    this.cachedSettings = active;
   }
 
   async getSettings(): Promise<BotSettings> {
@@ -230,6 +427,129 @@ export class RuntimeConfigService {
   async patchSettings(input: Partial<BotSettings>): Promise<BotSettings> {
     const current = await this.getSettings();
     const next = validateSettings(mergeSettings(current, input));
+    const changedPaths = getChangedPaths(current, next);
+    await this.applySettings(next, {
+      appliedBy: "direct_patch",
+      changedPaths,
+      liveAffectingPaths: getLiveAffectingPaths(changedPaths),
+    });
+    return next;
+  }
+
+  async getControlState(): Promise<SettingsControlState> {
+    const [active, activeRow, draftRow] = await Promise.all([
+      this.getSettings(),
+      db.runtimeConfig.findUniqueOrThrow({ where: { id: "singleton" } }),
+      db.runtimeConfigDraft.findUnique({ where: { id: "singleton" } }),
+    ]);
+
+    const draft = draftRow ? mergeSettings(active, draftRow.draftSettings as Partial<BotSettings>) : null;
+    const changedPaths = draft ? getChangedPaths(active, draft) : [];
+    const liveAffectingPaths = getLiveAffectingPaths(changedPaths);
+    const validation = draft ? safeValidateSettings(draft) : { ok: true, issues: [] };
+
+    return {
+      active,
+      draft,
+      dirty: Boolean(draft && changedPaths.length > 0),
+      changedPaths,
+      liveAffectingPaths,
+      validation,
+      dryRun: draftRow?.dryRunSummary ? draftRow.dryRunSummary as SettingsDryRunSummary : null,
+      activeUpdatedAt: activeRow.updatedAt.toISOString(),
+      basedOnUpdatedAt: draftRow?.basedOnUpdatedAt.toISOString() ?? null,
+      sections: SETTINGS_SECTIONS,
+    };
+  }
+
+  async patchDraft(input: Partial<BotSettings>): Promise<SettingsControlState> {
+    const [active, activeRow, draftRow] = await Promise.all([
+      this.getSettings(),
+      db.runtimeConfig.findUniqueOrThrow({ where: { id: "singleton" } }),
+      db.runtimeConfigDraft.findUnique({ where: { id: "singleton" } }),
+    ]);
+
+    const currentDraft = draftRow
+      ? mergeSettings(active, draftRow.draftSettings as Partial<BotSettings>)
+      : active;
+    const nextDraft = mergeSettings(currentDraft, input);
+
+    await db.runtimeConfigDraft.upsert({
+      where: { id: "singleton" },
+      update: {
+        draftSettings: toJsonValue(nextDraft),
+        dryRunSummary: Prisma.JsonNull,
+      },
+      create: {
+        id: "singleton",
+        draftSettings: toJsonValue(nextDraft),
+        basedOnUpdatedAt: activeRow.updatedAt,
+      },
+    });
+
+    return this.getControlState();
+  }
+
+  async discardDraft(): Promise<SettingsControlState> {
+    await db.runtimeConfigDraft.deleteMany({ where: { id: "singleton" } });
+    return this.getControlState();
+  }
+
+  async saveDraftDryRun(summary: SettingsDryRunSummary): Promise<SettingsControlState> {
+    const draftRow = await db.runtimeConfigDraft.findUnique({ where: { id: "singleton" } });
+    if (!draftRow) {
+      throw new Error("no settings draft is available");
+    }
+
+    await db.runtimeConfigDraft.update({
+      where: { id: "singleton" },
+      data: {
+        dryRunSummary: toJsonValue(summary),
+      },
+    });
+
+    return this.getControlState();
+  }
+
+  async promoteDraft(): Promise<SettingsControlState> {
+    const [state, draftRow, activeRow] = await Promise.all([
+      this.getControlState(),
+      db.runtimeConfigDraft.findUnique({ where: { id: "singleton" } }),
+      db.runtimeConfig.findUniqueOrThrow({ where: { id: "singleton" } }),
+    ]);
+
+    if (!draftRow || !state.draft) {
+      throw new Error("no settings draft is available");
+    }
+
+    if (draftRow.basedOnUpdatedAt.getTime() !== activeRow.updatedAt.getTime()) {
+      throw new Error("active settings changed while the draft was open; refresh and re-review before promoting");
+    }
+
+    if (!state.validation.ok) {
+      throw new Error("draft settings are invalid; fix validation issues before promoting");
+    }
+
+    await this.applySettings(state.draft, {
+      appliedBy: "draft_promote",
+      changedPaths: state.changedPaths,
+      liveAffectingPaths: state.liveAffectingPaths,
+      dryRunSummary: state.dryRun,
+      basedOnUpdatedAt: state.basedOnUpdatedAt,
+    });
+    await db.runtimeConfigDraft.delete({ where: { id: "singleton" } });
+    return this.getControlState();
+  }
+
+  private async applySettings(next: BotSettings, metadata: ApplySettingsMetadata): Promise<void> {
+    const current = await this.getSettings();
+    const changedPaths = metadata.changedPaths ?? getChangedPaths(current, next);
+    if (changedPaths.length === 0) {
+      this.cachedSettings = next;
+      return;
+    }
+
+    const liveAffectingPaths = metadata.liveAffectingPaths ?? getLiveAffectingPaths(changedPaths);
     const tradeModeChanged = next.tradeMode !== current.tradeMode;
     const capitalChanged = next.capital.capitalUsd !== current.capital.capitalUsd;
     const [openPositions, botState, activeResearchRun] = await Promise.all([
@@ -257,6 +577,17 @@ export class RuntimeConfigService {
         create: { id: "singleton", settings: toJsonValue(next) },
       });
 
+      await tx.runtimeConfigVersion.create({
+        data: {
+          settings: toJsonValue(next),
+          changedPaths: toJsonValue(changedPaths),
+          liveAffectingPaths: toJsonValue(liveAffectingPaths),
+          dryRunSummary: metadata.dryRunSummary ? toJsonValue(metadata.dryRunSummary) : undefined,
+          appliedBy: metadata.appliedBy,
+          basedOnUpdatedAt: metadata.basedOnUpdatedAt ? new Date(metadata.basedOnUpdatedAt) : undefined,
+        },
+      });
+
       if (botState) {
         await tx.botState.update({
           where: { id: "singleton" },
@@ -272,6 +603,5 @@ export class RuntimeConfigService {
     });
 
     this.cachedSettings = next;
-    return next;
   }
 }

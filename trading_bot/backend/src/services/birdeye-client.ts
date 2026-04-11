@@ -200,6 +200,7 @@ export class BirdeyeClient {
 
     const startedAt = Date.now();
     let rawPayloadCaptured = false;
+    let apiEventRecorded = false;
 
     try {
       const response = await fetch(url, {
@@ -228,10 +229,12 @@ export class BirdeyeClient {
 
       if (!response.ok) {
         this.record(endpoint, units, false, latencyMs, { status: response.status });
+        apiEventRecorded = true;
         throw new Error(`Birdeye ${endpoint} failed with ${response.status}`);
       }
 
       this.record(endpoint, units, true, latencyMs);
+      apiEventRecorded = true;
       return payload as T;
     } catch (error) {
       const latencyMs = Date.now() - startedAt;
@@ -247,9 +250,11 @@ export class BirdeyeClient {
           errorMessage: error instanceof Error ? error.message : String(error),
         });
       }
-      this.record(endpoint, units, false, latencyMs, {
-        error: error instanceof Error ? error.message : String(error),
-      });
+      if (!apiEventRecorded) {
+        this.record(endpoint, units, false, latencyMs, {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
       throw error;
     }
   }
@@ -258,28 +263,46 @@ export class BirdeyeClient {
     source?: string;
     minGraduatedTime: number;
     limit: number;
-    minLiquidityUsd: number;
-    minVolume5mUsd: number;
-    minHolders: number;
+    minLiquidityUsd?: number;
+    minVolume5mUsd?: number;
+    minHolders?: number;
+    minLastTradeTime?: number | null;
+    sortBy?: string;
+    sortType?: "asc" | "desc";
   }): Promise<DiscoveryToken[]> {
+    const requestParams: Record<string, string | number | boolean> = {
+      // Birdeye rejects this endpoint when too many filters are sent together.
+      // Keep looser discovery shaping here and leave the stricter strategy contract
+      // to the client-side evaluation stack.
+      source: params.source && params.source.trim().length > 0 ? params.source : "all",
+      sort_by: params.sortBy?.trim().length ? params.sortBy : "graduated_time",
+      sort_type: params.sortType ?? "desc",
+      graduated: true,
+      min_graduated_time: params.minGraduatedTime,
+      limit: params.limit,
+    };
+
+    if ((params.minLiquidityUsd ?? 0) > 0) {
+      requestParams.min_liquidity = params.minLiquidityUsd ?? 0;
+    }
+
+    if ((params.minVolume5mUsd ?? 0) > 0) {
+      requestParams.min_volume_5m_usd = params.minVolume5mUsd ?? 0;
+    }
+
+    if ((params.minLastTradeTime ?? 0) > 0) {
+      requestParams.min_last_trade_unix_time = params.minLastTradeTime ?? 0;
+    }
+
     const response = await this.request<{ data?: { items?: Record<string, unknown>[] } }>(
       "/defi/v3/token/meme/list",
       100,
-      {
-        source: params.source && params.source.trim().length > 0 ? params.source : "all",
-        sort_by: "graduated_time",
-        sort_type: "desc",
-        graduated: true,
-        min_graduated_time: params.minGraduatedTime,
-        min_liquidity: params.minLiquidityUsd,
-        min_volume_5m_usd: params.minVolume5mUsd,
-        min_holder: params.minHolders,
-        limit: params.limit,
-      },
+      requestParams,
     );
 
     return (response.data?.items ?? [])
       .map(parseDiscoveryToken)
+      .filter((token) => (token.holders ?? 0) >= (params.minHolders ?? 0))
       .filter((token) => token.mint.length > 0);
   }
 

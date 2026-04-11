@@ -9,6 +9,7 @@ source_files:
   - .codex/hooks.json
   - AGENTS.md
   - trading_bot/AGENTS.md
+  - notes/reference/agent-workflow.md
 graph_checked:
 next_action:
 ---
@@ -31,6 +32,7 @@ Purpose: use Obsidian as the repo’s documentation and memory layer while keepi
 - `notes/` also stores durable memory for later Codex sessions.
 - Graphify stays code-only and maps source structure.
 - The Obsidian skill, AGENTS files, and hook reminder all assume vault-first reading and vault updates before a task is considered finished.
+- General agent workflow guidance belongs in [`agent-workflow.md`](agent-workflow.md), not buried in narrow runbooks.
 
 ## Docker Setup In This Repo
 
@@ -66,9 +68,10 @@ Before code:
 
 1. Read [`../README.md`](../README.md)
 2. Read [`index.md`](index.md)
-3. Read the relevant reference doc
-4. Read any relevant durable note under `../sessions/`, `../investigations/`, `../decisions/`, `../runbooks/`, or `../trading-memory/`
-5. Read [`../../graphify-out/GRAPH_REPORT.md`](../../graphify-out/GRAPH_REPORT.md) if architecture context matters
+3. Read [`agent-workflow.md`](agent-workflow.md) when the task is planning-heavy, ambiguous, or should leave reusable guidance behind
+4. Read the relevant reference doc
+5. Read any relevant durable note under `../sessions/`, `../investigations/`, `../decisions/`, `../runbooks/`, or `../trading-memory/`
+6. Read [`../../graphify-out/GRAPH_REPORT.md`](../../graphify-out/GRAPH_REPORT.md) if architecture context matters
 
 After substantive work:
 
@@ -79,6 +82,7 @@ After substantive work:
 ## Best Use Cases
 
 - Session handoffs so later Codex runs do not rediscover the same context
+- General agent workflow guidance, questioning rules, and documentation discipline that should apply across many tasks
 - Strategy memory for threshold changes, recurring false positives, and lane-pacing lessons
 - Provider memory for Birdeye and Helius quotas, latency patterns, and endpoint gotchas
 - Execution memory for landing failures, wallet safety issues, and order-routing surprises
@@ -91,6 +95,7 @@ After substantive work:
 ## Recommended Note Types
 
 - `notes/reference/`: canonical repo contracts
+- `notes/reference/agent-workflow.md`: general planning, questioning, and vault discipline
 - `notes/sessions/`: session handoffs
 - `notes/investigations/`: debugging and analysis notes
 - `notes/decisions/`: architecture and strategy decisions

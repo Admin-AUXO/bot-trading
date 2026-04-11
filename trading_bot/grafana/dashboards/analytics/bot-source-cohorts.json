@@ -1,0 +1,702 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "description": "Source-level and cohort-level performance review.",
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": true,
+      "keepTime": true,
+      "tags": [],
+      "targetBlank": false,
+      "title": "Analyst Insights Overview",
+      "tooltip": "",
+      "type": "link",
+      "url": "/d/bot-analyst-insights"
+    },
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": true,
+      "keepTime": true,
+      "tags": [],
+      "targetBlank": false,
+      "title": "Candidate & Funnel Analytics",
+      "tooltip": "",
+      "type": "link",
+      "url": "/d/bot-candidate-funnel"
+    },
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": true,
+      "keepTime": true,
+      "tags": [],
+      "targetBlank": false,
+      "title": "Position & PnL Analytics",
+      "tooltip": "",
+      "type": "link",
+      "url": "/d/bot-position-pnl"
+    }
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Purpose",
+      "type": "text",
+      "datasource": {
+        "type": "grafana",
+        "uid": "-- Grafana --"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "content": "Which sources and cohorts generate trades worth keeping versus expensive noise worth killing.",
+        "mode": "markdown"
+      }
+    },
+    {
+      "id": 2,
+      "title": "Best Source PnL",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(MAX(realized_pnl_usd), 0) AS value FROM v_source_outcome_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND ('${configVersion}' = '__all' OR config_version = CAST('${configVersion}' AS integer))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 3,
+      "title": "Worst Source PnL",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(MIN(realized_pnl_usd), 0) AS value FROM v_source_outcome_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND ('${configVersion}' = '__all' OR config_version = CAST('${configVersion}' AS integer))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 4,
+      "title": "Best Cohort Return",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(MAX(avg_return_pct), 0) AS value FROM v_position_cohort_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND ('${configVersion}' = '__all' OR config_version = CAST('${configVersion}' AS integer))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 5,
+      "title": "Worst Cohort Return",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(MIN(avg_return_pct), 0) AS value FROM v_position_cohort_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND ('${configVersion}' = '__all' OR config_version = CAST('${configVersion}' AS integer))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 6,
+      "title": "Source PnL Trend",
+      "type": "timeseries",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT session_date::timestamp AS \"time\", source AS metric, realized_pnl_usd AS value FROM v_source_outcome_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${configVersion}' = '__all' OR config_version = CAST('${configVersion}' AS integer)) ORDER BY 1, 2",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Source Acceptance Trend",
+      "type": "timeseries",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT session_date::timestamp AS \"time\", source AS metric, acceptance_rate_pct AS value FROM v_source_outcome_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${configVersion}' = '__all' OR config_version = CAST('${configVersion}' AS integer)) ORDER BY 1, 2",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Candidate Cohort Leaderboard",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT session_date, source, config_version, daypart, security_risk, liquidity_band, volume_band, candidate_count, accepted_count, bought_count, avg_entry_score, win_count, loss_count, realized_pnl_usd FROM v_candidate_cohort_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${daypart}' = '__all' OR daypart = '${daypart}') AND ('${securityRisk}' = '__all' OR security_risk = '${securityRisk}') AND ('${configVersion}' = '__all' OR config_version = CAST('${configVersion}' AS integer)) ORDER BY session_date DESC, realized_pnl_usd DESC LIMIT 80",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "enablePagination": false,
+          "reducer": [],
+          "show": false
+        },
+        "showHeader": true
+      }
+    },
+    {
+      "id": 9,
+      "title": "Position Cohort Leaderboard",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT session_date, source, config_version, daypart, exit_profile, security_risk, outcome, position_count, avg_return_pct, avg_hold_minutes, win_rate * 100 AS win_rate_pct, realized_pnl_usd FROM v_position_cohort_daily WHERE session_date::timestamp >= $__timeFrom() AND session_date::timestamp <= $__timeTo() AND ('${source}' = '__all' OR source = '${source}') AND ('${daypart}' = '__all' OR daypart = '${daypart}') AND ('${exitProfile}' = '__all' OR exit_profile = '${exitProfile}') AND ('${securityRisk}' = '__all' OR security_risk = '${securityRisk}') AND ('${configVersion}' = '__all' OR config_version = CAST('${configVersion}' AS integer)) ORDER BY session_date DESC, realized_pnl_usd DESC LIMIT 80",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "enablePagination": false,
+          "reducer": [],
+          "show": false
+        },
+        "showHeader": true
+      }
+    }
+  ],
+  "refresh": "15m",
+  "schemaVersion": 41,
+  "style": "dark",
+  "tags": [
+    "bot-trading",
+    "analytics",
+    "source"
+  ],
+  "templating": {
+    "list": [
+      {
+        "allValue": "__all",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "__all"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "trading-bot-postgres"
+        },
+        "definition": "SELECT DISTINCT source AS __text, source AS __value FROM v_source_outcome_daily ORDER BY 1",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Source",
+        "multi": false,
+        "name": "source",
+        "options": [],
+        "query": "SELECT DISTINCT source AS __text, source AS __value FROM v_source_outcome_daily ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": "__all",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "__all"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "trading-bot-postgres"
+        },
+        "definition": "SELECT DISTINCT daypart AS __text, daypart AS __value FROM v_candidate_cohort_daily ORDER BY 1",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Daypart",
+        "multi": false,
+        "name": "daypart",
+        "options": [],
+        "query": "SELECT DISTINCT daypart AS __text, daypart AS __value FROM v_candidate_cohort_daily ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": "__all",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "__all"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "trading-bot-postgres"
+        },
+        "definition": "SELECT DISTINCT security_risk AS __text, security_risk AS __value FROM v_candidate_cohort_daily ORDER BY 1",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Security Risk",
+        "multi": false,
+        "name": "securityRisk",
+        "options": [],
+        "query": "SELECT DISTINCT security_risk AS __text, security_risk AS __value FROM v_candidate_cohort_daily ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": "__all",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "__all"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "trading-bot-postgres"
+        },
+        "definition": "SELECT DISTINCT exit_profile AS __text, exit_profile AS __value FROM v_position_cohort_daily ORDER BY 1",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Exit Profile",
+        "multi": false,
+        "name": "exitProfile",
+        "options": [],
+        "query": "SELECT DISTINCT exit_profile AS __text, exit_profile AS __value FROM v_position_cohort_daily ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": "__all",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "__all"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "trading-bot-postgres"
+        },
+        "definition": "SELECT config_version::text AS __text, config_version AS __value FROM v_config_change_log ORDER BY config_version DESC",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Config Version",
+        "multi": false,
+        "name": "configVersion",
+        "options": [],
+        "query": "SELECT config_version::text AS __text, config_version AS __value FROM v_config_change_log ORDER BY config_version DESC",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Source & Cohort Performance",
+  "uid": "bot-source-cohorts",
+  "version": 1,
+  "weekStart": ""
+}

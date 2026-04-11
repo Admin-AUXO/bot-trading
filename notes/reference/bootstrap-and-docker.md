@@ -51,16 +51,26 @@ npm run dev
 Notes:
 
 - Host-run dashboard reads the backend from `http://127.0.0.1:3101` unless you override `API_URL`.
+- Optional Grafana pivots use `GRAFANA_BASE_URL` plus the dashboard UID envs defined in [`../../trading_bot/backend/.env.example`](../../trading_bot/backend/.env.example). The current repo-owned Grafana estate expects:
+  `GRAFANA_EXECUTIVE_DASHBOARD_UID`
+  `GRAFANA_ANALYST_DASHBOARD_UID`
+  `GRAFANA_LIVE_DASHBOARD_UID`
+  `GRAFANA_TELEMETRY_DASHBOARD_UID`
+  `GRAFANA_CANDIDATE_DASHBOARD_UID`
+  `GRAFANA_POSITION_DASHBOARD_UID`
+  `GRAFANA_CONFIG_DASHBOARD_UID`
+  `GRAFANA_SOURCE_DASHBOARD_UID`
+  `GRAFANA_RESEARCH_DASHBOARD_UID`
 - `TRADE_MODE="LIVE"` now works only when the live wallet and routing env are valid. Otherwise the risk layer will refuse entries with the readiness reason.
 
 ## Run Mode B: Full Compose Stack
 
-Use this when you want Postgres, schema setup, backend, and dashboard inside containers.
+Use this when you want Postgres, schema setup, backend, dashboard, and the repo-owned Grafana surface inside containers.
 
 1. Copy [`../../trading_bot/backend/.env.example`](../../trading_bot/backend/.env.example) to `trading_bot/backend/.env`.
 2. Keep `DATABASE_URL` on the compose hostname `postgres`.
 3. If you intend to trade live, fill the trading wallet and `LIVE_*` vars before starting the stack.
-4. Review venue, daypart, and daily-risk envs before boot if you do not want the defaults (`DISCOVERY_SOURCES=all`, `TRADABLE_SOURCES=pump_dot_fun`, `DISCOVERY_INTERVAL_MS=300000`, `OFF_HOURS_DISCOVERY_INTERVAL_MS=900000`, `DAILY_LOSS_LIMIT_USD=8`, `MAX_CONSECUTIVE_LOSSES=2`).
+4. Review venue, daypart, and daily-risk envs before boot if you do not want the defaults (`DISCOVERY_SOURCES=pump_dot_fun`, `TRADABLE_SOURCES=pump_dot_fun`, `DISCOVERY_INTERVAL_MS=300000`, `OFF_HOURS_DISCOVERY_INTERVAL_MS=900000`, `DAILY_LOSS_LIMIT_USD=8`, `MAX_CONSECUTIVE_LOSSES=2`).
 5. Start the stack:
 
 ```bash
@@ -72,9 +82,14 @@ Compose contract:
 
 - Only compose file: [`../../trading_bot/docker-compose.yml`](../../trading_bot/docker-compose.yml)
 - Startup chain: `postgres` -> `db-setup` -> `bot` -> `dashboard`
+- Postgres binds on `127.0.0.1:${POSTGRES_PORT:-56432}` for host-local tools only
 - `db-setup` applies Prisma schema and SQL views before the bot starts
 - `bot` health checks `GET /health`
 - `dashboard` waits for backend health and injects `API_URL=http://bot:3101`
+- `grafana` waits for Postgres and `db-setup`, mounts provisioning from `trading_bot/grafana/`, and binds locally on `127.0.0.1:${GRAFANA_PORT:-3400}`
+- Grafana provisioning assumes a direct PostgreSQL datasource from inside Compose using `postgres:5432`
+- The dashboard service also receives the Grafana base URL and UID envs so operator deep links land on the provisioned dashboards
+- First login to Grafana with the default admin credentials will prompt for a password change. If you are only smoke-testing the local stack, you can skip that prompt and still reach the provisioned dashboards.
 
 ## Run Mode C: Obsidian Notes Sidecar
 
@@ -101,20 +116,24 @@ Notes:
 
 ## Ports And Env
 
-- `POSTGRES_PORT`: host bind for Postgres, default `56432`
+- `POSTGRES_PORT`: host bind for Postgres on `127.0.0.1`, default `56432`
 - `BOT_PORT`: backend listen port, default `3101`
 - `DASHBOARD_PORT`: host bind for dashboard, default `3100`
+- `GRAFANA_PORT`: local Grafana bind, default `3400`
 - `OBSIDIAN_HTTP_PORT`: local HTTP bind for Obsidian, default `3110`
 - `OBSIDIAN_HTTPS_PORT`: local HTTPS bind for Obsidian, default `3111`
 - Compose reads [`../../trading_bot/backend/.env`](../../trading_bot/backend/.env) for `postgres`, `db-setup`, and `bot`
 - If credentials change, keep `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, and `DATABASE_URL` aligned
 - `CONTROL_API_SECRET` is optional in backend code, but the docs assume you set it because mutating routes become unauthenticated otherwise
+- `GRAFANA_BASE_URL`, `GRAFANA_ADMIN_USER`, `GRAFANA_ADMIN_PASSWORD`, and the dashboard UID envs control the local Grafana service and the operator deep-link contract
 
 ## Verification
 
 ```bash
 cd trading_bot && docker compose config
 cd trading_bot && docker compose --profile notes config
+cd trading_bot && docker compose up -d --build db-setup grafana bot dashboard
+curl -sf http://127.0.0.1:3400/api/health
 cd trading_bot/backend && npm run build
 cd trading_bot/backend && npm run db:setup
 cd trading_bot/dashboard && npm run build
@@ -123,5 +142,4 @@ cd trading_bot/dashboard && npm run build
 ## Non-Contracts
 
 - No Redis service
-- No Grafana service
 - No separate production compose file in the current workflow

@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { FlaskConical, Radar, Route as RouteIcon, Wallet } from "lucide-react";
+import { ArrowUpRight, FlaskConical, Radar, Route as RouteIcon, Wallet } from "lucide-react";
 import { DataTable, EmptyState, PageHero, Panel, StatCard, StatusPill } from "@/components/dashboard-primitives";
 import { serverFetch } from "@/lib/api";
 import { formatCompactCurrency, formatCurrency, formatInteger, formatNumber, formatPercent, formatTimestamp } from "@/lib/format";
+import { buildGrafanaDashboardLink } from "@/lib/grafana";
 import type { ResearchRunSummary } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +15,7 @@ export default async function ResearchPage(props: { searchParams?: SearchParamsI
   const requestedRunId = Array.isArray(searchParams.run) ? searchParams.run[0] : searchParams.run;
   const runs = await serverFetch<ResearchRunSummary[]>("/api/research-runs?limit=20");
   const selectedRunId = requestedRunId ?? runs.find((run) => run.status === "RUNNING")?.id ?? runs[0]?.id ?? null;
+  const researchHref = buildGrafanaDashboardLink("research", selectedRunId ? { vars: { runId: selectedRunId } } : {});
 
   const [selectedRun, tokenRows, positionRows] = selectedRunId
     ? await Promise.all([
@@ -70,34 +72,57 @@ export default async function ResearchPage(props: { searchParams?: SearchParamsI
   });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <PageHero
-        eyebrow="Research lane"
-        title="Bounded dry-run evidence without contaminating the live desk"
-        description="Each run is isolated, capped, and comparable. One discovery page across all sources, cheap ranking first, deep evaluation only on the shortlist, then mock entries and exits under the configured research timer."
+        eyebrow="Research"
+        title="Dry-run sandbox"
+        description={undefined}
+        meta={<StatusPill value={selectedRun?.status ?? "idle"} />}
+        actions={researchHref ? (
+          <a
+            href={researchHref}
+            target="_blank"
+            rel="noreferrer"
+            className="btn-primary inline-flex items-center gap-2"
+            title="Open research analytics in Grafana"
+          >
+            Open Grafana
+            <ArrowUpRight className="h-4 w-4" />
+          </a>
+        ) : null}
         aside={(
-          <div className="panel-muted rounded-[24px] p-5">
-            <div className="flex items-center justify-between">
-              <div className="section-kicker">Selected run</div>
-              <StatusPill value={selectedRun?.status ?? "none"} />
-            </div>
+          <div className="panel-muted rounded-[16px] p-4">
+            <div className="section-kicker">Sandbox</div>
             <div className="mt-4 text-2xl font-semibold tracking-tight text-text-primary">
               {selectedRun ? formatTimestamp(selectedRun.startedAt) : "No run yet"}
             </div>
             <div className="mt-2 text-sm leading-6 text-text-secondary">
               {selectedRun
-                ? `Polling every ${formatNumber(selectedRun.pollIntervalMs / 1000)} sec with a ${formatNumber(selectedRun.maxDurationMs / 60_000)} minute hard window.`
-                : "No research run exists yet, so there is nothing to inspect."}
+                ? `Poll ${formatNumber(selectedRun.pollIntervalMs / 1000)}s · Cap ${formatNumber(selectedRun.maxDurationMs / 60_000)}m`
+                : "No research run exists yet."}
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <span className="meta-chip">Dry run only</span>
+              <span className="meta-chip">Mock positions</span>
+              <span className="meta-chip">No live writes</span>
             </div>
           </div>
         )}
       />
 
+      {selectedRun?.errorMessage ? (
+        <Panel title="Failure note" eyebrow="Run issue" tone={selectedRun.status === "FAILED" ? "critical" : "warning"}>
+          <div className="rounded-[14px] border border-bg-border bg-bg-hover/45 px-4 py-4 text-sm leading-6 text-text-secondary">
+            {selectedRun.errorMessage}
+          </div>
+        </Panel>
+      ) : null}
+
       <section className="grid gap-4 md:grid-cols-2 2xl:grid-cols-5">
         <StatCard
           label="Recorded runs"
           value={formatInteger(runs.length)}
-          detail="Latest 20 from the research history"
+          detail="Last 20 runs"
           tone="accent"
           icon={FlaskConical}
         />
@@ -111,7 +136,7 @@ export default async function ResearchPage(props: { searchParams?: SearchParamsI
         <StatCard
           label="Mock opened"
           value={formatInteger(selectedRun?.totalMockOpened ?? 0)}
-          detail={selectedRun ? `${formatInteger(selectedRun.totalMockClosed)} closed so far` : "No run selected"}
+          detail={selectedRun ? `${formatInteger(selectedRun.totalMockClosed)} closed` : "No run selected"}
           tone="default"
           icon={Wallet}
         />
@@ -132,9 +157,9 @@ export default async function ResearchPage(props: { searchParams?: SearchParamsI
       </section>
 
       <section className="grid gap-6 2xl:grid-cols-[0.8fr_1.2fr]">
-        <Panel title="Run picker" eyebrow="Filter to one isolated session">
+        <Panel title="Run picker" eyebrow="Recent runs" tone="passive">
           {runs.length === 0 ? (
-            <EmptyState title="No research runs yet" detail="Launch a dry-run research cycle from the overview page first. Then this page stops being empty." />
+            <EmptyState title="No research runs yet" detail="Launch a dry-run research cycle from the desk first." />
           ) : (
             <div className="space-y-3">
               {runs.map((run) => {
@@ -143,9 +168,10 @@ export default async function ResearchPage(props: { searchParams?: SearchParamsI
                   <Link
                     key={run.id}
                     href={`/research?run=${run.id}`}
-                    className={`block rounded-2xl border px-4 py-3 transition ${
+                    title={`Open run started ${formatTimestamp(run.startedAt)}`}
+                    className={`block rounded-[14px] border px-4 py-3 transition ${
                       active
-                        ? "border-accent-blue/25 bg-accent-blue/10"
+                        ? "border-[rgba(163,230,53,0.28)] bg-[#121511]"
                         : "border-bg-border bg-bg-card/45 hover:bg-bg-hover"
                     }`}
                   >
@@ -166,7 +192,7 @@ export default async function ResearchPage(props: { searchParams?: SearchParamsI
           )}
         </Panel>
 
-        <Panel title="Selected run summary" eyebrow="Run-level truth">
+        <Panel title="Selected run summary" eyebrow="Run metrics" tone="passive">
           {selectedRun ? (
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               <SummaryMetric label="Completed at" value={formatTimestamp(selectedRun.completedAt)} />
@@ -175,12 +201,12 @@ export default async function ResearchPage(props: { searchParams?: SearchParamsI
               <SummaryMetric label="Live tradable" value={formatInteger(selectedRun.liveTradablePassed)} />
               <SummaryMetric label="Research tradable" value={formatInteger(selectedRun.researchTradablePassed)} />
               <SummaryMetric label="Average hold" value={selectedRun.averageHoldMinutes == null ? "—" : `${formatNumber(selectedRun.averageHoldMinutes)} min`} />
-              <SummaryMetric label="Comparison PnL delta" value={selectedRun.comparison ? formatSignedCurrency(selectedRun.comparison.realizedPnlUsdDelta) : "—"} />
-              <SummaryMetric label="Comparison pass delta" value={selectedRun.comparison ? formatSignedPercent(selectedRun.comparison.strategyPassRateDeltaPercent) : "—"} />
-              <SummaryMetric label="Comparison win delta" value={selectedRun.comparison ? formatSignedPercent(selectedRun.comparison.mockWinRateDeltaPercent) : "—"} />
+              <SummaryMetric label="PnL delta" value={selectedRun.comparison ? formatSignedCurrency(selectedRun.comparison.realizedPnlUsdDelta) : "—"} />
+              <SummaryMetric label="Pass delta" value={selectedRun.comparison ? formatSignedPercent(selectedRun.comparison.strategyPassRateDeltaPercent) : "—"} />
+              <SummaryMetric label="Win delta" value={selectedRun.comparison ? formatSignedPercent(selectedRun.comparison.mockWinRateDeltaPercent) : "—"} />
             </div>
           ) : (
-            <EmptyState title="No run selected" detail="Choose a run from the picker once one exists." />
+            <EmptyState title="No run selected" detail="Choose a run once one exists." />
           )}
         </Panel>
       </section>
@@ -188,11 +214,12 @@ export default async function ResearchPage(props: { searchParams?: SearchParamsI
       <section className="grid gap-6 2xl:grid-cols-[1.2fr_0.8fr]">
         <DataTable
           title="Research tokens"
-          eyebrow="Discovery and evaluation evidence"
+          eyebrow="Discovery and evaluation"
           rows={flattenedTokens}
           preferredKeys={["symbol", "source", "liveTradable", "researchTradable", "shortlisted", "strategyPassed", "selectedForMock", "cheapScore", "entryScore", "exitProfile", "strategyRejectReason", "evaluationDeferReason"]}
           emptyTitle="No research tokens yet"
           emptyDetail="Token-level evidence appears here once a run has discovery results."
+          panelTone="passive"
         />
         <DataTable
           title="Research positions"
@@ -201,6 +228,7 @@ export default async function ResearchPage(props: { searchParams?: SearchParamsI
           preferredKeys={["symbol", "status", "entryPriceUsd", "currentPriceUsd", "lastSeenPriceUsd", "amountUsd", "remainingToken", "realizedPnlUsd", "holdMinutes", "exitReason"]}
           emptyTitle="No research positions yet"
           emptyDetail="If no mock positions were opened, either nothing passed or the run has not started."
+          panelTone="passive"
         />
       </section>
     </div>
@@ -209,7 +237,7 @@ export default async function ResearchPage(props: { searchParams?: SearchParamsI
 
 function SummaryMetric(props: { label: string; value: string }) {
   return (
-    <div className="panel-muted rounded-2xl px-4 py-3">
+    <div className="panel-muted rounded-[12px] px-4 py-3">
       <div className="text-xs uppercase tracking-[0.24em] text-text-muted">{props.label}</div>
       <div className="mt-2 text-sm font-medium text-text-primary">{props.value}</div>
     </div>

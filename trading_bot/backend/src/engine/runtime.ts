@@ -3,6 +3,8 @@ import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
 import { BirdeyeClient } from "../services/birdeye-client.js";
 import { HeliusClient } from "../services/helius-client.js";
+import { OperatorDeskService } from "../services/operator-desk.js";
+import { recordOperatorEvent } from "../services/operator-events.js";
 import { ProviderBudgetService } from "../services/provider-budget-service.js";
 import { RuntimeConfigService } from "../services/runtime-config.js";
 import { RiskEngine } from "./risk-engine.js";
@@ -25,6 +27,7 @@ export class BotRuntime {
   private readonly exits = new ExitEngine(this.birdeye, this.execution, this.config, this.risk);
   private readonly graduation = new GraduationEngine(this.birdeye, this.helius, this.execution, this.risk, this.config);
   private readonly research = new ResearchDryRunEngine(this.graduation, this.birdeye, this.config);
+  private readonly desk = new OperatorDeskService(this.config, this.risk, this.providerBudget, this.research);
   private discoveryHandle?: NodeJS.Timeout;
   private evaluationHandle?: NodeJS.Timeout;
   private exitHandle?: NodeJS.Timeout;
@@ -37,8 +40,21 @@ export class BotRuntime {
     const startupSettings = await this.config.getSettings();
     const app = createApiServer({
       getSnapshot: () => this.getSnapshot(),
+      getDeskShell: () => this.desk.getShell(),
+      getDeskHome: () => this.desk.getHome(),
+      listDeskEvents: (limit) => this.desk.getEvents(limit),
+      listCandidateQueue: (bucket) => this.desk.getCandidateQueue(bucket),
+      getCandidateDetail: (candidateId) => this.desk.getCandidateDetail(candidateId),
+      listPositionBook: (book) => this.desk.getPositionBook(book),
+      getPositionDetail: (positionId) => this.desk.getPositionDetail(positionId),
+      getDiagnostics: () => this.desk.getDiagnostics(),
       getSettings: () => this.config.getSettings(),
+      getSettingsControl: () => this.desk.getSettingsControl(),
       patchSettings: (input) => this.config.patchSettings(input),
+      patchSettingsDraft: (input) => this.patchSettingsDraft(input),
+      discardSettingsDraft: () => this.discardSettingsDraft(),
+      runSettingsDryRun: () => this.runSettingsDryRun(),
+      promoteSettingsDraft: () => this.promoteSettingsDraft(),
       pause: (reason) => this.pause(reason),
       resume: () => this.resume(),
       triggerDiscovery: () => this.runDiscoveryNow(),
@@ -96,6 +112,12 @@ export class BotRuntime {
       await fn();
     } catch (error) {
       logger.error({ err: error, label }, "runtime task failed");
+      await recordOperatorEvent({
+        kind: "runtime_failure",
+        level: "danger",
+        title: `${label} failed`,
+        detail: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -197,6 +219,11 @@ export class BotRuntime {
     if (this.researchHandle) {
       clearTimeout(this.researchHandle);
     }
+    await recordOperatorEvent({
+      kind: "manual_action",
+      title: "Research dry run started",
+      detail: "Operator launched a bounded research dry run.",
+    });
     const nextDelayMs = await this.research.getNextPollDelayMs();
     if (nextDelayMs !== null) {
       this.scheduleResearch(nextDelayMs);
@@ -270,16 +297,31 @@ export class BotRuntime {
   private async runDiscoveryNow(): Promise<void> {
     await this.ensureLiveControl("manual discovery");
     await this.graduation.discover();
+    await recordOperatorEvent({
+      kind: "manual_action",
+      title: "Discovery triggered",
+      detail: "Operator requested a manual discovery sweep.",
+    });
   }
 
   private async runEvaluationNow(): Promise<void> {
     await this.ensureLiveControl("manual evaluation");
     await this.graduation.evaluateDueCandidates();
+    await recordOperatorEvent({
+      kind: "manual_action",
+      title: "Evaluation triggered",
+      detail: "Operator requested an immediate evaluation pass.",
+    });
   }
 
   private async runExitCheckNow(): Promise<void> {
     await this.ensureLiveControl("manual exit check");
     await this.exits.run();
+    await recordOperatorEvent({
+      kind: "manual_action",
+      title: "Exit check triggered",
+      detail: "Operator requested an immediate exit sweep.",
+    });
   }
 
   private async ensureLiveControl(label: string): Promise<void> {
@@ -296,6 +338,12 @@ export class BotRuntime {
         pauseReason: reason?.trim() || "manual pause",
       },
     });
+    await recordOperatorEvent({
+      kind: "control_state",
+      level: "warning",
+      title: "Bot paused",
+      detail: reason?.trim() || "manual pause",
+    });
   }
 
   private async resume(): Promise<void> {
@@ -305,6 +353,110 @@ export class BotRuntime {
         pauseReason: null,
       },
     });
+    await recordOperatorEvent({
+      kind: "control_state",
+      title: "Bot resumed",
+      detail: "Manual pause cleared.",
+    });
+  }
+
+  private async patchSettingsDraft(input: Partial<import("../types/domain.js").BotSettings>) {
+    const next = await this.config.patchDraft(input);
+    await recordOperatorEvent({
+      kind: "settings_draft",
+      title: "Settings draft updated",
+      detail: next.changedPaths.length > 0 ? `${next.changedPaths.length} fields changed in draft.` : "Draft created without material changes.",
+      metadata: { changedPaths: next.changedPaths },
+    });
+    return next;
+  }
+
+  private async discardSettingsDraft() {
+    const state = await this.config.discardDraft();
+    await recordOperatorEvent({
+      kind: "settings_draft",
+      title: "Settings draft discarded",
+      detail: "Pending config changes were dropped.",
+    });
+    return state;
+  }
+
+  private async runSettingsDryRun() {
+    const state = await this.config.getControlState();
+    if (!state.draft) {
+      throw new Error("no settings draft is available");
+    }
+    if (!state.validation.ok) {
+      throw new Error("draft settings are invalid; fix validation issues before running a dry run");
+    }
+
+    const [currentGate, draftGate, openPositions, queuedCandidates] = await Promise.all([
+      this.risk.canOpenPosition(state.active),
+      this.risk.canOpenPosition(state.draft),
+      db.position.count({ where: { status: "OPEN" } }),
+      db.candidate.count({ where: { status: { in: [...QUEUED_CANDIDATE_STATUSES] } } }),
+    ]);
+
+    const currentReason = currentGate.reason ?? null;
+    const draftReason = draftGate.reason ?? null;
+    const noNewBlocker = draftGate.allowed || (!currentGate.allowed && currentReason === draftReason);
+    const summary = {
+      ranAt: new Date().toISOString(),
+      basedOnUpdatedAt: state.activeUpdatedAt,
+      changedPaths: state.changedPaths,
+      liveAffectingPaths: state.liveAffectingPaths,
+      currentGate: {
+        allowed: currentGate.allowed,
+        reason: currentReason,
+      },
+      draftGate: {
+        allowed: draftGate.allowed,
+        reason: draftReason,
+      },
+      openPositions,
+      queuedCandidates,
+      noNewBlocker,
+      safeToPromote: state.liveAffectingPaths.length === 0 || noNewBlocker,
+    };
+
+    const next = await this.config.saveDraftDryRun(summary);
+    await recordOperatorEvent({
+      kind: "settings_dry_run",
+      level: summary.safeToPromote ? "info" : "warning",
+      title: "Settings dry run completed",
+      detail: summary.safeToPromote
+        ? "Draft review is ready for operator promotion."
+        : draftReason ?? "Draft introduced a new blocker.",
+      metadata: summary as Record<string, unknown>,
+    });
+    return next;
+  }
+
+  private async promoteSettingsDraft() {
+    const state = await this.config.getControlState();
+    if (!state.draft) {
+      throw new Error("no settings draft is available");
+    }
+    if (state.liveAffectingPaths.length > 0) {
+      if (!state.dryRun) {
+        throw new Error("run a settings dry run before promoting live-affecting changes");
+      }
+      if (!state.dryRun.safeToPromote) {
+        throw new Error("draft dry run did not pass review; fix blockers before promoting");
+      }
+      if (state.dryRun.basedOnUpdatedAt !== state.activeUpdatedAt) {
+        throw new Error("active settings changed after the draft dry run; rerun the dry run before promoting");
+      }
+    }
+
+    const next = await this.config.promoteDraft();
+    await recordOperatorEvent({
+      kind: "settings_promote",
+      title: "Settings promoted",
+      detail: `${state.changedPaths.length} draft fields moved to active settings.`,
+      metadata: { changedPaths: state.changedPaths },
+    });
+    return next;
   }
 
   private isUsHours(now = new Date()): boolean {

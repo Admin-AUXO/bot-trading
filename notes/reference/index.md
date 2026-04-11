@@ -14,7 +14,9 @@ Canonical repo docs now live inside the Obsidian vault so Codex can read and upd
 
 ## Route By Task
 
+- Agent workflow, questioning discipline, and vault update rules: [`agent-workflow.md`](agent-workflow.md)
 - Repo shape, ownership boundaries, and non-features: [`tech-stack.md`](tech-stack.md)
+- Dashboard naming, typography, layout rules, and operator UI contract: [`dashboard-operator-ui.md`](dashboard-operator-ui.md)
 - Setup modes, env handling, Docker flow, and verification commands: [`bootstrap-and-docker.md`](bootstrap-and-docker.md)
 - Graphify workflow and repo-local wrapper commands: [`graphify.md`](graphify.md)
 - Obsidian workflow, Docker sidecar, and note discipline: [`obsidian.md`](obsidian.md)
@@ -26,11 +28,12 @@ Canonical repo docs now live inside the Obsidian vault so Codex can read and upd
 
 1. [`../../AGENTS.md`](../../AGENTS.md)
 2. [`../README.md`](../README.md)
-3. The one task-specific reference doc you actually need
-4. The relevant durable note under `../sessions/`, `../investigations/`, `../decisions/`, `../runbooks/`, or `../trading-memory/`
-5. [`../../graphify-out/GRAPH_REPORT.md`](../../graphify-out/GRAPH_REPORT.md) if it exists
-6. [`../../trading_bot/AGENTS.md`](../../trading_bot/AGENTS.md) once you are editing inside `trading_bot/`
-7. Only after that should you open code files
+3. [`agent-workflow.md`](agent-workflow.md) when the task is planning-heavy, ambiguous, or likely to create durable knowledge
+4. The one task-specific reference doc you actually need
+5. The relevant durable note under `../sessions/`, `../investigations/`, `../decisions/`, `../runbooks/`, or `../trading-memory/`
+6. [`../../graphify-out/GRAPH_REPORT.md`](../../graphify-out/GRAPH_REPORT.md) if it exists
+7. [`../../trading_bot/AGENTS.md`](../../trading_bot/AGENTS.md) once you are editing inside `trading_bot/`
+8. Only after that should you open code files
 
 ## Editing Standard
 

@@ -32,12 +32,14 @@ export function formatTimestamp(value: unknown): string {
 }
 
 export function formatRelativeMinutes(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "—";
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return "—";
   return `${numberFormatter.format(numeric)} min`;
 }
 
 export function formatCurrency(value: unknown, digits = 2): string {
+  if (value === null || value === undefined || value === "") return "—";
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return "—";
   return new Intl.NumberFormat("en-GB", {
@@ -49,6 +51,7 @@ export function formatCurrency(value: unknown, digits = 2): string {
 }
 
 export function formatCompactCurrency(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "—";
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return "—";
   const sign = numeric < 0 ? "-" : "";
@@ -56,18 +59,21 @@ export function formatCompactCurrency(value: unknown): string {
 }
 
 export function formatNumber(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "—";
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return "—";
   return numberFormatter.format(numeric);
 }
 
 export function formatInteger(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "—";
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return "—";
   return integerFormatter.format(numeric);
 }
 
 export function formatPercent(value: unknown, digits = 1): string {
+  if (value === null || value === undefined || value === "") return "—";
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return "—";
   return `${numeric.toFixed(digits)}%`;

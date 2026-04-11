@@ -35,7 +35,7 @@ export class GraduationEngine {
 
   async getResearchDiscoveryTokens(limit: number): Promise<DiscoveryToken[]> {
     const settings = await this.config.getSettings();
-    return this.fetchDiscoveryTokens(settings, limit, false, "all");
+    return this.fetchDiscoveryTokens(settings, limit, false, "tradable");
   }
 
   async evaluateResearchToken(
@@ -114,11 +114,19 @@ export class GraduationEngine {
     settings: Awaited<ReturnType<RuntimeConfigService["getSettings"]>>,
     limit: number,
     excludeExistingMints: boolean,
-    sourceMode: "configured" | "all" = "configured",
+    sourceMode: "configured" | "all" | "tradable" = "configured",
   ): Promise<DiscoveryToken[]> {
-    const minGraduatedTime = Math.floor(Date.now() / 1000) - env.DISCOVERY_LOOKBACK_SECONDS;
+    const nowUnix = Math.floor(Date.now() / 1000);
+    const minGraduatedTime = nowUnix - env.DISCOVERY_LOOKBACK_SECONDS;
+    const minLastTradeTime = env.DISCOVERY_QUERY_MIN_LAST_TRADE_SECONDS > 0
+      ? nowUnix - env.DISCOVERY_QUERY_MIN_LAST_TRADE_SECONDS
+      : null;
     const discoverySources = sourceMode === "all"
       ? ["all"]
+      : sourceMode === "tradable"
+      ? env.TRADABLE_SOURCES.includes("all")
+        ? ["all"]
+        : [...new Set(env.TRADABLE_SOURCES)]
       : env.DISCOVERY_SOURCES.includes("all")
       ? ["all"]
       : [...new Set(env.DISCOVERY_SOURCES)];
@@ -132,14 +140,17 @@ export class GraduationEngine {
       source,
       minGraduatedTime,
       limit,
-      minLiquidityUsd: settings.filters.minLiquidityUsd,
-      minVolume5mUsd: settings.filters.minVolume5mUsd,
-      minHolders: settings.filters.minHolders,
+      minLiquidityUsd: env.DISCOVERY_QUERY_MIN_LIQUIDITY_USD,
+      minVolume5mUsd: env.DISCOVERY_QUERY_MIN_VOLUME_5M_USD,
+      minHolders: env.DISCOVERY_QUERY_MIN_HOLDERS,
+      minLastTradeTime,
+      sortBy: env.DISCOVERY_SORT_BY,
+      sortType: env.DISCOVERY_SORT_TYPE,
     })));
     const tokens = [...new Map(
       fetchedGroups
         .flat()
-        .sort((left, right) => (right.graduatedAt ?? 0) - (left.graduatedAt ?? 0))
+        .sort((left, right) => this.compareDiscoveryTokens(left, right))
         .map((token) => [token.mint, token] as const),
     ).values()];
 
@@ -157,6 +168,36 @@ export class GraduationEngine {
     );
 
     return tokens.filter((token) => !existingMints.has(token.mint));
+  }
+
+  private compareDiscoveryTokens(left: DiscoveryToken, right: DiscoveryToken): number {
+    const direction = env.DISCOVERY_SORT_TYPE === "asc" ? 1 : -1;
+    const leftValue = this.readDiscoverySortValue(left);
+    const rightValue = this.readDiscoverySortValue(right);
+
+    if (leftValue === rightValue) {
+      return ((right.lastTradeAt ?? 0) - (left.lastTradeAt ?? 0))
+        || ((right.volume5mUsd ?? 0) - (left.volume5mUsd ?? 0))
+        || ((right.graduatedAt ?? 0) - (left.graduatedAt ?? 0));
+    }
+
+    return leftValue > rightValue ? direction : -direction;
+  }
+
+  private readDiscoverySortValue(token: DiscoveryToken): number {
+    switch (env.DISCOVERY_SORT_BY) {
+      case "last_trade_unix_time":
+        return token.lastTradeAt ?? 0;
+      case "volume_5m_usd":
+        return token.volume5mUsd ?? 0;
+      case "trade_5m_count":
+        return token.trades5m ?? 0;
+      case "recent_listing_time":
+        return token.recentListingAt ?? token.creationAt ?? 0;
+      case "graduated_time":
+      default:
+        return token.graduatedAt ?? 0;
+    }
   }
 
   async evaluateDueCandidates(): Promise<void> {

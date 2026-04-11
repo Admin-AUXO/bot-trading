@@ -1,6 +1,7 @@
 import { Prisma, type ProviderName, type ResearchPosition, type ResearchRun } from "@prisma/client";
 import { db } from "../db/client.js";
 import { BirdeyeClient } from "../services/birdeye-client.js";
+import { recordOperatorEvent } from "../services/operator-events.js";
 import { buildExitPlan, getExitDecision } from "../services/strategy-exit.js";
 import { RuntimeConfigService } from "../services/runtime-config.js";
 import type { BotSettings, DiscoveryToken, ResearchRunComparison, ResearchRunSummary } from "../types/domain.js";
@@ -289,6 +290,16 @@ export class ResearchDryRunEngine {
 
       return (await this.getRun(run.id))!;
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const completedAt = new Date();
+      const providerUsage = await this.getProviderUsage({
+        startedAt: run.startedAt,
+        completedAt,
+      }).catch(() => ({
+        BIRDEYE: { provider: "BIRDEYE" as const, calls: 0, units: 0 },
+        HELIUS: { provider: "HELIUS" as const, calls: 0, units: 0 },
+      }));
+
       logger.error({ err: error, runId: run.id }, "research dry run failed during startup");
       await this.forceCloseOpenPositions(run.id, "research_startup_failure").catch((closeError) => {
         logger.error({ err: closeError, runId: run.id }, "failed to unwind research positions after startup failure");
@@ -297,8 +308,26 @@ export class ResearchDryRunEngine {
         where: { id: run.id },
         data: {
           status: "FAILED",
-          completedAt: new Date(),
-          errorMessage: error instanceof Error ? error.message : String(error),
+          completedAt,
+          errorMessage: message,
+          birdeyeCalls: providerUsage.BIRDEYE.calls,
+          birdeyeUnitsUsed: providerUsage.BIRDEYE.units,
+          heliusCalls: providerUsage.HELIUS.calls,
+          heliusUnitsUsed: providerUsage.HELIUS.units,
+        },
+      }).catch(() => undefined);
+      await recordOperatorEvent({
+        kind: "research_failure",
+        level: "danger",
+        title: "Research dry run failed",
+        detail: message,
+        entityType: "researchRun",
+        entityId: run.id,
+        metadata: {
+          phase: "startup",
+          runId: run.id,
+          birdeyeUnitsUsed: providerUsage.BIRDEYE.units,
+          heliusUnitsUsed: providerUsage.HELIUS.units,
         },
       }).catch(() => undefined);
       throw error;
