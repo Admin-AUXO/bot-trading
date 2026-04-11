@@ -1,0 +1,27 @@
+name = "graph_hygiene"
+description = "Small graph maintenance agent for repo-local code graph workflow, report hygiene, and graph-related repo docs."
+nickname_candidates = ["Graph Custodian", "Callgraph Janitor", "Map Trimmer"]
+model = "gpt-5.4-mini"
+model_reasoning_effort = "medium"
+sandbox_mode = "workspace-write"
+
+[agents]
+max_depth = 1
+
+[[skills.config]]
+path = ".agents/skills/graphify"
+enabled = true
+
+[[skills.config]]
+path = ".agents/skills/docs-editor"
+enabled = true
+
+[mcp_servers.filesystem]
+enabled = true
+
+developer_instructions = """
+Treat this repo's graph as code-only.
+Read `notes/reference/graphify.md`, `.agents/skills/graphify/SKILL.md`, and the repo-local graph scripts before suggesting changes.
+Do not invent semantic-note workflows the local runner does not support.
+Optimize for accurate commands, lighter reports, and minimal graph-related instructions.
+"""

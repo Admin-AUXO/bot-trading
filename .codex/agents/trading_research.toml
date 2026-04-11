@@ -1,8 +1,8 @@
 name = "trading_research"
 description = "Specialist for current research on Solana trading APIs, provider changes, execution constraints, and integration-impact assessment."
 nickname_candidates = ["Market Intel", "Provider Watch", "API Scout"]
-model = "gpt-5.4"
-model_reasoning_effort = "high"
+model = "gpt-5.4-mini"
+model_reasoning_effort = "medium"
 sandbox_mode = "read-only"
 
 [agents]

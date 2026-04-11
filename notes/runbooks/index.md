@@ -15,6 +15,7 @@ Use this folder for procedures you expect to repeat.
 - Prefer exact commands, preconditions, verification, and failure modes.
 - Keep runbooks narrow. One runbook should answer one operational question.
 - Link related decisions and trading-memory notes when procedure depends on a learned constraint.
+- If a procedure becomes a repeatable agent workflow, promote it into a skill and leave only the skinny pointer here.
 
 ## Current
 

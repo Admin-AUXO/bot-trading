@@ -91,9 +91,9 @@ The backend now exposes a thin shell contract, a dedicated desk home contract, o
 
 ## Durable Notes Updated
 
-- [Dashboard Control Desk Audit](../investigations/2026-04-10-dashboard-control-desk-audit.md)
-- [Decision - Grafana Dashboard Plan](../decisions/2026-04-10-grafana-dashboard-plan.md)
-- [API Surface](../reference/api-surface.md)
-- [Tech Stack](../reference/tech-stack.md)
-- [Bootstrap And Docker](../reference/bootstrap-and-docker.md)
-- [Prisma And Views](../reference/prisma-and-views.md)
+- [Dashboard Control Desk Audit](../../investigations/2026-04-10-dashboard-control-desk-audit.md)
+- [Decision - Grafana Dashboard Plan](../../decisions/2026-04-10-grafana-dashboard-plan.md)
+- [API Surface](../../reference/api-surface.md)
+- [Tech Stack](../../reference/tech-stack.md)
+- [Bootstrap And Docker](../../reference/bootstrap-and-docker.md)
+- [Prisma And Views](../../reference/prisma-and-views.md)

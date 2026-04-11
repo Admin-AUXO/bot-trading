@@ -41,5 +41,5 @@ Use the new vault layout on the next substantive task and keep durable notes cur
 
 ## Durable Notes Updated
 
-- [`../reference/index.md`](../reference/index.md)
+- [`../../reference/index.md`](../../reference/index.md)
 - [`../trading-memory/index.md`](../trading-memory/index.md)

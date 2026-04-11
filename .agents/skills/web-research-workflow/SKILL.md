@@ -1,23 +1,24 @@
 ---
 name: "web-research-workflow"
-description: "Use for current external information when the repo or user task depends on up-to-date docs, APIs, changelogs, standards, or best practices outside this codebase."
+description: "Use for current external information when the repo or task depends on up-to-date docs, APIs, changelogs, standards, or best practices."
 ---
 
 # Web Research Workflow
 
-Use this skill when the task needs current external information.
+## Use When
 
-## Workflow
+- the answer depends on current external information
 
-- Prefer primary sources and official documentation.
-- Capture exact dates when the information may have changed recently.
+## Rules
+
+- Prefer primary sources and official docs.
+- Capture exact dates when the topic may have changed recently.
 - Separate confirmed facts from inference.
-- Keep notes short and source-backed.
-- Translate research into repo-relevant impact instead of dumping raw search results.
+- Keep notes short and repo-relevant.
 
-## Output
+## Deliverable
 
-- What is confirmed.
-- Source links.
-- What remains uncertain.
-- Recommended next step for the parent agent.
+- what is confirmed
+- source links
+- what remains uncertain
+- the next useful repo-facing step

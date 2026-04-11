@@ -1,21 +1,24 @@
 ---
 name: "docs-editor"
-description: "Use for README, AGENTS, SKILL, and other agent-facing docs when they need to be audited, deduplicated, or rewritten to match current code and repo contracts."
+description: "Use for README, AGENTS, SKILL, and other agent-facing docs when they need to be audited, deduplicated, or rewritten."
 ---
 
 # Docs Editor
 
-Use this skill for repo-facing documentation, especially agent-only docs.
+## Use When
 
-## Workflow
+- the task is repo-facing documentation or contract cleanup
 
-- Start at `docs/README.md` when the task touches repo docs.
-- For skill docs, read the relevant `SKILL.md` files and tighten trigger language before adding body detail.
-- Open only the task-specific docs you need before inspecting code.
-- Verify commands, paths, env vars, ports, route names, and runtime claims against code before editing.
-- Do not invent commands, routes, startup behavior, or repo capabilities.
+## Read First
+
+- `notes/README.md`
+- `notes/reference/index.md`
+- the one task-specific reference note you actually need
+
+## Rules
+
+- Verify commands, paths, ports, env vars, and runtime claims against code.
+- Prefer one canonical statement over repeated reminders.
+- Delete stale guidance instead of rewording it.
 - Keep setup and verification steps short and executable.
-- When contracts change, update every matching doc in the same pass.
-- If agent-facing skill docs describe runtime capabilities or constraints, update those too; stale `SKILL.md` files are still stale contracts.
-- When a doc tree is stale and duplicated, delete it instead of rewording it.
-- Prefer one canonical statement over repeating the same repo rule in five files.
+- Update matching skill docs or agent docs when they describe the same contract.

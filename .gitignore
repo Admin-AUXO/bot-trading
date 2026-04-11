@@ -32,13 +32,19 @@ Thumbs.db
 .claude/settings.local.json
 trading_bot/.claude/settings.local.json
 .codex/config.toml
+.codex/tmp/
+.codex/scripts/__pycache__/
 .graphify-venv/
 graphify-out/
 .graphify_python
 .graphify_*.json
 .graphify_*.txt
+trading_bot/dashboard/compose.env
+trading_bot/grafana/compose.env
 
 # Local scratch and stray generated trees
 audit/
 trading_bot/src/
 trading_bot/prisma/migrations/
+
+# Keep notes/sessions/archive tracked. It is durable repo history, not local scratch.

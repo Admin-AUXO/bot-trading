@@ -11,7 +11,7 @@ For every new Codex session in this repo, read files in this order before openin
 3. `notes/reference/index.md`
 4. Only the task-relevant reference docs and memory notes under `notes/`
 5. `trading_bot/AGENTS.md` if the task will touch `trading_bot/`
-6. `graphify-out/GRAPH_REPORT.md` if it exists
+6. `graphify-out/GRAPH_REPORT.md` if it exists and the task needs architecture or ownership context
 7. Only then read actual codebase files under `trading_bot/` or other source directories
 
 Do not jump straight into source files before completing that read order.
@@ -24,7 +24,7 @@ Do not jump straight into source files before completing that read order.
 - Providers: Birdeye and Helius
 - Runtime: interval-driven in-process services
 - `LIVE` is wired through Jupiter quote/swap plus Helius Sender, but it depends on a funded trading wallet and live env config
-- Strategy runtime is now score-driven and budget-aware: adaptive sizing, score-aware exits, Birdeye lane pacing, all-source discovery, and pump-only live trading by default
+- Strategy runtime is now score-driven and budget-aware: adaptive sizing, score-aware exits, Birdeye lane pacing, pump-first discovery defaults, and pump-only live trading by default
 
 ## Default Work Areas
 
@@ -37,7 +37,9 @@ Do not jump straight into source files before completing that read order.
 
 ## Rules
 
-- Read `notes/README.md`, `notes/reference/index.md`, the relevant reference doc, relevant notes under `notes/`, and `graphify-out/GRAPH_REPORT.md` if it exists before reading code.
+- Read `notes/README.md`, `notes/reference/index.md`, the relevant reference doc, and the relevant durable note before reading code. Read `graphify-out/GRAPH_REPORT.md` only when architecture or ownership context matters.
+- Keep context tight: read one reference note and one durable note first, not whole folders.
+- Prefer active summaries in `notes/sessions/`; use `notes/sessions/archive/` only when the active notes do not answer the question.
 - Prefer the smallest correct change.
 - Treat entries, exits, and capital checks as safety-critical.
 - Verify strategy claims against `notes/reference/strategy.md` and the current engine code before repeating them elsewhere.
@@ -49,6 +51,41 @@ Do not jump straight into source files before completing that read order.
 - Keep browser-facing writes going through `trading_bot/dashboard/app/api/[...path]/route.ts`.
 - Keep historical analysis grounded in candidates, positions, fills, snapshots, or provider telemetry.
 - Update docs in the same pass when contracts, setup, or operator expectations change.
+- If a task creates a reusable multi-step procedure, promote it into a skill instead of leaving it buried in a note.
+
+## Standard Procedure
+
+1. Read the startup path with the minimum useful scope.
+2. Open one task-specific reference note and one task-specific durable note.
+3. Open code only after the note surface tells you where truth should live.
+4. Make the smallest correct change.
+5. Verify the changed surface.
+6. Update the owning note in the same pass, and update the nearest index if you added, archived, or renamed durable notes or skills.
+7. If the same workflow is likely to recur, create or update a skill and trim the note down to a pointer.
+
+## Token Discipline
+
+- Do not read whole note folders unless the task is note curation.
+- Do not re-read archive handoffs when an active summary or durable note already owns the fact.
+- Do not paste long command output or code into notes; link the file or summarize the finding.
+- Prefer one canonical note update over repeating the same rule in several places.
+- Use Graphify only for architecture or ownership questions, not as a default preflight on every task.
+- Follow `notes/reference/tool-routing.md` for MCP and tool choice so agents do not waste context on overlapping surfaces.
+
+## Skill Promotion Rule
+
+Create or update a skill when a workflow has most of these traits:
+
+- it is a repeatable agent procedure, not one-off project memory
+- it needs ordered steps, commands, or decision rules
+- it has already appeared in multiple sessions, runbooks, or long prompts
+- keeping it as a note would keep charging prompt tax every time
+
+When a procedure becomes a skill:
+
+- keep the skill concise and repo-owned
+- trim the old runbook or note to a short pointer
+- update the nearest index or reference note so future agents can find the skill quickly
 
 ## Core References
 
@@ -57,6 +94,7 @@ Do not jump straight into source files before completing that read order.
 - `notes/reference/index.md`
 - `notes/reference/tech-stack.md`
 - `notes/reference/bootstrap-and-docker.md`
+- `notes/reference/tool-routing.md`
 - `notes/reference/api-surface.md`
 - `notes/reference/prisma-and-views.md`
 - `notes/reference/strategy.md`
@@ -76,9 +114,9 @@ Do not jump straight into source files before completing that read order.
 - Repo-local Obsidian workflow lives in `.agents/skills/obsidian/SKILL.md`.
 - Use `$(git rev-parse --show-toplevel)/.codex/scripts/graphify.sh build-local .` for the default full build path in this repo.
 - The repo graph is code-only. `.md` and other non-code files are intentionally excluded.
-- Use the repo-local `$graphify` skill when you specifically want the upstream interactive workflow.
+- Use the repo-local `$graphify` skill for the supported local workflow in this repo.
 - Graph output lives at `graphify-out/` in repo root.
 - Repo memory notes live at `notes/` in repo root.
 - Canonical repo docs also live inside the vault at `notes/reference/`.
-- Before opening code for architecture or implementation work, read `graphify-out/GRAPH_REPORT.md` when it exists.
+- Before opening code for architecture or ownership work, read `graphify-out/GRAPH_REPORT.md` when it exists.
 - After modifying code files, run `$(git rev-parse --show-toplevel)/.codex/scripts/graphify-rebuild.sh` if `graphify-out/graph.json` already exists.

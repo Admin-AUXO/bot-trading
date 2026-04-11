@@ -60,6 +60,6 @@ If Birdeye discovery filters change again, count provider-side filters before sh
 ## Linked Notes
 
 - [`../trading-memory/providers/2026-04-11-birdeye-meme-list-filter-limit.md`](../trading-memory/providers/2026-04-11-birdeye-meme-list-filter-limit.md)
-- [`../sessions/2026-04-11-dry-run-fixes-and-failure-surfacing.md`](../sessions/2026-04-11-dry-run-fixes-and-failure-surfacing.md)
+- [`../sessions/2026-04-11-provider-runtime-workstream-summary.md`](../sessions/2026-04-11-provider-runtime-workstream-summary.md)
 - [`../reference/dashboard-operator-ui.md`](../reference/dashboard-operator-ui.md)
 - [`../reference/api-surface.md`](../reference/api-surface.md)

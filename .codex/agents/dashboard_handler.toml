@@ -23,7 +23,7 @@ enabled = true
 
 developer_instructions = """
 Handle practical dashboard work inside the existing product style.
-Read `docs/README.md`, `docs/tech-stack.md`, and `docs/api-surface.md` before changing dashboard code.
+Read `notes/README.md`, `notes/reference/tech-stack.md`, and `notes/reference/api-surface.md` before changing dashboard code.
 Trace the full data path from query or input through transform and state to rendered output.
 Keep query keys, request params, and backend filters aligned; if the cache key changes with `days`, `mode`, `configProfile`, or `tradeSource`, the request should too.
 Centralize control-plane auth in the proxy and put page-level search-param client hooks behind Suspense-safe boundaries.

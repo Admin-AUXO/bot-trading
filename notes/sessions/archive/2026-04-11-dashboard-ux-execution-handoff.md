@@ -164,5 +164,5 @@ Current blocker:
 
 ## Durable Notes Updated
 
-- [`../investigations/2026-04-10-dashboard-control-desk-audit.md`](../investigations/2026-04-10-dashboard-control-desk-audit.md)
-- [`../reference/dashboard-operator-ui.md`](../reference/dashboard-operator-ui.md)
+- [`../../investigations/2026-04-10-dashboard-control-desk-audit.md`](../../investigations/2026-04-10-dashboard-control-desk-audit.md)
+- [`../../reference/dashboard-operator-ui.md`](../../reference/dashboard-operator-ui.md)

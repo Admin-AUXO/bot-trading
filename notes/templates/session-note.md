@@ -12,11 +12,13 @@ next_action:
 
 ## Context
 
+## Findings / Decisions
+
 ## What Changed
 
 ## What I Verified
 
-## Risks / Unknowns
+## Remaining Risks
 
 ## Next Action
 

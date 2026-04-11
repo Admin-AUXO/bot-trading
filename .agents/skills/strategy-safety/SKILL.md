@@ -1,34 +1,25 @@
 ---
 name: "strategy-safety"
-description: "Use for strategy changes that touch discovery gates, evaluation logic, risk capacity, position sizing, pause behavior, or exits and need safety-first reasoning."
+description: "Use for strategy changes that touch discovery gates, evaluation logic, risk capacity, position sizing, pause behavior, or exits."
 ---
 
 # Strategy Safety
 
-Use this skill for strategy changes.
+## Use When
+
+- the task changes strategy, sizing, risk, or exit behavior
 
 ## Read First
 
-- `docs/README.md`
-- `docs/strategy.md`
-- `docs/prisma-and-views.md` when evidence or snapshots matter
+- `notes/README.md`
+- `notes/reference/strategy.md`
+- `notes/reference/prisma-and-views.md` when evidence or snapshots matter
 
-## Workflow
+## Rules
 
-- Protect capital before chasing upside.
-- Make strategy logic explainable from discovery signal to exit.
-- Validate interactions with `RiskEngine`, `ExecutionEngine`, `ExitEngine`, and pause/resume behavior.
-- Avoid changes that rely on hidden assumptions or unverified provider data.
+- Protect capital first.
+- Validate the full path from discovery signal to exit behavior.
+- Treat manual overrides as first-class risk surfaces.
 - Keep provider-heavy logic inside shared services.
-- Persist evidence when timing, thresholds, or rejection reasons change.
-- Treat `LIVE` as real and safety-critical now. Verify wallet readiness, persistence-after-fill behavior, and failure handling instead of assuming execution is still blocked.
-- When strategy behavior depends on score, confirm the same score contract is reflected in sizing, queue priority, and exit-profile selection.
-- When Birdeye pacing is involved, check both raw provider spend and the lane-budget behavior instead of reasoning from endpoint cost in isolation.
-- Update `docs/strategy.md` in the same pass when strategy behavior changes.
-
-## Review Order
-
-- Discovery and evaluation gates.
-- Position sizing and capacity.
-- Exit behavior and partials.
-- Operational safety and failure modes.
+- Persist evidence when thresholds or rejection reasons change.
+- Update `notes/reference/strategy.md` when the strategy contract changes.

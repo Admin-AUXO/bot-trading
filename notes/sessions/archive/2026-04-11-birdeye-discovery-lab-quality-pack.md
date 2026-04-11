@@ -276,6 +276,6 @@ Read:
 
 ## Linked Notes
 
-- [`../investigations/2026-04-11-birdeye-discovery-lab-quality-pack-sweep.md`](../investigations/2026-04-11-birdeye-discovery-lab-quality-pack-sweep.md)
-- [`../runbooks/2026-04-11-birdeye-discovery-lab.md`](../runbooks/2026-04-11-birdeye-discovery-lab.md)
+- [`../../investigations/2026-04-11-birdeye-discovery-lab-quality-pack-sweep.md`](../../investigations/2026-04-11-birdeye-discovery-lab-quality-pack-sweep.md)
+- [`../../runbooks/2026-04-11-birdeye-discovery-lab.md`](../../runbooks/2026-04-11-birdeye-discovery-lab.md)
 - [`../trading-memory/providers/2026-04-11-birdeye-quality-pack-source-ranking.md`](../trading-memory/providers/2026-04-11-birdeye-quality-pack-source-ranking.md)

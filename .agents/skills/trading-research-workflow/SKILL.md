@@ -1,26 +1,24 @@
 ---
 name: "trading-research-workflow"
-description: "Use for current research on Solana trading APIs, provider behavior, execution constraints, pricing, and protocol changes that could affect this repo's integrations or assumptions."
+description: "Use for current research on Solana trading APIs, provider behavior, execution constraints, pricing, and protocol changes that affect this repo."
 ---
 
 # Trading Research Workflow
 
-Use this skill when current external facts about Birdeye, Helius, Solana, or execution constraints matter.
+## Use When
 
-Do not use this skill for generic research. Use `web-research-workflow` when the topic is not specifically trading or provider related.
+- current facts about Birdeye, Helius, Solana, or execution constraints matter
 
-## Workflow
+## Rules
 
 - Prioritize official docs, changelogs, pricing pages, and provider API references.
-- Capture exact dates, version changes, and deprecations.
-- Distinguish provider facts from strategy recommendations.
-- Summarize impact on this repo's actual integrations, defaults, and dormant surfaces.
-- Capture endpoint costs, quotas, or latency claims only from source-backed material.
-- When pricing or quota docs change, map them back to this repo's current lane-budget assumptions instead of leaving them as abstract provider facts.
-- Call out when a provider path appears redundant, deprecated, or unused in this repo.
+- Capture exact dates and deprecations.
+- Separate provider facts from strategy recommendations.
+- Map source-backed pricing or quota changes back to this repo’s defaults and budget assumptions.
+- Call out when a provider path is redundant, deprecated, or dormant here.
 
-## Output
+## Deliverable
 
-- What changed or is confirmed now.
-- Why it matters to this repo.
-- Source links and dates.
+- what is confirmed now
+- why it matters to this repo
+- source links and dates

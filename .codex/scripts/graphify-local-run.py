@@ -52,6 +52,16 @@ COMMON_LABEL_STOPWORDS = {
     "trading",
     "types",
 }
+MIN_REPORT_COMMUNITY_SIZE = 3
+
+
+def filter_empty_communities(communities: dict[int, list[str]]) -> dict[int, list[str]]:
+    return {cid: nodes for cid, nodes in communities.items() if nodes}
+
+
+def filter_report_communities(communities: dict[int, list[str]]) -> dict[int, list[str]]:
+    trimmed = {cid: nodes for cid, nodes in communities.items() if len(nodes) >= MIN_REPORT_COMMUNITY_SIZE}
+    return trimmed or communities
 
 
 def keep_code_only(detection_result: dict) -> dict:
@@ -115,6 +125,97 @@ def cleanup(repo_root: Path) -> None:
     (repo_root / "graphify-out" / ".needs_update").unlink(missing_ok=True)
 
 
+def trim_report_noise(report: str) -> str:
+    lines = report.splitlines()
+    trimmed: list[str] = []
+    skip_knowledge_gap_block = False
+    community_blocks: list[list[str]] = []
+    current_block: list[str] | None = None
+    kept_community_count = 0
+    in_communities = False
+    in_questions = False
+    question_blocks: list[list[str]] = []
+    current_question: list[str] | None = None
+
+    for line in lines:
+        if line.startswith("## Communities"):
+            in_communities = True
+            in_questions = False
+            trimmed.append(line)
+            continue
+        if line.startswith("## Suggested Questions"):
+            in_communities = False
+            in_questions = True
+            if current_block:
+                community_blocks.append(current_block)
+                current_block = None
+            kept_blocks = []
+            for block in community_blocks:
+                node_line = next((entry for entry in block if entry.startswith("Nodes (")), "")
+                match = re.search(r"Nodes \((\d+)\)", node_line)
+                node_count = int(match.group(1)) if match else 0
+                if node_count >= MIN_REPORT_COMMUNITY_SIZE:
+                    kept_blocks.append(block)
+            kept_community_count = len(kept_blocks)
+            for block in kept_blocks:
+                trimmed.extend(block)
+                trimmed.append("")
+            trimmed.append(line)
+            continue
+        if line.startswith("## Knowledge Gaps"):
+            skip_knowledge_gap_block = True
+            continue
+        if skip_knowledge_gap_block and line.startswith("## Suggested Questions"):
+            skip_knowledge_gap_block = False
+            continue
+        if skip_knowledge_gap_block:
+            continue
+        if in_communities:
+            if line.startswith("### Community "):
+                if current_block:
+                    community_blocks.append(current_block)
+                current_block = [line]
+            elif current_block is not None:
+                current_block.append(line)
+            continue
+        if in_questions:
+            if line.startswith("- **"):
+                if current_question:
+                    question_blocks.append(current_question)
+                current_question = [line]
+            elif current_question is not None:
+                current_question.append(line)
+            else:
+                trimmed.append(line)
+            continue
+        trimmed.append(line)
+
+    if current_question:
+        question_blocks.append(current_question)
+
+    deduped_questions: list[list[str]] = []
+    seen_question_titles: set[str] = set()
+    for block in question_blocks:
+        title = block[0]
+        if title in seen_question_titles:
+            continue
+        seen_question_titles.add(title)
+        deduped_questions.append(block)
+
+    for block in deduped_questions:
+        trimmed.extend(block)
+
+    cleaned = "\n".join(trimmed).strip() + "\n"
+    if kept_community_count:
+        cleaned = re.sub(
+            r"(- \d+ nodes · \d+ edges · )\d+( communities detected)",
+            rf"\g<1>{kept_community_count}\2",
+            cleaned,
+            count=1,
+        )
+    return cleaned
+
+
 def run(args: argparse.Namespace) -> int:
     repo_root = Path(__file__).resolve().parents[2]
     target = (repo_root / args.path).resolve() if not Path(args.path).is_absolute() else Path(args.path).resolve()
@@ -141,12 +242,17 @@ def run(args: argparse.Namespace) -> int:
     write_json(repo_root / ".graphify_extract.json", extraction)
 
     graph = build_from_json(extraction)
-    communities = cluster(graph)
+    raw_communities = cluster(graph)
+    communities = filter_empty_communities(raw_communities)
     cohesion = score_all(graph, communities)
     labels = auto_label_communities(graph, communities)
     gods = god_nodes(graph)
     surprises = surprising_connections(graph, communities)
-    questions = suggest_questions(graph, communities, labels)
+
+    report_communities = filter_report_communities(communities)
+    report_cohesion = {cid: cohesion[cid] for cid in report_communities}
+    report_labels = {cid: labels[cid] for cid in report_communities}
+    questions = suggest_questions(graph, report_communities, report_labels)
 
     analysis = {
         "communities": {str(cid): nodes for cid, nodes in communities.items()},
@@ -161,9 +267,9 @@ def run(args: argparse.Namespace) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     report = generate(
         graph,
-        communities,
-        cohesion,
-        labels,
+        report_communities,
+        report_cohesion,
+        report_labels,
         gods,
         surprises,
         detection_result,
@@ -171,7 +277,7 @@ def run(args: argparse.Namespace) -> int:
         str(target),
         suggested_questions=questions,
     )
-    (out_dir / "GRAPH_REPORT.md").write_text(report, encoding="utf-8")
+    (out_dir / "GRAPH_REPORT.md").write_text(trim_report_noise(report), encoding="utf-8")
     to_json(graph, communities, str(out_dir / "graph.json"))
 
     html_written = True
@@ -187,6 +293,8 @@ def run(args: argparse.Namespace) -> int:
     input_tokens, output_tokens, total_runs = update_cost(repo_root, extraction, detection_result)
     if args.clean_temp:
         cleanup(repo_root)
+    report_path = out_dir / "GRAPH_REPORT.md"
+    report_path.write_text(trim_report_noise(report_path.read_text(encoding="utf-8")), encoding="utf-8")
 
     print(f"[graphify] Graph complete for {target}")
     print("[graphify] Scope: code files only")

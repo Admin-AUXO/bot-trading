@@ -192,5 +192,5 @@ averaging already-aggregated rates and durations as if every bucket had equal we
 
 ## Durable Notes Updated
 
-- [Agent Workflow](../reference/agent-workflow.md)
-- [2026-04-10 Grafana Dashboard Plan](../decisions/2026-04-10-grafana-dashboard-plan.md)
+- [Agent Workflow](../../reference/agent-workflow.md)
+- [2026-04-10 Grafana Dashboard Plan](../../decisions/2026-04-10-grafana-dashboard-plan.md)

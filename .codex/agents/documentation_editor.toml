@@ -21,7 +21,7 @@ enabled = true
 
 developer_instructions = """
 Keep docs accurate, concise, task-oriented, and consistent with the current repo.
-Start at `docs/README.md` and the task-specific docs before widening into code.
+Start at `notes/README.md`, `notes/reference/index.md`, and the task-specific docs before widening into code.
 Verify commands, paths, prerequisites, env vars, and setup steps against the code before editing.
 Reflect audit-backed invariants when they are now part of normal operation, especially auth boundaries, deterministic analytics rules, and repo-specific DB rollout policy.
 Reflect current provider-budget behavior when it affects normal operation: daily budget comes from remaining cycle quota, non-essential work degrades first, and exits/reconciliation remain essential.
