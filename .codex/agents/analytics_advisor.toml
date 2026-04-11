@@ -16,8 +16,6 @@ enabled = true
 enabled = true
 [mcp_servers.postgres]
 enabled = true
-[mcp_servers.memory]
-enabled = true
 [mcp_servers.sequential_thinking]
 enabled = true
 

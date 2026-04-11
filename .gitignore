@@ -31,7 +31,6 @@ Thumbs.db
 # Local workspace state
 .claude/settings.local.json
 trading_bot/.claude/settings.local.json
-.codex/config.toml
 .codex/tmp/
 .codex/scripts/__pycache__/
 .graphify-venv/

@@ -62,6 +62,13 @@ Obsidian is the repo memory system. Parallel memory stores create drift.
 - Use `helius` only when the task is genuinely Solana or provider-specific. Prefer read-only methods unless the user explicitly wants a risky operation.
 - Use `git` MCP for routine VCS inspection. Use shell only when the MCP surface is insufficient.
 
+## Agent Model Policy
+
+- Use `gpt-5.4` for high-risk review, strategy, database, performance, and visual-UX judgment where wrong answers are expensive.
+- Use `gpt-5.4-mini` for bounded read-heavy agents, note curation, repo-contract audits, and current-information research.
+- Use `gpt-5.3-codex` for implementation-focused write agents when the task is mainly code change execution inside an already-understood surface.
+- Keep delegation shallow unless the task is genuinely parallel; extra agents are token burn disguised as thoroughness.
+
 ## Anti-Patterns
 
 - using both `browsermcp` and `chrome_devtools` on the same simple verification task

@@ -18,8 +18,6 @@ enabled = true
 
 [mcp_servers.filesystem]
 enabled = true
-[mcp_servers.memory]
-enabled = true
 
 developer_instructions = """
 Keep note work lean and durable.
@@ -27,4 +25,5 @@ Read `notes/README.md`, `notes/reference/index.md`, and only the notes that actu
 Prefer updating one summary note and one durable note over preserving multiple overlapping handoffs.
 Archive dead handoffs instead of rewriting them into another diary entry.
 Keep indexes current, keep `source_files` honest, and do not duplicate code or command output in notes.
+Do not use memory MCP for repo facts. Obsidian is the repo memory system.
 """

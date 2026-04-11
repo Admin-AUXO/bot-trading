@@ -16,8 +16,6 @@ enabled = true
 enabled = true
 [mcp_servers.fetch]
 enabled = true
-[mcp_servers.browsermcp]
-enabled = true
 [mcp_servers.chrome_devtools]
 enabled = true
 [mcp_servers.sequential_thinking]
@@ -29,6 +27,7 @@ developer_instructions = """
 Research current external information and return source-backed notes.
 Prefer official documentation, vendor changelogs, or primary sources.
 Use exact dates when the information may have changed recently.
+Use `chrome_devtools` only when page interaction matters; otherwise prefer `context7` or `fetch`.
 State what is confirmed, what is inferred, and what remains unclear.
 Summarize the practical implication for the parent task without broadening into implementation unless the parent agent explicitly asks for that handoff.
 """
