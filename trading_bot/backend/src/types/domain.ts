@@ -304,6 +304,16 @@ export interface ResearchSettings {
   heliusUnitCap: number;
 }
 
+export type StrategyPresetId =
+  | "FIRST_MINUTE_POSTGRAD_CONTINUATION"
+  | "LATE_CURVE_MIGRATION_SNIPE";
+
+export interface StrategySettings {
+  livePresetId: StrategyPresetId;
+  dryRunPresetId: StrategyPresetId;
+  heliusWatcherEnabled: boolean;
+}
+
 export interface BotSettings {
   tradeMode: "DRY_RUN" | "LIVE";
   cadence: {
@@ -345,7 +355,8 @@ export interface BotSettings {
     trailingStopPercent: number;
     timeStopMinutes: number;
     timeStopMinReturnPercent: number;
-    timeLimitMinutes: number;
+      timeLimitMinutes: number;
   };
   research: ResearchSettings;
+  strategy: StrategySettings;
 }

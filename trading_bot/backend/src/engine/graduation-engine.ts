@@ -5,6 +5,8 @@ import { BirdeyeClient } from "../services/birdeye-client.js";
 import { HeliusClient } from "../services/helius-client.js";
 import { ProviderBudgetService } from "../services/provider-budget-service.js";
 import { RuntimeConfigService } from "../services/runtime-config.js";
+import { SharedTokenFactsService, type FreshTokenFacts } from "../services/shared-token-facts.js";
+import { applyStrategySettings, getStrategyPreset, getStrategyPresetForMode, type StrategyDiscoveryRecipe } from "../services/strategy-presets.js";
 import { recordTokenSnapshot } from "../services/token-snapshot-recorder.js";
 import { toOptionalDate } from "../utils/dates.js";
 import { ExecutionEngine } from "./execution-engine.js";
@@ -13,17 +15,20 @@ import type {
   CandidateEvaluation,
   CandidateFilterState,
   DiscoveryToken,
+  StrategyPresetId,
 } from "../types/domain.js";
 import { toJsonValue } from "../utils/json.js";
 import { logger } from "../utils/logger.js";
 
 const DUE_CANDIDATE_STATUSES: CandidateStatus[] = ["DISCOVERED", "SKIPPED", "ERROR"];
+const ACTIVE_CANDIDATE_STATUSES: CandidateStatus[] = ["DISCOVERED", "SKIPPED", "ERROR", "ACCEPTED", "BOUGHT"];
 const EVALUATION_POOL_MULTIPLIER = 6;
 
 export class GraduationEngine {
   private discoveryInFlight = false;
   private evaluationInFlight = false;
   private readonly providerBudget = new ProviderBudgetService();
+  private readonly sharedFacts = new SharedTokenFactsService();
 
   constructor(
     private readonly birdeye: BirdeyeClient,
@@ -35,7 +40,8 @@ export class GraduationEngine {
 
   async getResearchDiscoveryTokens(limit: number): Promise<DiscoveryToken[]> {
     const settings = await this.config.getSettings();
-    return this.fetchDiscoveryTokens(settings, limit, false, "tradable");
+    const preset = getStrategyPresetForMode(settings, "DRY_RUN");
+    return this.fetchDiscoveryTokens(settings, preset.discovery, limit, false, "tradable");
   }
 
   async evaluateResearchToken(
@@ -43,15 +49,22 @@ export class GraduationEngine {
     settingsOverride?: Awaited<ReturnType<RuntimeConfigService["getSettings"]>>,
   ): Promise<CandidateEvaluation> {
     const settings = settingsOverride ?? await this.config.getSettings();
-    return this.evaluateCandidate(token.mint, token as unknown as Record<string, unknown>, settings);
+    return this.evaluateCandidate(
+      token.mint,
+      token as unknown as Record<string, unknown>,
+      settings,
+      settings.strategy.dryRunPresetId,
+    );
   }
 
   scoreDiscoveryToken(
     token: DiscoveryToken,
     settings: Awaited<ReturnType<RuntimeConfigService["getSettings"]>>,
+    presetId = settings.strategy.dryRunPresetId,
   ): number {
+    const effectiveSettings = applyStrategySettings(settings, presetId);
     const discoveryState = this.toDiscoveryFilterState(token);
-    return this.scoreFilterState(discoveryState, settings, {
+    return this.scoreFilterState(discoveryState, effectiveSettings, {
       graduatedAt: token.graduatedAt,
       source: token.source,
     });
@@ -67,8 +80,10 @@ export class GraduationEngine {
 
     try {
       const settings = await this.config.getSettings();
+      const preset = getStrategyPresetForMode(settings, "LIVE");
       const freshTokens = await this.fetchDiscoveryTokens(
         settings,
+        preset.discovery,
         settings.cadence.evaluationConcurrency * 20,
         true,
       );
@@ -81,6 +96,8 @@ export class GraduationEngine {
             symbol: token.symbol,
             name: token.name,
             source: token.source,
+            strategyPresetId: preset.id,
+            discoveryRecipeName: preset.discovery.name,
             creator: token.creator,
             status: "DISCOVERED",
             discoveredAt: new Date(),
@@ -89,8 +106,14 @@ export class GraduationEngine {
             scheduledEvaluationAt: new Date(Date.now() + settings.cadence.entryDelayMs),
             metadata: toJsonValue({
               stage: "discovered",
+              strategyPresetId: preset.id,
+              strategyRecipeName: preset.discovery.name,
             }),
-            metrics: toJsonValue(token),
+            metrics: toJsonValue({
+              ...token,
+              strategyPresetId: preset.id,
+              strategyRecipeName: preset.discovery.name,
+            }),
           },
         });
 
@@ -112,13 +135,18 @@ export class GraduationEngine {
 
   private async fetchDiscoveryTokens(
     settings: Awaited<ReturnType<RuntimeConfigService["getSettings"]>>,
+    recipe: StrategyDiscoveryRecipe,
     limit: number,
     excludeExistingMints: boolean,
     sourceMode: "configured" | "all" | "tradable" = "configured",
   ): Promise<DiscoveryToken[]> {
     const nowUnix = Math.floor(Date.now() / 1000);
-    const minGraduatedTime = nowUnix - env.DISCOVERY_LOOKBACK_SECONDS;
-    const minLastTradeTime = env.DISCOVERY_QUERY_MIN_LAST_TRADE_SECONDS > 0
+    const minGraduatedTime = recipe.graduatedWithinSeconds
+      ? nowUnix - recipe.graduatedWithinSeconds
+      : nowUnix - env.DISCOVERY_LOOKBACK_SECONDS;
+    const minLastTradeTime = recipe.minLastTradeSeconds
+      ? nowUnix - recipe.minLastTradeSeconds
+      : env.DISCOVERY_QUERY_MIN_LAST_TRADE_SECONDS > 0
       ? nowUnix - env.DISCOVERY_QUERY_MIN_LAST_TRADE_SECONDS
       : null;
     const discoverySources = sourceMode === "all"
@@ -136,23 +164,28 @@ export class GraduationEngine {
       return [];
     }
 
-    const fetchedGroups = await Promise.all(discoverySources.map((source) => this.birdeye.getGraduatedMemeTokens({
+    const fetchedGroups = await Promise.all(discoverySources.map((source) => this.birdeye.getMemeTokens({
       source,
-      minGraduatedTime,
-      limit,
-      minLiquidityUsd: env.DISCOVERY_QUERY_MIN_LIQUIDITY_USD,
+      graduated: recipe.mode === "graduated",
+      minGraduatedTime: recipe.mode === "graduated" ? minGraduatedTime : undefined,
+      minProgressPercent: recipe.mode === "pregrad" ? recipe.minProgressPercent : undefined,
+      limit: Math.min(limit, recipe.limit ?? limit),
+      minLiquidityUsd: recipe.minLiquidityUsd ?? env.DISCOVERY_QUERY_MIN_LIQUIDITY_USD,
       minVolume5mUsd: env.DISCOVERY_QUERY_MIN_VOLUME_5M_USD,
       minHolders: env.DISCOVERY_QUERY_MIN_HOLDERS,
       minLastTradeTime,
-      sortBy: env.DISCOVERY_SORT_BY,
-      sortType: env.DISCOVERY_SORT_TYPE,
+      minTrades1m: recipe.minTrades1m,
+      minTrades5m: recipe.minTrades5m,
+      sortBy: recipe.sortBy || env.DISCOVERY_SORT_BY,
+      sortType: recipe.sortType || env.DISCOVERY_SORT_TYPE,
     })));
     const tokens = [...new Map(
       fetchedGroups
         .flat()
-        .sort((left, right) => this.compareDiscoveryTokens(left, right))
+        .sort((left, right) => this.compareDiscoveryTokens(left, right, recipe.sortBy, recipe.sortType))
         .map((token) => [token.mint, token] as const),
     ).values()];
+    await Promise.all(tokens.map((token) => this.sharedFacts.rememberDiscovery(token)));
 
     if (!excludeExistingMints || tokens.length === 0) {
       return tokens;
@@ -161,7 +194,10 @@ export class GraduationEngine {
     const existingMints = new Set(
       (
         await db.candidate.findMany({
-          where: { mint: { in: tokens.map((token) => token.mint) } },
+          where: {
+            mint: { in: tokens.map((token) => token.mint) },
+            status: { in: ACTIVE_CANDIDATE_STATUSES },
+          },
           select: { mint: true },
         })
       ).map((row) => row.mint),
@@ -170,10 +206,15 @@ export class GraduationEngine {
     return tokens.filter((token) => !existingMints.has(token.mint));
   }
 
-  private compareDiscoveryTokens(left: DiscoveryToken, right: DiscoveryToken): number {
-    const direction = env.DISCOVERY_SORT_TYPE === "asc" ? 1 : -1;
-    const leftValue = this.readDiscoverySortValue(left);
-    const rightValue = this.readDiscoverySortValue(right);
+  private compareDiscoveryTokens(
+    left: DiscoveryToken,
+    right: DiscoveryToken,
+    sortBy = env.DISCOVERY_SORT_BY,
+    sortType: "asc" | "desc" = env.DISCOVERY_SORT_TYPE,
+  ): number {
+    const direction = sortType === "asc" ? 1 : -1;
+    const leftValue = this.readDiscoverySortValue(left, sortBy);
+    const rightValue = this.readDiscoverySortValue(right, sortBy);
 
     if (leftValue === rightValue) {
       return ((right.lastTradeAt ?? 0) - (left.lastTradeAt ?? 0))
@@ -184,10 +225,14 @@ export class GraduationEngine {
     return leftValue > rightValue ? direction : -direction;
   }
 
-  private readDiscoverySortValue(token: DiscoveryToken): number {
-    switch (env.DISCOVERY_SORT_BY) {
+  private readDiscoverySortValue(token: DiscoveryToken, sortBy = env.DISCOVERY_SORT_BY): number {
+    switch (sortBy) {
+      case "trade_1m_count":
+        return token.trades1m ?? 0;
       case "last_trade_unix_time":
         return token.lastTradeAt ?? 0;
+      case "volume_1m_usd":
+        return token.volume1mUsd ?? 0;
       case "volume_5m_usd":
         return token.volume5mUsd ?? 0;
       case "trade_5m_count":
@@ -219,9 +264,14 @@ export class GraduationEngine {
         return;
       }
 
-      const rankedCandidates = [...candidates]
-        .sort((left, right) => this.scoreCandidate(right, settings) - this.scoreCandidate(left, settings))
-        .slice(0, settings.cadence.evaluationConcurrency);
+      const rankedCandidates = candidates
+        .map((candidate) => ({
+          candidate,
+          score: this.scoreCandidate(candidate, settings),
+        }))
+        .sort((left, right) => right.score - left.score)
+        .slice(0, settings.cadence.evaluationConcurrency)
+        .map(({ candidate }) => candidate);
 
       const capacity = await this.risk.canOpenPosition(settings);
       if (!capacity.allowed) {
@@ -241,6 +291,7 @@ export class GraduationEngine {
             candidate.mint,
             candidate.metrics as Record<string, unknown> | null,
             settings,
+            candidate.strategyPresetId as StrategyPresetId,
           );
           if (evaluation.deferReason) {
             await db.candidate.update({
@@ -250,6 +301,7 @@ export class GraduationEngine {
                 rejectReason: evaluation.deferReason,
                 lastEvaluatedAt: new Date(),
                 scheduledEvaluationAt: new Date(Date.now() + settings.cadence.evaluationIntervalMs),
+                strategyPresetId: candidate.strategyPresetId,
                 ...this.toCandidateData(evaluation.filterState, true),
                 metrics: toJsonValue(evaluation.metrics),
               },
@@ -264,6 +316,7 @@ export class GraduationEngine {
                 status: "REJECTED",
                 rejectReason: evaluation.rejectReason ?? "rejected",
                 lastEvaluatedAt: new Date(),
+                strategyPresetId: candidate.strategyPresetId,
                 ...this.toCandidateData(evaluation.filterState, true),
                 metrics: toJsonValue(evaluation.metrics),
               },
@@ -300,6 +353,7 @@ export class GraduationEngine {
                 status: "REJECTED",
                 rejectReason: `paper-only source: ${effectiveSource}`,
                 lastEvaluatedAt: new Date(),
+                strategyPresetId: candidate.strategyPresetId,
                 ...this.toCandidateData(evaluation.filterState, true),
                 metrics: toJsonValue({
                   ...evaluation.metrics,
@@ -321,14 +375,15 @@ export class GraduationEngine {
 
           await db.candidate.update({
             where: { id: candidate.id },
-            data: {
-              status: "ACCEPTED",
-              acceptedAt: new Date(),
-              lastEvaluatedAt: new Date(),
-              rejectReason: null,
-              ...this.toCandidateData(evaluation.filterState, true),
-              metrics: toJsonValue(evaluation.metrics),
-            },
+              data: {
+                status: "ACCEPTED",
+                acceptedAt: new Date(),
+                lastEvaluatedAt: new Date(),
+                rejectReason: null,
+                strategyPresetId: candidate.strategyPresetId,
+                ...this.toCandidateData(evaluation.filterState, true),
+                metrics: toJsonValue(evaluation.metrics),
+              },
           });
 
           const positionId = await this.execution.openPosition({
@@ -336,7 +391,10 @@ export class GraduationEngine {
             mint: candidate.mint,
             symbol: candidate.symbol,
             entryPriceUsd: evaluation.entryPriceUsd!,
-            metrics: evaluation.metrics,
+            metrics: {
+              ...evaluation.metrics,
+              strategyPresetId: candidate.strategyPresetId,
+            },
           });
 
           logger.info({ mint: candidate.mint, positionId, tradeMode: settings.tradeMode }, "candidate promoted to position");
@@ -363,7 +421,10 @@ export class GraduationEngine {
     mint: string,
     baselineMetrics: Record<string, unknown> | null,
     settings: Awaited<ReturnType<RuntimeConfigService["getSettings"]>>,
+    strategyPresetId: StrategyPresetId,
   ): Promise<CandidateEvaluation> {
+    const preset = getStrategyPreset(strategyPresetId);
+    const effectiveSettings = applyStrategySettings(settings, strategyPresetId);
     const baseline = this.extractBaselineDiscovery(baselineMetrics);
     const baselineMerged = this.mergeDiscoveryMetrics(null, baselineMetrics);
     const baselineFilterState: CandidateFilterState = {
@@ -373,9 +434,12 @@ export class GraduationEngine {
     const shouldRefreshDetail = this.readBoolean(baseline, "graduated") !== true
       || this.readNumber(baseline, "graduatedAt") === null
       || this.readString(baseline, "source") === null;
+    const cachedFacts = await this.sharedFacts.getFreshFacts(mint);
+    const projectedEvaluationUnits = (shouldRefreshDetail && !cachedFacts.detail ? 30 : 0)
+      + (cachedFacts.tradeData ? 0 : 15);
     const evaluationBudget = await this.providerBudget.canSpend(
       "evaluation",
-      (shouldRefreshDetail ? 30 : 0) + 15,
+      projectedEvaluationUnits,
     );
     if (!evaluationBudget.allowed) {
       return {
@@ -383,6 +447,8 @@ export class GraduationEngine {
         deferReason: evaluationBudget.reason ?? "evaluation lane budget pacing blocked",
         metrics: {
           ...(baselineMetrics ?? {}),
+          strategyPresetId,
+          strategyRecipeName: preset.discovery.name,
           budget: evaluationBudget.snapshot,
         },
         filterState: baselineFilterState,
@@ -390,12 +456,15 @@ export class GraduationEngine {
     }
 
     const [detail, mintAuthorities] = await Promise.all([
-      shouldRefreshDetail ? this.birdeye.getMemeTokenDetail(mint) : Promise.resolve(null),
-      this.helius.getMintAuthorities(mint),
+      this.getDetailWithCache(mint, shouldRefreshDetail, cachedFacts.detail),
+      this.getMintAuthoritiesWithCache(mint, cachedFacts.mintAuthorities),
     ]);
 
     const metrics: Record<string, unknown> = {
       ...(baselineMetrics ?? {}),
+      strategyPresetId,
+      strategyLabel: preset.label,
+      strategyRecipeName: preset.discovery.name,
       detail,
       mintAuthorities,
     };
@@ -407,43 +476,54 @@ export class GraduationEngine {
     };
 
     const graduated = detail?.graduated ?? this.readBoolean(baseline, "graduated");
-    if (!graduated || !merged.graduatedAt) {
-      return { passed: false, rejectReason: "token is not confirmed as graduated", metrics, filterState: baseFilterState };
-    }
+    if (preset.discovery.mode === "graduated") {
+      if (!graduated || !merged.graduatedAt) {
+        return { passed: false, rejectReason: "token is not confirmed as graduated", metrics, filterState: baseFilterState };
+      }
 
-    const ageSeconds = Math.floor(Date.now() / 1000) - merged.graduatedAt;
-    metrics.ageSeconds = ageSeconds;
-    baseFilterState.graduationAgeSeconds = ageSeconds;
-    if (ageSeconds > settings.filters.maxGraduationAgeSeconds) {
-      return { passed: false, rejectReason: `graduation too old: ${ageSeconds}s`, metrics, filterState: baseFilterState };
+      const ageSeconds = Math.floor(Date.now() / 1000) - merged.graduatedAt;
+      metrics.ageSeconds = ageSeconds;
+      baseFilterState.graduationAgeSeconds = ageSeconds;
+      if (ageSeconds > effectiveSettings.filters.maxGraduationAgeSeconds) {
+        return { passed: false, rejectReason: `graduation too old: ${ageSeconds}s`, metrics, filterState: baseFilterState };
+      }
+    } else {
+      const progressPercent = merged.progressPercent ?? 0;
+      metrics.progressPercent = progressPercent;
+      if (graduated) {
+        return { passed: false, rejectReason: "already graduated during pregrad window", metrics, filterState: baseFilterState };
+      }
+      if (progressPercent < (preset.discovery.minProgressPercent ?? 98.5)) {
+        return { passed: false, rejectReason: "progress below pregrad floor", metrics, filterState: baseFilterState };
+      }
     }
 
     const softIssues: string[] = [];
     const liquidityUsd = merged.liquidityUsd ?? 0;
-    if (liquidityUsd < settings.filters.minLiquidityUsd) {
-      if (liquidityUsd < settings.filters.minLiquidityUsd * 0.65) {
+    if (liquidityUsd < effectiveSettings.filters.minLiquidityUsd) {
+      if (liquidityUsd < effectiveSettings.filters.minLiquidityUsd * 0.65) {
         return { passed: false, rejectReason: "liquidity far below floor", metrics, filterState: baseFilterState };
       }
       softIssues.push("liquidity below floor");
     }
 
     const marketCapUsd = merged.marketCapUsd ?? Number.MAX_SAFE_INTEGER;
-    if (marketCapUsd > settings.filters.maxMarketCapUsd) {
-      if (marketCapUsd > settings.filters.maxMarketCapUsd * 1.35) {
+    if (marketCapUsd > effectiveSettings.filters.maxMarketCapUsd) {
+      if (marketCapUsd > effectiveSettings.filters.maxMarketCapUsd * 1.35) {
         return { passed: false, rejectReason: "market cap far above ceiling", metrics, filterState: baseFilterState };
       }
       softIssues.push("market cap above ceiling");
     }
 
     const holders = merged.holders ?? 0;
-    if (holders < settings.filters.minHolders) {
-      if (holders < settings.filters.minHolders * 0.65) {
+    if (holders < effectiveSettings.filters.minHolders) {
+      if (holders < effectiveSettings.filters.minHolders * 0.65) {
         return { passed: false, rejectReason: "holder count far below floor", metrics, filterState: baseFilterState };
       }
       softIssues.push("holder count below floor");
     }
 
-    const tradeData = await this.birdeye.getTradeData(mint);
+    const tradeData = await this.getTradeDataWithCache(mint, cachedFacts.tradeData);
     metrics.tradeData = tradeData;
     Object.assign(baseFilterState, {
       lastTradeAt: tradeData?.lastTradeAt ?? baseFilterState.lastTradeAt,
@@ -495,17 +575,33 @@ export class GraduationEngine {
       priceChange24hPercent: tradeData?.priceChange24hPercent ?? baseFilterState.priceChange24hPercent,
     });
 
+    if (preset.discovery.minLastTradeSeconds && tradeData?.lastTradeAt) {
+      const lastTradeAgeSeconds = Math.floor(Date.now() / 1000) - tradeData.lastTradeAt;
+      metrics.lastTradeAgeSeconds = lastTradeAgeSeconds;
+      if (lastTradeAgeSeconds > preset.discovery.minLastTradeSeconds) {
+        return { passed: false, rejectReason: "tape already went stale", metrics, filterState: baseFilterState };
+      }
+    }
+
+    if (preset.discovery.minTrades1m && (tradeData?.trades1m ?? 0) < preset.discovery.minTrades1m) {
+      softIssues.push("1m tape below recipe floor");
+    }
+
+    if (preset.discovery.minTrades5m && (tradeData?.trades5m ?? 0) < preset.discovery.minTrades5m) {
+      softIssues.push("5m tape below recipe floor");
+    }
+
     const volume5mUsd = tradeData?.volume5mUsd ?? 0;
-    if (volume5mUsd < settings.filters.minVolume5mUsd) {
-      if (volume5mUsd < settings.filters.minVolume5mUsd * 0.65) {
+    if (volume5mUsd < effectiveSettings.filters.minVolume5mUsd) {
+      if (volume5mUsd < effectiveSettings.filters.minVolume5mUsd * 0.65) {
         return { passed: false, rejectReason: "5m volume far below floor", metrics, filterState: baseFilterState };
       }
       softIssues.push("5m volume below floor");
     }
 
     const uniqueBuyers5m = tradeData?.uniqueWallets5m ?? 0;
-    if (uniqueBuyers5m < settings.filters.minUniqueBuyers5m) {
-      if (uniqueBuyers5m < settings.filters.minUniqueBuyers5m * 0.65) {
+    if (uniqueBuyers5m < effectiveSettings.filters.minUniqueBuyers5m) {
+      if (uniqueBuyers5m < effectiveSettings.filters.minUniqueBuyers5m * 0.65) {
         return { passed: false, rejectReason: "unique buyers far below floor", metrics, filterState: baseFilterState };
       }
       softIssues.push("unique buyers below floor");
@@ -514,8 +610,8 @@ export class GraduationEngine {
     const buySellRatio = (tradeData?.volumeBuy5mUsd ?? 0) / Math.max(tradeData?.volumeSell5mUsd ?? 0, 1);
     metrics.buySellRatio = buySellRatio;
     baseFilterState.buySellRatio = buySellRatio;
-    if (buySellRatio < settings.filters.minBuySellRatio) {
-      if (buySellRatio < settings.filters.minBuySellRatio * 0.7) {
+    if (buySellRatio < effectiveSettings.filters.minBuySellRatio) {
+      if (buySellRatio < effectiveSettings.filters.minBuySellRatio * 0.7) {
         return { passed: false, rejectReason: "buy/sell ratio collapsed", metrics, filterState: baseFilterState };
       }
       softIssues.push("buy/sell ratio too weak");
@@ -524,8 +620,8 @@ export class GraduationEngine {
     const priceChange5m = tradeData?.priceChange5mPercent ?? merged.priceChange5mPercent ?? 0;
     metrics.priceChange5mPercent = priceChange5m;
     baseFilterState.priceChange5mPercent = priceChange5m;
-    if (priceChange5m <= -settings.filters.maxNegativePriceChange5mPercent) {
-      if (priceChange5m <= -settings.filters.maxNegativePriceChange5mPercent * 1.5) {
+    if (priceChange5m <= -effectiveSettings.filters.maxNegativePriceChange5mPercent) {
+      if (priceChange5m <= -effectiveSettings.filters.maxNegativePriceChange5mPercent * 1.5) {
         return { passed: false, rejectReason: "price already dumping hard", metrics, filterState: baseFilterState };
       }
       softIssues.push("price already fading");
@@ -549,7 +645,11 @@ export class GraduationEngine {
       return { passed: false, rejectReason: "freeze authority still active", metrics, filterState: baseFilterState };
     }
 
-    const holderConcentration = await this.helius.getHolderConcentration(mint, mintAuthorities.supplyRaw);
+    const holderConcentration = await this.getHolderConcentrationWithCache(
+      mint,
+      mintAuthorities.supplyRaw,
+      cachedFacts.holderConcentration,
+    );
     metrics.holderConcentration = holderConcentration;
     Object.assign(baseFilterState, {
       top10HolderPercent: holderConcentration?.top10Percent,
@@ -562,15 +662,15 @@ export class GraduationEngine {
       return { passed: false, rejectReason: "holder concentration unavailable", metrics, filterState: baseFilterState };
     }
 
-    if (holderConcentration.top10Percent > settings.filters.maxTop10HolderPercent) {
-      if (holderConcentration.top10Percent > settings.filters.maxTop10HolderPercent * 1.25) {
+    if (holderConcentration.top10Percent > effectiveSettings.filters.maxTop10HolderPercent) {
+      if (holderConcentration.top10Percent > effectiveSettings.filters.maxTop10HolderPercent * 1.25) {
         return { passed: false, rejectReason: "top10 concentration far too high", metrics, filterState: baseFilterState };
       }
       softIssues.push("top10 concentration too high");
     }
 
-    if (holderConcentration.largestHolderPercent > settings.filters.maxSingleHolderPercent) {
-      if (holderConcentration.largestHolderPercent > settings.filters.maxSingleHolderPercent * 1.25) {
+    if (holderConcentration.largestHolderPercent > effectiveSettings.filters.maxSingleHolderPercent) {
+      if (holderConcentration.largestHolderPercent > effectiveSettings.filters.maxSingleHolderPercent * 1.25) {
         return { passed: false, rejectReason: "largest holder concentration far too high", metrics, filterState: baseFilterState };
       }
       softIssues.push("largest holder concentration too high");
@@ -588,7 +688,7 @@ export class GraduationEngine {
       };
     }
 
-    const securityBudget = await this.providerBudget.canSpend("security", 50);
+    const securityBudget = await this.providerBudget.canSpend("security", cachedFacts.security ? 0 : 50);
     if (!securityBudget.allowed) {
       return {
         passed: false,
@@ -601,7 +701,7 @@ export class GraduationEngine {
       };
     }
 
-    const security = await this.birdeye.getTokenSecurity(mint);
+    const security = await this.getSecurityWithCache(mint, cachedFacts.security);
     metrics.security = security;
     Object.assign(baseFilterState, {
       creatorBalancePercent: security?.creatorBalancePercent,
@@ -641,7 +741,7 @@ export class GraduationEngine {
       return { passed: false, rejectReason: "token remains mintable", metrics, filterState: baseFilterState };
     }
 
-    if ((security.transferFeePercent ?? 0) > settings.filters.maxTransferFeePercent) {
+    if ((security.transferFeePercent ?? 0) > effectiveSettings.filters.maxTransferFeePercent) {
       return { passed: false, rejectReason: "transfer fee above allowed ceiling", metrics, filterState: baseFilterState };
     }
 
@@ -650,7 +750,7 @@ export class GraduationEngine {
       return { passed: false, rejectReason: "entry price unavailable", metrics, filterState: baseFilterState };
     }
     baseFilterState.priceUsd = entryPriceUsd;
-    const entryScore = this.scoreFilterState(baseFilterState, settings, {
+    const entryScore = this.scoreFilterState(baseFilterState, effectiveSettings, {
       graduatedAt: merged.graduatedAt,
       source: merged.source,
     });
@@ -684,6 +784,7 @@ export class GraduationEngine {
   }
 
   private scoreCandidate(candidate: Candidate, settings: Awaited<ReturnType<RuntimeConfigService["getSettings"]>>): number {
+    const effectiveSettings = applyStrategySettings(settings, candidate.strategyPresetId as StrategyPresetId);
     return this.scoreFilterState({
       liquidityUsd: Number(candidate.liquidityUsd ?? 0),
       volume5mUsd: Number(candidate.volume5mUsd ?? 0),
@@ -691,14 +792,79 @@ export class GraduationEngine {
       priceChange5mPercent: Number(candidate.priceChange5mPercent ?? 0),
       uniqueWallets5m: Number(candidate.uniqueWallets5m ?? 0),
       holders: Number(candidate.holders ?? 0),
-      top10HolderPercent: Number(candidate.top10HolderPercent ?? settings.filters.maxTop10HolderPercent),
-      largestHolderPercent: Number(candidate.largestHolderPercent ?? settings.filters.maxSingleHolderPercent),
-    }, settings, {
+      top10HolderPercent: Number(candidate.top10HolderPercent ?? effectiveSettings.filters.maxTop10HolderPercent),
+      largestHolderPercent: Number(candidate.largestHolderPercent ?? effectiveSettings.filters.maxSingleHolderPercent),
+    }, effectiveSettings, {
       graduatedAt: candidate.graduatedAt ? Math.floor(candidate.graduatedAt.getTime() / 1000) : null,
       discoveredAtMs: candidate.discoveredAt.getTime(),
       source: candidate.source,
       status: candidate.status,
     });
+  }
+
+  private async getDetailWithCache(
+    mint: string,
+    shouldRefreshDetail: boolean,
+    cachedDetail: FreshTokenFacts["detail"],
+  ): Promise<DiscoveryToken | null> {
+    if (!shouldRefreshDetail) {
+      return null;
+    }
+
+    if (cachedDetail) {
+      return cachedDetail;
+    }
+
+    const detail = await this.birdeye.getMemeTokenDetail(mint);
+    await this.sharedFacts.rememberDetail(mint, detail);
+    return detail;
+  }
+
+  private async getTradeDataWithCache(mint: string, cachedTradeData: FreshTokenFacts["tradeData"]) {
+    if (cachedTradeData) {
+      return cachedTradeData;
+    }
+
+    const tradeData = await this.birdeye.getTradeData(mint);
+    await this.sharedFacts.rememberTradeData(mint, tradeData);
+    return tradeData;
+  }
+
+  private async getMintAuthoritiesWithCache(
+    mint: string,
+    cachedMintAuthorities: FreshTokenFacts["mintAuthorities"],
+  ) {
+    if (cachedMintAuthorities) {
+      return cachedMintAuthorities;
+    }
+
+    const mintAuthorities = await this.helius.getMintAuthorities(mint);
+    await this.sharedFacts.rememberMintAuthorities(mint, mintAuthorities);
+    return mintAuthorities;
+  }
+
+  private async getHolderConcentrationWithCache(
+    mint: string,
+    supplyRaw: string,
+    cachedHolderConcentration: FreshTokenFacts["holderConcentration"],
+  ) {
+    if (cachedHolderConcentration) {
+      return cachedHolderConcentration;
+    }
+
+    const holderConcentration = await this.helius.getHolderConcentration(mint, supplyRaw);
+    await this.sharedFacts.rememberHolderConcentration(mint, holderConcentration);
+    return holderConcentration;
+  }
+
+  private async getSecurityWithCache(mint: string, cachedSecurity: FreshTokenFacts["security"]) {
+    if (cachedSecurity) {
+      return cachedSecurity;
+    }
+
+    const security = await this.birdeye.getTokenSecurity(mint);
+    await this.sharedFacts.rememberSecurity(mint, security);
+    return security;
   }
 
   private scoreFilterState(

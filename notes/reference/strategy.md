@@ -9,7 +9,11 @@ source_files:
   - trading_bot/backend/src/engine/exit-engine.ts
   - trading_bot/backend/src/engine/runtime.ts
   - trading_bot/backend/src/engine/risk-engine.ts
-graph_checked:
+  - trading_bot/backend/src/services/shared-token-facts.ts
+  - trading_bot/backend/src/services/strategy-exit.ts
+  - trading_bot/backend/src/services/strategy-presets.ts
+  - trading_bot/backend/src/services/helius-migration-watcher.ts
+graph_checked: 2026-04-11
 next_action:
 ---
 
@@ -17,7 +21,12 @@ next_action:
 
 Purpose: describe the actual S2 lifecycle in code, including the parts that are easy to misread from the UI.
 
-This repo runs one strategy: S2 graduation.
+This repo still runs one desk thesis, S2 graduation, but it now has two selectable runtime presets:
+
+- `FIRST_MINUTE_POSTGRAD_CONTINUATION`
+- `LATE_CURVE_MIGRATION_SNIPE`
+
+`LIVE` and `DRY_RUN` can point at different presets through `settings.strategy.*`.
 
 ## Runtime Lanes
 
@@ -43,10 +52,14 @@ Runtime pacing matters now:
 - Capacity pressure and manual pause now actively write `SKIPPED` and reschedule candidates instead of burning them permanently
 - Successful evaluation marks a candidate `ACCEPTED`, then `ExecutionEngine.openPosition()` immediately moves it to `BOUGHT`
 - Full exit updates linked candidates to `EXITED`
+- Candidates are no longer globally one-mint-and-done. The runtime now dedupes only active candidate rows so the same mint can be revisited later under a different preset or after the previous lifecycle is finished.
+- Each candidate and position now records `strategyPresetId`, and live or research entries persist the preset-specific discovery recipe name used to find the token.
 
 ## Discovery Contract
 
-- Discovery source is Birdeye graduated meme tokens
+- Discovery recipe depends on the active preset:
+  - `FIRST_MINUTE_POSTGRAD_CONTINUATION`: graduated names ranked by `trade_1m_count` inside the first ten minutes after graduation
+  - `LATE_CURVE_MIGRATION_SNIPE`: near-graduation names ranked by `trade_1m_count` once progress is at least `98.5%`
 - `DISCOVERY_SOURCES="pump_dot_fun"` keeps live discovery aligned with the current pump-only tradable desk by default
 - You can still widen discovery with `DISCOVERY_SOURCES="all"` or a venue list when the desk is intentionally researching or papering non-pump venues
 - `TRADABLE_SOURCES="pump_dot_fun"` keeps non-pump venues in paper-only mode unless you explicitly widen it
@@ -59,12 +72,13 @@ Runtime pacing matters now:
   - `scheduledEvaluationAt = now + entryDelayMs`
   - raw discovery payload in `Candidate.metrics`
   - normalized discovery evidence in `TokenSnapshot` with `trigger = "discovery"`
+  - a shared discovery cache write into `SharedTokenFact` so later evaluation and the other preset can reuse the same Birdeye baseline instead of re-paying for it immediately
 
 ## Research Dry-Run Contract
 
 - `DRY_RUN` is a bounded research lane, not a rolling paper bot
 - Research starts only from the manual `run-research-dry-run` control
-- Discovery is one Birdeye meme-list page from the currently tradable source set, capped by `research.discoveryLimit`
+- Discovery is one preset-specific Birdeye meme-list page from the currently tradable source set, capped by `research.discoveryLimit`
 - Research discovery does not dedupe against operational `Candidate` history; repeated runs on the same mint are allowed and isolated by `ResearchRun`
 - The page is cheap-scored first across all discovered names
 - Full deep evaluation only runs on the top `research.fullEvaluationLimit`
@@ -80,12 +94,14 @@ Runtime pacing matters now:
 
 ## Evaluation Contract
 
-Important nuance: evaluation now checks capacity before spending provider units, due candidates are ranked by a freshness, liquidity, and momentum priority score instead of raw FIFO order, and the lane is Birdeye-budget aware before it spends detail, trade-data, or security units. Ranked candidates are then processed one by one rather than blasting all provider calls in parallel, because Lite-plan burst discipline matters more than theoretical loop throughput on a `$100` desk.
+Important nuance: evaluation now checks capacity before spending provider units, due candidates are ranked by a freshness, liquidity, and momentum priority score instead of raw FIFO order, and the lane is Birdeye-budget aware before it spends detail, trade-data, or security units. Fresh `SharedTokenFact` rows now collapse those cache reads into one lookup per mint, and projected Birdeye spend only charges stale detail, trade-data, or security reads instead of pretending cached facts still cost live units. Ranked candidates are then processed one by one rather than blasting all provider calls in parallel, because Lite-plan burst discipline matters more than theoretical loop throughput on a `$100` desk.
 
 Evaluation then applies these gates:
 
-1. Graduated token confirmation
-2. Graduation age `<= maxGraduationAgeSeconds`
+1. Strategy-mode confirmation
+  - continuation preset requires confirmed graduation
+  - migration-snipe preset requires a pre-grad token still under the curve and already above the late-progress floor
+2. Graduation age `<= maxGraduationAgeSeconds` for the continuation preset only
 3. Cheap filter pass:
    - catastrophic misses still reject immediately
    - single soft misses are tolerated
@@ -105,12 +121,22 @@ Evaluation then applies these gates:
 8. Deep security rejects on fake token, honeypot, freezeable token, mintable token, or transfer fee above `maxTransferFeePercent`
 9. Entry price must still be available
 10. Accepted candidates persist `entryScore` plus the derived exit profile (`scalp`, `balanced`, or `runner`) into position metadata
+11. Shared facts are reused when still fresh:
+  - Birdeye detail
+  - Birdeye trade data
+  - Birdeye token security
+  - Helius mint authorities
+  - Helius holder concentration
+  - cache freshness now reduces projected Birdeye lane burn before evaluation asks for budget permission
 
 Scoring contract:
 
 - ranking weight is `35%` momentum, `35%` structure, `30%` liquidity and exitability
 - accepted candidates persist the same score family the runtime used to prioritize them
 - score also drives both adaptive position sizing and exit-profile selection
+- preset-specific entry ceilings matter:
+  continuation now keeps a `5,000,000` market-cap cap
+  late-curve research now keeps a `7,000,000` market-cap cap
 
 Persistence on evaluation:
 
@@ -136,6 +162,7 @@ Persistence on evaluation:
 - `ExecutionEngine` serializes wallet-affecting actions so overlapping manual triggers and scheduler loops cannot open or close simultaneously
 - `LIVE` buys execute onchain first, then persist the fill, `txSignature`, position, and cash update; if persistence fails after a live trade lands, the bot pauses itself for manual intervention
 - Research mock buys are written to dedicated research tables and never touch `BotState.cashUsd` or `BotState.realizedPnlUsd`
+- The continuation preset can optionally arm a Helius `logsSubscribe` watcher. When a watched migration program emits a signal and the preset is active in `LIVE`, the runtime immediately runs another discovery sweep instead of waiting for the next scheduled loop.
 
 Pause semantics matter:
 
@@ -163,6 +190,10 @@ Exit tuning is now score-aware:
 - mid-score entries use the balanced profile
 - higher-score entries get the runner profile: smaller early trims, wider trail, and more time to work
 - the derived exit plan is stored in `Position.metadata.exitPlan` and used by the exit lane instead of treating every name the same
+- preset-specific exit bases are applied before score shaping, so the late-curve snipe stays shorter and more defensive while the continuation preset gets slightly more room without giving up the `2x` cash-out target
+- profile timing is monotonic again even under the fast-turn presets:
+  scalp time-stop and hard-limit stay shorter than balanced
+  runner stays longer than both
 
 Profile thresholds in code:
 
@@ -180,6 +211,7 @@ Profile thresholds in code:
 - `cadence.entryDelayMs`
 - `cadence.evaluationConcurrency`
 - `capital.*`
+- `strategy.*`
 - `research.*`
 - `filters.*`
 - `exits.*`

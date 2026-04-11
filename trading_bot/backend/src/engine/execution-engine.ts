@@ -366,11 +366,13 @@ export class ExecutionEngine {
     input: PersistOpenInput,
   ): Promise<{ id: string }> {
     const entryScore = this.readEntryScore(input.input.metrics);
-    const exitPlan = buildExitPlan(input.settings, entryScore);
+    const strategyPresetId = this.readStrategyPresetId(input.input.metrics, input.settings);
+    const exitPlan = buildExitPlan(input.settings, entryScore, strategyPresetId);
     const created = await tx.position.create({
       data: {
         mint: input.input.mint,
         symbol: input.input.symbol,
+        strategyPresetId,
         entryPriceUsd: input.entryPriceUsd,
         currentPriceUsd: input.entryPriceUsd,
         peakPriceUsd: input.entryPriceUsd,
@@ -384,6 +386,7 @@ export class ExecutionEngine {
         metadata: toJsonValue({
           mode: input.settings.tradeMode,
           settings: input.settings,
+          strategyPresetId,
           entryScore,
           exitPlan,
           metrics: input.input.metrics,
@@ -403,6 +406,7 @@ export class ExecutionEngine {
         metadata: toJsonValue({
           mode: input.settings.tradeMode,
           settings: input.settings,
+          strategyPresetId,
           entryScore,
           exitPlan,
           ...(input.fillMetadata ?? {}),
@@ -418,6 +422,7 @@ export class ExecutionEngine {
         acceptedAt: new Date(),
         positionId: created.id,
         rejectReason: null,
+        strategyPresetId,
         metrics: toJsonValue(input.input.metrics),
       },
     });
@@ -545,6 +550,17 @@ export class ExecutionEngine {
   private readEntryScore(metrics: Record<string, unknown>): number {
     const direct = toNumber(metrics.entryScore);
     return direct !== null ? this.clamp(direct, 0, 1) : 0.65;
+  }
+
+  private readStrategyPresetId(
+    metrics: Record<string, unknown>,
+    settings: BotSettings,
+  ): BotSettings["strategy"]["livePresetId"] {
+    const direct = toTrimmedString(metrics.strategyPresetId);
+    if (direct === "FIRST_MINUTE_POSTGRAD_CONTINUATION" || direct === "LATE_CURVE_MIGRATION_SNIPE") {
+      return direct;
+    }
+    return settings.strategy.livePresetId;
   }
 
   private clamp(value: number, min: number, max: number): number {

@@ -40,10 +40,12 @@ enum ProviderName {
 
 model Candidate {
   id                   String          @id @default(cuid())
-  mint                 String          @unique
+  mint                 String
   symbol               String          @default("")
   name                 String          @default("")
   source               String          @default("")
+  strategyPresetId     String          @default("FIRST_MINUTE_POSTGRAD_CONTINUATION")
+  discoveryRecipeName  String?
   creator              String?
   platformId           String?
   status               CandidateStatus @default(DISCOVERED)
@@ -141,6 +143,8 @@ model Candidate {
   snapshots            TokenSnapshot[]
 
   @@index([status, scheduledEvaluationAt])
+  @@index([mint, status])
+  @@index([strategyPresetId, status, scheduledEvaluationAt])
   @@index([status, liquidityUsd])
   @@index([status, volume5mUsd])
   @@index([status, buySellRatio])
@@ -154,6 +158,7 @@ model Position {
   mint               String
   symbol             String         @default("")
   strategy           String         @default("S2_GRADUATION")
+  strategyPresetId   String         @default("FIRST_MINUTE_POSTGRAD_CONTINUATION")
   status             PositionStatus @default(OPEN)
   entryPriceUsd      Decimal        @db.Decimal(18, 9)
   currentPriceUsd    Decimal        @db.Decimal(18, 9)
@@ -177,6 +182,7 @@ model Position {
 
   @@index([status, openedAt])
   @@index([mint, status])
+  @@index([strategyPresetId, status, openedAt])
 }
 
 model Fill {
@@ -198,6 +204,8 @@ model Fill {
 model ResearchRun {
   id                     String            @id @default(cuid())
   status                 ResearchRunStatus @default(RUNNING)
+  strategyPresetId       String            @default("FIRST_MINUTE_POSTGRAD_CONTINUATION")
+  discoveryRecipeName    String?
   startedAt              DateTime          @default(now())
   completedAt            DateTime?
   lastPolledAt           DateTime?
@@ -244,6 +252,7 @@ model ResearchToken {
   symbol               String            @default("")
   name                 String            @default("")
   source               String            @default("")
+  strategyPresetId     String            @default("FIRST_MINUTE_POSTGRAD_CONTINUATION")
   creator              String?
   liveTradable         Boolean           @default(false)
   researchTradable     Boolean           @default(false)
@@ -267,6 +276,7 @@ model ResearchToken {
   @@unique([runId, mint])
   @@index([runId, shortlisted, cheapScore])
   @@index([runId, strategyPassed, entryScore])
+  @@index([strategyPresetId, strategyPassed, createdAt])
 }
 
 model ResearchPosition {
@@ -277,6 +287,7 @@ model ResearchPosition {
   token               ResearchToken  @relation(fields: [tokenId], references: [id], onDelete: Cascade)
   mint                String
   symbol              String         @default("")
+  strategyPresetId    String         @default("FIRST_MINUTE_POSTGRAD_CONTINUATION")
   status              PositionStatus @default(OPEN)
   entryPriceUsd       Decimal        @db.Decimal(18, 9)
   currentPriceUsd     Decimal        @db.Decimal(18, 9)
@@ -404,6 +415,41 @@ model RawApiPayload {
 
   @@index([provider, endpoint, capturedAt])
   @@index([entityKey, capturedAt])
+}
+
+model SharedTokenFact {
+  mint                      String   @id
+  symbol                    String   @default("")
+  name                      String   @default("")
+  source                    String?
+  latestDiscovery           Json?
+  latestDetail              Json?
+  latestTradeData           Json?
+  latestMintAuthorities     Json?
+  latestHolderConcentration Json?
+  latestSecurity            Json?
+  latestDiscoveryAt         DateTime?
+  latestDetailAt            DateTime?
+  latestTradeDataAt         DateTime?
+  latestMintAuthoritiesAt   DateTime?
+  latestHolderConcentrationAt DateTime?
+  latestSecurityAt          DateTime?
+  firstSeenAt               DateTime @default(now())
+  lastSeenAt                DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  @@index([lastSeenAt])
+  @@index([source, lastSeenAt])
+}
+
+model SharedTokenFactMigrationSignal {
+  id         String   @id @default(cuid())
+  programId  String
+  signature  String   @unique
+  observedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([programId, observedAt])
 }
 
 model TokenSnapshot {

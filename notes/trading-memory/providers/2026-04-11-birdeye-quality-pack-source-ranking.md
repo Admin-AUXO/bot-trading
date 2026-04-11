@@ -8,7 +8,7 @@ source_files:
   - trading_bot/backend/scripts/discovery-lab.recipes.quality.json
   - trading_bot/backend/scripts/discovery-lab.recipes.fast-turn.json
 graph_checked: 2026-04-11
-next_action: Re-run the fast-turn pack in another live window before promoting its winner into any runtime discovery preset.
+next_action: Re-run the pump controls plus the new 30m-strength recipe in another live window before promoting any new discovery preset.
 ---
 
 # Trading Memory - Birdeye Quality Pack Source Ranking
@@ -126,6 +126,62 @@ Reuse rule for the fast-turn pack:
 - use `grad_4h_holder_liquidity` as the first fast-turn research shape to re-check
 - do not loosen concentration controls just because the raw score looks attractive
 - treat Meteora fast-turn scores as suspicious until a later window produces an actual pass-grade candidate
+
+## 2026-04-11 API Surface Follow-Up
+
+Provider fact, not strategy folklore:
+
+- Birdeye's changelog says `GET /defi/v3/token/meme/list` added `1m` and `30m` sort and filter intervals on `2026-02-10`
+- the endpoint reference now lists `volume_1m_usd`, `volume_30m_usd`, `price_change_30m_percent`, `trade_1m_count`, and `trade_30m_count` as valid sort and filter fields
+
+Sources:
+
+- <https://docs.birdeye.so/changelog/20260210-release-extra-intervals-for-token-meme-list>
+- <https://docs.birdeye.so/reference/get-defi-v3-token-meme-list>
+
+Pump-only sanity run:
+
+- temp recipe pack:
+  `/tmp/discovery-lab.recipes.pump-next.json`
+- report:
+  `/tmp/discovery-lab-pump-next.json`
+- grading lens:
+  `minLiquidityUsd=10000`
+  `maxMarketCapUsd=10000000`
+  `minHolders=50`
+  `minVolume5mUsd=2500`
+  `minUniqueBuyers5m=20`
+  `minBuySellRatio=1.15`
+  `maxTop10HolderPercent=40`
+  `maxSingleHolderPercent=20`
+
+Durable result:
+
+- existing controls still won
+- `grad_4h_volume1h` was best by pass count:
+  `WLFI:A-`
+  `emi:B+`
+  `PND:B`
+- `grad_4h_holder_liquidity` was still best by efficiency:
+  `2` returned
+  `2` passed
+- new `30m` variants were not fake:
+  `grad_75m_price30m_strength`
+  `grad_45m_volume30m_persistence`
+  both surfaced `WLFI:B+`
+- new `1m` impulse was fake in this window:
+  `grad_20m_trade1m_impulse`
+  returned `0` names
+
+Reuse rule from the docs-backed follow-up:
+
+- keep these as the two real `pump_dot_fun` recipes:
+  `grad_4h_holder_liquidity`
+  `grad_4h_volume1h`
+- keep this as the first experimental follow-up:
+  `grad_75m_price30m_strength`
+- do not waste another pass on `grad_20m_trade1m_impulse` unless the desk is explicitly testing a hyper-churn window
+- if a `30m` recipe repeats across another fresh window, it deserves a repo recipe file; if it does not, stop romanticizing the new API fields
 
 ## Reuse Rule
 

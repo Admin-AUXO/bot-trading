@@ -14,7 +14,7 @@ next_action: Re-check this note before adding any new meme-list discovery gate t
 
 ## What Happened
 
-Birdeye `GET /defi/v3/token/meme/list` returned `400` with `Maximum 5 concurrently filters` when the dry-run discovery request tried to send six filters at once.
+Birdeye `GET /defi/v3/token/meme/list` returned `400` with `Maximum 5 concurrently filters` when the dry-run discovery request crossed the practical ceiling for this repo's discovery shape. Direct probe requests on 2026-04-11 confirmed the safe shape is four provider-side filter conditions; the fifth condition is where the request starts failing.
 
 ## Signal
 
@@ -26,7 +26,7 @@ This endpoint has a provider-side filter ceiling that is tighter than the repo o
 
 ## Reuse Rule
 
-Keep Birdeye meme-list requests at five concurrent filters or fewer. When discovery logic needs another gate, prefer local post-filtering unless the provider-side filter is materially required to keep response size or budget under control.
+Keep Birdeye meme-list discovery requests at four provider-side filter conditions or fewer. When discovery logic needs another gate, prefer local post-filtering unless the provider-side filter is materially required to keep response size or budget under control.
 
 ## Watchouts
 

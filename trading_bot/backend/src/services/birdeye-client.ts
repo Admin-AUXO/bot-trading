@@ -259,14 +259,19 @@ export class BirdeyeClient {
     }
   }
 
-  async getGraduatedMemeTokens(params: {
+  async getMemeTokens(params: {
     source?: string;
-    minGraduatedTime: number;
+    graduated: boolean;
     limit: number;
+    minGraduatedTime?: number;
+    minProgressPercent?: number;
     minLiquidityUsd?: number;
+    minVolume1mUsd?: number;
     minVolume5mUsd?: number;
     minHolders?: number;
     minLastTradeTime?: number | null;
+    minTrades1m?: number;
+    minTrades5m?: number;
     sortBy?: string;
     sortType?: "asc" | "desc";
   }): Promise<DiscoveryToken[]> {
@@ -274,24 +279,53 @@ export class BirdeyeClient {
       // Birdeye rejects this endpoint when too many filters are sent together.
       // Keep looser discovery shaping here and leave the stricter strategy contract
       // to the client-side evaluation stack.
-      source: params.source && params.source.trim().length > 0 ? params.source : "all",
-      sort_by: params.sortBy?.trim().length ? params.sortBy : "graduated_time",
+      sort_by: params.sortBy?.trim().length ? params.sortBy : (params.graduated ? "graduated_time" : "trade_1m_count"),
       sort_type: params.sortType ?? "desc",
-      graduated: true,
-      min_graduated_time: params.minGraduatedTime,
       limit: params.limit,
     };
+    const activeFilters: Array<[string, string | number | boolean]> = [];
+    const source = params.source?.trim();
 
-    if ((params.minLiquidityUsd ?? 0) > 0) {
-      requestParams.min_liquidity = params.minLiquidityUsd ?? 0;
+    if (source && source !== "all") {
+      requestParams.source = source;
     }
 
-    if ((params.minVolume5mUsd ?? 0) > 0) {
-      requestParams.min_volume_5m_usd = params.minVolume5mUsd ?? 0;
+    activeFilters.push(["graduated", params.graduated]);
+
+    if ((params.minGraduatedTime ?? 0) > 0) {
+      activeFilters.push(["min_graduated_time", params.minGraduatedTime ?? 0]);
+    }
+
+    if ((params.minProgressPercent ?? 0) > 0) {
+      activeFilters.push(["min_progress_percent", params.minProgressPercent ?? 0]);
+    }
+
+    if ((params.minLiquidityUsd ?? 0) > 0) {
+      activeFilters.push(["min_liquidity", params.minLiquidityUsd ?? 0]);
+    }
+
+    if ((params.minTrades1m ?? 0) > 0) {
+      activeFilters.push(["min_trade_1m_count", params.minTrades1m ?? 0]);
+    }
+
+    if ((params.minTrades5m ?? 0) > 0) {
+      activeFilters.push(["min_trade_5m_count", params.minTrades5m ?? 0]);
     }
 
     if ((params.minLastTradeTime ?? 0) > 0) {
-      requestParams.min_last_trade_unix_time = params.minLastTradeTime ?? 0;
+      activeFilters.push(["min_last_trade_unix_time", params.minLastTradeTime ?? 0]);
+    }
+
+    if ((params.minVolume5mUsd ?? 0) > 0) {
+      activeFilters.push(["min_volume_5m_usd", params.minVolume5mUsd ?? 0]);
+    }
+
+    if ((params.minVolume1mUsd ?? 0) > 0) {
+      activeFilters.push(["min_volume_1m_usd", params.minVolume1mUsd ?? 0]);
+    }
+
+    for (const [key, value] of activeFilters.slice(0, 4)) {
+      requestParams[key] = value;
     }
 
     const response = await this.request<{ data?: { items?: Record<string, unknown>[] } }>(

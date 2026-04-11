@@ -3,10 +3,13 @@ import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
 import { BirdeyeClient } from "../services/birdeye-client.js";
 import { HeliusClient } from "../services/helius-client.js";
+import { HeliusMigrationWatcher } from "../services/helius-migration-watcher.js";
 import { OperatorDeskService } from "../services/operator-desk.js";
 import { recordOperatorEvent } from "../services/operator-events.js";
 import { ProviderBudgetService } from "../services/provider-budget-service.js";
 import { RuntimeConfigService } from "../services/runtime-config.js";
+import { SharedTokenFactsService } from "../services/shared-token-facts.js";
+import { getStrategyPreset } from "../services/strategy-presets.js";
 import { RiskEngine } from "./risk-engine.js";
 import { ExecutionEngine } from "./execution-engine.js";
 import { ExitEngine } from "./exit-engine.js";
@@ -23,11 +26,18 @@ export class BotRuntime {
   private readonly birdeye = new BirdeyeClient(env.BIRDEYE_API_KEY);
   private readonly helius = new HeliusClient(env.HELIUS_RPC_URL);
   private readonly providerBudget = new ProviderBudgetService();
+  private readonly sharedFacts = new SharedTokenFactsService();
   private readonly execution = new ExecutionEngine(this.risk, this.config);
   private readonly exits = new ExitEngine(this.birdeye, this.execution, this.config, this.risk);
   private readonly graduation = new GraduationEngine(this.birdeye, this.helius, this.execution, this.risk, this.config);
   private readonly research = new ResearchDryRunEngine(this.graduation, this.birdeye, this.config);
   private readonly desk = new OperatorDeskService(this.config, this.risk, this.providerBudget, this.research);
+  private readonly migrationWatcher = new HeliusMigrationWatcher(
+    env.HELIUS_RPC_URL,
+    env.HELIUS_MIGRATION_WATCH_PROGRAM_IDS,
+    env.HELIUS_MIGRATION_WATCH_DEBOUNCE_MS,
+    async ({ programId, signature }) => this.handleMigrationSignal(programId, signature),
+  );
   private discoveryHandle?: NodeJS.Timeout;
   private evaluationHandle?: NodeJS.Timeout;
   private exitHandle?: NodeJS.Timeout;
@@ -37,6 +47,7 @@ export class BotRuntime {
   async start(): Promise<void> {
     await this.config.ensure();
     await this.risk.ensureState();
+    await this.migrationWatcher.start();
     const startupSettings = await this.config.getSettings();
     const app = createApiServer({
       getSnapshot: () => this.getSnapshot(),
@@ -99,6 +110,7 @@ export class BotRuntime {
       if (this.exitHandle) clearTimeout(this.exitHandle);
       if (this.maintenanceHandle) clearTimeout(this.maintenanceHandle);
       if (this.researchHandle) clearTimeout(this.researchHandle);
+      await this.migrationWatcher.stop();
       await db.$disconnect();
       process.exit(0);
     };
@@ -358,6 +370,33 @@ export class BotRuntime {
       title: "Bot resumed",
       detail: "Manual pause cleared.",
     });
+  }
+
+  private async handleMigrationSignal(programId: string, signature: string): Promise<void> {
+    await this.sharedFacts.rememberMigrationSignal({ programId, signature });
+
+    const settings = await this.config.getSettings();
+    const livePreset = getStrategyPreset(settings.strategy.livePresetId);
+    if (
+      settings.tradeMode !== "LIVE"
+      || !settings.strategy.heliusWatcherEnabled
+      || !livePreset.requiresHeliusWatcher
+    ) {
+      return;
+    }
+
+    await recordOperatorEvent({
+      kind: "provider_signal",
+      title: "Helius migration signal",
+      detail: `Observed watched migration program ${programId}; triggering an immediate discovery sweep.`,
+      metadata: {
+        programId,
+        signature,
+        strategyPresetId: settings.strategy.livePresetId,
+      },
+    });
+
+    await this.graduation.discover();
   }
 
   private async patchSettingsDraft(input: Partial<import("../types/domain.js").BotSettings>) {

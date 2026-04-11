@@ -2,6 +2,7 @@ import { Prisma, type ProviderName, type ResearchPosition, type ResearchRun } fr
 import { db } from "../db/client.js";
 import { BirdeyeClient } from "../services/birdeye-client.js";
 import { recordOperatorEvent } from "../services/operator-events.js";
+import { getStrategyPresetForMode } from "../services/strategy-presets.js";
 import { buildExitPlan, getExitDecision } from "../services/strategy-exit.js";
 import { RuntimeConfigService } from "../services/runtime-config.js";
 import type { BotSettings, DiscoveryToken, ResearchRunComparison, ResearchRunSummary } from "../types/domain.js";
@@ -26,6 +27,7 @@ type EvaluatedToken = {
   mint: string;
   symbol: string;
   source: string;
+  strategyPresetId: string;
   liveTradable: boolean;
   entryScore: number;
   liquidityUsd: number;
@@ -127,12 +129,15 @@ export class ResearchDryRunEngine {
     }
 
     const settings = await this.config.getSettings();
+    const preset = getStrategyPresetForMode(settings, "DRY_RUN");
     if (settings.tradeMode !== "DRY_RUN") {
       throw new Error("research dry run is only available in DRY_RUN mode");
     }
 
     const run = await db.researchRun.create({
       data: {
+        strategyPresetId: preset.id,
+        discoveryRecipeName: preset.discovery.name,
         pollIntervalMs: settings.research.pollIntervalMs,
         maxRunDurationMs: settings.research.maxRunDurationMs,
         discoveryLimit: settings.research.discoveryLimit,
@@ -154,11 +159,16 @@ export class ResearchDryRunEngine {
         symbol: token.symbol,
         name: token.name,
         source: token.source,
+        strategyPresetId: preset.id,
         creator: token.creator,
         liveTradable: this.graduation.isLiveTradableSource(token.source),
         researchTradable: false,
-        cheapScore: this.graduation.scoreDiscoveryToken(token, settings),
-        metrics: toJsonValue(token),
+        cheapScore: this.graduation.scoreDiscoveryToken(token, settings, preset.id),
+        metrics: toJsonValue({
+          ...token,
+          strategyPresetId: preset.id,
+          strategyRecipeName: preset.discovery.name,
+        }),
         filterState: toJsonValue(token),
       }));
 
@@ -229,6 +239,7 @@ export class ResearchDryRunEngine {
           mint: token.mint,
           symbol: token.symbol,
           source: token.source,
+          strategyPresetId: token.strategyPresetId,
           liveTradable: token.liveTradable,
           entryScore,
           liquidityUsd,
@@ -499,7 +510,7 @@ export class ResearchDryRunEngine {
 
   private async openMockPosition(runId: string, settings: BotSettings, token: EvaluatedToken): Promise<void> {
     const entryScore = Number(token.metrics.entryScore ?? 0.65);
-    const exitPlan = buildExitPlan(settings, entryScore);
+    const exitPlan = buildExitPlan(settings, entryScore, token.strategyPresetId as BotSettings["strategy"]["dryRunPresetId"]);
     const amountUsd = settings.research.fixedPositionSizeUsd;
     const amountToken = amountUsd / token.entryPriceUsd;
 
@@ -509,6 +520,7 @@ export class ResearchDryRunEngine {
         tokenId: token.id,
         mint: token.mint,
         symbol: token.symbol,
+        strategyPresetId: token.strategyPresetId,
         entryPriceUsd: token.entryPriceUsd,
         currentPriceUsd: token.entryPriceUsd,
         peakPriceUsd: token.entryPriceUsd,

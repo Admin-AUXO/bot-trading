@@ -10,11 +10,23 @@ import { PageHero, Panel, StatusPill } from "@/components/dashboard-primitives";
 
 type SectionId = SettingsControlState["sections"][number]["id"];
 
+const strategyOptions = [
+  { value: "FIRST_MINUTE_POSTGRAD_CONTINUATION", label: "First-Minute Post-Grad Continuation" },
+  { value: "LATE_CURVE_MIGRATION_SNIPE", label: "Late-Curve Migration Snipe" },
+] as const;
+
 const fieldGroups: Array<{
   section: SectionId;
   title: string;
   description: string;
-  fields: Array<{ path: string; label: string; step?: string; readOnly?: boolean }>;
+  fields: Array<{
+    path: string;
+    label: string;
+    step?: string;
+    readOnly?: boolean;
+    kind?: "number" | "select" | "checkbox";
+    options?: ReadonlyArray<{ value: string; label: string }>;
+  }>;
 }> = [
   {
     section: "capital",
@@ -25,6 +37,16 @@ const fieldGroups: Array<{
       { path: "capital.capitalUsd", label: "Capital USD" },
       { path: "capital.positionSizeUsd", label: "Position size USD" },
       { path: "capital.maxOpenPositions", label: "Max open positions", step: "1" },
+    ],
+  },
+  {
+    section: "strategy",
+    title: "Strategy",
+    description: "Preset selection.",
+    fields: [
+      { path: "strategy.livePresetId", label: "Live preset", kind: "select", options: strategyOptions },
+      { path: "strategy.dryRunPresetId", label: "Dry-run preset", kind: "select", options: strategyOptions },
+      { path: "strategy.heliusWatcherEnabled", label: "Helius watcher", kind: "checkbox" },
     ],
   },
   {
@@ -97,6 +119,9 @@ const fieldGroups: Array<{
 
 const fieldHelp: Partial<Record<string, string>> = {
   tradeMode: "Changing trade mode is live-affecting and can be blocked while open positions or research activity exist.",
+  "strategy.livePresetId": "Live mode can be conservative while dry run keeps researching the dirtier edge.",
+  "strategy.dryRunPresetId": "Dry-run preset controls which recipe the bounded research lane uses.",
+  "strategy.heliusWatcherEnabled": "Watcher only helps when program IDs are configured; otherwise it stays inert.",
   "capital.capitalUsd": "Capital changes are gated because they alter available risk budget immediately.",
   "capital.positionSizeUsd": "Ticket size changes alter exposure per entry and need review before promotion.",
   "capital.maxOpenPositions": "Open-position cap changes can change live capacity on the next cycle.",
@@ -176,7 +201,7 @@ export function SettingsClient({ initial, grafanaHref }: { initial: SettingsCont
     }
   });
 
-  const updatePath = (path: string, rawValue: string) => {
+  const updatePath = (path: string, rawValue: string | boolean) => {
     setDraftValues((current) => {
       const next = structuredClone(current);
       const segments = path.split(".");
@@ -188,6 +213,10 @@ export function SettingsClient({ initial, grafanaHref }: { initial: SettingsCont
       const finalSegment = segments[0]!;
       if (path === "tradeMode") {
         target[finalSegment] = rawValue as BotSettings["tradeMode"];
+      } else if (path.endsWith("PresetId")) {
+        target[finalSegment] = rawValue;
+      } else if (typeof rawValue === "boolean") {
+        target[finalSegment] = rawValue;
       } else {
         target[finalSegment] = Number(rawValue);
       }
@@ -348,7 +377,7 @@ export function SettingsClient({ initial, grafanaHref }: { initial: SettingsCont
               const issues = serverState.validation.issues.filter((issue) => matchesField(issue.path, field.path));
               const help = fieldHelp[field.path];
 
-              if (field.path === "tradeMode") {
+              if (field.path === "tradeMode" || field.kind === "select") {
                 return (
                   <label
                     key={field.path}
@@ -369,9 +398,47 @@ export function SettingsClient({ initial, grafanaHref }: { initial: SettingsCont
                       onChange={(event) => updatePath(field.path, event.target.value)}
                       className="mt-3 w-full rounded-[12px] border border-bg-border bg-bg-primary/65 px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent"
                     >
-                      <option value="DRY_RUN">DRY_RUN</option>
-                      <option value="LIVE">LIVE</option>
+                      {field.path === "tradeMode" ? (
+                        <>
+                          <option value="DRY_RUN">DRY_RUN</option>
+                          <option value="LIVE">LIVE</option>
+                        </>
+                      ) : (
+                        field.options?.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))
+                      )}
                     </select>
+                    <FieldDiff path={field.path} activeValue={activeValue} value={value} issues={issues} />
+                  </label>
+                );
+              }
+
+              if (field.kind === "checkbox") {
+                return (
+                  <label
+                    key={field.path}
+                    className={clsx(
+                      "block rounded-[16px] border px-4 py-4 transition",
+                      isChangedFromActive ? "border-[rgba(163,230,53,0.2)] bg-[rgba(163,230,53,0.06)]" : "border-bg-border bg-bg-hover/30",
+                    )}
+                    title={help}
+                  >
+                    <FieldLabel
+                      label={field.label}
+                      isChangedFromActive={isChangedFromActive}
+                      isUnsaved={isUnsaved}
+                      isLiveAffecting={isLiveAffecting}
+                    />
+                    <div className="mt-3 flex items-center gap-3 rounded-[12px] border border-bg-border bg-bg-primary/65 px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(value)}
+                        onChange={(event) => updatePath(field.path, event.target.checked)}
+                        className="h-4 w-4 rounded border-bg-border bg-bg-primary"
+                      />
+                      <span className="text-sm text-text-primary">{Boolean(value) ? "Enabled" : "Disabled"}</span>
+                    </div>
                     <FieldDiff path={field.path} activeValue={activeValue} value={value} issues={issues} />
                   </label>
                 );
@@ -553,8 +620,8 @@ function FieldLabel(props: {
 
 function FieldDiff(props: {
   path: string;
-  activeValue: string | number;
-  value: string | number;
+  activeValue: string | number | boolean;
+  value: string | number | boolean;
   issues: SettingsControlState["validation"]["issues"];
 }) {
   return (
@@ -578,11 +645,11 @@ function FieldDiff(props: {
   );
 }
 
-function readValue(settings: BotSettings, path: string): string | number {
-  return path.split(".").reduce<unknown>((current, segment) => (current as Record<string, unknown>)[segment], settings as unknown) as string | number;
+function readValue(settings: BotSettings, path: string): string | number | boolean {
+  return path.split(".").reduce<unknown>((current, segment) => (current as Record<string, unknown>)[segment], settings as unknown) as string | number | boolean;
 }
 
-function isSameValue(left: string | number, right: string | number) {
+function isSameValue(left: string | number | boolean, right: string | number | boolean) {
   return String(left) === String(right);
 }
 

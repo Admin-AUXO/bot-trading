@@ -25,6 +25,7 @@ The dry-run control path inside Docker returned `500` immediately when the dashb
 - `POST /api/control/run-research-dry-run` failed with `Birdeye /defi/v3/token/meme/list failed with 400`
 - Raw payload capture for `/defi/v3/token/meme/list` returned `{"message":"Maximum 5 concurrently filters","success":false}`
 - The outgoing request combined `source`, `graduated`, `min_graduated_time`, `min_liquidity`, `min_volume_5m_usd`, and `min_holder`
+- Direct probe requests on 2026-04-11 showed this discovery path succeeds with four provider-side filter conditions (`graduated`, `min_progress_percent`, `min_liquidity`, `min_trade_1m_count`) and fails when `min_last_trade_unix_time` becomes a fifth
 - Failed runs showed up on `/research`, but the page did not render the backend `errorMessage`
 - `/api/desk/home` still presented an armed desk state because diagnostics were not considering recent payload failures
 - Birdeye failure telemetry was double-counted because the client recorded the failed response before throwing and then recorded the thrown error again in `catch`
@@ -39,8 +40,8 @@ The dry-run control path inside Docker returned `500` immediately when the dashb
 
 ## Findings
 
-- Birdeye `/defi/v3/token/meme/list` rejects requests with more than five concurrent filters
-- The repo can preserve the holder floor contract by fetching with five provider-side filters and applying the holder check locally after the response
+- Birdeye `/defi/v3/token/meme/list` is only safe for this repo when discovery stays at four provider-side filter conditions; the fifth filter is where the endpoint starts returning `400`
+- The repo can preserve the holder floor contract by fetching with four provider-side filter conditions and applying the holder check locally after the response
 - Failed research starts need provider-burn totals persisted on the run row before the engine exits, otherwise the operator loses the actual cost of the failure
 - The homepage diagnostics strip must include recent payload failures or the desk will falsely present a healthy posture during live provider trouble
 - Event rows tied to research runs are only useful if the UI can drill into the exact failed run from the desk

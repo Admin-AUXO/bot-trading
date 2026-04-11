@@ -43,7 +43,7 @@ export type SettingsControlState = {
   activeUpdatedAt: string;
   basedOnUpdatedAt: string | null;
   sections: Array<{
-    id: "capital" | "entry" | "exit" | "research" | "advanced";
+    id: "capital" | "strategy" | "entry" | "exit" | "research" | "advanced";
     label: string;
     editable: boolean;
     paths: string[];
@@ -64,6 +64,16 @@ const SETTINGS_SECTIONS: SettingsControlState["sections"] = [
     label: "Capital",
     editable: true,
     paths: ["tradeMode", "capital.capitalUsd", "capital.positionSizeUsd", "capital.maxOpenPositions"],
+  },
+  {
+    id: "strategy",
+    label: "Strategy",
+    editable: true,
+    paths: [
+      "strategy.livePresetId",
+      "strategy.dryRunPresetId",
+      "strategy.heliusWatcherEnabled",
+    ],
   },
   {
     id: "entry",
@@ -133,7 +143,7 @@ const SETTINGS_SECTIONS: SettingsControlState["sections"] = [
   },
 ];
 
-const LIVE_AFFECTING_PREFIXES = ["tradeMode", "capital.", "filters.", "exits.", "research."];
+const LIVE_AFFECTING_PREFIXES = ["tradeMode", "capital.", "strategy.", "filters.", "exits.", "research."];
 
 const botSettingsSchema = z.object({
   tradeMode: z.enum(["DRY_RUN", "LIVE"]),
@@ -155,6 +165,11 @@ const botSettingsSchema = z.object({
     maxRunDurationMs: z.number().int().positive(),
     birdeyeUnitCap: z.number().int().positive(),
     heliusUnitCap: z.number().int().positive(),
+  }),
+  strategy: z.object({
+    livePresetId: z.enum(["FIRST_MINUTE_POSTGRAD_CONTINUATION", "LATE_CURVE_MIGRATION_SNIPE"]),
+    dryRunPresetId: z.enum(["FIRST_MINUTE_POSTGRAD_CONTINUATION", "LATE_CURVE_MIGRATION_SNIPE"]),
+    heliusWatcherEnabled: z.boolean(),
   }),
   capital: z.object({
     capitalUsd: z.number().positive(),
@@ -276,6 +291,11 @@ export function buildDefaultSettings(): BotSettings {
       birdeyeUnitCap: env.RESEARCH_BIRDEYE_UNIT_CAP,
       heliusUnitCap: env.RESEARCH_HELIUS_UNIT_CAP,
     },
+    strategy: {
+      livePresetId: env.LIVE_STRATEGY_PRESET_ID,
+      dryRunPresetId: env.DRY_RUN_STRATEGY_PRESET_ID,
+      heliusWatcherEnabled: env.HELIUS_MIGRATION_WATCHER_ENABLED,
+    },
     capital: {
       capitalUsd: env.CAPITAL_USD,
       positionSizeUsd: env.POSITION_SIZE_USD,
@@ -316,6 +336,7 @@ function mergeSettings(base: BotSettings, overrides: Partial<BotSettings>): BotS
     tradeMode: overrides.tradeMode ?? base.tradeMode,
     cadence: { ...base.cadence, ...(overrides.cadence ?? {}) },
     research: { ...base.research, ...(overrides.research ?? {}) },
+    strategy: { ...base.strategy, ...(overrides.strategy ?? {}) },
     capital: { ...base.capital, ...(overrides.capital ?? {}) },
     filters: { ...base.filters, ...(overrides.filters ?? {}) },
     exits: { ...base.exits, ...(overrides.exits ?? {}) },

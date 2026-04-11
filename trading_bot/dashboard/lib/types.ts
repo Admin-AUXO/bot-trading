@@ -201,7 +201,7 @@ export type SettingsControlState = {
   activeUpdatedAt: string;
   basedOnUpdatedAt: string | null;
   sections: Array<{
-    id: "capital" | "entry" | "exit" | "research" | "advanced";
+    id: "capital" | "strategy" | "entry" | "exit" | "research" | "advanced";
     label: string;
     editable: boolean;
     paths: string[];
@@ -268,6 +268,11 @@ export type BotSettings = {
     exitIntervalMs: number;
     entryDelayMs: number;
     evaluationConcurrency: number;
+  };
+  strategy: {
+    livePresetId: "FIRST_MINUTE_POSTGRAD_CONTINUATION" | "LATE_CURVE_MIGRATION_SNIPE";
+    dryRunPresetId: "FIRST_MINUTE_POSTGRAD_CONTINUATION" | "LATE_CURVE_MIGRATION_SNIPE";
+    heliusWatcherEnabled: boolean;
   };
   capital: {
     capitalUsd: number;

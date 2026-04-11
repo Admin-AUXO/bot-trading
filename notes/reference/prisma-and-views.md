@@ -10,8 +10,9 @@ source_files:
   - trading_bot/backend/src/api/server.ts
   - trading_bot/backend/src/services/runtime-config.ts
   - trading_bot/backend/src/services/operator-events.ts
+  - trading_bot/backend/src/services/shared-token-facts.ts
   - trading_bot/backend/.env.example
-graph_checked:
+graph_checked: 2026-04-11
 next_action:
 ---
 
@@ -33,15 +34,15 @@ This workflow treats Prisma schema and SQL views as hand-maintained source, not 
 
 Operational state:
 
-- `Candidate`: current filter state, lifecycle status, rejection reason, and entry linkage for each discovered mint
-- `Position`: open and closed positions plus exit thresholds, score-derived exit metadata, and remaining size
+- `Candidate`: current filter state, lifecycle status, rejection reason, entry linkage, and the strategy preset that discovered the mint
+- `Position`: open and closed positions plus exit thresholds, score-derived exit metadata, remaining size, and the strategy preset that opened the trade
 - `Fill`: buy and sell executions attached to positions, including live `txSignature` when trades land onchain
 
 Bounded research state:
 
 - `ResearchRun`: one isolated dry-run research session, including config snapshot, provider burn, aggregate outcomes, and previous-run comparison
-- `ResearchToken`: run-scoped discovery and evaluation evidence for each discovered mint, including cheap score, deep-eval result, `liveTradable`, and `researchTradable`
-- `ResearchPosition`: mock positions for a research run, with the same exit-plan state the live lane uses
+- `ResearchToken`: run-scoped discovery and evaluation evidence for each discovered mint, including cheap score, deep-eval result, `liveTradable`, `researchTradable`, and the preset id used for the run
+- `ResearchPosition`: mock positions for a research run, with the same exit-plan state the live lane uses plus the preset id used to open the mock trade
 - `ResearchFill`: mock buy and sell events attached to research positions
 
 Runtime singletons:
@@ -57,6 +58,8 @@ Evidence and telemetry:
 - `RawApiPayload`: request and response bodies and provider errors
 - `TokenSnapshot`: normalized point-in-time evidence from discovery, evaluation, buy, and sell events
 - `OperatorEvent`: desk-owned event feed for control actions, runtime failures, config reviews, and other operator-relevant transitions
+- `SharedTokenFact`: reusable per-mint fact cache for Birdeye detail, trade data, token security, Helius mint authorities, and Helius holder concentration. Evaluation now reads the fresh bundle from one row fetch per mint instead of one DB query per cached fact.
+- `SharedTokenFactMigrationSignal`: append-only Helius watcher signal log keyed by signature so duplicate websocket events do not multiply
 
 ## View Contract
 
@@ -106,4 +109,4 @@ These views are repo-owned and currently exposed through `GET /api/views/:name`.
 - Keep reporting grounded in candidates, positions, fills, snapshots, or provider telemetry. `BotState` and `RuntimeConfig` are operational singletons, not historical fact tables.
 - `RuntimeConfigDraft` and `OperatorEvent` are operational support tables. They exist for safe control flow and auditability, not for primary Grafana trend reporting.
 - `RuntimeConfigVersion` is the historical exception on purpose. It exists specifically so Grafana can analyze config windows without pretending a singleton table has history.
-- Prefer adding missing evidence to `TokenSnapshot` or provider telemetry instead of inventing dashboard-only derived fields that cannot be audited later.
+- Prefer adding missing evidence to `TokenSnapshot`, `SharedTokenFact`, or provider telemetry instead of inventing dashboard-only derived fields that cannot be audited later.
