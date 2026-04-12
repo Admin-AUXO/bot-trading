@@ -61,8 +61,9 @@ Obsidian is the repo memory system. Parallel memory stores create drift.
 - Use `grafana` only for Grafana work. Prefer summary, property, and query-specific reads over whole-dashboard dumps.
 - The local repo config runs `grafana` through Grafana’s official MCP Docker image against `http://host.docker.internal:3400`, which is the right host alias for Docker Desktop containers talking back to the local Grafana service.
 - Use `github` for GitHub repo, PR, issue, and Actions work when the plugin skill surface is not the clearer route.
-- The repo keeps the local `github` MCP definition only as a disabled placeholder right now. GitHub's current Docker stdio server speaks newline-delimited JSON on stdio, while Codex CLI 0.120.0 expects standard framed MCP stdio messages, so enabling it causes startup handshake failure on this host.
-- For GitHub work in this repo, prefer the installed GitHub plugin skills and `gh` CLI fallback until the GitHub MCP transport matches the Codex host contract.
+- The shared repo config keeps the local `github` MCP definition disabled by default because it was verified broken on this Windows host. The current GitHub Docker stdio server speaks newline-delimited JSON on stdio, while Codex CLI 0.120.0 on this host expects standard framed MCP stdio messages.
+- Do not treat that Windows finding as a universal repo contract. macOS users can enable the local `github` MCP in their own local config after validating transport compatibility on their machine.
+- For GitHub work in this repo, prefer the installed GitHub plugin skills and `gh` CLI fallback unless your local host has a verified working GitHub MCP transport.
 - Use `helius` only when the task is genuinely Solana or provider-specific. Prefer read-only methods unless the user explicitly wants a risky operation.
 - Use `git` MCP for routine VCS inspection. Use shell only when the MCP surface is insufficient.
 

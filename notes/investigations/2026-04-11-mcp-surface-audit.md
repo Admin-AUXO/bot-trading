@@ -12,7 +12,7 @@ source_files:
   - .codex/scripts/start-birdeye-mcp.cjs
   - C:/Users/ajay9/.codex/log/codex-tui.log
 graph_checked:
-next_action: Keep the local GitHub MCP server disabled until GitHub's stdio transport or the Codex host framing contract changes.
+next_action: Keep the shared GitHub MCP config disabled by default for Windows hosts, and treat macOS enablement as a local verified override until transport behavior is confirmed there too.
 ---
 
 # MCP Surface Audit
@@ -129,7 +129,7 @@ Best practice:
 
 ### `github`
 
-Verdict: keep configured, but disabled on this Codex host for now.
+Verdict: keep configured, but disabled by default in the shared repo config because it is broken on this Windows Codex host.
 
 Strengths:
 
@@ -144,8 +144,9 @@ Risks:
 Best practice:
 
 - prefer one GitHub surface per task
-- use the GitHub plugin skills or `gh` CLI for current GitHub work in this repo
-- leave the local MCP block disabled until transport compatibility is fixed upstream
+- use the GitHub plugin skills or `gh` CLI for current GitHub work on Windows hosts in this repo
+- keep the shared MCP block disabled by default until transport compatibility is fixed upstream or verified per host
+- allow macOS users to opt in locally by setting `enabled = true` only after they validate the transport on their own machine
 
 ## 2026-04-12 GitHub MCP Finding
 
@@ -156,8 +157,9 @@ Probe result against `ghcr.io/github/github-mcp-server v0.33.0`:
 
 Conclusion:
 
-- the current GitHub Docker `stdio` server is not compatible with the framed stdio contract Codex CLI 0.120.0 is using on this host
-- that mismatch explains the session warning: `handshaking with MCP server failed: connection closed: initialize response`
+- on this Windows host, the current GitHub Docker `stdio` server is not compatible with the framed stdio contract Codex CLI 0.120.0 is using
+- that host-specific mismatch explains the session warning: `handshaking with MCP server failed: connection closed: initialize response`
+- macOS support is not disproven by this probe; treat it as unverified until someone validates it there
 
 ### `chrome_devtools`
 

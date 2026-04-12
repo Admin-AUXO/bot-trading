@@ -73,6 +73,10 @@ args = [
     "repos,issues,pull_requests,actions",
 ]
 command = "docker"
+# Disabled by default in shared repo config.
+# Verified broken on this Windows host because the current GitHub Docker stdio server
+# speaks newline-delimited JSON instead of framed MCP stdio. macOS users can opt in
+# locally by setting enabled = true after validating transport compatibility.
 enabled = false
 required = false
 
