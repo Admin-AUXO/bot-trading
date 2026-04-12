@@ -51,6 +51,7 @@ Do not jump straight into source files before completing that read order.
 - Keep browser-facing writes going through `trading_bot/dashboard/app/api/[...path]/route.ts`.
 - Keep historical analysis grounded in candidates, positions, fills, snapshots, or provider telemetry.
 - Update docs in the same pass when contracts, setup, or operator expectations change.
+- Keep paths in repo-owned code, docs, notes, scripts, and examples relative to the repo or the relevant working directory. Do not commit user-specific absolute paths.
 - If a task creates a reusable multi-step procedure, promote it into a skill instead of leaving it buried in a note.
 
 ## Standard Procedure
@@ -112,11 +113,11 @@ When a procedure becomes a skill:
 
 - Repo-local graph workflow lives in `.agents/skills/graphify/SKILL.md`.
 - Repo-local Obsidian workflow lives in `.agents/skills/obsidian/SKILL.md`.
-- Use `$(git rev-parse --show-toplevel)/.codex/scripts/graphify.sh build-local .` for the default full build path in this repo.
+- Use `.codex/scripts/graphify.sh build-local .` for the default full build path in this repo.
 - The repo graph is code-only. `.md` and other non-code files are intentionally excluded.
 - Use the repo-local `$graphify` skill for the supported local workflow in this repo.
 - Graph output lives at `graphify-out/` in repo root.
 - Repo memory notes live at `notes/` in repo root.
 - Canonical repo docs also live inside the vault at `notes/reference/`.
 - Before opening code for architecture or ownership work, read `graphify-out/GRAPH_REPORT.md` when it exists.
-- After modifying code files, run `$(git rev-parse --show-toplevel)/.codex/scripts/graphify-rebuild.sh` if `graphify-out/graph.json` already exists.
+- After modifying code files, run `.codex/scripts/graphify-rebuild.sh` if `graphify-out/graph.json` already exists.

@@ -2,17 +2,15 @@
 type: reference
 status: active
 area: api
-date: 2026-04-11
+date: 2026-04-12
 source_files:
   - trading_bot/backend/src/api/server.ts
-  - trading_bot/backend/src/engine/research-dry-run-engine.ts
   - trading_bot/backend/src/services/operator-desk.ts
   - trading_bot/backend/src/services/operator-events.ts
   - trading_bot/backend/src/services/runtime-config.ts
-  - trading_bot/dashboard/app/research/page.tsx
   - trading_bot/dashboard/components/dashboard-client.tsx
   - trading_bot/dashboard/app/api/[...path]/route.ts
-graph_checked: 2026-04-11
+graph_checked: 2026-04-12
 next_action:
 ---
 
@@ -36,10 +34,10 @@ Transport model:
 ## Read Routes
 
 - `GET /health`: backend health plus current `tradeMode`
-- `GET /api/status`: runtime snapshot, current entry-gate state, settings, latest candidates, latest fills, provider daily summary, Birdeye monthly budget pacing, and research dry-run status
+- `GET /api/status`: runtime snapshot, current entry-gate state, settings, latest candidates, latest fills, provider daily summary, and Birdeye monthly budget pacing
 - `GET /api/desk/shell`: compact shell contract for mode, health, primary blocker, last sync, available global actions, and headline counts
 - `GET /api/desk/home`: dedicated control-desk body contract for readiness, guardrails, exposure, queue buckets, provider pace, diagnostics strip, and recent event slices. The diagnostics strip must include fresh payload-failure pressure, not just stale-loop warnings.
-- `GET /api/desk/events?limit=`: unified operator and system event feed, including research-failure events with entity drill-ins when the backend has a related record id
+- `GET /api/desk/events?limit=`: unified operator and system event feed for runtime, provider, control, and settings activity
 - `GET /api/operator/candidates?bucket=ready|risk|provider|data`: backend-assigned candidate workbench buckets
 - `GET /api/operator/candidates/:id`: candidate detail, snapshot history, and persisted provider payloads
 - `GET /api/operator/positions?book=open|closed`: position workbench book, with open positions sorted by backend-computed intervention priority
@@ -59,7 +57,6 @@ Transport model:
 
 - `entryGate.dailyRealizedPnlUsd` and `entryGate.consecutiveLosses` so the desk can see why the daily guard is active
 - `providerBudget` with current-month Birdeye used units, projected pace, and per-lane budget buckets (`discovery`, `evaluation`, `security`, `reserve`)
-- `research.activeRun`, `research.latestCompletedRun`, and `research.previousCompletedRun` so the dashboard can render the bounded dry-run lane without querying the full run tables first
 
 ## Write Routes
 
@@ -73,16 +70,10 @@ Transport model:
 - `POST /api/control/discover-now`
 - `POST /api/control/evaluate-now`
 - `POST /api/control/exit-check-now`
-- `POST /api/control/run-research-dry-run`
-- `GET /api/research-runs?limit=`: latest research runs, max `50`
-- `GET /api/research-runs/:id`: one research-run summary, including `errorMessage` and provider-burn totals for failed runs
-- `GET /api/research-runs/:id/tokens`: run-scoped discovery and evaluation evidence
-- `GET /api/research-runs/:id/positions`: run-scoped mock positions with fills
 
 Settings mutation rules:
 
 - `tradeMode` cannot change while open positions exist
-- `tradeMode` cannot change while a research dry run is still active
 - `capital.capitalUsd` cannot change while open positions exist
 - The dashboard now edits a persisted draft first. Promotion flow is `draft -> validate -> dry run -> operator review -> promote`
 - Live-affecting paths are `tradeMode`, `capital.*`, `filters.*`, `exits.*`, and `research.*`
@@ -91,9 +82,9 @@ Settings mutation rules:
 Control-route mode rules:
 
 - `discover-now`, `evaluate-now`, and `exit-check-now` are live-only controls and return an error in `DRY_RUN`
-- `run-research-dry-run` is dry-run-only and returns an error in `LIVE`
 - Control routes now return `{ ok, action, shell, home }` so the desk can refresh from the authoritative post-action state
 - API errors are returned as JSON `{ "error": "..." }` instead of default HTML
+- A backend boot into `LIVE` now surfaces a startup hold through `pauseReason`; the operator must use `resume` from the dashboard before discovery and evaluation loops arm.
 
 Dashboard navigation conventions:
 

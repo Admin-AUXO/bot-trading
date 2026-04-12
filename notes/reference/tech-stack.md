@@ -59,7 +59,7 @@ Purpose: orient an agent to the live app shape and the ownership boundaries that
 - `/positions`: open-risk-first book, with backend-computed intervention priority, explicit exit reasoning, and URL-preserved `book`, `sort`, and row-focus state
 - `/telemetry`: current diagnostics only. Trend-heavy history is intentionally pushed out of the app surface, with optional provider-aware Grafana pivots when configured
 - `/settings`: draft-vs-active runtime control with validation, dry-run review, and explicit promotion; live cadence stays visible but read-only
-- `/research`: still the isolated bounded dry-run review surface and not part of the main control desk
+- There is no repo-supported in-app `/research` surface anymore; dry-run discovery experiments live in `trading_bot/backend/scripts/discovery-lab.ts`
 - The intended visual language is dark, restrained, and tool-like:
   black-led surfaces
   reduced corner radii

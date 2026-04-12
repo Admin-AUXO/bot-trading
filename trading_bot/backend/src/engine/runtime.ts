@@ -14,10 +14,10 @@ import { RiskEngine } from "./risk-engine.js";
 import { ExecutionEngine } from "./execution-engine.js";
 import { ExitEngine } from "./exit-engine.js";
 import { GraduationEngine } from "./graduation-engine.js";
-import { ResearchDryRunEngine } from "./research-dry-run-engine.js";
 import { createApiServer } from "../api/server.js";
 
 const QUEUED_CANDIDATE_STATUSES = ["DISCOVERED", "SKIPPED", "ERROR"] as const;
+const LIVE_STARTUP_PAUSE_REASON = "live mode is paused on startup; resume from the dashboard to begin trading";
 
 export class BotRuntime {
   private stopped = false;
@@ -30,8 +30,7 @@ export class BotRuntime {
   private readonly execution = new ExecutionEngine(this.risk, this.config);
   private readonly exits = new ExitEngine(this.birdeye, this.execution, this.config, this.risk);
   private readonly graduation = new GraduationEngine(this.birdeye, this.helius, this.execution, this.risk, this.config);
-  private readonly research = new ResearchDryRunEngine(this.graduation, this.birdeye, this.config);
-  private readonly desk = new OperatorDeskService(this.config, this.risk, this.providerBudget, this.research);
+  private readonly desk = new OperatorDeskService(this.config, this.risk, this.providerBudget);
   private readonly migrationWatcher = new HeliusMigrationWatcher(
     env.HELIUS_RPC_URL,
     env.HELIUS_MIGRATION_WATCH_PROGRAM_IDS,
@@ -42,13 +41,13 @@ export class BotRuntime {
   private evaluationHandle?: NodeJS.Timeout;
   private exitHandle?: NodeJS.Timeout;
   private maintenanceHandle?: NodeJS.Timeout;
-  private researchHandle?: NodeJS.Timeout;
 
   async start(): Promise<void> {
     await this.config.ensure();
     await this.risk.ensureState();
     await this.migrationWatcher.start();
     const startupSettings = await this.config.getSettings();
+    const startupState = await this.armLiveStartupPause(startupSettings.tradeMode);
     const app = createApiServer({
       getSnapshot: () => this.getSnapshot(),
       getDeskShell: () => this.desk.getShell(),
@@ -71,11 +70,6 @@ export class BotRuntime {
       triggerDiscovery: () => this.runDiscoveryNow(),
       triggerEvaluation: () => this.runEvaluationNow(),
       triggerExitCheck: () => this.runExitCheckNow(),
-      triggerResearchDryRun: () => this.runResearchDryRun(),
-      listResearchRuns: (limit) => this.research.listRuns(limit),
-      getResearchRun: (runId) => this.research.getRun(runId),
-      getResearchRunTokens: (runId) => this.research.listRunTokens(runId),
-      getResearchRunPositions: (runId) => this.research.listRunPositions(runId),
     });
 
     app.listen(env.BOT_PORT, () => {
@@ -83,15 +77,15 @@ export class BotRuntime {
     });
 
     if (startupSettings.tradeMode === "LIVE") {
-      await this.safeRun("initial discovery", () => this.graduation.discover());
-      await this.safeRun("initial evaluation", () => this.graduation.evaluateDueCandidates());
       await this.safeRun("initial exit check", () => this.exits.run());
-
-      this.scheduleDiscovery();
-      this.scheduleEvaluation();
       this.scheduleExit();
-    } else {
-      await this.resumeResearchPolling();
+
+      if (!startupState.pauseReason) {
+        await this.safeRun("initial discovery", () => this.graduation.discover());
+        await this.safeRun("initial evaluation", () => this.graduation.evaluateDueCandidates());
+        this.scheduleDiscovery();
+        this.scheduleEvaluation();
+      }
     }
 
     this.scheduleMaintenance();
@@ -109,7 +103,6 @@ export class BotRuntime {
       if (this.evaluationHandle) clearTimeout(this.evaluationHandle);
       if (this.exitHandle) clearTimeout(this.exitHandle);
       if (this.maintenanceHandle) clearTimeout(this.maintenanceHandle);
-      if (this.researchHandle) clearTimeout(this.researchHandle);
       await this.migrationWatcher.stop();
       await db.$disconnect();
       process.exit(0);
@@ -135,7 +128,7 @@ export class BotRuntime {
 
   private async getSnapshot() {
     const settings = await this.config.getSettings();
-    const [botState, entryGate, openPositions, queuedCandidates, latestCandidates, latestFills, providerSummary, providerBudget, research] = await Promise.all([
+    const [botState, entryGate, openPositions, queuedCandidates, latestCandidates, latestFills, providerSummary, providerBudget] = await Promise.all([
       this.risk.getSnapshot(),
       this.risk.canOpenPosition(settings),
       db.position.count({ where: { status: "OPEN" } }),
@@ -149,7 +142,6 @@ export class BotRuntime {
         ORDER BY provider
       `) as Promise<unknown[]>,
       this.providerBudget.getBirdeyeBudgetSnapshot(),
-      this.research.getStatus(),
     ]);
 
     return {
@@ -177,8 +169,26 @@ export class BotRuntime {
       latestFills,
       providerSummary,
       providerBudget,
-      research,
     };
+  }
+
+  private async armLiveStartupPause(tradeMode: string) {
+    const state = await this.risk.getSnapshot();
+    if (tradeMode !== "LIVE" || state.pauseReason) {
+      return state;
+    }
+
+    const next = await db.botState.update({
+      where: { id: "singleton" },
+      data: { pauseReason: LIVE_STARTUP_PAUSE_REASON },
+    });
+    await recordOperatorEvent({
+      kind: "control_state",
+      level: "warning",
+      title: "Live mode held on startup",
+      detail: "Backend booted in LIVE mode but stayed paused until an operator resumes from the dashboard.",
+    });
+    return next;
   }
 
   private scheduleDiscovery(): void {
@@ -217,47 +227,6 @@ export class BotRuntime {
     void this.scheduleLoop("maintenance loop", async () => env.MAINTENANCE_INTERVAL_MS, () => this.runMaintenance(), (handle) => {
       this.maintenanceHandle = handle;
     });
-  }
-
-  private async resumeResearchPolling(): Promise<void> {
-    const nextDelayMs = await this.research.getNextPollDelayMs();
-    if (nextDelayMs !== null) {
-      this.scheduleResearch(nextDelayMs);
-    }
-  }
-
-  private async runResearchDryRun(): Promise<void> {
-    await this.research.startRun();
-    if (this.researchHandle) {
-      clearTimeout(this.researchHandle);
-    }
-    await recordOperatorEvent({
-      kind: "manual_action",
-      title: "Research dry run started",
-      detail: "Operator launched a bounded research dry run.",
-    });
-    const nextDelayMs = await this.research.getNextPollDelayMs();
-    if (nextDelayMs !== null) {
-      this.scheduleResearch(nextDelayMs);
-    }
-  }
-
-  private scheduleResearch(delayMs: number): void {
-    if (this.stopped) return;
-    this.researchHandle = setTimeout(async () => {
-      try {
-        const state = await this.research.pollActiveRun();
-        if (!this.stopped && state.active && state.nextDelayMs) {
-          this.scheduleResearch(state.nextDelayMs);
-        }
-      } catch (error) {
-        logger.error({ err: error }, "research polling timer failed");
-        const nextDelayMs = await this.research.getNextPollDelayMs();
-        if (!this.stopped && nextDelayMs !== null) {
-          this.scheduleResearch(nextDelayMs);
-        }
-      }
-    }, delayMs);
   }
 
   private async scheduleLoop(
@@ -359,17 +328,36 @@ export class BotRuntime {
   }
 
   private async resume(): Promise<void> {
+    const settings = await this.config.getSettings();
     await db.botState.update({
       where: { id: "singleton" },
       data: {
         pauseReason: null,
       },
     });
+    if (settings.tradeMode === "LIVE") {
+      await this.armLiveLoopsFromDashboard();
+    }
     await recordOperatorEvent({
       kind: "control_state",
       title: "Bot resumed",
       detail: "Manual pause cleared.",
     });
+  }
+
+  private async armLiveLoopsFromDashboard(): Promise<void> {
+    if (!this.discoveryHandle) {
+      await this.safeRun("initial discovery", () => this.graduation.discover());
+      this.scheduleDiscovery();
+    }
+    if (!this.evaluationHandle) {
+      await this.safeRun("initial evaluation", () => this.graduation.evaluateDueCandidates());
+      this.scheduleEvaluation();
+    }
+    if (!this.exitHandle) {
+      await this.safeRun("initial exit check", () => this.exits.run());
+      this.scheduleExit();
+    }
   }
 
   private async handleMigrationSignal(programId: string, signature: string): Promise<void> {

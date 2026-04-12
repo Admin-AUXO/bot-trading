@@ -11,7 +11,6 @@ import {
   CandlestickChart,
   Command,
   CornerDownLeft,
-  FlaskConical,
   PauseCircle,
   PlayCircle,
   Radar,
@@ -28,7 +27,6 @@ import { PinnedItemsProvider, PinnedItemsSidebar } from "@/components/pinned-ite
 
 const nav: Array<{ href: Route; label: string; icon: React.ComponentType<{ className?: string }> }> = [
   { href: "/", label: "Desk", icon: Activity },
-  { href: "/research", label: "Research", icon: FlaskConical },
   { href: "/candidates", label: "Candidates", icon: CandlestickChart },
   { href: "/positions", label: "Positions", icon: BarChart3 },
   { href: "/telemetry", label: "Telemetry", icon: RadioTower },
@@ -41,7 +39,6 @@ const actionEndpoint: Record<DeskShellPayload["availableActions"][number]["id"],
   "discover-now": "/control/discover-now",
   "evaluate-now": "/control/evaluate-now",
   "exit-check-now": "/control/exit-check-now",
-  "run-research-dry-run": "/control/run-research-dry-run",
 };
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -429,8 +426,6 @@ function routeCount(shell: DeskShellPayload | null, href: Route) {
       return shell.statusSummary.openPositions > 0 ? formatInteger(shell.statusSummary.openPositions) : null;
     case "/telemetry":
       return shell.unreadCriticalAlerts > 0 ? formatInteger(shell.unreadCriticalAlerts) : null;
-    case "/research":
-      return shell.statusSummary.activeResearchRun ? "RUN" : null;
     default:
       return null;
   }

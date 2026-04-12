@@ -18,6 +18,7 @@ Use this folder for short active workstream summaries.
 
 ## Active Workstreams
 
+- [2026-04-12 Compose Env And Dry Run Summary](2026-04-12-compose-env-and-dry-run-summary.md)
 - [2026-04-11 Dashboard Workstream Summary](2026-04-11-dashboard-workstream-summary.md)
 - [2026-04-11 Provider And Runtime Workstream Summary](2026-04-11-provider-runtime-workstream-summary.md)
 

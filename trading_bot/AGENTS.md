@@ -39,6 +39,7 @@ Do not skip ahead to source files before that sequence.
 - Keep provider integrations in `backend/src/services/`.
 - Keep browser-facing writes on `dashboard/app/api/[...path]/route.ts`.
 - Update docs in the same pass when setup, routes, or runtime behavior changes.
+- Keep paths in repo-owned code, docs, notes, scripts, and examples relative to the repo or current package. Do not commit user-specific absolute paths.
 - If a repeated operational or research workflow appears, promote it into a repo skill and trim the note that used to carry it.
 
 ## Standard Procedure
@@ -74,7 +75,7 @@ When a procedure becomes a skill:
 - The repo-level graph lives at `../graphify-out/`.
 - Repo memory notes live at `../notes/`.
 - Canonical repo docs also live inside the vault at `../notes/reference/`.
-- If the graph does not exist yet, build it from repo root with `$(git rev-parse --show-toplevel)/.codex/scripts/graphify.sh build-local .`.
+- If the graph does not exist yet, build it from repo root with `.codex/scripts/graphify.sh build-local .`.
 - The repo graph is code-only; markdown docs are intentionally excluded.
 - Before opening code for architecture or ownership questions, read `../graphify-out/GRAPH_REPORT.md` when it exists.
-- After modifying code files in `trading_bot/`, run `$(git rev-parse --show-toplevel)/.codex/scripts/graphify-rebuild.sh` if the repo graph already exists.
+- After modifying code files in `trading_bot/`, run `.codex/scripts/graphify-rebuild.sh` from repo root if the repo graph already exists.

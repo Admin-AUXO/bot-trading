@@ -67,11 +67,11 @@ The point is obvious: keep the live lane on the safer continuation path while th
 ## Verification
 
 ```bash
-cd /Users/rukaiyahyusuf/Downloads/bot-trading/trading_bot/backend
+cd trading_bot/backend
 npm run db:generate
 npm run typecheck
 DATABASE_URL='postgresql://botuser:botpass@127.0.0.1:56432/trading_bot' npm run db:setup
 
-cd /Users/rukaiyahyusuf/Downloads/bot-trading/trading_bot/dashboard
+cd trading_bot/dashboard
 npm run build
 ```

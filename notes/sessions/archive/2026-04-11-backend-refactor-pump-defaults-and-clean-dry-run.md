@@ -48,15 +48,15 @@ The user asked for backend cleanup, performance work, entry and exit tuning, a p
 ## What I Verified
 
 ```bash
-cd /Users/rukaiyahyusuf/Downloads/bot-trading/trading_bot/backend
+cd trading_bot/backend
 npm run db:generate
 npm run typecheck
 npm run build
 
-cd /Users/rukaiyahyusuf/Downloads/bot-trading
-$(git rev-parse --show-toplevel)/.codex/scripts/graphify-rebuild.sh
+cd .
+.codex/scripts/graphify-rebuild.sh
 
-cd /Users/rukaiyahyusuf/Downloads/bot-trading/trading_bot
+cd trading_bot
 docker compose stop bot dashboard
 docker exec trading-postgres psql -U botuser -d trading_bot ...
 docker compose up -d --build bot dashboard

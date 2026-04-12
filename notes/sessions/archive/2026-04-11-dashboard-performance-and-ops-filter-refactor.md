@@ -52,15 +52,15 @@ next_action: If operators need zero-friction filtering, replace submit-based que
 ## Verification
 
 ```bash
-cd /Users/rukaiyahyusuf/Downloads/bot-trading/trading_bot/dashboard
+cd trading_bot/dashboard
 npm run build
 
 curl -sS http://127.0.0.1:3101/health
 curl -sS -X POST http://127.0.0.1:3101/api/control/run-research-dry-run
 curl -sS http://127.0.0.1:3101/api/research-runs?limit=1
 
-cd /Users/rukaiyahyusuf/Downloads/bot-trading
-$(git rev-parse --show-toplevel)/.codex/scripts/graphify-rebuild.sh
+cd .
+.codex/scripts/graphify-rebuild.sh
 ```
 
 Latest dry-run runtime check after this refactor:

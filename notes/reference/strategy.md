@@ -2,10 +2,9 @@
 type: reference
 status: active
 area: strategy
-date: 2026-04-10
+date: 2026-04-12
 source_files:
   - trading_bot/backend/src/engine/graduation-engine.ts
-  - trading_bot/backend/src/engine/research-dry-run-engine.ts
   - trading_bot/backend/src/engine/exit-engine.ts
   - trading_bot/backend/src/engine/runtime.ts
   - trading_bot/backend/src/engine/risk-engine.ts
@@ -13,7 +12,7 @@ source_files:
   - trading_bot/backend/src/services/strategy-exit.ts
   - trading_bot/backend/src/services/strategy-presets.ts
   - trading_bot/backend/src/services/helius-migration-watcher.ts
-graph_checked: 2026-04-11
+graph_checked: 2026-04-12
 next_action:
 ---
 
@@ -35,7 +34,6 @@ Use graduation language in repo-facing docs. Keep the preset ids below unchanged
 - Live discovery lane: [`GraduationEngine.discover()`](../../trading_bot/backend/src/engine/graduation-engine.ts)
 - Live evaluation lane: [`GraduationEngine.evaluateDueCandidates()`](../../trading_bot/backend/src/engine/graduation-engine.ts)
 - Live exit lane: [`ExitEngine.run()`](../../trading_bot/backend/src/engine/exit-engine.ts)
-- Bounded research dry-run lane: [`ResearchDryRunEngine`](../../trading_bot/backend/src/engine/research-dry-run-engine.ts)
 - Scheduler and manual triggers: [`BotRuntime`](../../trading_bot/backend/src/engine/runtime.ts)
 
 Runtime pacing matters now:
@@ -45,7 +43,8 @@ Runtime pacing matters now:
 - exit checks stay on their own cadence
 - Birdeye spend is lane-budgeted across discovery, evaluation, security, and reserve instead of assuming the month will sort itself out
 - `LIVE` owns the recurring discovery, evaluation, and exit loops
-- `DRY_RUN` no longer runs those loops at all; it waits for a manual research run, then only keeps the research polling timer alive until the bounded run completes or times out
+- A backend boot into `LIVE` now starts in a startup hold. Exit protection can still arm, but discovery and evaluation do not begin until the operator explicitly resumes from the dashboard.
+- `DRY_RUN` is now just a safe non-live runtime mode inside the app; repo-supported dry-run discovery experiments live in `trading_bot/backend/scripts/discovery-lab.ts`
 
 ## Live Candidate Lifecycle
 
@@ -75,24 +74,6 @@ Runtime pacing matters now:
   - raw discovery payload in `Candidate.metrics`
   - normalized discovery evidence in `TokenSnapshot` with `trigger = "discovery"`
   - a shared discovery cache write into `SharedTokenFact` so later evaluation and the other preset can reuse the same Birdeye baseline instead of re-paying for it immediately
-
-## Research Dry-Run Contract
-
-- `DRY_RUN` is a bounded research lane, not a rolling paper bot
-- Research starts only from the manual `run-research-dry-run` control
-- Discovery is one preset-specific Birdeye meme-list page from the currently tradable source set, capped by `research.discoveryLimit`
-- Research discovery does not dedupe against operational `Candidate` history; repeated runs on the same mint are allowed and isolated by `ResearchRun`
-- The page is cheap-scored first across all discovered names
-- Full deep evaluation only runs on the top `research.fullEvaluationLimit`
-- Research stores both `liveTradable` and `researchTradable` on each `ResearchToken`
-- Research mock entries ignore desk cash, `maxOpenPositions`, daily-loss guards, and consecutive-loss guards
-- Research mock sizing is fixed by `research.fixedPositionSizeUsd`
-- Research mock entries are capped by `research.maxMockPositions`
-- Provider spend is capped per run with `research.birdeyeUnitCap` and `research.heliusUnitCap`
-- Research polling cadence is `research.pollIntervalMs`
-- Research max run window is `research.maxRunDurationMs`
-- When the run window expires, any still-open research positions force-close using their last seen cached price
-- Research rows live in dedicated `ResearchRun`, `ResearchToken`, `ResearchPosition`, and `ResearchFill` tables instead of polluting the operational candidate and position lifecycle
 
 ## Evaluation Contract
 
@@ -171,6 +152,7 @@ Pause semantics matter:
 - `pause` does not stop the scheduler loops
 - Due candidates evaluated while paused are rescheduled as `SKIPPED`
 - `resume` clears `pauseReason`, and rescheduled candidates can become due again automatically
+- The startup hold is a special pause reason for `LIVE` boots. It exists to prevent automatic live trading after a restart, and the first dashboard resume is what arms live discovery and evaluation.
 
 ## Exit Contract
 

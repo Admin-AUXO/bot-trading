@@ -34,6 +34,7 @@ This repo does not use Graphify as a general document or research corpus. The su
 - If `graphify-out/graph.json` does not exist yet, build it from repo root with `./.codex/scripts/graphify.sh build-local .`.
 - After code edits, run `./.codex/scripts/graphify-rebuild.sh` only when a graph already exists.
 - If the report looks noisy, verify against source code before repeating any graph claim in docs or chat.
+- On Windows PowerShell, run the wrapper through `bash`. If CRLF checkout breaks the script, normalize it to LF first or use a temporary LF copy before running the build.
 
 ## Outputs
 

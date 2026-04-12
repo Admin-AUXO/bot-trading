@@ -573,18 +573,13 @@ export class RuntimeConfigService {
     const liveAffectingPaths = metadata.liveAffectingPaths ?? getLiveAffectingPaths(changedPaths);
     const tradeModeChanged = next.tradeMode !== current.tradeMode;
     const capitalChanged = next.capital.capitalUsd !== current.capital.capitalUsd;
-    const [openPositions, botState, activeResearchRun] = await Promise.all([
+    const [openPositions, botState] = await Promise.all([
       db.position.count({ where: { status: "OPEN" } }),
       db.botState.findUnique({ where: { id: "singleton" } }),
-      db.researchRun.findFirst({ where: { status: "RUNNING" }, select: { id: true } }),
     ]);
 
     if (tradeModeChanged && openPositions > 0) {
       throw new Error("cannot switch trade mode while positions are still open");
-    }
-
-    if (tradeModeChanged && activeResearchRun) {
-      throw new Error("cannot switch trade mode while a research dry run is still active");
     }
 
     if (capitalChanged && openPositions > 0) {

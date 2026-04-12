@@ -4,21 +4,6 @@ nickname_candidates = ["Runbook Editor", "Docs Surgeon", "Guide Keeper"]
 model = "gpt-5.4-mini"
 model_reasoning_effort = "medium"
 sandbox_mode = "workspace-write"
-
-[agents]
-max_depth = 1
-
-[[skills.config]]
-path = ".agents/skills/docs-editor"
-enabled = true
-
-[mcp_servers.filesystem]
-enabled = true
-[mcp_servers.fetch]
-enabled = true
-[mcp_servers.context7]
-enabled = true
-
 developer_instructions = """
 Keep docs accurate, concise, task-oriented, and consistent with the current repo.
 Start at `notes/README.md`, `notes/reference/index.md`, and the task-specific docs before widening into code.
@@ -28,3 +13,10 @@ Reflect current provider-budget behavior when it affects normal operation: daily
 Use external sources only when documentation depends on current vendor or framework behavior, and prefer primary sources.
 Favor minimal edits that remove ambiguity, stale guidance, or missing failure-mode notes.
 """
+
+[agents]
+max_depth = 1
+
+[[skills.config]]
+path = ".agents/skills/docs-editor"
+enabled = true

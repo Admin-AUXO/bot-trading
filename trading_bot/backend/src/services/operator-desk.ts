@@ -1,15 +1,15 @@
 import type { BotState, Candidate, Fill, Position, TokenSnapshot } from "@prisma/client";
 import { db } from "../db/client.js";
-import type { ResearchDryRunEngine } from "../engine/research-dry-run-engine.js";
 import type { RiskEngine } from "../engine/risk-engine.js";
 import type { RuntimeConfigService, SettingsControlState } from "./runtime-config.js";
 import type { ProviderBudgetService } from "./provider-budget-service.js";
 import { listOperatorEvents } from "./operator-events.js";
 
 const QUEUED_CANDIDATE_STATUSES = ["DISCOVERED", "SKIPPED", "ERROR"] as const;
+const LIVE_STARTUP_PAUSE_REASON = "live mode is paused on startup; resume from the dashboard to begin trading";
 
 export type DeskAction = {
-  id: "pause" | "resume" | "discover-now" | "evaluate-now" | "exit-check-now" | "run-research-dry-run";
+  id: "pause" | "resume" | "discover-now" | "evaluate-now" | "exit-check-now";
   label: string;
   enabled: boolean;
   confirmation?: string;
@@ -30,7 +30,6 @@ export type DeskShellPayload = {
     openPositions: number;
     maxOpenPositions: number;
     queuedCandidates: number;
-    activeResearchRun: boolean;
   };
 };
 
@@ -177,17 +176,15 @@ export class OperatorDeskService {
     private readonly config: RuntimeConfigService,
     private readonly risk: RiskEngine,
     private readonly providerBudget: ProviderBudgetService,
-    private readonly research: ResearchDryRunEngine,
   ) {}
 
   async getShell(): Promise<DeskShellPayload> {
-    const [settings, botState, gate, openPositions, queuedCandidates, researchStatus, events] = await Promise.all([
+    const [settings, botState, gate, openPositions, queuedCandidates, events] = await Promise.all([
       this.config.getSettings(),
       this.risk.getSnapshot(),
       this.risk.canOpenPosition(),
       db.position.count({ where: { status: "OPEN" } }),
       db.candidate.count({ where: { status: { in: [...QUEUED_CANDIDATE_STATUSES] } } }),
-      this.research.getStatus(),
       listOperatorEvents(10),
     ]);
 
@@ -203,10 +200,14 @@ export class OperatorDeskService {
       availableActions: [
         {
           id: botState.pauseReason ? "resume" : "pause",
-          label: botState.pauseReason ? "Resume" : "Pause",
+          label: botState.pauseReason === LIVE_STARTUP_PAUSE_REASON ? "Turn On Live" : botState.pauseReason ? "Resume" : "Pause",
           enabled: settings.tradeMode === "LIVE",
           confirmation: settings.tradeMode === "LIVE"
-            ? (botState.pauseReason ? "Resume live trading controls?" : "Pause live trading controls?")
+            ? (botState.pauseReason === LIVE_STARTUP_PAUSE_REASON
+              ? "Turn on live trading now?"
+              : botState.pauseReason
+                ? "Resume live trading controls?"
+                : "Pause live trading controls?")
             : undefined,
         },
         {
@@ -227,18 +228,11 @@ export class OperatorDeskService {
           enabled: settings.tradeMode === "LIVE",
           confirmation: settings.tradeMode === "LIVE" ? "Run exit checks now?" : undefined,
         },
-        {
-          id: "run-research-dry-run",
-          label: "Research Dry Run",
-          enabled: settings.tradeMode === "DRY_RUN" && !researchStatus.activeRun,
-          confirmation: settings.tradeMode === "DRY_RUN" ? "Start a bounded research dry run?" : undefined,
-        },
       ],
       statusSummary: {
         openPositions,
         maxOpenPositions: settings.capital.maxOpenPositions,
         queuedCandidates,
-        activeResearchRun: Boolean(researchStatus.activeRun),
       },
     };
   }
@@ -507,7 +501,7 @@ export class OperatorDeskService {
   private buildPrimaryBlocker(botState: BotState, gate: Awaited<ReturnType<RiskEngine["canOpenPosition"]>>) {
     if (botState.pauseReason) {
       return {
-        label: "Manual pause",
+        label: botState.pauseReason === LIVE_STARTUP_PAUSE_REASON ? "Live startup hold" : "Manual pause",
         detail: botState.pauseReason,
         level: "warning" as const,
       };

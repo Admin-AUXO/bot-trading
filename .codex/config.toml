@@ -23,9 +23,11 @@ tool_timeout_sec = 90
 [mcp_servers.birdeye-mcp]
 args = [".codex/scripts/start-birdeye-mcp.cjs"]
 command = "node"
-enabled = true
+# Disabled in shared repo config. This server needs a local BIRDEYE_API_KEY and a
+# working host launcher; enable it locally after validating it on your machine.
+enabled = false
 required = false
-startup_timeout_ms = 30000
+startup_timeout_sec = 30
 tool_timeout_sec = 45
 
 [mcp_servers.chrome_devtools]
@@ -35,7 +37,7 @@ args = [
 ]
 command = "npx"
 required = false
-startup_timeout_ms = 20000
+startup_timeout_sec = 45
 tool_timeout_sec = 90
 
 [mcp_servers.context7]

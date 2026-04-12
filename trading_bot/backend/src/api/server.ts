@@ -52,11 +52,6 @@ export function createApiServer(deps: {
   triggerDiscovery: () => Promise<void>;
   triggerEvaluation: () => Promise<void>;
   triggerExitCheck: () => Promise<void>;
-  triggerResearchDryRun: () => Promise<void>;
-  listResearchRuns: (limit?: number) => Promise<unknown[]>;
-  getResearchRun: (runId: string) => Promise<unknown | null>;
-  getResearchRunTokens: (runId: string) => Promise<unknown[]>;
-  getResearchRunPositions: (runId: string) => Promise<unknown[]>;
 }) {
   const app = express();
   app.use(express.json());
@@ -262,32 +257,6 @@ export function createApiServer(deps: {
   app.post("/api/control/exit-check-now", async (_req, res) => {
     await deps.triggerExitCheck();
     await respondWithDeskState(res, "exit-check-now");
-  });
-
-  app.post("/api/control/run-research-dry-run", async (_req, res) => {
-    await deps.triggerResearchDryRun();
-    await respondWithDeskState(res, "run-research-dry-run");
-  });
-
-  app.get("/api/research-runs", async (req, res) => {
-    const limit = parseLimit(req.query.limit, 10, 50);
-    res.json(await deps.listResearchRuns(limit));
-  });
-
-  app.get("/api/research-runs/:id", async (req, res) => {
-    const row = await deps.getResearchRun(req.params.id);
-    if (!row) {
-      return res.status(404).json({ error: "research run not found" });
-    }
-    return res.json(row);
-  });
-
-  app.get("/api/research-runs/:id/tokens", async (req, res) => {
-    res.json(await deps.getResearchRunTokens(req.params.id));
-  });
-
-  app.get("/api/research-runs/:id/positions", async (req, res) => {
-    res.json(await deps.getResearchRunPositions(req.params.id));
   });
 
   app.get("/api/views/:name", async (req, res) => {

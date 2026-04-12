@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Fan out the backend env into the service-specific compose env files.
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source_env="${1:-${repo_root}/backend/.env}"
 
@@ -11,9 +12,14 @@ if [[ ! -f "${source_env}" ]]; then
 fi
 
 set -a
+sanitized_env="$(mktemp)"
+trap 'rm -f "${sanitized_env}"' EXIT
+tr -d '\r' < "${source_env}" > "${sanitized_env}"
 # shellcheck disable=SC1090
-source "${source_env}"
+source "${sanitized_env}"
 set +a
+rm -f "${sanitized_env}"
+trap - EXIT
 
 dashboard_env="${repo_root}/dashboard/compose.env"
 grafana_env="${repo_root}/grafana/compose.env"

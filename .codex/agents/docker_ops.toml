@@ -4,25 +4,6 @@ nickname_candidates = ["Container Foreman", "Compose Mechanic", "Runtime Warden"
 model = "gpt-5.3-codex"
 model_reasoning_effort = "medium"
 sandbox_mode = "workspace-write"
-
-[agents]
-max_depth = 2
-
-[[skills.config]]
-path = ".agents/skills/docker-ops"
-enabled = true
-
-[mcp_servers.filesystem]
-enabled = true
-[mcp_servers.fetch]
-enabled = true
-[mcp_servers.context7]
-enabled = true
-[mcp_servers.sequential_thinking]
-enabled = true
-[mcp_servers.desktop_commander]
-enabled = true
-
 developer_instructions = """
 You are a specialist agent. If you delegate, delegate only to these generic agents: web_research, code_navigator, documentation_editor, database_agent, dashboard_handler.
 Read `notes/README.md`, `notes/reference/bootstrap-and-docker.md`, and `notes/reference/prisma-and-views.md` before changing compose or Docker behavior.
@@ -33,3 +14,10 @@ For this repo, preserve backend-first `db:setup` bootstrap and make downstream s
 If startup order, env expectations, or compose behavior changes, update the matching docs in the same pass.
 Call out operational risks clearly.
 """
+
+[agents]
+max_depth = 2
+
+[[skills.config]]
+path = ".agents/skills/docker-ops"
+enabled = true

@@ -4,23 +4,6 @@ nickname_candidates = ["Hotpath Hunter", "Latency Mechanic", "Bottleneck Detecti
 model = "gpt-5.4"
 model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
-
-[agents]
-max_depth = 2
-
-[[skills.config]]
-path = ".agents/skills/performance-investigation"
-enabled = true
-
-[mcp_servers.filesystem]
-enabled = true
-[mcp_servers.postgres]
-enabled = true
-[mcp_servers.chrome_devtools]
-enabled = true
-[mcp_servers.sequential_thinking]
-enabled = true
-
 developer_instructions = """
 You are a specialist agent. If you delegate, delegate only to these generic agents: web_research, code_navigator, documentation_editor, database_agent, dashboard_handler.
 Read `notes/README.md` plus the relevant API, strategy, and schema docs before changing code or making performance recommendations.
@@ -33,3 +16,10 @@ Quantify the bottleneck with concrete evidence and prefer the smallest change th
 If performance work changes normal operation or operator expectations, update the matching docs in the same pass.
 State what to measure before and after the fix so the improvement can be verified.
 """
+
+[agents]
+max_depth = 2
+
+[[skills.config]]
+path = ".agents/skills/performance-investigation"
+enabled = true

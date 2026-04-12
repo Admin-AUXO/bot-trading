@@ -10,9 +10,9 @@ source_files:
   - .codex/config.toml
   - .codex/agents/
   - .codex/scripts/start-birdeye-mcp.cjs
-  - C:/Users/ajay9/.codex/log/codex-tui.log
+  - .codex/log/codex-tui.log
 graph_checked:
-next_action: Keep the shared GitHub MCP config disabled by default for Windows hosts, and treat macOS enablement as a local verified override until transport behavior is confirmed there too.
+next_action: Keep shared MCP defaults limited to transports that work without local secrets, and let host-specific or secret-backed MCPs be local opt-ins after validation.
 ---
 
 # MCP Surface Audit
@@ -160,6 +160,27 @@ Conclusion:
 - on this Windows host, the current GitHub Docker `stdio` server is not compatible with the framed stdio contract Codex CLI 0.120.0 is using
 - that host-specific mismatch explains the session warning: `handshaking with MCP server failed: connection closed: initialize response`
 - macOS support is not disproven by this probe; treat it as unverified until someone validates it there
+
+## 2026-04-12 Shared Config Repair
+
+The shared repo config had three self-inflicted failures:
+
+- the custom agent files under `.codex/agents/` used shorthand blocks like `[mcp_servers.filesystem] enabled = true`
+- Codex CLI 0.120.0 loads custom agent files as config layers, so each `mcp_servers.<id>` entry must define a real transport such as `command` or `url`
+- those shorthand blocks therefore fail deserialization with `invalid transport` before the agent can even spawn
+
+Fix applied:
+
+- removed the stub `mcp_servers.*` blocks from the custom agent files and let them inherit MCP availability from the parent session, which is the behavior the current subagent docs describe for omitted fields
+- switched `.codex/scripts/start-birdeye-mcp.cjs` to use `npx.cmd` on Windows and `npx` elsewhere so the wrapper is host-portable
+- disabled `birdeye-mcp` in the shared repo config by default because it requires a local `BIRDEYE_API_KEY`; that keeps fresh clones and non-Birdeye tasks from emitting startup noise
+- raised the shared `chrome_devtools` startup timeout to 45 seconds so package resolution and browser attach do not fail on slower hosts
+
+Current repo contract:
+
+- custom agent files may include full MCP server definitions, but they must not use stub `enabled = true` transport-less blocks
+- secret-backed or host-sensitive MCP servers belong in shared config only when they are disabled by default or otherwise safe on a fresh machine
+- macOS users can enable `birdeye-mcp` locally after exporting `BIRDEYE_API_KEY` and validating the wrapper on their host
 
 ### `chrome_devtools`
 

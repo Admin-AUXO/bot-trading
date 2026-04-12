@@ -4,7 +4,7 @@ status: closed
 area: providers/mcp
 date: 2026-04-11
 source_files:
-  - /Users/rukaiyahyusuf/.codex/config.toml
+  - .codex/config.toml (user-level)
   - trading_bot/backend/.env
   - notes/trading-memory/providers/2026-04-11-birdeye-discovery-endpoint-selection.md
   - notes/trading-memory/providers/2026-04-11-birdeye-meme-list-filter-limit.md
@@ -16,7 +16,7 @@ next_action: Use the secondary Birdeye recent_listing_time rotation only if wide
 
 ## Context
 
-This repo now has both Birdeye and Helius MCP server entries added to `/Users/rukaiyahyusuf/.codex/config.toml`.
+This repo now has both Birdeye and Helius MCP server entries added to the user-level `.codex/config.toml`.
 
 What was already done in this session:
 
@@ -35,7 +35,7 @@ Important nuance:
 
 Config file updated:
 
-- [`/Users/rukaiyahyusuf/.codex/config.toml`](/Users/rukaiyahyusuf/.codex/config.toml:42)
+- `.codex/config.toml` (user-level)
 
 Related durable notes:
 
@@ -119,7 +119,7 @@ Do not do anything wallet-mutating:
 
 ## Exact Task For The Next Agent
 
-1. Start a fresh Codex session from repo root: `/Users/rukaiyahyusuf/Downloads/bot-trading`
+1. Start a fresh Codex session from repo root
 2. Confirm the session can see the refreshed MCP setup
 3. Verify Birdeye MCP is callable in that fresh session
 4. Run one Birdeye credits or lightweight smoke test if the tool set exposes it

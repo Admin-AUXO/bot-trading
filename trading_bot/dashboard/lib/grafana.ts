@@ -13,10 +13,9 @@ const DASHBOARD_UIDS = {
   position: process.env.GRAFANA_POSITION_DASHBOARD_UID ?? "bot-position-pnl",
   config: process.env.GRAFANA_CONFIG_DASHBOARD_UID ?? "bot-config-impact",
   source: process.env.GRAFANA_SOURCE_DASHBOARD_UID ?? "bot-source-cohorts",
-  research: process.env.GRAFANA_RESEARCH_DASHBOARD_UID ?? "bot-research-dry-run",
 } as const;
 
-type DashboardKind = "control" | "executive" | "analyst" | "live" | "telemetry" | "candidate" | "position" | "config" | "source" | "research";
+type DashboardKind = "control" | "executive" | "analyst" | "live" | "telemetry" | "candidate" | "position" | "config" | "source";
 
 function dashboardUid(kind: DashboardKind) {
   switch (kind) {
@@ -37,8 +36,6 @@ function dashboardUid(kind: DashboardKind) {
       return DASHBOARD_UIDS.config;
     case "source":
       return DASHBOARD_UIDS.source;
-    case "research":
-      return DASHBOARD_UIDS.research;
   }
 }
 

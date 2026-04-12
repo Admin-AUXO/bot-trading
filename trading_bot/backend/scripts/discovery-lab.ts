@@ -113,6 +113,7 @@ type QuerySummary = {
   avgSelectedPlayScore: number;
   avgSelectedEntryScore: number;
   estimatedCu: number;
+  goodMints: string[];
   topSelectedTokens: Array<{
     symbol: string;
     mint: string;
@@ -264,7 +265,7 @@ Options:
 Examples:
   npm run lab:discovery -- --profile high-value
   npm run lab:discovery -- --sources pump_dot_fun,moonshot --recipe-names grad_60m_last_trade,pregrad_95_progress
-  npm run lab:discovery -- --out /tmp/discovery-lab.json
+  npm run lab:discovery -- --out ../../.codex/tmp/discovery-lab.json
 `);
 }
 
@@ -1128,6 +1129,7 @@ function summarizeQuery(
     avgSelectedPlayScore,
     avgSelectedEntryScore,
     estimatedCu,
+    goodMints: good.map(({ token }) => token.mint),
     topSelectedTokens: selected
       .sort((left, right) => right.deep.playScore - left.deep.playScore)
       .slice(0, 5)
@@ -1434,7 +1436,7 @@ async function main() {
   const sourceSummaries: SourceSummary[] = sources.map((source) => {
     const sourceQueries = querySummaries.filter((summary) => summary.source === source);
     const goodMints = new Set(
-      sourceQueries.flatMap((summary) => summary.topGoodTokens.map((token) => token.mint)),
+      sourceQueries.flatMap((summary) => summary.goodMints),
     );
     const sourceQueriesWithWins = sourceQueries.filter((summary) => summary.goodCount > 0);
     const bestByGoodCount = [...sourceQueriesWithWins]

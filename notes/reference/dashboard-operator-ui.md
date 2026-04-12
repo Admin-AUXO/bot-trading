@@ -14,10 +14,9 @@ source_files:
   - trading_bot/dashboard/app/candidates/[id]/page.tsx
   - trading_bot/dashboard/app/positions/page.tsx
   - trading_bot/dashboard/app/positions/[id]/page.tsx
-  - trading_bot/dashboard/app/research/page.tsx
   - trading_bot/dashboard/app/telemetry/page.tsx
   - trading_bot/backend/src/services/operator-desk.ts
-graph_checked: 2026-04-11
+graph_checked: 2026-04-12
 next_action: Re-run row-level browser verification when the runtime has live candidate and position rows so the inline actions and detail-page Grafana pivots can be tested against real entities.
 ---
 
@@ -68,6 +67,7 @@ Purpose: document the current UI contract for the Next.js operator desk so later
   command launcher
   refresh shell
   global runtime actions
+- When the backend boots in `LIVE`, the primary action should read as an explicit live-arm control rather than pretending live trading is already running
 - Do not duplicate shell truth in extra footer summaries or decorative chrome
 
 ## Command Launcher
@@ -84,8 +84,6 @@ Purpose: document the current UI contract for the Next.js operator desk so later
 - `/positions`: open-risk-first book and closed-book review
 - `/telemetry`: current diagnostics and faults, not trend analysis
 - `/settings`: draft, validate, dry run, promote
-- `/research`: bounded dry-run review only
-- `/research` must show the backend failure note when a run fails; a red status chip without the actual error is dead weight
 
 ## Detail Page Order
 
@@ -144,7 +142,7 @@ Purpose: document the current UI contract for the Next.js operator desk so later
 - Routed detail pages must preserve list context through query state and focus anchors
 - Candidate and position detail return links must preserve `bucket|book`, `sort`, `q`, and `focus` when those params exist
 - Event stream items should expose drill-ins when the backend provides a related entity
-- Research-run events should deep-link into `/research?run=<id>` when the event carries a run entity id
+- Research-run events should not deep-link into removed dashboard routes
 - Actions must feel trustworthy:
   explicit labels
   visible failure state

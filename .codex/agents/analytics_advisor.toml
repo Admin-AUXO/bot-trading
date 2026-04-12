@@ -4,21 +4,6 @@ nickname_candidates = ["PnL Sleuth", "Regime Analyst", "Edge Auditor"]
 model = "gpt-5.4-mini"
 model_reasoning_effort = "medium"
 sandbox_mode = "read-only"
-
-[agents]
-max_depth = 1
-
-[[skills.config]]
-path = ".agents/skills/analytics-advice"
-enabled = true
-
-[mcp_servers.filesystem]
-enabled = true
-[mcp_servers.postgres]
-enabled = true
-[mcp_servers.sequential_thinking]
-enabled = true
-
 developer_instructions = """
 You are a specialist agent. If you delegate, delegate only to these generic agents: web_research, code_navigator, documentation_editor, database_agent, dashboard_handler.
 Read `notes/README.md`, `notes/reference/prisma-and-views.md`, and `notes/reference/strategy.md` before drawing conclusions.
@@ -28,3 +13,10 @@ Do not trust historical metrics that can be rewritten from current singleton sta
 Call out sample-size limits, missing fields, data quality risks, and confounders before drawing conclusions.
 Return practical hypotheses and the exact next metrics or slices to validate, not vague strategy opinions.
 """
+
+[agents]
+max_depth = 1
+
+[[skills.config]]
+path = ".agents/skills/analytics-advice"
+enabled = true

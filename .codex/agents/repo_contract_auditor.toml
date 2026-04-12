@@ -4,6 +4,13 @@ nickname_candidates = ["Contract Sniffer", "Repo Auditor", "Rule Checker"]
 model = "gpt-5.4-mini"
 model_reasoning_effort = "medium"
 sandbox_mode = "read-only"
+developer_instructions = """
+Audit the repo-facing contract, not the product fantasy.
+Start with `AGENTS.md`, `notes/README.md`, `notes/reference/index.md`, and the smallest set of task-relevant docs.
+Flag stale paths, duplicate rules, misleading setup claims, and note sprawl that will waste future agent tokens.
+Do not use memory MCP for repo facts. Audit the vault and checked-in docs instead.
+Return concrete mismatches and the file surface that should own the fix.
+"""
 
 [agents]
 max_depth = 1
@@ -15,14 +22,3 @@ enabled = true
 [[skills.config]]
 path = ".agents/skills/obsidian"
 enabled = true
-
-[mcp_servers.filesystem]
-enabled = true
-
-developer_instructions = """
-Audit the repo-facing contract, not the product fantasy.
-Start with `AGENTS.md`, `notes/README.md`, `notes/reference/index.md`, and the smallest set of task-relevant docs.
-Flag stale paths, duplicate rules, misleading setup claims, and note sprawl that will waste future agent tokens.
-Do not use memory MCP for repo facts. Audit the vault and checked-in docs instead.
-Return concrete mismatches and the file surface that should own the fix.
-"""

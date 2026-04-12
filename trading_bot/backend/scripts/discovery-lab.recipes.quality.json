@@ -58,58 +58,30 @@
       }
     },
     {
-      "name": "pregrad_90_volume5m",
-      "mode": "pregrad",
-      "description": "Near-grad names ranked by 5m dollar flow instead of raw progress alone.",
+      "name": "grad_75m_price30m_strength",
+      "mode": "graduated",
+      "description": "Experimental continuation check for graduates still carrying real 30m price strength after the first burst.",
       "params": {
-        "graduated": false,
-        "sort_by": "volume_5m_usd",
+        "graduated": true,
+        "sort_by": "price_change_30m_percent",
         "sort_type": "desc",
-        "min_progress_percent": 90,
-        "min_volume_5m_usd": 3000,
-        "min_trade_5m_count": 50,
+        "min_graduated_time": "now-4500",
+        "min_price_change_30m_percent": 20,
+        "min_volume_30m_usd": 20000,
         "limit": 100
       }
     },
     {
-      "name": "pregrad_92_trade5m",
-      "mode": "pregrad",
-      "description": "Near-grad names ranked by 5m tape count with a tighter progress floor.",
+      "name": "grad_45m_volume30m_persistence",
+      "mode": "graduated",
+      "description": "Experimental persistence scan for graduates still carrying enough 30m flow after the initial post-grad impulse.",
       "params": {
-        "graduated": false,
-        "sort_by": "trade_5m_count",
+        "graduated": true,
+        "sort_by": "volume_30m_usd",
         "sort_type": "desc",
-        "min_progress_percent": 92,
-        "min_trade_5m_count": 70,
-        "min_volume_5m_usd": 2500,
-        "limit": 100
-      }
-    },
-    {
-      "name": "pregrad_85_holder_volume1h",
-      "mode": "pregrad",
-      "description": "About-to-graduate higher-value names with some holder breadth and stronger 1h flow.",
-      "params": {
-        "graduated": false,
-        "sort_by": "volume_1h_usd",
-        "sort_type": "desc",
-        "min_progress_percent": 85,
-        "min_volume_1h_usd": 15000,
-        "min_holder": 60,
-        "limit": 100
-      }
-    },
-    {
-      "name": "pregrad_88_recent_volume5m",
-      "mode": "pregrad",
-      "description": "Fresh near-grad names created recently but still filtered through live 5m flow.",
-      "params": {
-        "graduated": false,
-        "sort_by": "volume_5m_usd",
-        "sort_type": "desc",
-        "min_recent_listing_time": "now-14400",
-        "min_progress_percent": 88,
-        "min_volume_5m_usd": 2000,
+        "min_graduated_time": "now-2700",
+        "min_volume_30m_usd": 25000,
+        "min_trade_30m_count": 220,
         "limit": 100
       }
     }

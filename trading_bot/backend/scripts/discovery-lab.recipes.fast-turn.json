@@ -2,20 +2,6 @@
   "description": "Pump-focused fast-turn Birdeye meme-list recipes for a small-bankroll graduation play. These prioritize active tape, quick post-grad continuation, and names that can move enough to matter on 10 to 20 USD tickets.",
   "recipes": [
     {
-      "name": "grad_15m_trade5m",
-      "mode": "graduated",
-      "description": "Fresh graduates ranked by active 5m tape. Best for immediate churn after crossing the line.",
-      "params": {
-        "graduated": true,
-        "sort_by": "trade_5m_count",
-        "sort_type": "desc",
-        "min_graduated_time": "now-900",
-        "min_trade_5m_count": 70,
-        "min_volume_5m_usd": 2500,
-        "limit": 100
-      }
-    },
-    {
       "name": "grad_30m_volume5m",
       "mode": "graduated",
       "description": "Recent graduates ranked by immediate 5m dollar flow.",
@@ -86,30 +72,30 @@
       }
     },
     {
-      "name": "pregrad_92_trade5m_scout",
-      "mode": "pregrad",
-      "description": "Research-only near-grad scout ranked by tape count. Useful to measure whether pregrad is worth the risk in this window.",
+      "name": "grad_75m_price30m_strength",
+      "mode": "graduated",
+      "description": "Experimental continuation variant for fast-turn windows that still have real 30m strength after the first surge.",
       "params": {
-        "graduated": false,
-        "sort_by": "trade_5m_count",
+        "graduated": true,
+        "sort_by": "price_change_30m_percent",
         "sort_type": "desc",
-        "min_progress_percent": 92,
-        "min_trade_5m_count": 60,
-        "min_volume_5m_usd": 2000,
+        "min_graduated_time": "now-4500",
+        "min_price_change_30m_percent": 18,
+        "min_volume_30m_usd": 16000,
         "limit": 100
       }
     },
     {
-      "name": "pregrad_95_volume5m_scout",
-      "mode": "pregrad",
-      "description": "Research-only near-finish scout ranked by immediate dollar flow.",
+      "name": "grad_45m_volume30m_persistence",
+      "mode": "graduated",
+      "description": "Experimental fast-turn persistence scan using 30m flow instead of pure tape recency.",
       "params": {
-        "graduated": false,
-        "sort_by": "volume_5m_usd",
+        "graduated": true,
+        "sort_by": "volume_30m_usd",
         "sort_type": "desc",
-        "min_progress_percent": 95,
-        "min_volume_5m_usd": 2500,
-        "min_trade_5m_count": 40,
+        "min_graduated_time": "now-2700",
+        "min_volume_30m_usd": 18000,
+        "min_trade_30m_count": 160,
         "limit": 100
       }
     }

@@ -112,7 +112,7 @@ Verification completed:
   `/telemetry`
   all returned `200`
 - route responses also checked for `/research`, which returned `200`
-- graph rebuilt with `$(git rev-parse --show-toplevel)/.codex/scripts/graphify-rebuild.sh`
+- graph rebuilt with `.codex/scripts/graphify-rebuild.sh`
 - live dashboard container updated from the fresh local build output and restarted successfully
 - headless browser verification completed against `http://127.0.0.1:3100` for:
   `/`
@@ -123,9 +123,9 @@ Verification completed:
   `/research`
 - pinned-items persistence verified across refresh and route change using the production local-storage key
 - screenshots captured during browser verification:
-  `/tmp/dashboard-home-verify.png`
-  `/tmp/dashboard-telemetry-verify.png`
-  `/tmp/dashboard-research-verify.png`
+  `.codex/tmp/dashboard-home-verify.png`
+  `.codex/tmp/dashboard-telemetry-verify.png`
+  `.codex/tmp/dashboard-research-verify.png`
 
 Verification still pending:
 

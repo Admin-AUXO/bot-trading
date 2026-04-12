@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const { spawn } = require("child_process");
+const { spawn } = require("node:child_process");
 
 const apiKey = process.env.BIRDEYE_API_KEY?.trim();
 
@@ -10,7 +10,7 @@ if (!apiKey) {
 }
 
 const child = spawn(
-  "npx",
+  process.platform === "win32" ? "npx.cmd" : "npx",
   [
     "-y",
     "mcp-remote@0.1.37",

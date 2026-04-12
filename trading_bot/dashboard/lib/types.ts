@@ -22,7 +22,7 @@ export type DeskShellPayload = {
   lastSyncAt: string;
   unreadCriticalAlerts: number;
   availableActions: Array<{
-    id: "pause" | "resume" | "discover-now" | "evaluate-now" | "exit-check-now" | "run-research-dry-run";
+    id: "pause" | "resume" | "discover-now" | "evaluate-now" | "exit-check-now";
     label: string;
     enabled: boolean;
     confirmation?: string;
@@ -31,7 +31,6 @@ export type DeskShellPayload = {
     openPositions: number;
     maxOpenPositions: number;
     queuedCandidates: number;
-    activeResearchRun: boolean;
   };
 };
 
@@ -213,49 +212,6 @@ export type ActionResponse = {
   action: string;
   shell: DeskShellPayload;
   home: DeskHomePayload;
-};
-
-export type ResearchRunComparison = {
-  previousRunId: string;
-  realizedPnlUsdDelta: number;
-  strategyPassRateDeltaPercent: number;
-  mockWinRateDeltaPercent: number;
-  averageHoldMinutesDelta: number;
-  openedCountDelta: number;
-};
-
-export type ResearchRunSummary = {
-  id: string;
-  status: "RUNNING" | "COMPLETED" | "FAILED";
-  startedAt: string;
-  completedAt: string | null;
-  lastPolledAt: string | null;
-  pollIntervalMs: number;
-  maxDurationMs: number;
-  discoveryLimit: number;
-  fullEvaluationLimit: number;
-  maxMockPositions: number;
-  fixedPositionSizeUsd: number;
-  birdeyeUnitCap: number;
-  heliusUnitCap: number;
-  totalDiscovered: number;
-  totalShortlisted: number;
-  totalEvaluated: number;
-  totalStrategyPassed: number;
-  totalMockOpened: number;
-  totalMockClosed: number;
-  liveTradablePassed: number;
-  researchTradablePassed: number;
-  birdeyeCalls: number;
-  birdeyeUnitsUsed: number;
-  heliusCalls: number;
-  heliusUnitsUsed: number;
-  realizedPnlUsd: number;
-  winRatePercent: number | null;
-  averageHoldMinutes: number | null;
-  errorMessage: string | null;
-  comparison: ResearchRunComparison | null;
-  configSnapshot: BotSettings;
 };
 
 export type BotSettings = {

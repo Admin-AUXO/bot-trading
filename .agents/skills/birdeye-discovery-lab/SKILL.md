@@ -31,17 +31,29 @@ npm run lab:discovery -- --profile high-value --sources pump_dot_fun,moonshot,ra
 
 - compare recipe packs by source
 - run a fresh deep-eval pass with `--cache-ttl-seconds 0`
-- write machine-readable output with `--out /tmp/discovery-lab.json`
+- write machine-readable output with `--out ../../.codex/tmp/discovery-lab.json`
 - tune one or two recipes with `--recipe-names ...`
 - test the quality or fast-turn packs from `scripts/discovery-lab.recipes.quality.json` or `scripts/discovery-lab.recipes.fast-turn.json`
+- re-check the current pump controls first:
+  `grad_4h_volume1h`
+  `grad_4h_holder_liquidity`
+  `grad_60m_trade5m`
+- if you need new variants, test the `30m` follow-ups before reviving brittle pregrad or `1m` impulse shapes:
+  `grad_75m_price30m_strength`
+  `grad_45m_volume30m_persistence`
 
 ## Rules
 
 - Use the script, not one-off curl spam.
 - Keep Birdeye API-side filters at five or fewer.
 - Prefer source-specific runs before `source=all`.
+- Keep `pump_dot_fun` as the default test source unless another venue proves it can produce pass-grade names again.
 - Treat this as research. Do not mutate runtime defaults just because one run looked exciting.
 - Inspect reject reasons before touching thresholds.
+- Do not waste lab passes on dead shapes by default:
+  pregrad scout recipes
+  `grad_15m_trade5m`
+  any `1m` impulse variant that has not earned recall in a fresh window
 
 ## Failure Modes
 

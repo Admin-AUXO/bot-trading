@@ -115,8 +115,9 @@ cd trading_bot
 ./scripts/sync-compose-env.sh
 ```
 
-5. Review venue, daypart, and daily-risk envs before boot if you do not want the defaults (`DISCOVERY_SOURCES=pump_dot_fun`, `TRADABLE_SOURCES=pump_dot_fun`, `DISCOVERY_INTERVAL_MS=300000`, `OFF_HOURS_DISCOVERY_INTERVAL_MS=900000`, `DAILY_LOSS_LIMIT_USD=8`, `MAX_CONSECUTIVE_LOSSES=2`).
-6. Start the stack:
+5. For a compose-side safe non-live app mode, keep `TRADE_MODE="DRY_RUN"` and leave `BOT_PORT=3101` plus `DASHBOARD_PORT=3100` alone unless you are deliberately remapping both the container env and the compose port bindings together.
+6. Review venue, daypart, and daily-risk envs before boot if you do not want the defaults (`DISCOVERY_SOURCES=pump_dot_fun`, `TRADABLE_SOURCES=pump_dot_fun`, `DISCOVERY_INTERVAL_MS=300000`, `OFF_HOURS_DISCOVERY_INTERVAL_MS=900000`, `DAILY_LOSS_LIMIT_USD=8`, `MAX_CONSECUTIVE_LOSSES=2`).
+7. Start the stack:
 
 ```bash
 cd trading_bot
@@ -135,6 +136,7 @@ Compose contract:
 - `grafana` reads only `grafana/compose.env` for admin and datasource credentials
 - Grafana provisioning assumes a direct PostgreSQL datasource from inside Compose using `postgres:5432`
 - `./scripts/sync-compose-env.sh` is the supported way to derive those service env files from `backend/.env`
+- after changing `backend/.env` or regenerating the compose env files, recreate `bot` and `dashboard` so stale container env does not keep serving placeholder secrets
 - First login to Grafana with the default admin credentials will prompt for a password change. If you are only smoke-testing the local stack, you can skip that prompt and still reach the provisioned dashboards.
 
 ## Run Mode C: Obsidian Notes Sidecar
@@ -174,6 +176,7 @@ Notes:
 - `grafana` reads `trading_bot/grafana/compose.env`
 - Checked-in examples live at [`../../trading_bot/dashboard/compose.env.example`](../../trading_bot/dashboard/compose.env.example) and [`../../trading_bot/grafana/compose.env.example`](../../trading_bot/grafana/compose.env.example)
 - Generate the service env files with `./scripts/sync-compose-env.sh` after you change `backend/.env`
+- `./scripts/sync-compose-env.sh` strips carriage returns before sourcing `backend/.env`, so a Windows-edited env file can still fan out cleanly into the compose-only env files
 - If credentials change, keep `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, and `DATABASE_URL` aligned
 - `CONTROL_API_SECRET` is still the backend source of truth; the sync script maps it into `dashboard/compose.env` as `CONTROL_SECRET`
 - `GRAFANA_BASE_URL`, `GRAFANA_ADMIN_USER`, `GRAFANA_ADMIN_PASSWORD`, and the dashboard UID envs stay in `backend/.env` as the single editable source; the sync script fans them out into the service env files

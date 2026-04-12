@@ -263,9 +263,9 @@ Do not redesign the current UI by polishing the existing page pattern. Replace t
   homepage, settings, candidates, positions, telemetry, and research all rendered with the expected page jobs
   pinned-items persistence was verified across refresh and route change using the production local-storage key
 - Screenshots captured during follow-up browser verification:
-  `/tmp/dashboard-home-verify.png`
-  `/tmp/dashboard-telemetry-verify.png`
-  `/tmp/dashboard-research-verify.png`
+  `.codex/tmp/dashboard-home-verify.png`
+  `.codex/tmp/dashboard-telemetry-verify.png`
+  `.codex/tmp/dashboard-research-verify.png`
 - The dashboard container was updated from the fresh local build output and restarted healthy after the follow-up verification pass.
 
 ### Operational Caveats

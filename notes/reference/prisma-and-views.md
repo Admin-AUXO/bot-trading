@@ -97,7 +97,7 @@ These views are repo-owned and currently exposed through `GET /api/views/:name`.
 - `v_config_change_log`: config-version history for annotations and RCA
 - `v_kpi_by_config_window`: KPI rollups by config version window
 - `v_config_field_change`: field-level config diffs by version
-- Research tables currently have no SQL view layer; the dashboard reads run summaries from `/api/status` and the dedicated `/api/research-runs/*` routes instead of mixing research rows into the operational reporting views
+- Research tables currently have no SQL view layer and no active dashboard route; keep them out of the operational reporting views unless the repo revives an owned UI surface for them
 
 ## Change Rules
 

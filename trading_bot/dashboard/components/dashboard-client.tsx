@@ -418,9 +418,5 @@ function eventHref(event: OperatorEvent) {
     return `/positions/${event.entityId}`;
   }
 
-  if (event.entityType === "researchRun") {
-    return `/research?run=${event.entityId}`;
-  }
-
   return null;
 }

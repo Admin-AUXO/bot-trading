@@ -44,17 +44,17 @@ The desk wanted faster repeated Birdeye `meme/list` testing and a concrete answe
 ## Reports Produced
 
 - baseline full sweep:
-  `/tmp/discovery-lab-full-retry.json`
+  `.codex/tmp/discovery-lab-full-retry.json`
 - widened default-pack sweep:
-  `/tmp/discovery-lab-widened.json`
+  `.codex/tmp/discovery-lab-widened.json`
 - quality-pack sweep:
-  `/tmp/discovery-lab-quality-pack.json`
+  `.codex/tmp/discovery-lab-quality-pack.json`
 - quality-pack sweep with `10k` liquidity floor:
-  `/tmp/discovery-lab-quality-pack-liq10k.json`
+  `.codex/tmp/discovery-lab-quality-pack-liq10k.json`
 - fast-turn balanced sweep:
-  `/tmp/discovery-lab-fast-turn-balanced.json`
+  `.codex/tmp/discovery-lab-fast-turn-balanced.json`
 - fast-turn slightly looser sweep:
-  `/tmp/discovery-lab-fast-turn-lenient.json`
+  `.codex/tmp/discovery-lab-fast-turn-lenient.json`
 
 ## Current Best Answers
 
@@ -177,16 +177,16 @@ Docs:
 Temporary pack and report:
 
 - recipe pack:
-  `/tmp/discovery-lab.recipes.pump-next.json`
+  `.codex/tmp/discovery-lab.recipes.pump-next.json`
 - report:
-  `/tmp/discovery-lab-pump-next.json`
+  `.codex/tmp/discovery-lab-pump-next.json`
 
 Pump-only command family:
 
 ```bash
-cd /Users/rukaiyahyusuf/Downloads/bot-trading/trading_bot/backend
+cd trading_bot/backend
 npm run lab:discovery -- \
-  --recipes /tmp/discovery-lab.recipes.pump-next.json \
+  --recipes ../../.codex/tmp/discovery-lab.recipes.pump-next.json \
   --profile high-value \
   --sources pump_dot_fun \
   --min-liquidity-usd 10000 \
@@ -198,7 +198,7 @@ npm run lab:discovery -- \
   --max-top10-holder-percent 40 \
   --max-single-holder-percent 20 \
   --cache-ttl-seconds 0 \
-  --out /tmp/discovery-lab-pump-next.json
+  --out ../../.codex/tmp/discovery-lab-pump-next.json
 ```
 
 Trial recipes:

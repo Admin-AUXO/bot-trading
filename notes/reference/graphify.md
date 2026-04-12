@@ -41,6 +41,7 @@ Purpose: keep the repo graph local, reproducible, and code-only.
 - Read `graphify-out/GRAPH_REPORT.md` when architecture or ownership context matters, but verify any claim against source code before repeating it in docs or chat.
 - Build with `build-local` when no graph exists yet.
 - Rebuild only when `graphify-out/graph.json` already exists.
+- On Windows PowerShell, invoke the repo wrapper through `bash`. If the checked-out script has CRLF line endings, normalize it to LF before running or use a temporary LF copy.
 
 ## Outputs
 

@@ -20,7 +20,7 @@ Use the skill when you need repeatable Birdeye `meme/list` experiments instead o
 ## Main Command
 
 ```bash
-cd /Users/rukaiyahyusuf/Downloads/bot-trading/trading_bot/backend
+cd trading_bot/backend
 npm run lab:discovery -- --profile high-value --sources pump_dot_fun,moonshot,raydium_launchlab,meteora_dynamic_bonding_curve
 ```
 
