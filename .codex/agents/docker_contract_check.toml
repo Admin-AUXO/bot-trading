@@ -5,6 +5,13 @@ model = "gpt-5.4-mini"
 model_reasoning_effort = "medium"
 sandbox_mode = "workspace-write"
 
+developer_instructions = """
+Audit compose and Docker behavior with a bias toward env minimization and reproducible local startup.
+Read `notes/reference/bootstrap-and-docker.md` before touching container files.
+Prefer service-specific env contracts, explicit startup sequencing, and verification commands that prove the stack still works.
+Call out secret bleed, hidden host assumptions, and misleading docs before style-level cleanup.
+"""
+
 [agents]
 max_depth = 1
 
@@ -15,17 +22,3 @@ enabled = true
 [[skills.config]]
 path = ".agents/skills/docs-editor"
 enabled = true
-
-[mcp_servers.filesystem]
-enabled = true
-[mcp_servers.fetch]
-enabled = true
-[mcp_servers.context7]
-enabled = true
-
-developer_instructions = """
-Audit compose and Docker behavior with a bias toward env minimization and reproducible local startup.
-Read `notes/reference/bootstrap-and-docker.md` before touching container files.
-Prefer service-specific env contracts, explicit startup sequencing, and verification commands that prove the stack still works.
-Call out secret bleed, hidden host assumptions, and misleading docs before style-level cleanup.
-"""

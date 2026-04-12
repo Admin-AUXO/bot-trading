@@ -2,11 +2,14 @@
 type: investigation
 status: active
 area: codex
-date: 2026-04-11
+date: 2026-04-12
 source_files:
   - AGENTS.md
   - notes/README.md
   - notes/reference/obsidian.md
+  - .codex/config.toml
+  - .codex/agents/
+  - .codex/scripts/start-birdeye-mcp.cjs
 graph_checked:
 next_action: Use this note as the default MCP routing policy for future agent work and fold any lasting rules into the repo docs if the surface changes again.
 ---
@@ -21,13 +24,12 @@ Configured MCP server surface in this environment:
 
 - `browsermcp`
 - `chrome_devtools`
-- `context7`
 - `desktop_commander`
 - `fetch`
-- `git`
+- `github`
 - `grafana`
+- `git`
 - `helius`
-- `memory`
 - `postgres`
 - `time`
 
@@ -46,7 +48,7 @@ Use this default stack unless the task gives a better reason:
 - code structure and ownership: Graphify outputs under `graphify-out/`
 - SQL/schema inspection: `postgres`
 - exact URL fetches: `fetch`
-- technical library docs: `context7`
+- GitHub repo, PR, issue, and Actions work: `github`
 - browser automation: prefer `chrome_devtools`
 - Grafana state and dashboards: `grafana`
 - Helius and Solana-specific reads: `helius`
@@ -89,23 +91,6 @@ Best practice:
 
 - prefer schema-aware SQL inspection before reading dashboard or backend reporting code
 
-### `context7`
-
-Verdict: keep and use selectively.
-
-Strengths:
-
-- best path for current technical docs without broad web search
-- bounded enough to discourage noisy research
-
-Risks:
-
-- still expensive if agents query it before checking local docs or code
-
-Best practice:
-
-- use only when the answer is external, version-sensitive, and technical
-
 ### `fetch`
 
 Verdict: keep and use selectively.
@@ -122,6 +107,24 @@ Risks:
 Best practice:
 
 - use for known URLs, changelogs, raw docs, and single-page confirmation
+
+### `github`
+
+Verdict: keep when GitHub work is active.
+
+Strengths:
+
+- direct PR, issue, repo, and Actions access
+- cleaner than shelling raw `gh` for common GitHub inspection
+
+Risks:
+
+- overlaps with the installed GitHub plugin skill surface if agents use both casually
+
+Best practice:
+
+- prefer one GitHub surface per task
+- the repo config narrows the MCP toolset to `repos,issues,pull_requests,actions`
 
 ### `chrome_devtools`
 
@@ -174,6 +177,7 @@ Risks:
 Best practice:
 
 - prefer summary/property/query-specific endpoints over whole-dashboard reads
+- in this repo, the MCP server targets the local Grafana instance through `host.docker.internal:3400` because the MCP itself runs in Docker
 
 ### `helius`
 
@@ -211,23 +215,6 @@ Best practice:
 
 - use MCP git for routine state and diff inspection; drop to shell only when needed
 
-### `memory`
-
-Verdict: de-emphasize for this repo.
-
-Strengths:
-
-- useful for personal or cross-repo memory when Obsidian is not the canonical store
-
-Risks:
-
-- duplicates the repo’s actual durable memory system in `notes/`
-- creates fact drift if both vault and memory graph are updated
-
-Best practice:
-
-- for this repo, prefer Obsidian notes over memory MCP for durable project knowledge
-
 ### `time`
 
 Verdict: keep.
@@ -253,7 +240,7 @@ Recommendation:
 
 ### 2. Memory overlap
 
-`memory` duplicates the repo’s actual memory system: Obsidian plus trimmed reference and investigation notes.
+Obsidian already owns repo memory, so a separate memory MCP just adds drift and routing noise.
 
 Recommendation:
 
@@ -305,3 +292,21 @@ The efficient stack for this repo is:
 - Grafana and Helius only when the task truly needs their domain
 
 Anything broader than that is how agents waste context and pretend it is research.
+
+## 2026-04-12 Config Repair
+
+Two Codex-specific breakages were fixed in the repo-local `.codex` setup:
+
+- custom agent role files under `.codex/agents/` cannot use partial `[mcp_servers.<name>] enabled = true` stanzas; current Codex deserializes those as malformed because the transport is missing
+- `developer_instructions` must stay at the top level of each agent file; if it appears after table declarations, TOML nests it under the last table and Codex reports the role as missing `developer_instructions`
+
+Birdeye MCP also needed a launcher repair for cross-platform repo use:
+
+- `.codex/scripts/start-birdeye-mcp.cjs` now reads `BIRDEYE_API_KEY` from the process environment or repo env files (`trading_bot/backend/.env`, then repo-root `.env`)
+- the Birdeye launcher now uses the same Windows-safe shell spawn pattern as the filesystem MCP wrapper
+- the wrapper forces `mcp-remote@latest` with `--transport http-only` against `https://mcp.birdeye.so/mcp`
+
+Reuse rule:
+
+- keep agent-specific MCP guidance in instructions and skills unless the agent file provides a full valid MCP server definition
+- when a repo-local MCP depends on API keys already stored in checked-in env conventions, prefer a repo-local wrapper that can read those env files on both Windows and macOS instead of assuming the shell exported them

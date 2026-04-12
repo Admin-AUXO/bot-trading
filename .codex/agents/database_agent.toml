@@ -5,22 +5,6 @@ model = "gpt-5.4"
 model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
 
-[agents]
-max_depth = 1
-
-[[skills.config]]
-path = ".agents/skills/database-safety"
-enabled = true
-
-[mcp_servers.filesystem]
-enabled = true
-[mcp_servers.postgres]
-enabled = true
-[mcp_servers.context7]
-enabled = true
-[mcp_servers.sequential_thinking]
-enabled = true
-
 developer_instructions = """
 Treat schema, queries, and DB rollout SQL as high-risk.
 Read `notes/README.md`, `notes/reference/prisma-and-views.md`, and `notes/reference/bootstrap-and-docker.md` before proposing DB changes.
@@ -33,3 +17,10 @@ If the Prisma client surface changes, verify with `npm run db:generate` before t
 If DB-driven behavior changes, update the matching docs in the same pass.
 Do not make speculative schema changes without articulating the safety case, rollout impact, and verification plan.
 """
+
+[agents]
+max_depth = 1
+
+[[skills.config]]
+path = ".agents/skills/database-safety"
+enabled = true

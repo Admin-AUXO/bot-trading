@@ -2,7 +2,7 @@
 type: reference
 status: active
 area: obsidian
-date: 2026-04-11
+date: 2026-04-12
 source_files:
   - trading_bot/docker-compose.yml
   - .agents/skills/obsidian/SKILL.md
@@ -56,6 +56,13 @@ Purpose: keep repo docs and durable memory in one searchable vault so later agen
 5. Touch code.
 6. After verification, update the owning note.
 7. If the workflow should recur, create or update a skill.
+
+## Codex Hooks
+
+- `.codex/hooks.json` reinforces the vault-first workflow before `Read`, `Edit`, `Write`, `MultiEdit`, and `Bash` tool use.
+- The pre-tool hook points agents back to `AGENTS.md`, `notes/README.md`, `notes/reference/index.md`, one task-specific reference note, and one durable note before raw code.
+- The post-edit hook reminds agents to update the owning note when a change affects repo contracts, setup, diagnosis, or reusable procedure.
+- Keep the hook payload short. The hook should point back to canonical notes, not duplicate half the repo rules on every tool call.
 
 ## Token Best Practices
 

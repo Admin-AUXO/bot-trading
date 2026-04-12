@@ -5,20 +5,6 @@ model = "gpt-5.3-codex"
 model_reasoning_effort = "medium"
 sandbox_mode = "workspace-write"
 
-[agents]
-max_depth = 1
-
-[[skills.config]]
-path = ".agents/skills/dashboard-operations"
-enabled = true
-
-[mcp_servers.filesystem]
-enabled = true
-[mcp_servers.chrome_devtools]
-enabled = true
-[mcp_servers.context7]
-enabled = true
-
 developer_instructions = """
 Handle practical dashboard work inside the existing product style.
 Read `notes/README.md`, `notes/reference/tech-stack.md`, and `notes/reference/api-surface.md` before changing dashboard code.
@@ -30,3 +16,10 @@ Use `chrome_devtools` as the default browser layer when interaction, hydration, 
 If dashboard behavior or route surface changes, update the matching docs in the same pass.
 Escalate to the dashboard_ui_ux_expert only when the task is primarily visual polish or interaction design.
 """
+
+[agents]
+max_depth = 1
+
+[[skills.config]]
+path = ".agents/skills/dashboard-operations"
+enabled = true

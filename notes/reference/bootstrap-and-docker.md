@@ -19,7 +19,9 @@ Purpose: document the supported run modes and the env and compose contracts agen
 
 ## Fresh Machine Bootstrap
 
-On a new system, do this first:
+On a new system, do this first.
+
+macOS and Linux:
 
 ```bash
 cd trading_bot
@@ -27,12 +29,30 @@ nvm use || nvm install
 ./scripts/bootstrap-new-system.sh host
 ```
 
-Use `compose` instead of `host` if you want the full container stack:
+Windows PowerShell:
+
+```powershell
+cd trading_bot
+nvm use 22
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\bootstrap-new-system.ps1 host
+```
+
+Use `compose` instead of `host` if you want the full container stack.
+
+macOS and Linux:
 
 ```bash
 cd trading_bot
 nvm use || nvm install
 ./scripts/bootstrap-new-system.sh compose
+```
+
+Windows PowerShell:
+
+```powershell
+cd trading_bot
+nvm use 22
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\bootstrap-new-system.ps1 compose
 ```
 
 What the bootstrap script does:
@@ -113,6 +133,13 @@ Use this when you want Postgres, schema setup, backend, dashboard, and the repo-
 ```bash
 cd trading_bot
 ./scripts/sync-compose-env.sh
+```
+
+Windows PowerShell:
+
+```powershell
+cd trading_bot
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\sync-compose-env.ps1
 ```
 
 5. Review venue, daypart, and daily-risk envs before boot if you do not want the defaults (`DISCOVERY_SOURCES=pump_dot_fun`, `TRADABLE_SOURCES=pump_dot_fun`, `DISCOVERY_INTERVAL_MS=300000`, `OFF_HOURS_DISCOVERY_INTERVAL_MS=900000`, `DAILY_LOSS_LIMIT_USD=8`, `MAX_CONSECUTIVE_LOSSES=2`).

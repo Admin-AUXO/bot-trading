@@ -31,7 +31,9 @@ Optional but useful:
 
 ## Fresh Machine Setup
 
-From a new machine, use the pinned Node version and the bootstrap helper:
+From a new machine, use the pinned Node version and the bootstrap helper.
+
+macOS and Linux:
 
 ```bash
 cd trading_bot
@@ -39,14 +41,32 @@ nvm use || nvm install
 ./scripts/bootstrap-new-system.sh host
 ```
 
+Windows PowerShell:
+
+```powershell
+cd trading_bot
+nvm use 22
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\bootstrap-new-system.ps1 host
+```
+
 That installs backend and dashboard dependencies and creates `backend/.env` from the checked-in example if it is missing.
 
 If you want the full container stack instead:
+
+macOS and Linux:
 
 ```bash
 cd trading_bot
 nvm use || nvm install
 ./scripts/bootstrap-new-system.sh compose
+```
+
+Windows PowerShell:
+
+```powershell
+cd trading_bot
+nvm use 22
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\bootstrap-new-system.ps1 compose
 ```
 
 That also generates the runtime service env files:
@@ -92,6 +112,14 @@ Use this if you want Postgres, schema setup, backend, dashboard, and Grafana in 
 ```bash
 cd trading_bot
 ./scripts/sync-compose-env.sh
+docker compose up --build
+```
+
+Windows PowerShell:
+
+```powershell
+cd trading_bot
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\sync-compose-env.ps1
 docker compose up --build
 ```
 

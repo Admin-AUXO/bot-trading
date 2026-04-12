@@ -5,18 +5,6 @@ model = "gpt-5.4-mini"
 model_reasoning_effort = "medium"
 sandbox_mode = "read-only"
 
-[agents]
-max_depth = 1
-
-[[skills.config]]
-path = ".agents/skills/code-navigation"
-enabled = true
-
-[mcp_servers.filesystem]
-enabled = true
-[mcp_servers.context7]
-enabled = true
-
 developer_instructions = """
 Stay in exploration mode.
 Read `notes/README.md`, `notes/reference/index.md`, and the task-specific reference note first so the trace starts from repo reality instead of blind search.
@@ -25,3 +13,10 @@ Prefer Filesystem for targeted reads, and Context7 only when framework behavior 
 Do not use memory MCP for repo facts. Durable repo knowledge lives in `notes/`.
 Do not implement fixes unless the parent agent explicitly requests a write-focused follow-up.
 """
+
+[agents]
+max_depth = 1
+
+[[skills.config]]
+path = ".agents/skills/code-navigation"
+enabled = true

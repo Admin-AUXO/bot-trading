@@ -6,8 +6,10 @@ project_doc_fallback_filenames = ["AGENTS.md"]
 project_root_markers = [
     ".git",
 ]
-sandbox_mode = "danger-full-access"
 web_search = "cached"
+
+[features]
+runtime_metrics = true
 
 [agents]
 max_depth = 1
@@ -38,11 +40,6 @@ required = false
 startup_timeout_ms = 20000
 tool_timeout_sec = 90
 
-[mcp_servers.context7]
-required = false
-startup_timeout_ms = 20000
-url = "https://mcp.context7.com/mcp"
-
 [mcp_servers.desktop_commander]
 args = [
     "-y",
@@ -50,30 +47,60 @@ args = [
     "--no-onboarding",
 ]
 command = "npx"
-required = false
+required = true
 startup_timeout_ms = 30000
 tool_timeout_sec = 120
 
 [mcp_servers.fetch]
 args = ["mcp-server-fetch"]
 command = "uvx"
-required = false
+required = true
 startup_timeout_ms = 20000
 
-[mcp_servers.filesystem]
-args = [".codex/scripts/start-filesystem-mcp.cjs"]
-command = "node"
-required = false
-
-[mcp_servers.memory]
+[mcp_servers.github]
 args = [
-    "-y",
-    "@modelcontextprotocol/server-memory",
+    "run",
+    "-i",
+    "--rm",
+    "-e",
+    "GITHUB_PERSONAL_ACCESS_TOKEN",
+    "ghcr.io/github/github-mcp-server",
+    "stdio",
+    "--toolsets",
+    "repos,issues,pull_requests,actions",
 ]
-command = "npx"
-enabled = false
+command = "docker"
 required = false
-startup_timeout_ms = 20000
+startup_timeout_ms = 30000
+tool_timeout_sec = 120
+
+[mcp_servers.grafana]
+args = [
+    "run",
+    "-i",
+    "--rm",
+    "-e",
+    "GRAFANA_URL",
+    "-e",
+    "GRAFANA_USERNAME",
+    "-e",
+    "GRAFANA_PASSWORD",
+    "-e",
+    "GRAFANA_ORG_ID",
+    "grafana/mcp-grafana",
+    "-t",
+    "stdio",
+]
+command = "docker"
+required = false
+startup_timeout_ms = 30000
+tool_timeout_sec = 120
+
+[mcp_servers.grafana.env]
+GRAFANA_URL = "http://host.docker.internal:3400"
+GRAFANA_USERNAME = "admin"
+GRAFANA_PASSWORD = "admin"
+GRAFANA_ORG_ID = "1"
 
 [mcp_servers.postgres]
 args = [
@@ -96,19 +123,10 @@ enabled = true
 required = false
 startup_timeout_ms = 30000
 
-[mcp_servers.sequential_thinking]
-args = [
-    "-y",
-    "@modelcontextprotocol/server-sequential-thinking",
-]
-command = "npx"
-required = false
-startup_timeout_ms = 20000
-
 [mcp_servers.time]
 args = ["mcp-server-time"]
 command = "uvx"
-required = false
+required = true
 startup_timeout_ms = 20000
 
 [profiles.deep]
@@ -121,6 +139,5 @@ model_reasoning_effort = "high"
 [shell_environment_policy]
 inherit = "all"
 
-[shell_environment_policy.set]
-CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = "80"
-MAX_THINKING_TOKENS = "10000"
+[sandbox_workspace_write]
+network_access = true
