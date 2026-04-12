@@ -7,8 +7,12 @@ source_files:
   - AGENTS.md
   - notes/README.md
   - notes/reference/obsidian.md
+  - .codex/config.toml
+  - .codex/agents/
+  - .codex/scripts/start-birdeye-mcp.cjs
+  - C:/Users/ajay9/.codex/log/codex-tui.log
 graph_checked:
-next_action: Use this note as the default MCP routing policy for future agent work and fold any lasting rules into the repo docs if the surface changes again.
+next_action: Keep the local GitHub MCP server disabled until GitHub's stdio transport or the Codex host framing contract changes.
 ---
 
 # MCP Surface Audit
@@ -122,6 +126,38 @@ Risks:
 Best practice:
 
 - use for known URLs, changelogs, raw docs, and single-page confirmation
+
+### `github`
+
+Verdict: keep configured, but disabled on this Codex host for now.
+
+Strengths:
+
+- direct PR, issue, repo, and Actions access
+- cleaner than shelling raw `gh` for common GitHub inspection
+
+Risks:
+
+- overlaps with the installed GitHub plugin skill surface if agents use both casually
+- current GitHub Docker stdio transport is not MCP-framed stdio, so Codex CLI startup fails before initialize completes
+
+Best practice:
+
+- prefer one GitHub surface per task
+- use the GitHub plugin skills or `gh` CLI for current GitHub work in this repo
+- leave the local MCP block disabled until transport compatibility is fixed upstream
+
+## 2026-04-12 GitHub MCP Finding
+
+Probe result against `ghcr.io/github/github-mcp-server v0.33.0`:
+
+- sending a standard framed MCP stdio initialize request beginning with `Content-Length:` makes the server exit with `invalid character 'C' looking for beginning of value`
+- sending raw newline-delimited JSON succeeds and returns a valid initialize payload
+
+Conclusion:
+
+- the current GitHub Docker `stdio` server is not compatible with the framed stdio contract Codex CLI 0.120.0 is using on this host
+- that mismatch explains the session warning: `handshaking with MCP server failed: connection closed: initialize response`
 
 ### `chrome_devtools`
 
