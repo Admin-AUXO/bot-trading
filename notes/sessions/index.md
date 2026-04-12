@@ -18,6 +18,7 @@ Use this folder for short active workstream summaries.
 
 ## Active Workstreams
 
+- [2026-04-12 Cross-Platform Bootstrap Hardening](2026-04-12-cross-platform-bootstrap-hardening.md)
 - [2026-04-12 GitHub And Grafana MCP Wiring](2026-04-12-github-and-grafana-mcp-wiring.md)
 - [2026-04-12 MCP Config Pruning](2026-04-12-mcp-config-pruning.md)
 - [2026-04-12 Obsidian Hooks Hardening](2026-04-12-obsidian-hooks-hardening.md)

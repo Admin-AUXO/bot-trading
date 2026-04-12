@@ -12,14 +12,28 @@ require_cmd() {
   fi
 }
 
+has_cmd() {
+  command -v "$1" >/dev/null 2>&1
+}
+
 warn_placeholder_env() {
-  if rg -n 'replace-me|postgres:5432|CONTROL_API_SECRET=\"replace-me\"' "$ROOT_DIR/backend/.env" >/dev/null 2>&1; then
-    cat <<'EOF'
+  if [[ ! -f "$ROOT_DIR/backend/.env" ]]; then
+    return
+  fi
+
+  if has_cmd rg; then
+    if ! rg -n 'replace-me|postgres:5432|CONTROL_API_SECRET=\"replace-me\"' "$ROOT_DIR/backend/.env" >/dev/null 2>&1; then
+      return
+    fi
+  elif ! grep -Eq 'replace-me|postgres:5432|CONTROL_API_SECRET="replace-me"' "$ROOT_DIR/backend/.env"; then
+    return
+  fi
+
+  cat <<'EOF'
 
 backend/.env still contains example values.
 Fill the provider keys and control secret before expecting the bot to work properly.
 EOF
-  fi
 }
 
 print_next_steps() {
@@ -64,7 +78,6 @@ esac
 require_cmd node
 require_cmd npm
 require_cmd docker
-require_cmd rg
 
 echo "Using Node $(node -v) and npm $(npm -v)"
 echo "Installing backend dependencies..."

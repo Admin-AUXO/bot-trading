@@ -45,7 +45,6 @@ function Show-PlaceholderWarning {
 Require-Command node
 Require-Command npm
 Require-Command docker
-Require-Command rg
 
 Write-Host "Using Node $(& node --version) and npm $(& npm --version)"
 Write-Host "Installing backend dependencies..."

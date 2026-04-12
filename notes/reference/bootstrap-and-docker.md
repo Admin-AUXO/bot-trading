@@ -68,6 +68,15 @@ What it does not do:
 - it does not switch `DATABASE_URL` between host and compose for you
 - it does not start the app automatically
 
+Cross-platform contract:
+
+- use `bootstrap-new-system.sh` on macOS and Linux
+- use `bootstrap-new-system.ps1` on Windows PowerShell
+- use `sync-compose-env.sh` on macOS and Linux
+- use `sync-compose-env.ps1` on Windows PowerShell
+- `rg` is optional; bootstrap now falls back cleanly when it is absent
+- shell scripts are committed with LF line endings through repo `.gitattributes` so Bash remains valid on macOS and other Unix-like environments
+
 ## Run Mode A: Host-Run Backend And Dashboard, Docker Postgres
 
 Use this when you want the app processes on the host but do not want to install Postgres locally.

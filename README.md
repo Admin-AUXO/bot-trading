@@ -28,6 +28,7 @@ Optional but useful:
 
 - `nvm`
 - `curl`
+- `rg` for faster local search, though the bootstrap scripts no longer require it
 
 ## Fresh Machine Setup
 
@@ -50,6 +51,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\bootstrap-new-syst
 ```
 
 That installs backend and dashboard dependencies and creates `backend/.env` from the checked-in example if it is missing.
+
+Cross-platform contract:
+
+- use `.sh` scripts on macOS and Linux
+- use `.ps1` scripts on Windows PowerShell
+- shell scripts are committed with LF line endings via `.gitattributes` so Bash stays usable on macOS checkouts
 
 If you want the full container stack instead:
 
