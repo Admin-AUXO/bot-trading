@@ -45,6 +45,7 @@ For every new Codex session in this repo:
 - Keep general agent guidance easy to find in `reference/`, not buried in one-off session notes or niche runbooks.
 - Keep `sessions/` lean. Active summaries stay in the root of `sessions/`; dead handoffs belong in `sessions/archive/`.
 - Default read scope is one reference note plus one durable note. Widen only when that pair is insufficient.
+- Keep new-session context compact: prefer the repo-managed compact MCP profile, repo-local skills, and one owning note over several overlapping note reads.
 - If the dashboard shell, typography, layout language, or Grafana split changes, update `reference/dashboard-operator-ui.md` in the same pass.
 - Before touching code, read the relevant reference doc and the relevant durable note if one exists.
 - After a substantive task, update one of `sessions/`, `investigations/`, `decisions/`, `runbooks/`, or `trading-memory/` if the task produced durable knowledge.

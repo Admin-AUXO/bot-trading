@@ -36,7 +36,7 @@ From a new machine, use the pinned Node version and the bootstrap helper:
 ```bash
 cd trading_bot
 nvm use || nvm install
-./scripts/bootstrap-new-system.sh host
+node ./scripts/bootstrap-new-system.mjs host
 ```
 
 That installs backend and dashboard dependencies and creates `backend/.env` from the checked-in example if it is missing.
@@ -46,7 +46,7 @@ If you want the full container stack instead:
 ```bash
 cd trading_bot
 nvm use || nvm install
-./scripts/bootstrap-new-system.sh compose
+node ./scripts/bootstrap-new-system.mjs compose
 ```
 
 That also generates the runtime service env files:
@@ -91,7 +91,7 @@ Use this if you want Postgres, schema setup, backend, dashboard, and Grafana in 
 
 ```bash
 cd trading_bot
-./scripts/sync-compose-env.sh
+node ./scripts/sync-compose-env.mjs
 docker compose up --build
 ```
 
@@ -136,12 +136,26 @@ Open `https://127.0.0.1:3111` and use `/config/vaults/bot-trading`.
 Use the smallest check that matches the change:
 
 ```bash
+node ./.codex/scripts/install-mcp-config.cjs
 cd trading_bot && docker compose config
 cd trading_bot/backend && npm run build
 cd trading_bot/backend && npm run db:setup
 cd trading_bot/dashboard && npm run build
 curl -sf http://127.0.0.1:3400/api/health
 ```
+
+## Codex MCP Setup
+
+The repo-local [`.codex/config.toml`](.codex/config.toml) is a template. Current Codex CLI builds load MCP servers from `~/.codex/config.toml`.
+
+Install or refresh the repo-managed MCP block with:
+
+```bash
+node ./.codex/scripts/install-mcp-config.cjs
+codex mcp list
+```
+
+Restart Codex after that so the session picks up the refreshed MCP registry.
 
 ## Non-Features
 

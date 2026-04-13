@@ -19,10 +19,10 @@ This repo does not use Graphify as a general document or research corpus. The su
 ## Supported Commands
 
 ```bash
-./.codex/scripts/graphify.sh build-local .
-./.codex/scripts/graphify-rebuild.sh
-./.codex/scripts/graphify.sh query "RiskEngine"
-./.codex/scripts/graphify.sh hook status
+node ./.codex/scripts/graphify.mjs build-local .
+node ./.codex/scripts/graphify-rebuild.mjs
+node ./.codex/scripts/graphify.mjs query "RiskEngine"
+node ./.codex/scripts/graphify.mjs hook status
 ```
 
 ## Rules
@@ -31,10 +31,10 @@ This repo does not use Graphify as a general document or research corpus. The su
 - Treat the repo graph as code-only.
 - Do not promise a semantic doc or image pass; the local runner excludes markdown, images, and other non-code files.
 - Read `graphify-out/GRAPH_REPORT.md` when the task needs architecture context, but do not mistake the graph for business truth.
-- If `graphify-out/graph.json` does not exist yet, build it from repo root with `./.codex/scripts/graphify.sh build-local .`.
-- After code edits, run `./.codex/scripts/graphify-rebuild.sh` only when a graph already exists.
+- If `graphify-out/graph.json` does not exist yet, build it from repo root with `node ./.codex/scripts/graphify.mjs build-local .`.
+- After code edits, run `node ./.codex/scripts/graphify-rebuild.mjs` only when a graph already exists.
 - If the report looks noisy, verify against source code before repeating any graph claim in docs or chat.
-- On Windows PowerShell, run the wrapper through `bash`. If CRLF checkout breaks the script, normalize it to LF first or use a temporary LF copy before running the build.
+- The `.sh` files remain as POSIX shims, but the Node wrappers are the supported cross-platform entrypoint for macOS and Windows.
 
 ## Outputs
 

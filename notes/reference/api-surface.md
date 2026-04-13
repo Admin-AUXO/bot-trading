@@ -5,12 +5,17 @@ area: api
 date: 2026-04-12
 source_files:
   - trading_bot/backend/src/api/server.ts
+  - trading_bot/backend/src/services/discovery-lab-service.ts
+  - trading_bot/backend/src/services/discovery-lab-market-regime-service.ts
   - trading_bot/backend/src/services/operator-desk.ts
   - trading_bot/backend/src/services/operator-events.ts
   - trading_bot/backend/src/services/runtime-config.ts
+  - trading_bot/backend/src/engine/runtime.ts
   - trading_bot/dashboard/components/dashboard-client.tsx
+  - trading_bot/dashboard/components/discovery-lab-client.tsx
+  - trading_bot/dashboard/components/discovery-lab-results-board.tsx
   - trading_bot/dashboard/app/api/[...path]/route.ts
-graph_checked: 2026-04-12
+graph_checked: 2026-04-13
 next_action:
 ---
 
@@ -43,6 +48,10 @@ Transport model:
 - `GET /api/operator/positions?book=open|closed`: position workbench book, with open positions sorted by backend-computed intervention priority
 - `GET /api/operator/positions/:id`: position detail, fill trail, snapshot history, and linked candidate context
 - `GET /api/operator/diagnostics`: current-fault diagnostics summary, endpoint burn, and stale-component issues
+- `GET /api/operator/discovery-lab/catalog`: discovery-lab pack catalog, active run summary, recent run summaries, available profiles, and known sources
+- `GET /api/operator/discovery-lab/market-regime?runId=`: per-run market-regime snapshot for discovery-lab results and builder guidance, including regime, confidence, factor breakdown, stale flag, and suggested threshold overrides
+- `GET /api/operator/discovery-lab/runs`: recent discovery-lab run summaries, newest first
+- `GET /api/operator/discovery-lab/runs/:id`: full persisted discovery-lab run detail, including pack snapshot, thresholds, report, and captured stdout or stderr
 - `GET /api/candidates?limit=`: candidates ordered by `discoveredAt DESC`, max `200`
 - `GET /api/positions?limit=`: positions with fills included, ordered by `openedAt DESC`, max `200`
 - `GET /api/fills?limit=`: fills ordered by `createdAt DESC`, max `500`
@@ -70,6 +79,10 @@ Transport model:
 - `POST /api/control/discover-now`
 - `POST /api/control/evaluate-now`
 - `POST /api/control/exit-check-now`
+- `POST /api/operator/discovery-lab/validate`: validates an inline discovery-lab draft and returns `{ ok, issues, pack }`
+- `POST /api/operator/discovery-lab/packs/save`: saves or updates a custom local discovery-lab pack
+- `POST /api/operator/discovery-lab/packs/delete`: deletes a custom local discovery-lab pack by `packId`
+- `POST /api/operator/discovery-lab/run`: starts a discovery-lab run from a saved pack or inline draft; returns `409` if another run is already active
 
 Settings mutation rules:
 
@@ -90,12 +103,16 @@ Dashboard navigation conventions:
 
 - Candidate workbench state lives in dashboard query params: `/candidates?bucket=<bucket>&sort=<sort>&q=<optional-filter>`
 - Position workbench state lives in dashboard query params: `/positions?book=<book>&sort=<sort>&q=<optional-filter>`
+- Discovery-lab state is primarily page-local, but recent-run reload stays on `/discovery-lab` and swaps the loaded result set without leaving the page
+- Discovery-lab now consumes market-regime data through `/api/operator/discovery-lab/market-regime?runId=<selected-run-id>`; clients should always pass `runId`
 - Routed detail pages carry `focus=<row-id>` and return to `#candidate-<id>` or `#position-<id>` anchors so bucket or book, sort, text filter, and scroll target survive the round trip
 
 ## Auth Boundary
 
 - `/api/control/*` requires `x-control-secret` when `CONTROL_API_SECRET` is configured
 - `POST /api/settings` also requires `x-control-secret` when `CONTROL_API_SECRET` is configured
+- `POST /api/operator/discovery-lab/*` requires `x-control-secret` when `CONTROL_API_SECRET` is configured
+- `GET /api/operator/discovery-lab/*` routes stay readable without control-secret auth even when `CONTROL_API_SECRET` is configured
 - `GET /api/settings` and the read routes stay unauthenticated
 - The dashboard proxy injects `x-control-secret` on non-`GET` and non-`HEAD` requests using `CONTROL_SECRET` or `CONTROL_API_SECRET`
 

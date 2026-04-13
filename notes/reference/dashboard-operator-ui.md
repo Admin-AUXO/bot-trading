@@ -2,22 +2,25 @@
 type: reference
 status: active
 area: dashboard
-date: 2026-04-11
+date: 2026-04-14
 source_files:
   - trading_bot/dashboard/app/layout.tsx
   - trading_bot/dashboard/app/globals.css
   - trading_bot/dashboard/components/app-shell.tsx
   - trading_bot/dashboard/components/dashboard-primitives.tsx
   - trading_bot/dashboard/components/dashboard-client.tsx
+  - trading_bot/dashboard/components/discovery-lab-client.tsx
+  - trading_bot/dashboard/components/discovery-lab-results-board.tsx
   - trading_bot/dashboard/components/settings-client.tsx
   - trading_bot/dashboard/app/candidates/page.tsx
   - trading_bot/dashboard/app/candidates/[id]/page.tsx
+  - trading_bot/dashboard/app/discovery-lab/page.tsx
   - trading_bot/dashboard/app/positions/page.tsx
   - trading_bot/dashboard/app/positions/[id]/page.tsx
   - trading_bot/dashboard/app/telemetry/page.tsx
   - trading_bot/backend/src/services/operator-desk.ts
-graph_checked: 2026-04-12
-next_action: Re-run row-level browser verification when the runtime has live candidate and position rows so the inline actions and detail-page Grafana pivots can be tested against real entities.
+graph_checked: 2026-04-14
+next_action: Browser-verify the redesigned discovery workflow against real Birdeye or Helius envs so run polling, package save/delete, strategy edits, and large current-run result tables are checked outside build-only validation.
 ---
 
 # Dashboard Operator UI
@@ -60,6 +63,7 @@ Purpose: document the current UI contract for the Next.js operator desk so later
   queued count
   open positions
   alert count
+- Desktop sidebar can collapse into an icon rail and should remember that state locally so the workbench can expand without losing route access
 - Sidebar can carry one compact pinned-items watchlist below navigation when the operator desk needs repeated jumps back into the same candidate and position records
 - Top bar owns:
   mode and health pills
@@ -82,6 +86,7 @@ Purpose: document the current UI contract for the Next.js operator desk so later
 - `/`: current control desk only
 - `/candidates`: triage workbench by blocker bucket
 - `/positions`: open-risk-first book and closed-book review
+- `/discovery-lab`: results-first discovery workspace with three top tabs (`Results`, `Builder`, `Runs`), a sticky action bar for core package and run actions, market-regime guidance, and same-page full result review
 - `/telemetry`: current diagnostics and faults, not trend analysis
 - `/settings`: draft, validate, dry run, promote
 
@@ -97,6 +102,24 @@ Purpose: document the current UI contract for the Next.js operator desk so later
 ## Workbench Rules
 
 - Candidates and positions stay as dense tables, not card grids
+- Discovery lab should feel like a compact research workbench:
+  `Results` is the default entry tab
+  top-level tabs are `Results`, `Builder`, `Runs`
+  `Builder` combines package and strategy editing in one surface
+  sticky core actions stay visible while scrolling: `New`, `Clone`, `Delete`, `Validate`, `Save`, `Run`, `Load run package`
+  starter packages still need explicit `use`, `clone`, `load run package`, and `delete` actions so operators do not guess how to begin
+  package editing remains split into `Basics` and `Thresholds`, with strategy editing directly below in the same builder tab
+  active run progress must be visible while the CLI is still working
+  the primary result surface should be a deduplicated token board keyed by mint, not a repeated per-strategy dump
+  the result table should prioritize decision metrics over prose and include run-relative heatmap cells on selected columns
+  each token row should expose a direct details action that opens a full-screen review surface, not a route jump
+  the result board should take full page width and support full-screen review mode
+  token details should surface price and structure context plus derived setup, conservative EV, risk, and outcome metrics without bloating base rows
+  a compact market-regime strip and refresh timestamp should remain visible above table controls so operators can interpret table scores in context
+  market-regime suggestions belong in `Builder` with one-click apply to draft threshold overrides; they must never silently rewrite runtime settings
+  source, strategy, and winner rollups should stay compact and secondary so the page does not drown the operator in helper tables
+  raw per-strategy hits can stay available, but they should live behind a quieter secondary surface instead of dominating the page
+  on narrow screens, discovery should open into an editing-first flow and results should degrade into stacked cards instead of forcing page-level horizontal scroll
 - Both workbenches support URL-backed text filtering through `q` so operators can jump to a symbol, mint, blocker, or exit phrase without leaving keyboard flow
 - Row actions belong inline on the workbench:
   `Open`
@@ -135,6 +158,8 @@ Purpose: document the current UI contract for the Next.js operator desk so later
 - Historical analytics stay in Grafana
 - The app should provide precise outbound pivots, not attempt to host trend-heavy analytics itself
 - Candidate and position details can link to Grafana with entity and time context
+- Discovery lab is the exception for current recipe experiments: it is allowed to render the full current-run token table in-app because that output is operational research, not historical reporting
+- Discovery lab can add focused current-run UI polish with small headless packages when they solve concrete workflow problems such as tabs, dialogs, tooltips, or autosizing editors
 - If a question is about history, cohorts, or trend analysis, push it to Grafana rather than adding more dashboard clutter
 
 ## Interaction Rules
@@ -155,3 +180,4 @@ Purpose: document the current UI contract for the Next.js operator desk so later
 - Do not use green as a default fill for large sections
 - Do not collapse all pages into the same hero-plus-cards cliché if the page job is different
 - Do not weaken the Grafana split by dragging historical analytics back into Next.js
+- Do not turn `/discovery-lab` into a generic BI page; it owns package editing, strategy editing, run control, and current-run evidence only

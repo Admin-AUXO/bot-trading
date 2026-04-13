@@ -141,7 +141,7 @@ export function PinnedItemsSidebar() {
 
       {items.length === 0 ? (
         <div className="mt-3 rounded-[12px] border border-dashed border-bg-border bg-bg-primary/45 px-3 py-3 text-xs leading-5 text-text-muted">
-          Pin candidates or positions from the workbenches.
+          Pin rows from the workbenches.
         </div>
       ) : (
         <div className="mt-3 space-y-2">
@@ -180,9 +180,9 @@ export function PinnedItemsStrip(props: { className?: string }) {
     <section className={clsx("rounded-[18px] border border-bg-border bg-bg-hover/35 px-4 py-4", props.className)}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="section-kicker">Pinned watchlist</div>
+          <div className="section-kicker">Pinned</div>
           <div className="mt-1 text-sm text-text-secondary">
-            {items.length > 0 ? "Fast jumps back into the records that still matter." : "Pin workbench rows to keep the desk anchored on live problems."}
+            {items.length > 0 ? "Fast return path." : "Pin rows to keep them close."}
           </div>
         </div>
         <span className="meta-chip">{items.length} tracked</span>

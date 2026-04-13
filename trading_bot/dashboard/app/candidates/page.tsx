@@ -50,7 +50,7 @@ export default async function CandidatesPage(props: { searchParams?: SearchParam
             <IconAction
               href={buildCandidatesHref({ bucket, sort, q: query }) as Route}
               icon={Filter}
-              label={sortLabel(sort)}
+              label={`Sort: ${sortLabel(sort)}`}
               title="Current candidate sort"
               subtle
             />
@@ -70,11 +70,11 @@ export default async function CandidatesPage(props: { searchParams?: SearchParam
         )}
         aside={(
           <div className="panel-muted rounded-[16px] p-4">
-            <div className="section-kicker">Snapshot</div>
+            <div className="section-kicker">View</div>
             <div className="mt-4 grid gap-3">
-              <SummaryRow label="Showing" value={`${formatInteger(rows.length)} / ${formatInteger(sortedRows.length)}`} />
+              <SummaryRow label="Rows" value={`${formatInteger(rows.length)} / ${formatInteger(sortedRows.length)}`} />
               <SummaryRow label="Sort" value={sortLabel(sort)} />
-              <SummaryRow label="Query" value={query || "None"} />
+              <SummaryRow label="Filter" value={query || "None"} />
             </div>
           </div>
         )}
@@ -101,10 +101,10 @@ export default async function CandidatesPage(props: { searchParams?: SearchParam
       <section className="workbench-controls sticky top-[5.15rem] z-20">
         <div className="flex flex-1 flex-wrap items-center gap-2">
           {([
-            ["recent", "Most recent"],
-            ["liquidity", "Highest liquidity"],
-            ["volume", "Highest 5m volume"],
-            ["buySell", "Best buy/sell"],
+            ["recent", "Recent"],
+            ["liquidity", "Liquidity"],
+            ["volume", "5m volume"],
+            ["buySell", "Buy/sell"],
           ] as const).map(([value, label]) => (
             <Link
               key={value}
@@ -124,7 +124,7 @@ export default async function CandidatesPage(props: { searchParams?: SearchParam
             <input
               name="q"
               defaultValue={query}
-              placeholder="Filter symbol, mint, blocker, source"
+              placeholder="Filter symbol, mint, blocker"
               className="w-full bg-transparent text-sm text-text-primary outline-none placeholder:text-text-muted"
             />
           </div>
@@ -140,14 +140,14 @@ export default async function CandidatesPage(props: { searchParams?: SearchParam
       </section>
 
       <Panel
-        title="Candidate queue"
+        title="Queue"
         eyebrow="Queue"
         description={undefined}
         action={<IconAction href="/telemetry" icon={PanelTopOpen} label="Telemetry" title="Open telemetry" subtle />}
       >
         {rows.length === 0 ? (
           <div className="rounded-[14px] border border-bg-border bg-bg-hover/40 px-4 py-4 text-sm text-text-secondary">
-            {query ? "No candidates match this filter." : "No candidates in this bucket."}
+            {query ? "No match." : "No candidates in this bucket."}
           </div>
         ) : (
           <div className="overflow-hidden rounded-[16px] border border-bg-border bg-bg-card/45">

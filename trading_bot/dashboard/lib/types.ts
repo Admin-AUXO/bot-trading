@@ -214,6 +214,193 @@ export type ActionResponse = {
   home: DeskHomePayload;
 };
 
+export type DiscoveryLabProfile = "runtime" | "high-value" | "scalp";
+export type DiscoveryLabPackKind = "builtin" | "custom";
+export type DiscoveryLabRunStatus = "RUNNING" | "COMPLETED" | "FAILED" | "INTERRUPTED";
+export type DiscoveryLabRecipeMode = "graduated" | "pregrad";
+
+export type DiscoveryLabThresholdOverrides = Partial<{
+  minLiquidityUsd: number;
+  maxMarketCapUsd: number;
+  minHolders: number;
+  minVolume5mUsd: number;
+  minUniqueBuyers5m: number;
+  minBuySellRatio: number;
+  maxTop10HolderPercent: number;
+  maxSingleHolderPercent: number;
+  maxNegativePriceChange5mPercent: number;
+}>;
+
+export type DiscoveryLabRecipe = {
+  name: string;
+  mode: DiscoveryLabRecipeMode;
+  description?: string;
+  deepEvalLimit?: number;
+  params: Record<string, string | number | boolean | null>;
+};
+
+export type DiscoveryLabPack = {
+  id: string;
+  kind: DiscoveryLabPackKind;
+  name: string;
+  description: string;
+  defaultSources: string[];
+  defaultProfile: DiscoveryLabProfile;
+  thresholdOverrides: DiscoveryLabThresholdOverrides;
+  recipes: DiscoveryLabRecipe[];
+  updatedAt: string;
+  sourcePath: string;
+};
+
+export type DiscoveryLabPackDraft = {
+  id?: string;
+  name: string;
+  description?: string;
+  defaultSources?: string[];
+  defaultProfile?: DiscoveryLabProfile;
+  thresholdOverrides?: DiscoveryLabThresholdOverrides;
+  recipes: DiscoveryLabRecipe[];
+};
+
+export type DiscoveryLabValidationIssue = {
+  path: string;
+  message: string;
+  level: "error" | "warning";
+};
+
+export type DiscoveryLabValidationResponse = {
+  ok: boolean;
+  issues: DiscoveryLabValidationIssue[];
+  pack: DiscoveryLabPackDraft;
+};
+
+export type DiscoveryLabRunSummary = {
+  id: string;
+  status: DiscoveryLabRunStatus;
+  createdAt: string;
+  startedAt: string;
+  completedAt: string | null;
+  packId: string;
+  packName: string;
+  packKind: DiscoveryLabPackKind;
+  profile: DiscoveryLabProfile;
+  sources: string[];
+  allowOverfiltered: boolean;
+  queryCount: number | null;
+  winnerCount: number | null;
+  evaluationCount: number | null;
+  errorMessage: string | null;
+};
+
+export type DiscoveryLabRunReport = {
+  generatedAt: string;
+  profile: DiscoveryLabProfile;
+  thresholds: Record<string, string | number>;
+  recipePath: string;
+  sources: string[];
+  queryCount: number;
+  querySummaries: Array<{
+    key: string;
+    source: string;
+    recipeName: string;
+    recipeMode: DiscoveryLabRecipeMode;
+    filterCount: number;
+    returnedCount: number;
+    selectedCount: number;
+    goodCount: number;
+    avgGoodPlayScore: number;
+    avgGoodEntryScore: number;
+    avgSelectedPlayScore: number;
+    avgSelectedEntryScore: number;
+    estimatedCu: number;
+    goodMints: string[];
+    topSelectedTokens: Array<{ symbol: string; mint: string; grade: string; playScore: number; rejectReason: string | null }>;
+    topGoodTokens: Array<{ symbol: string; mint: string; grade: string; playScore: number; rejectReason: string | null }>;
+  }>;
+  sourceSummaries: Array<{
+    source: string;
+    recipesRun: number;
+    totalReturned: number;
+    totalGoodTokens: number;
+    uniqueGoodTokens: number;
+    bestByGoodCount: string | null;
+    bestByAverageScore: string | null;
+    bestByEfficiency: string | null;
+    bestByQuality: string | null;
+  }>;
+  winners: Array<{
+    tokenName: string;
+    address: string;
+    timeSinceGraduationMin: number | null;
+    timeSinceCreationMin: number | null;
+    priceUsd: number | null;
+    liquidityUsd: number | null;
+    holders: number | null;
+    volume1mUsd: number | null;
+    volume5mUsd: number | null;
+    volumeChange1mPercent: number | null;
+    volumeChange5mPercent: number | null;
+    priceChange1mPercent: number | null;
+    priceChange5mPercent: number | null;
+    trades1m: number | null;
+    trades5m: number | null;
+    uniqueWallets5m: number | null;
+    uniqueWallets24h: number | null;
+    buySellRatio: number | null;
+    marketCapUsd: number | null;
+    mintAuth: string | null;
+    top10HolderPercent: number | null;
+    maxSingleHolderPercent: number | null;
+    score: number;
+    whichRecipes: string[];
+  }>;
+  deepEvaluations: Array<{
+    planKey: string;
+    recipeName: string;
+    mode: DiscoveryLabRecipeMode;
+    mint: string;
+    symbol: string;
+    source: string;
+    playScore: number;
+    entryScore: number;
+    grade: string;
+    pass: boolean;
+    rejectReason: string | null;
+    priceUsd: number | null;
+    liquidityUsd: number | null;
+    marketCapUsd: number | null;
+    holders: number | null;
+    volume5mUsd: number | null;
+    volume30mUsd: number | null;
+    uniqueWallets5m: number | null;
+    buySellRatio: number | null;
+    priceChange5mPercent: number | null;
+    priceChange30mPercent: number | null;
+    top10HolderPercent: number | null;
+    largestHolderPercent: number | null;
+    timeSinceGraduationMin: number | null;
+    timeSinceCreationMin: number | null;
+    softIssues: string[];
+    notes: string[];
+  }>;
+};
+
+export type DiscoveryLabRunDetail = DiscoveryLabRunSummary & {
+  packSnapshot: DiscoveryLabPack;
+  thresholdOverrides: DiscoveryLabThresholdOverrides;
+  stdout: string;
+  stderr: string;
+  report: DiscoveryLabRunReport | null;
+};
+
+export type DiscoveryLabCatalog = {
+  packs: DiscoveryLabPack[];
+  activeRun: DiscoveryLabRunSummary | null;
+  recentRuns: DiscoveryLabRunSummary[];
+  profiles: DiscoveryLabProfile[];
+  knownSources: string[];
+};
+
 export type BotSettings = {
   tradeMode: "DRY_RUN" | "LIVE";
   cadence: {
@@ -272,4 +459,16 @@ export type BotSettings = {
     birdeyeUnitCap: number;
     heliusUnitCap: number;
   };
+};
+
+export type DiscoveryLabRuntimeSnapshot = {
+  botState: {
+    tradeMode: "DRY_RUN" | "LIVE";
+    capitalUsd: number;
+    cashUsd: number;
+    realizedPnlUsd: number;
+    pauseReason: string | null;
+  };
+  openPositions: number;
+  settings: BotSettings;
 };

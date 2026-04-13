@@ -241,7 +241,7 @@ export function SettingsClient({ initial, grafanaHref }: { initial: SettingsCont
     <div className="space-y-5">
       <PageHero
         eyebrow="Settings"
-        title="Draft and promote"
+        title="Settings"
         description={undefined}
         meta={<StatusPill value={serverState.validation.ok ? "pass" : "fail"} />}
         actions={grafanaHref ? (
@@ -269,17 +269,17 @@ export function SettingsClient({ initial, grafanaHref }: { initial: SettingsCont
       />
 
       <section className="grid gap-6 2xl:grid-cols-[1.18fr_0.82fr]">
-        <Panel title="Promotion rail" eyebrow="Draft -> Validate -> Dry run -> Promote">
+        <Panel title="Promotion rail" eyebrow="Draft -> Review -> Promote">
           <div className="grid gap-3 lg:grid-cols-4">
             <WorkflowStepCard
               title="Draft"
-              detail={localDirty ? "Local form differs from saved draft." : serverState.draft ? `${formatInteger(serverState.changedPaths.length)} changed path(s).` : "No draft open."}
+              detail={localDirty ? "Unsaved edits." : serverState.draft ? `${formatInteger(serverState.changedPaths.length)} changed path(s).` : "No draft."}
               status={localDirty ? "warning" : serverState.draft ? "pass" : "idle"}
               icon={FilePenLine}
             />
             <WorkflowStepCard
               title="Validate"
-              detail={serverState.validation.ok ? "Draft passes schema checks." : `${formatInteger(serverState.validation.issues.length)} blocking issue(s).`}
+              detail={serverState.validation.ok ? "Checks pass." : `${formatInteger(serverState.validation.issues.length)} issue(s).`}
               status={serverState.validation.ok ? "pass" : "danger"}
               icon={ShieldCheck}
             />
@@ -287,10 +287,10 @@ export function SettingsClient({ initial, grafanaHref }: { initial: SettingsCont
               title="Dry run"
               detail={
                 serverState.liveAffectingPaths.length === 0
-                  ? "No live-affecting path changed."
+                  ? "No live path changed."
                   : serverState.dryRun
-                    ? `${serverState.dryRun.safeToPromote ? "Passing" : "Blocked"} run ${formatTimestamp(serverState.dryRun.ranAt)}`
-                    : "Live-affecting changes still need review."
+                    ? `${serverState.dryRun.safeToPromote ? "Pass" : "Blocked"} ${formatTimestamp(serverState.dryRun.ranAt)}`
+                    : "Dry run needed."
               }
               status={
                 serverState.liveAffectingPaths.length === 0
@@ -303,14 +303,14 @@ export function SettingsClient({ initial, grafanaHref }: { initial: SettingsCont
             />
             <WorkflowStepCard
               title="Promote"
-              detail={canPromote ? "Ready to push active." : "Promotion gate still closed."}
+              detail={canPromote ? "Ready." : "Blocked."}
               status={canPromote ? "pass" : "warning"}
               icon={Rocket}
             />
           </div>
         </Panel>
 
-        <Panel title="Gate summary" eyebrow="Current state" tone={draftBehindActive ? "warning" : "passive"}>
+        <Panel title="Summary" eyebrow="Current" tone={draftBehindActive ? "warning" : "passive"}>
           <div className="grid gap-3 sm:grid-cols-2">
             <SummaryRow label="Draft" value={serverState.draft ? "Open" : "None"} />
             <SummaryRow label="Local edits" value={localDirty ? "Unsaved" : "Synced"} />
@@ -319,7 +319,7 @@ export function SettingsClient({ initial, grafanaHref }: { initial: SettingsCont
           </div>
           {draftBehindActive ? (
             <div className="mt-3 rounded-[14px] border border-[rgba(250,204,21,0.18)] bg-[rgba(250,204,21,0.08)] px-4 py-3 text-sm text-text-primary">
-              Active settings moved after this draft was based. Re-review before promotion.
+              Active settings changed after this draft. Re-check before promote.
             </div>
           ) : null}
         </Panel>
@@ -488,7 +488,7 @@ export function SettingsClient({ initial, grafanaHref }: { initial: SettingsCont
         <Panel title="Validation summary" eyebrow="Structural issues" tone={serverState.validation.issues.length > 0 ? "critical" : "passive"}>
           {serverState.validation.issues.length === 0 ? (
             <div className="rounded-[14px] border border-bg-border bg-bg-hover/40 px-4 py-4 text-sm text-text-secondary">
-              No validation issue is blocking this draft.
+              No blocking issue.
             </div>
           ) : (
             <div className="space-y-3">
@@ -517,7 +517,7 @@ export function SettingsClient({ initial, grafanaHref }: { initial: SettingsCont
             </div>
           ) : (
             <div className="rounded-[14px] border border-bg-border bg-bg-hover/40 px-4 py-4 text-sm text-text-secondary">
-              No dry-run summary recorded yet.
+              No dry run yet.
             </div>
           )}
         </Panel>
@@ -526,10 +526,10 @@ export function SettingsClient({ initial, grafanaHref }: { initial: SettingsCont
       <div className="sticky bottom-4 z-20 rounded-[16px] border border-bg-border bg-bg-secondary p-4 shadow-[0_18px_50px_rgba(0,0,0,0.22)]">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div>
-            <div className="text-sm font-medium text-text-primary">Save the draft, run dry run, then promote.</div>
+            <div className="text-sm font-medium text-text-primary">Save, dry run, promote.</div>
             <div className="mt-1 text-sm text-text-secondary">
-              Active settings updated at {formatTimestamp(serverState.activeUpdatedAt)}.
-              {serverState.basedOnUpdatedAt ? ` Draft is based on ${formatTimestamp(serverState.basedOnUpdatedAt)}.` : ""}
+              Active {formatTimestamp(serverState.activeUpdatedAt)}.
+              {serverState.basedOnUpdatedAt ? ` Draft base ${formatTimestamp(serverState.basedOnUpdatedAt)}.` : ""}
             </div>
           </div>
           <div className="flex flex-wrap gap-2">

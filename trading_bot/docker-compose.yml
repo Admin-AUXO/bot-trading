@@ -136,6 +136,30 @@ services:
       retries: 6
       start_period: 20s
 
+  n8n:
+    <<: *app-defaults
+    profiles: ["automation"]
+    image: docker.n8n.io/n8nio/n8n:2.14.2
+    container_name: trading-n8n
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${N8N_PORT:-5678}:5678"
+    env_file:
+      - ./n8n/compose.env
+    volumes:
+      - n8n-data:/home/node/.n8n
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          node -e "fetch('http://127.0.0.1:5678/healthz/readiness').then((res) => {
+            if (!res.ok) process.exit(1);
+          }).catch(() => process.exit(1))"
+      interval: 20s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+
   obsidian:
     <<: *logging-defaults
     profiles: ["notes"]
@@ -159,4 +183,5 @@ services:
 volumes:
   trading-pgdata:
   grafana-data:
+  n8n-data:
   obsidian-config:

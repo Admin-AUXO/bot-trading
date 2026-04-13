@@ -2,7 +2,7 @@
 type: investigation
 status: open
 area: providers/research
-date: 2026-04-12
+date: 2026-04-13
 source_files:
   - trading_bot/backend/scripts/discovery-lab.ts
   - trading_bot/backend/scripts/discovery-lab.recipes.json
@@ -10,7 +10,7 @@ source_files:
   - trading_bot/backend/scripts/discovery-lab.recipes.fast-turn.json
   - trading_bot/backend/src/services/runtime-config.ts
 graph_checked: 2026-04-12
-next_action: Re-test the refreshed pump-only packs in another live window and see whether `grad_75m_price30m_strength` keeps pace with `grad_4h_volume1h`, `grad_4h_holder_liquidity`, and `grad_60m_trade5m` once the window is less forgiving.
+next_action: Use the balanced small-ticket proxy thresholds (`8k` liquidity, `2m` market-cap ceiling, `35` holders, `1.5k` 5m volume, `12` unique buyers, `1.05` buy/sell ratio, `45/25` concentration caps) as the first scalp-profile candidate, then re-run the sub-10m pack in a hotter pump window before hard-coding a new default.
 ---
 
 # Investigation - Birdeye Discovery Lab Quality Pack Sweep
@@ -365,6 +365,158 @@ Refreshed fast-turn result:
   about `168` estimated CU
 - `grad_45m_volume30m_persistence` stayed viable, but still noisier than the controls and the `75m` strength variant
 
+### Default-pack multi-source rerun on 2026-04-13
+
+Command family:
+
+```bash
+cd trading_bot/backend
+npm run lab:discovery -- \
+  --profile high-value \
+  --sources pump_dot_fun,moonshot,raydium_launchlab,meteora_dynamic_bonding_curve \
+  --cache-ttl-seconds 0 \
+  --out ../../.codex/tmp/discovery-lab-2026-04-13.json
+```
+
+Result:
+
+- `pump_dot_fun` was still the only source with real pass-grade quality:
+  `8` passes across `4` unique names:
+  `TT`
+  `Reaper`
+  `DJT`
+  `IRT`
+- `moonshot` returned `0` names
+- `raydium_launchlab` returned `2` names and `0` passes
+- `meteora_dynamic_bonding_curve` returned `19` names and `0` passes
+
+Best default-pack recipes in this rerun:
+
+- `pump_dot_fun / grad_4h_liquidity`
+  best overall winner:
+  `4` passes from `8` returned names
+  average good play score about `0.835`
+- `pump_dot_fun / grad_60m_last_trade`
+  best average-score tie:
+  `2` passes
+  average good play score about `0.841`
+- `pump_dot_fun / grad_60m_graduated_time`
+  matched the `60m_last_trade` result exactly in this window:
+  `2` passes
+  average good play score about `0.841`
+
+Dominant reject reasons in this rerun:
+
+- `pump_dot_fun`
+  weak `5m` flow and concentration failures still dominated the miss set
+- `meteora_dynamic_bonding_curve`
+  mostly failed on:
+  `liquidity far below floor`
+  `market cap far above high-value ceiling`
+  `holder count far below floor`
+- `raydium_launchlab`
+  both names failed on weak `5m` flow
+
+### Sub-10m default-pack refresh on 2026-04-13
+
+What changed:
+
+- the default lab pack now dropped the stale multi-hour and pregrad default shapes
+- the default pack is now five pump-first graduated recipes only:
+  `grad_5m_last_trade`
+  `grad_5m_graduated_time`
+  `grad_5_10m_last_trade`
+  `grad_5_10m_trade5m`
+  `grad_5_10m_liquidity`
+- each recipe now uses an explicit `max_graduated_time` bound so the pack can target:
+  `0-5m`
+  `5-10m`
+- the winners CSV header was clarified from a vague holder label to:
+  `top10_holder_percent`
+- Helius mint authority and holder concentration are now batch-fetched once per unique uncached mint and reused across recipes instead of repeating one Helius pass per recipe winner
+
+Command family:
+
+```bash
+cd trading_bot/backend
+npm run lab:discovery -- \
+  --profile high-value \
+  --cache-ttl-seconds 0 \
+  --out ../../.codex/tmp/discovery-lab-sub10m-2026-04-13.json
+```
+
+Result:
+
+- all five recipes returned `0` names in this sampled window
+- Birdeye direct probes confirmed that was real market silence, not a broken `max_graduated_time` filter:
+  `pump_dot_fun` had `0` graduates in:
+  `0-5m`
+  `5-10m`
+  and even the broader `last 10m` probe
+- the pack is valid and cheap now, but it needs a hotter window before it can displace the wider quality or fast-turn packs as the default research surface
+
+### Balanced small-ticket proxy calibration on 2026-04-13
+
+Why this existed:
+
+- the sub-10m pack had no raw pump graduates in the sampled window
+- a wider proxy sweep was needed to tune a small-ticket fast-turn grading lens instead of blindly loosening the fresh-graduate pack
+
+Command family:
+
+```bash
+cd trading_bot/backend
+npm run lab:discovery -- \
+  --recipes scripts/discovery-lab.recipes.fast-turn.json \
+  --recipe-names grad_30m_volume5m,grad_45m_live_tape,grad_60m_trade5m \
+  --profile high-value \
+  --min-liquidity-usd 8000 \
+  --max-market-cap-usd 2000000 \
+  --min-holders 35 \
+  --min-volume-5m-usd 1500 \
+  --min-unique-buyers-5m 12 \
+  --min-buy-sell-ratio 1.05 \
+  --max-top10-holder-percent 45 \
+  --max-single-holder-percent 25 \
+  --max-negative-price-change-5m-percent 18 \
+  --query-concurrency 1 \
+  --deep-concurrency 2 \
+  --out ../../.codex/tmp/discovery-lab-calib-balanced.json
+```
+
+Result:
+
+- the proxy calibration produced `5` pass-grade names:
+  `the great pardoning`
+  `NO RACIST`
+  `Bitcoin Bull`
+  `All Aboard`
+  `THE ANTICHRIST`
+- best current proxy winner:
+  `the great pardoning`
+  about `0.893` play score
+  passed all three proxy recipes
+- proxy recipe quality stayed tight enough that the wider thresholds did not collapse into obvious junk:
+  `grad_30m_volume5m`
+  `2/2` good
+  `grad_45m_live_tape`
+  `3/3` good
+  `grad_60m_trade5m`
+  `5/5` good
+
+Interpretation:
+
+- for `$10-15` tickets and a very short hold target, the first useful threshold candidate is looser than the old high-value pack but still materially stricter than junk-chasing:
+  `minLiquidityUsd=8000`
+  `maxMarketCapUsd=2000000`
+  `minHolders=35`
+  `minVolume5mUsd=1500`
+  `minUniqueBuyers5m=12`
+  `minBuySellRatio=1.05`
+  `maxTop10HolderPercent=45`
+  `maxSingleHolderPercent=25`
+- when the true fresh-graduate band is empty, use the nearest live proxy shapes to tune thresholds before rewriting the sub-10m pack again
+
 ## Findings
 
 - sorting by tape quality beat sorting by pure recency in this sampled window
@@ -380,6 +532,8 @@ Refreshed fast-turn result:
 - after pack cleanup, `grad_75m_price30m_strength` joined the repeatable winner set and now deserves to sit beside the controls in future pump-only checks
 - `grad_45m_volume30m_persistence` is a legitimate secondary experiment, but not strong enough to displace the control recipes
 - pregrad and ultra-short `1m`/`15m` style recipes still look like noise, not signal
+- the new sub-10m default pack can legitimately return zero because the raw pump graduate band is sometimes empty, not because the recipe itself is broken
+- the first viable small-ticket fast-turn threshold candidate is the balanced proxy lens above, not the much stricter legacy high-value grading floor
 
 ## Best Near-Miss Warnings
 
@@ -407,6 +561,7 @@ Refreshed fast-turn result:
   `grad_60m_trade5m` for the cheapest repeatable short-window confirmation
 - keep `grad_75m_price30m_strength` in the repo packs as the first experimental follow-up
 - leave pregrad scouts and brittle ultra-short shapes out of the default repo packs until they earn a real pass-grade window
+- if the `0-10m` graduate band is empty, do not blindly weaken structure controls; use the `30m/45m/60m` proxy trio to calibrate the next threshold move
 
 ## Linked Notes
 

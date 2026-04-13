@@ -1,101 +1,73 @@
 {
-  "description": "Default Birdeye meme-list recipes for graduation-play research across the core Solana meme launch venues.",
+  "description": "Default pump-first Birdeye meme-list recipes for small-ticket post-graduation research. The pack keeps two very fresh probes, then leans on the 30m to 60m continuation windows that already produced usable pass-grade names in the calibration run.",
   "recipes": [
     {
-      "name": "grad_15m_last_trade",
+      "name": "grad_10m_last_trade",
       "mode": "graduated",
-      "description": "Very fresh graduates with a live tape. Good for immediate post-grad momentum checks.",
+      "description": "Very fresh graduates from the last ten minutes ranked by live tape recency.",
       "params": {
         "graduated": true,
         "sort_by": "last_trade_unix_time",
         "sort_type": "desc",
-        "min_graduated_time": "now-900",
-        "min_last_trade_unix_time": "now-300",
-        "min_liquidity": 10000,
+        "min_graduated_time": "now-600",
+        "max_graduated_time": "now",
+        "min_last_trade_unix_time": "now-180",
         "limit": 100
       }
     },
     {
-      "name": "grad_60m_last_trade",
+      "name": "grad_10m_graduated_time",
       "mode": "graduated",
-      "description": "Fresh graduates over the last hour, still sorted by recent tape.",
-      "params": {
-        "graduated": true,
-        "sort_by": "last_trade_unix_time",
-        "sort_type": "desc",
-        "min_graduated_time": "now-3600",
-        "min_last_trade_unix_time": "now-900",
-        "min_liquidity": 10000,
-        "limit": 100
-      }
-    },
-    {
-      "name": "grad_60m_graduated_time",
-      "mode": "graduated",
-      "description": "Fresh graduates over the last hour, ranked by graduation time instead of tape recency.",
+      "description": "Freshest graduates ranked by graduation time with a still-live tape.",
       "params": {
         "graduated": true,
         "sort_by": "graduated_time",
         "sort_type": "desc",
-        "min_graduated_time": "now-3600",
-        "min_last_trade_unix_time": "now-900",
-        "min_liquidity": 10000,
+        "min_graduated_time": "now-600",
+        "max_graduated_time": "now",
+        "min_last_trade_unix_time": "now-240",
         "limit": 100
       }
     },
     {
-      "name": "grad_4h_liquidity",
+      "name": "grad_30m_volume5m",
       "mode": "graduated",
-      "description": "Graduates from the last four hours ranked by liquidity. Good for higher-value names with some survival time.",
+      "description": "Recent graduates ranked by immediate 5m dollar flow, but with a slightly lower tape floor to improve small-ticket recall.",
       "params": {
         "graduated": true,
-        "sort_by": "liquidity",
+        "sort_by": "volume_5m_usd",
         "sort_type": "desc",
-        "min_graduated_time": "now-14400",
-        "min_last_trade_unix_time": "now-1800",
-        "min_liquidity": 20000,
+        "min_graduated_time": "now-1800",
+        "min_volume_5m_usd": 2000,
+        "min_trade_5m_count": 40,
         "limit": 100
       }
     },
     {
-      "name": "pregrad_95_progress",
-      "mode": "pregrad",
-      "description": "About-to-graduate names clustered at the top of the bonding curve.",
+      "name": "grad_45m_live_tape",
+      "mode": "graduated",
+      "description": "Graduates still printing a live tape, with enough recent flow to matter on small tickets.",
       "params": {
-        "graduated": false,
-        "sort_by": "progress_percent",
+        "graduated": true,
+        "sort_by": "last_trade_unix_time",
         "sort_type": "desc",
-        "min_progress_percent": 95,
-        "min_last_trade_unix_time": "now-300",
-        "min_liquidity": 3000,
+        "min_graduated_time": "now-2700",
+        "min_last_trade_unix_time": "now-240",
+        "min_volume_5m_usd": 1800,
         "limit": 100
       }
     },
     {
-      "name": "pregrad_90_progress",
-      "mode": "pregrad",
-      "description": "Wider near-graduation scan with a little more room before the finish line.",
+      "name": "grad_60m_trade5m",
+      "mode": "graduated",
+      "description": "One-hour graduate scan ranked by 5m tape count, eased slightly so the lab sees more usable follow-through names.",
       "params": {
-        "graduated": false,
-        "sort_by": "progress_percent",
+        "graduated": true,
+        "sort_by": "trade_5m_count",
         "sort_type": "desc",
-        "min_progress_percent": 90,
-        "min_last_trade_unix_time": "now-600",
-        "min_liquidity": 5000,
-        "limit": 100
-      }
-    },
-    {
-      "name": "pregrad_recent_creation",
-      "mode": "pregrad",
-      "description": "Newly created names with strong progress and active recent trading.",
-      "params": {
-        "graduated": false,
-        "sort_by": "creation_time",
-        "sort_type": "desc",
-        "min_creation_time": "now-7200",
-        "min_progress_percent": 85,
-        "min_last_trade_unix_time": "now-600",
+        "min_graduated_time": "now-3600",
+        "min_trade_5m_count": 60,
+        "min_volume_5m_usd": 2000,
         "limit": 100
       }
     }

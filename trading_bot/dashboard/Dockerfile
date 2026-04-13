@@ -20,6 +20,7 @@ FROM base AS runner
 ENV NODE_ENV=production
 COPY --chown=node:node --from=builder /app/.next ./.next
 COPY --chown=node:node --from=builder /app/public ./public
+COPY --chown=node:node --from=builder /app/scripts ./scripts
 COPY --chown=node:node --from=prod-deps /app/node_modules ./node_modules
 COPY --chown=node:node --from=builder /app/package.json ./package.json
 USER node

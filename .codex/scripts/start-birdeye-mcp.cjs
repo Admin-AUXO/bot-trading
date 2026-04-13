@@ -1,8 +1,49 @@
 #!/usr/bin/env node
 
 const { spawn } = require("node:child_process");
+const fs = require("node:fs");
+const path = require("node:path");
 
-const apiKey = process.env.BIRDEYE_API_KEY?.trim();
+function loadRepoEnv() {
+  const envPath = path.resolve(__dirname, "..", "..", "trading_bot", "backend", ".env");
+  if (!fs.existsSync(envPath)) {
+    return {};
+  }
+
+  const content = fs.readFileSync(envPath, "utf8").replace(/\r/g, "");
+  const repoEnv = {};
+
+  for (const rawLine of content.split("\n")) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) {
+      continue;
+    }
+
+    const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+    if (!match) {
+      continue;
+    }
+
+    const [, key, rawValue] = match;
+    const value = rawValue.trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"'))
+      || (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      repoEnv[key] = value.slice(1, -1);
+    } else {
+      repoEnv[key] = value;
+    }
+  }
+
+  return repoEnv;
+}
+
+const mergedEnv = {
+  ...loadRepoEnv(),
+  ...process.env,
+};
+const apiKey = mergedEnv.BIRDEYE_API_KEY?.trim();
 
 if (!apiKey) {
   console.error("[birdeye-mcp] BIRDEYE_API_KEY is missing");
@@ -20,7 +61,7 @@ const child = spawn(
   ],
   {
     stdio: "inherit",
-    env: process.env,
+    env: mergedEnv,
   },
 );
 

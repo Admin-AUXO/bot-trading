@@ -15,6 +15,22 @@ next_action:
 
 Purpose: keep future agents from wasting tokens by using overlapping tools for the same job.
 
+Current Codex CLI builds load MCP servers from `~/.codex/config.toml`, not the repo-local `.codex/config.toml` template. In this repo, install or refresh the managed MCP block with `node ./.codex/scripts/install-mcp-config.cjs`, then restart Codex.
+
+The installer now supports startup profiles:
+
+- `compact` default: keep startup lean and enable only the primary local file surface
+- `db`: add `postgres` when schema or reporting truth matters
+- `full`: enable the broader research and browser stack for tasks that truly need it
+
+Use:
+
+- `node ./.codex/scripts/install-mcp-config.cjs`
+- `node ./.codex/scripts/install-mcp-config.cjs --profile db`
+- `node ./.codex/scripts/install-mcp-config.cjs --profile full`
+
+The shared `desktop_commander` launcher now skips Puppeteer and Playwright browser downloads during first-run package install. That avoids startup failures from optional browser payloads, but browser-backed export features may still need a host browser if you use them later.
+
 ## Default Stack
 
 - local files, directory search, note hygiene, and structured reads: `desktop_commander`
@@ -29,12 +45,21 @@ Purpose: keep future agents from wasting tokens by using overlapping tools for t
 - Solana, Helius, wallet, and chain-specific reads: `helius`
 - simple timezone and current-time questions: `time`
 
+## Startup Policy
+
+- Default new-session profile: `compact`
+- Keep helper MCPs installed but disabled until the task needs them.
+- Do not pay startup cost for browser, research, or provider MCPs on normal local-code tasks.
+- Prefer repo-local skills under `.agents/skills/` over global skills for repo-specific procedures.
+
 ## Routing Rules
 
 - Start local before going external.
 - Use one tool that answers the question well instead of stacking three tools that partially overlap.
 - Read notes before browsing. Read code before browser automation. Read schema before guessing analytics logic.
 - Use the cheapest sufficient surface first.
+- For ambiguous work, start in ask mode before widening the file read surface.
+- Use background terminals or task queues for long-running commands so terminal spam does not crowd the active thread.
 
 ## Browser Policy
 

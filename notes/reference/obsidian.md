@@ -5,12 +5,13 @@ area: obsidian
 date: 2026-04-11
 source_files:
   - trading_bot/docker-compose.yml
+  - notes/reference/bootstrap-and-docker.md
   - .agents/skills/obsidian/SKILL.md
   - .codex/hooks.json
   - AGENTS.md
   - trading_bot/AGENTS.md
   - notes/reference/agent-workflow.md
-graph_checked:
+graph_checked: 2026-04-13
 next_action:
 ---
 
@@ -78,6 +79,7 @@ docker compose --profile notes up -d obsidian
 - HTTP: `http://127.0.0.1:3110`
 - Container config persists in `obsidian-config`
 - The repo vault is bind-mounted from `../notes`
+- The Obsidian sidecar is independent from the dashboard container. Dashboard Docker updates, like the `run-next.mjs` startup wrapper, belong in [`bootstrap-and-docker.md`](bootstrap-and-docker.md), not here, unless they change the notes profile itself.
 
 Inside Obsidian, open `/config/vaults/bot-trading` as the existing vault. Do not create a nested vault.
 

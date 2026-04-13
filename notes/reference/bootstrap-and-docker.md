@@ -5,11 +5,15 @@ area: docker
 date: 2026-04-11
 source_files:
   - trading_bot/docker-compose.yml
+  - trading_bot/dashboard/Dockerfile
+  - trading_bot/dashboard/package.json
+  - trading_bot/dashboard/scripts/run-next.mjs
   - trading_bot/backend/.env.example
   - trading_bot/dashboard/compose.env.example
   - trading_bot/grafana/compose.env.example
+  - trading_bot/n8n/compose.env.example
   - trading_bot/scripts/sync-compose-env.sh
-graph_checked:
+graph_checked: 2026-04-13
 next_action:
 ---
 
@@ -24,7 +28,7 @@ On a new system, do this first:
 ```bash
 cd trading_bot
 nvm use || nvm install
-./scripts/bootstrap-new-system.sh host
+node ./scripts/bootstrap-new-system.mjs host
 ```
 
 Use `compose` instead of `host` if you want the full container stack:
@@ -32,7 +36,7 @@ Use `compose` instead of `host` if you want the full container stack:
 ```bash
 cd trading_bot
 nvm use || nvm install
-./scripts/bootstrap-new-system.sh compose
+node ./scripts/bootstrap-new-system.mjs compose
 ```
 
 What the bootstrap script does:
@@ -40,7 +44,7 @@ What the bootstrap script does:
 - installs backend dependencies with `npm ci`
 - installs dashboard dependencies with `npm ci`
 - creates `backend/.env` from `backend/.env.example` if missing
-- generates `dashboard/compose.env` and `grafana/compose.env` in `compose` mode
+- generates `dashboard/compose.env`, `grafana/compose.env`, and `n8n/compose.env` in `compose` mode
 
 What it does not do:
 
@@ -103,7 +107,7 @@ Notes:
 
 ## Run Mode B: Full Compose Stack
 
-Use this when you want Postgres, schema setup, backend, dashboard, and the repo-owned Grafana surface inside containers.
+Use this when you want Postgres, schema setup, backend, dashboard, and the repo-owned Grafana surface inside containers. Optional sidecars for notes and automation stay behind their own profiles.
 
 1. Copy [`../../trading_bot/backend/.env.example`](../../trading_bot/backend/.env.example) to `trading_bot/backend/.env`.
 2. Keep `DATABASE_URL` on the compose hostname `postgres`.
@@ -112,7 +116,7 @@ Use this when you want Postgres, schema setup, backend, dashboard, and the repo-
 
 ```bash
 cd trading_bot
-./scripts/sync-compose-env.sh
+node ./scripts/sync-compose-env.mjs
 ```
 
 5. For a compose-side safe non-live app mode, keep `TRADE_MODE="DRY_RUN"` and leave `BOT_PORT=3101` plus `DASHBOARD_PORT=3100` alone unless you are deliberately remapping both the container env and the compose port bindings together.
@@ -131,11 +135,14 @@ Compose contract:
 - Postgres binds on `127.0.0.1:${POSTGRES_PORT:-56432}` for host-local tools only
 - `db-setup` applies Prisma schema and SQL views before the bot starts
 - `bot` health checks `GET /health`
+- repo-local discovery-lab seed packs under `backend/.local/discovery-lab/packs/` are copied into the bot runner image at build time, so adding or changing those files requires a bot image rebuild before the dashboard catalog can see them
 - `dashboard` waits for backend health, injects `API_URL=http://bot:3101`, and reads only `dashboard/compose.env` for its control secret and Grafana deep-link contract
+- `dashboard` now starts through `node ./scripts/run-next.mjs start`, so the runner image must include `dashboard/scripts/` along with `.next`, `public`, `node_modules`, and `package.json`
 - `grafana` waits for Postgres and `db-setup`, mounts provisioning from `trading_bot/grafana/`, and binds locally on `127.0.0.1:${GRAFANA_PORT:-3400}`
 - `grafana` reads only `grafana/compose.env` for admin and datasource credentials
+- `n8n` is an optional sidecar behind the `automation` profile, binds locally on `127.0.0.1:${N8N_PORT:-5678}`, persists state in the named volume `n8n-data`, and reads only `n8n/compose.env`
 - Grafana provisioning assumes a direct PostgreSQL datasource from inside Compose using `postgres:5432`
-- `./scripts/sync-compose-env.sh` is the supported way to derive those service env files from `backend/.env`
+- `node ./scripts/sync-compose-env.mjs` is the supported way to derive those service env files from `backend/.env`
 - after changing `backend/.env` or regenerating the compose env files, recreate `bot` and `dashboard` so stale container env does not keep serving placeholder secrets
 - First login to Grafana with the default admin credentials will prompt for a password change. If you are only smoke-testing the local stack, you can skip that prompt and still reach the provisioned dashboards.
 
@@ -163,20 +170,49 @@ Notes:
 - The compose file pins a concrete Obsidian image tag instead of `latest` so the sidecar does not drift silently.
 - Container state lives in the named volume `obsidian-config`. Repo notes live in the bind mount at `../notes/`.
 
+## Run Mode D: n8n Automation Sidecar
+
+Use this when you want a local-only n8n instance for workflow prototyping without changing the trading app startup chain.
+
+1. Keep the source of truth in [`../../trading_bot/backend/.env.example`](../../trading_bot/backend/.env.example) and sync it into `trading_bot/n8n/compose.env`:
+
+```bash
+cd trading_bot
+node ./scripts/sync-compose-env.mjs
+```
+
+2. Start only the automation profile:
+
+```bash
+cd trading_bot
+docker compose --profile automation up -d n8n
+```
+
+3. Open n8n at `http://127.0.0.1:5678` by default.
+
+Notes:
+
+- The n8n container is intentionally a sidecar. It does not participate in the `postgres -> db-setup -> bot -> dashboard` startup chain.
+- Ports bind to `127.0.0.1` only by default. Keep it that way unless you add a real reverse proxy and auth in front of it.
+- State lives in the named volume `n8n-data`.
+- The synced env file carries the editor URL, webhook URL, and timezone defaults so local workflows generate consistent callback URLs.
+
 ## Ports And Env
 
 - `POSTGRES_PORT`: host bind for Postgres on `127.0.0.1`, default `56432`
 - `BOT_PORT`: backend listen port, default `3101`
 - `DASHBOARD_PORT`: host bind for dashboard, default `3100`
 - `GRAFANA_PORT`: local Grafana bind, default `3400`
+- `N8N_PORT`: local n8n bind, default `5678`
 - `OBSIDIAN_HTTP_PORT`: local HTTP bind for Obsidian, default `3110`
 - `OBSIDIAN_HTTPS_PORT`: local HTTPS bind for Obsidian, default `3111`
 - `postgres`, `db-setup`, and `bot` read [`../../trading_bot/backend/.env`](../../trading_bot/backend/.env)
 - `dashboard` reads `trading_bot/dashboard/compose.env`
 - `grafana` reads `trading_bot/grafana/compose.env`
-- Checked-in examples live at [`../../trading_bot/dashboard/compose.env.example`](../../trading_bot/dashboard/compose.env.example) and [`../../trading_bot/grafana/compose.env.example`](../../trading_bot/grafana/compose.env.example)
+- `n8n` reads `trading_bot/n8n/compose.env`
+- Checked-in examples live at [`../../trading_bot/dashboard/compose.env.example`](../../trading_bot/dashboard/compose.env.example), [`../../trading_bot/grafana/compose.env.example`](../../trading_bot/grafana/compose.env.example), and [`../../trading_bot/n8n/compose.env.example`](../../trading_bot/n8n/compose.env.example)
 - Generate the service env files with `./scripts/sync-compose-env.sh` after you change `backend/.env`
-- `./scripts/sync-compose-env.sh` strips carriage returns before sourcing `backend/.env`, so a Windows-edited env file can still fan out cleanly into the compose-only env files
+- `node ./scripts/sync-compose-env.mjs` strips carriage returns while parsing `backend/.env`, so a Windows-edited env file can still fan out cleanly into the compose-only env files
 - If credentials change, keep `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, and `DATABASE_URL` aligned
 - `CONTROL_API_SECRET` is still the backend source of truth; the sync script maps it into `dashboard/compose.env` as `CONTROL_SECRET`
 - `GRAFANA_BASE_URL`, `GRAFANA_ADMIN_USER`, `GRAFANA_ADMIN_PASSWORD`, and the dashboard UID envs stay in `backend/.env` as the single editable source; the sync script fans them out into the service env files
@@ -186,8 +222,12 @@ Notes:
 ```bash
 cd trading_bot && docker compose config
 cd trading_bot && docker compose --profile notes config
-cd trading_bot && ./scripts/sync-compose-env.sh
+cd trading_bot && docker compose --profile automation config
+cd trading_bot && node ./scripts/sync-compose-env.mjs
+cd trading_bot && docker compose build dashboard
 cd trading_bot && docker compose up -d --build db-setup grafana bot dashboard
+cd trading_bot && docker compose --profile automation up -d n8n
+curl -sf http://127.0.0.1:5678/healthz/readiness
 curl -sf http://127.0.0.1:3400/api/health
 cd trading_bot/backend && npm run build
 cd trading_bot/backend && npm run db:setup

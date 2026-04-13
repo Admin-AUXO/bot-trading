@@ -12,7 +12,7 @@ source_files:
   - .codex/scripts/start-birdeye-mcp.cjs
   - .codex/log/codex-tui.log
 graph_checked:
-next_action: Keep shared MCP defaults limited to transports that work without local secrets, and let host-specific or secret-backed MCPs be local opt-ins after validation.
+next_action: Re-run the direct shell-side Birdeye MCP newline-JSON probe from a fresh top-level session so the local opt-in path can be classified as working or broken on this macOS host instead of left half-validated.
 ---
 
 # MCP Surface Audit
@@ -181,6 +181,88 @@ Current repo contract:
 - custom agent files may include full MCP server definitions, but they must not use stub `enabled = true` transport-less blocks
 - secret-backed or host-sensitive MCP servers belong in shared config only when they are disabled by default or otherwise safe on a fresh machine
 - macOS users can enable `birdeye-mcp` locally after exporting `BIRDEYE_API_KEY` and validating the wrapper on their host
+
+## 2026-04-13 Repo Config Discovery Finding
+
+Codex CLI `0.119.0-alpha.28` on this macOS host does not auto-load the repo-local `.codex/config.toml`.
+
+Observed behavior:
+
+- `codex mcp list` returned `No MCP servers configured yet` even though the repo template defined MCP servers
+- CLI help for this build points config overrides at `~/.codex/config.toml`, not the repo-local template
+
+Fix applied:
+
+- added `./.codex/scripts/install-mcp-config.cjs` to install a managed `bot-trading` MCP block into the real user config at `~/.codex/config.toml`
+- switched the shared MCP launch commands to cross-platform Node wrappers so the installed block works on both macOS and Windows without relying on `npx` or `uvx` shell quirks
+- updated the repo docs to treat `.codex/config.toml` as a template plus source of truth for the installer, not as an auto-loaded config surface
+
+Current repo contract:
+
+- if MCP servers appear missing, run `node ./.codex/scripts/install-mcp-config.cjs` and restart Codex before debugging individual server transports
+- treat the user config as the live MCP registry and the repo `.codex/config.toml` as the checked-in template
+
+## 2026-04-13 Desktop Commander Startup Repair
+
+Observed behavior on this macOS host:
+
+- `desktop_commander` died during first-run `npx` install because `puppeteer` postinstall ran before the MCP server could finish booting
+- Codex session init then lost the file-focused MCP surface even though the rest of the registry loaded
+
+Fix applied:
+
+- added `.codex/scripts/start-desktop-commander.cjs` as a dedicated launcher
+- forced `PUPPETEER_SKIP_DOWNLOAD=1` and `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` for that server so optional browser payloads do not block MCP startup
+- raised the shared `desktop_commander` startup timeout from 30 seconds to 90 seconds in both the repo template and the managed installer output
+
+Current repo contract:
+
+- `desktop_commander` should start without waiting for browser binary downloads on fresh hosts
+- if someone later needs browser-backed export features from that package, validate host browser availability separately instead of weakening MCP startup defaults
+
+## 2026-04-13 Initial Context Optimization Pass
+
+Observed behavior on this macOS host:
+
+- the managed `~/.codex/config.toml` block still enabled a wide MCP surface for every new session
+- that meant browser, research, provider, and helper tools were present even on simple local doc or code tasks
+- the repo guidance said to stay lean, but the live config still paid startup and routing tax up front
+
+Fix applied:
+
+- changed the repo `.codex/config.toml` template to a compact-by-default policy
+- updated `./.codex/scripts/install-mcp-config.cjs` to support `compact`, `db`, and `full` profiles
+- made `compact` the installer default so fresh sessions only enable the primary local file MCP surface
+- documented structured prompts, ask mode, task queues, background terminals, compaction, and lightweight git checkpoints in the canonical startup docs
+- documented the repo-local skill policy explicitly: prefer `.agents/skills/` and avoid global skill drift for repo-specific procedures
+
+Current repo contract:
+
+- run `node ./.codex/scripts/install-mcp-config.cjs` for the compact default
+- run `node ./.codex/scripts/install-mcp-config.cjs --profile db` when `postgres` should be live at startup
+- run `node ./.codex/scripts/install-mcp-config.cjs --profile full` only when the task truly needs the broader research and browser stack
+- keep helper MCPs defined but disabled by default instead of paying their cost on every session
+
+## 2026-04-13 Birdeye MCP Local Opt-In Follow-Up
+
+Observed behavior on this macOS host:
+
+- the live `~/.codex/config.toml` Birdeye entry could be flipped to `enabled = true`
+- plain `codex mcp get birdeye-mcp` still reported the server as disabled in the current shell context
+- forcing `-c mcp_servers.birdeye-mcp.enabled=true` made `codex mcp get birdeye-mcp` report the expected live stdio config
+- a fresh `codex exec` subprocess with that same override discovered the Birdeye tool surface and attempted:
+  `birdeye-mcp/get-defi-v3-token-meme-list`
+- the actual nested MCP tool call failed twice with:
+  `user cancelled MCP tool call`
+  and the nested agent reported:
+  `birdeye-mcp server is unavailable`
+- a direct shell-side newline-delimited JSON probe against `.codex/scripts/start-birdeye-mcp.cjs` was started, but this session ended before that probe returned a final result
+
+Conclusion:
+
+- the local opt-in path is good enough for fresh subprocess discovery when the enable override is explicit
+- this session did not reconfirm stable Birdeye MCP tool execution on macOS
+- if Birdeye MCP matters for a task, prefer a fresh top-level Codex session after enabling it rather than judging availability from a stale thread-local registry or a nested `codex exec` fallback
 
 ### `chrome_devtools`
 

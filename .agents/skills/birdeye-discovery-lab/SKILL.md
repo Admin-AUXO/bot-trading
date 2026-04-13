@@ -24,7 +24,7 @@ Use this for repeatable Birdeye discovery experiments.
 
 ```bash
 cd trading_bot/backend
-npm run lab:discovery -- --profile high-value --sources pump_dot_fun,moonshot,raydium_launchlab,meteora_dynamic_bonding_curve
+npm run lab:discovery -- --profile high-value --sources pump_dot_fun
 ```
 
 ## Use Cases
@@ -32,6 +32,7 @@ npm run lab:discovery -- --profile high-value --sources pump_dot_fun,moonshot,ra
 - compare recipe packs by source
 - run a fresh deep-eval pass with `--cache-ttl-seconds 0`
 - write machine-readable output with `--out ../../.codex/tmp/discovery-lab.json`
+  the script now also writes `../../.codex/tmp/discovery-lab-winners.csv` unless you override it with `--out-csv`
 - tune one or two recipes with `--recipe-names ...`
 - test the quality or fast-turn packs from `scripts/discovery-lab.recipes.quality.json` or `scripts/discovery-lab.recipes.fast-turn.json`
 - re-check the current pump controls first:
@@ -46,8 +47,8 @@ npm run lab:discovery -- --profile high-value --sources pump_dot_fun,moonshot,ra
 
 - Use the script, not one-off curl spam.
 - Keep Birdeye API-side filters at five or fewer.
-- Prefer source-specific runs before `source=all`.
-- Keep `pump_dot_fun` as the default test source unless another venue proves it can produce pass-grade names again.
+- Keep `pump_dot_fun` as the default and do not spend default lab passes on `moonshot`, `raydium_launchlab`, or `meteora_dynamic_bonding_curve`.
+- Deep eval now fetches Helius mint authorities and Helius largest-account concentration once per unique uncached mint across the whole run, then reuses those facts across recipe winners.
 - Treat this as research. Do not mutate runtime defaults just because one run looked exciting.
 - Inspect reject reasons before touching thresholds.
 - Do not waste lab passes on dead shapes by default:

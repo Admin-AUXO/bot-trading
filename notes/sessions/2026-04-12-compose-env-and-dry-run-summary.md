@@ -6,11 +6,13 @@ date: 2026-04-12
 source_files:
   - trading_bot/backend/.env
   - trading_bot/scripts/sync-compose-env.sh
+  - trading_bot/scripts/sync-compose-env.mjs
   - trading_bot/dashboard/compose.env
+  - trading_bot/n8n/compose.env
   - trading_bot/docker-compose.yml
   - notes/reference/bootstrap-and-docker.md
 graph_checked:
-next_action: If dry runs fail again, inspect the live container env with docker inspect before trusting backend/.env on disk.
+next_action: If compose-side tooling drifts again, inspect the generated service env files and the live container env before trusting backend/.env on disk.
 ---
 
 # Session - Compose Env And Dry Run Summary
@@ -26,6 +28,8 @@ next_action: If dry runs fail again, inspect the live container env with docker 
 - Aligned `trading_bot/backend/.env` to the compose dry-run contract: `POSTGRES_PORT=56432`, `BOT_PORT=3101`, `DASHBOARD_PORT=3100`, `TRADE_MODE="DRY_RUN"`.
 - Hardened `trading_bot/scripts/sync-compose-env.sh` so it strips carriage returns before sourcing `backend/.env`.
 - Regenerated the compose-only env files and force-recreated `db-setup`, `bot`, and `dashboard` so the running containers picked up the corrected values.
+- Added an optional `n8n` automation sidecar behind the compose `automation` profile with its own generated env file at `trading_bot/n8n/compose.env`.
+- Extended `trading_bot/scripts/sync-compose-env.mjs` and `trading_bot/backend/.env.example` so n8n URL and timezone settings fan out from the same compose source of truth.
 
 ## What I Verified
 

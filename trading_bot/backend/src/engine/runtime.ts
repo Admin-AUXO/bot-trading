@@ -9,6 +9,8 @@ import { recordOperatorEvent } from "../services/operator-events.js";
 import { ProviderBudgetService } from "../services/provider-budget-service.js";
 import { RuntimeConfigService } from "../services/runtime-config.js";
 import { SharedTokenFactsService } from "../services/shared-token-facts.js";
+import { DiscoveryLabService } from "../services/discovery-lab-service.js";
+import { DiscoveryLabMarketRegimeService } from "../services/discovery-lab-market-regime-service.js";
 import { getStrategyPreset } from "../services/strategy-presets.js";
 import { RiskEngine } from "./risk-engine.js";
 import { ExecutionEngine } from "./execution-engine.js";
@@ -27,6 +29,10 @@ export class BotRuntime {
   private readonly helius = new HeliusClient(env.HELIUS_RPC_URL);
   private readonly providerBudget = new ProviderBudgetService();
   private readonly sharedFacts = new SharedTokenFactsService();
+  private readonly discoveryLab = new DiscoveryLabService();
+  private readonly discoveryLabMarketRegime = new DiscoveryLabMarketRegimeService({
+    getRun: (runId) => this.discoveryLab.getRun(runId),
+  });
   private readonly execution = new ExecutionEngine(this.risk, this.config);
   private readonly exits = new ExitEngine(this.birdeye, this.execution, this.config, this.risk);
   private readonly graduation = new GraduationEngine(this.birdeye, this.helius, this.execution, this.risk, this.config);
@@ -45,6 +51,7 @@ export class BotRuntime {
   async start(): Promise<void> {
     await this.config.ensure();
     await this.risk.ensureState();
+    await this.discoveryLab.ensure();
     await this.migrationWatcher.start();
     const startupSettings = await this.config.getSettings();
     const startupState = await this.armLiveStartupPause(startupSettings.tradeMode);
@@ -70,6 +77,14 @@ export class BotRuntime {
       triggerDiscovery: () => this.runDiscoveryNow(),
       triggerEvaluation: () => this.runEvaluationNow(),
       triggerExitCheck: () => this.runExitCheckNow(),
+      getDiscoveryLabCatalog: () => this.discoveryLab.getCatalog(),
+      validateDiscoveryLabDraft: (input, allowOverfiltered) => this.discoveryLab.validateDraft(input, allowOverfiltered),
+      saveDiscoveryLabPack: (input) => this.discoveryLab.savePack(input),
+      deleteDiscoveryLabPack: (packId) => this.discoveryLab.deletePack(packId),
+      startDiscoveryLabRun: (input) => this.discoveryLab.startRun(input),
+      listDiscoveryLabRuns: () => this.discoveryLab.listRunSummaries(),
+      getDiscoveryLabRun: (runId) => this.discoveryLab.getRun(runId),
+      getDiscoveryLabMarketRegime: (runId) => this.discoveryLabMarketRegime.getMarketRegime(runId),
     });
 
     app.listen(env.BOT_PORT, () => {

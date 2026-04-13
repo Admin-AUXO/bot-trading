@@ -32,7 +32,7 @@ type ResolvedPlan = {
 };
 
 type LabThresholds = {
-  profileName: "runtime" | "high-value";
+  profileName: "runtime" | "high-value" | "scalp";
   minLiquidityUsd: number;
   maxMarketCapUsd: number;
   minHolders: number;
@@ -64,6 +64,11 @@ type DeepEvaluation = {
 type CacheEntry = {
   fetchedAt: number;
   value: MintResearch;
+};
+
+type BatchFetchResult<T> = {
+  value: T | null;
+  error: string | null;
 };
 
 type RankedToken = {
@@ -142,11 +147,35 @@ type SourceSummary = {
   bestByQuality: string | null;
 };
 
+type WinnerSummary = {
+  tokenName: string;
+  address: string;
+  timeSinceGraduationMin: number | null;
+  timeSinceCreationMin: number | null;
+  priceUsd: number | null;
+  liquidityUsd: number | null;
+  holders: number | null;
+  volume1mUsd: number | null;
+  volume5mUsd: number | null;
+  volumeChange1mPercent: number | null;
+  volumeChange5mPercent: number | null;
+  priceChange1mPercent: number | null;
+  priceChange5mPercent: number | null;
+  trades1m: number | null;
+  trades5m: number | null;
+  uniqueWallets5m: number | null;
+  uniqueWallets24h: number | null;
+  buySellRatio: number | null;
+  marketCapUsd: number | null;
+  mintAuth: string | null;
+  top10HolderPercent: number | null;
+  maxSingleHolderPercent: number | null;
+  score: number;
+  whichRecipes: string[];
+};
+
 const DEFAULT_SOURCES = [
   "pump_dot_fun",
-  "moonshot",
-  "raydium_launchlab",
-  "meteora_dynamic_bonding_curve",
 ];
 
 const FILTER_KEYS = new Set([
@@ -239,7 +268,7 @@ Options:
   --sources <csv>             Sources to test. Default: ${DEFAULT_SOURCES.join(",")}
   --recipes <path>            Recipe JSON file. Default: scripts/discovery-lab.recipes.json
   --recipe-names <csv>        Run only specific recipe names
-  --profile <runtime|high-value>
+  --profile <runtime|high-value|scalp>
                               Scoring profile. Default: high-value
   --deep-eval-limit <n>       Override per-recipe deep evaluation cap. Default: recipe or 6
   --query-concurrency <n>     Concurrent meme/list requests. Default: 2
@@ -258,13 +287,14 @@ Options:
                               Override grading ceiling for the largest holder
   --max-negative-price-change-5m-percent <n>
                               Override max allowed 5m drawdown before rejection
-  --out <path>                Write JSON report to a file
+  --out <path>                Write JSON report and sibling winners CSV
+  --out-csv <path>            Write winners CSV to a file
   --allow-overfiltered        Do not skip recipes with more than 5 API filters
   --help                      Show help
 
 Examples:
   npm run lab:discovery -- --profile high-value
-  npm run lab:discovery -- --sources pump_dot_fun,moonshot --recipe-names grad_60m_last_trade,pregrad_95_progress
+  npm run lab:discovery -- --recipe-names grad_60m_last_trade,grad_60m_graduated_time
   npm run lab:discovery -- --out ../../.codex/tmp/discovery-lab.json
 `);
 }
@@ -388,7 +418,7 @@ function gradeFromScore(score: number, pass: boolean) {
   return "C";
 }
 
-function buildThresholds(profileName: "runtime" | "high-value"): LabThresholds {
+function buildThresholds(profileName: "runtime" | "high-value" | "scalp"): LabThresholds {
   if (profileName === "runtime") {
     return {
       profileName,
@@ -402,6 +432,22 @@ function buildThresholds(profileName: "runtime" | "high-value"): LabThresholds {
       maxGraduationAgeSeconds: env.MAX_GRADUATION_AGE_SECONDS,
       minVolume5mUsd: env.MIN_VOLUME_5M_USD,
       maxNegativePriceChange5mPercent: env.MAX_NEGATIVE_PRICE_CHANGE_5M_PERCENT,
+    };
+  }
+
+  if (profileName === "scalp") {
+    return {
+      profileName,
+      minLiquidityUsd: 8_000,
+      maxMarketCapUsd: 2_000_000,
+      minHolders: 35,
+      minUniqueBuyers5m: 12,
+      minBuySellRatio: 1.05,
+      maxTop10HolderPercent: 45,
+      maxSingleHolderPercent: 25,
+      maxGraduationAgeSeconds: 5_400,
+      minVolume5mUsd: 1_500,
+      maxNegativePriceChange5mPercent: 18,
     };
   }
 
@@ -944,6 +990,79 @@ async function heliusRpc<T>(method: string, params: unknown[]) {
   return payload.result as T;
 }
 
+async function heliusBatchRpc<T>(requests: Array<{ id: string; method: string; params: unknown[] }>) {
+  const results = new Map<string, BatchFetchResult<T>>();
+  if (requests.length === 0) {
+    return results;
+  }
+
+  for (const request of requests) {
+    results.set(request.id, { value: null, error: "missing helius batch response" });
+  }
+
+  try {
+    const response = await fetch(env.HELIUS_RPC_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        requests.map((request) => ({
+          jsonrpc: "2.0",
+          id: request.id,
+          method: request.method,
+          params: request.params,
+        })),
+      ),
+    });
+    const payload = await response.json() as unknown;
+
+    if (!response.ok) {
+      const errorMessage = `Helius batch failed with ${response.status}`;
+      for (const request of requests) {
+        results.set(request.id, { value: null, error: errorMessage });
+      }
+      return results;
+    }
+
+    if (!Array.isArray(payload)) {
+      const errorMessage = "Helius batch returned a non-array payload";
+      for (const request of requests) {
+        results.set(request.id, { value: null, error: errorMessage });
+      }
+      return results;
+    }
+
+    for (const item of payload) {
+      const record = asRecord(item);
+      const id = record ? getByPath(record, "id") : undefined;
+      const requestId = typeof id === "string" || typeof id === "number" ? String(id) : null;
+      if (!requestId || !results.has(requestId)) {
+        continue;
+      }
+
+      const error = record ? asRecord(getByPath(record, "error")) : null;
+      if (error) {
+        results.set(requestId, {
+          value: null,
+          error: pickString(error, "message") ?? "unknown helius batch rpc error",
+        });
+        continue;
+      }
+
+      results.set(requestId, {
+        value: (record ? getByPath(record, "result") : null) as T | null,
+        error: null,
+      });
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    for (const request of requests) {
+      results.set(request.id, { value: null, error: errorMessage });
+    }
+  }
+
+  return results;
+}
+
 async function getMemeList(params: Record<string, Scalar>) {
   const response = await birdeyeRequest<{ data?: { items?: Record<string, unknown>[]; has_next?: boolean } }>(
     "/defi/v3/token/meme/list",
@@ -966,27 +1085,29 @@ async function getTradeData(mint: string) {
   return response.data ? parseTradeData(response.data) : null;
 }
 
-async function getMintAuthorities(mint: string): Promise<MintAuthoritySnapshot | null> {
-  const result = await heliusRpc<{
-    value?: {
-      data?: {
-        parsed?: {
-          info?: {
-            mintAuthority?: string | null;
-            freezeAuthority?: string | null;
-            supply?: string;
-            decimals?: number;
-            isInitialized?: boolean;
-          };
+function bigIntValue(value: string | number | bigint | null | undefined) {
+  if (typeof value === "bigint") return value;
+  if (typeof value === "number") return BigInt(Math.trunc(value));
+  if (typeof value === "string" && value.length > 0) return BigInt(value);
+  return 0n;
+}
+
+function parseMintAuthorities(
+  value: {
+    data?: {
+      parsed?: {
+        info?: {
+          mintAuthority?: string | null;
+          freezeAuthority?: string | null;
+          supply?: string;
+          decimals?: number;
+          isInitialized?: boolean;
         };
       };
-    } | null;
-  }>(
-    "getAccountInfo",
-    [mint, { encoding: "jsonParsed", commitment: "confirmed" }],
-  );
-
-  const info = result.value?.data?.parsed?.info;
+    };
+  } | null | undefined,
+) {
+  const info = value?.data?.parsed?.info;
   if (!info) return null;
 
   return {
@@ -995,24 +1116,15 @@ async function getMintAuthorities(mint: string): Promise<MintAuthoritySnapshot |
     supplyRaw: typeof info.supply === "string" ? info.supply : "0",
     decimals: Number(info.decimals ?? 0),
     isInitialized: info.isInitialized !== false,
-  };
+  } satisfies MintAuthoritySnapshot;
 }
 
-function bigIntValue(value: string | number | bigint | null | undefined) {
-  if (typeof value === "bigint") return value;
-  if (typeof value === "number") return BigInt(Math.trunc(value));
-  if (typeof value === "string" && value.length > 0) return BigInt(value);
-  return 0n;
-}
-
-async function getHolderConcentration(mint: string, supplyRaw: string) {
+function parseHolderConcentration(
+  result: { value?: Array<{ address?: string; amount?: string }> } | null | undefined,
+  supplyRaw: string,
+) {
   const supply = bigIntValue(supplyRaw);
   if (supply <= 0n) return null;
-
-  const result = await heliusRpc<{ value?: Array<{ address?: string; amount?: string }> }>(
-    "getTokenLargestAccounts",
-    [mint, { commitment: "confirmed" }],
-  );
 
   const accounts = result.value ?? [];
   const topTenRaw = accounts.slice(0, 10).reduce((sum, row) => sum + bigIntValue(row.amount), 0n);
@@ -1026,6 +1138,97 @@ async function getHolderConcentration(mint: string, supplyRaw: string) {
     largestAccountsCount: accounts.length,
     largestHolderAddress: typeof accounts[0]?.address === "string" ? accounts[0].address : null,
   } satisfies HolderConcentration;
+}
+
+async function getMintAuthoritiesBatch(mints: string[]) {
+  const uniqueMints = [...new Set(mints.filter((mint) => mint.trim().length > 0))];
+  const results = new Map<string, BatchFetchResult<MintAuthoritySnapshot>>();
+  const chunkSize = 100;
+
+  for (let index = 0; index < uniqueMints.length; index += chunkSize) {
+    const chunk = uniqueMints.slice(index, index + chunkSize);
+    try {
+      const response = await heliusRpc<{
+        value?: Array<{
+          data?: {
+            parsed?: {
+              info?: {
+                mintAuthority?: string | null;
+                freezeAuthority?: string | null;
+                supply?: string;
+                decimals?: number;
+                isInitialized?: boolean;
+              };
+            };
+          };
+        } | null>;
+      }>(
+        "getMultipleAccounts",
+        [chunk, { encoding: "jsonParsed", commitment: "confirmed" }],
+      );
+
+      const values = response.value ?? [];
+      for (const [offset, mint] of chunk.entries()) {
+        results.set(mint, {
+          value: parseMintAuthorities(values[offset] ?? null),
+          error: null,
+        });
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      for (const mint of chunk) {
+        results.set(mint, { value: null, error: errorMessage });
+      }
+    }
+  }
+
+  return results;
+}
+
+async function getHolderConcentrationsBatch(
+  inputs: Array<{ mint: string; supplyRaw: string }>,
+  concurrency: number,
+) {
+  const results = new Map<string, BatchFetchResult<HolderConcentration>>();
+  const uniqueInputs = [...new Map(inputs.map((input) => [input.mint, input])).values()];
+  const eligible = uniqueInputs.filter((input) => bigIntValue(input.supplyRaw) > 0n);
+  const chunkSize = 50;
+  const chunks: Array<Array<{ mint: string; supplyRaw: string }>> = [];
+
+  for (const input of uniqueInputs) {
+    if (bigIntValue(input.supplyRaw) <= 0n) {
+      results.set(input.mint, { value: null, error: null });
+    }
+  }
+
+  for (let index = 0; index < eligible.length; index += chunkSize) {
+    chunks.push(eligible.slice(index, index + chunkSize));
+  }
+
+  await mapWithConcurrency(chunks, Math.max(1, concurrency), async (chunk) => {
+    const batchResults = await heliusBatchRpc<{ value?: Array<{ address?: string; amount?: string }> }>(
+      chunk.map((input) => ({
+        id: input.mint,
+        method: "getTokenLargestAccounts",
+        params: [input.mint, { commitment: "confirmed" }],
+      })),
+    );
+
+    for (const input of chunk) {
+      const batchResult = batchResults.get(input.mint);
+      if (!batchResult) {
+        results.set(input.mint, { value: null, error: "missing helius holder batch result" });
+        continue;
+      }
+
+      results.set(input.mint, {
+        value: batchResult.error ? null : parseHolderConcentration(batchResult.value, input.supplyRaw),
+        error: batchResult.error,
+      });
+    }
+  });
+
+  return results;
 }
 
 async function loadRecipes(recipePath: string) {
@@ -1073,6 +1276,12 @@ async function saveCache(cachePath: string, cache: Record<string, CacheEntry>) {
   await fs.writeFile(cachePath, JSON.stringify(cache, null, 2));
 }
 
+function deriveWinnerCsvPath(outPath: string) {
+  const parsed = path.parse(outPath);
+  const stem = parsed.ext.length > 0 ? parsed.name : parsed.base;
+  return path.join(parsed.dir, `${stem}-winners.csv`);
+}
+
 function candidateKey(planKey: string, mint: string) {
   return `${planKey}:${mint}`;
 }
@@ -1084,6 +1293,242 @@ function isMintResearch(value: unknown): value is MintResearch {
     && "mintAuthorities" in record
     && "holderConcentration" in record
     && "errorMessage" in record;
+}
+
+function preferPositiveNumber(base: number | null | undefined, candidate: number | null | undefined) {
+  if (base !== null && base !== undefined && base > 0) {
+    return base;
+  }
+  if (candidate !== null && candidate !== undefined && candidate > 0) {
+    return candidate;
+  }
+  return base ?? candidate ?? null;
+}
+
+function mergeTokenForWinner(base: DiscoveryToken, candidate: DiscoveryToken): DiscoveryToken {
+  return {
+    ...base,
+    name: base.name || candidate.name,
+    symbol: base.symbol || candidate.symbol,
+    source: base.source || candidate.source,
+    creator: base.creator ?? candidate.creator,
+    platformId: base.platformId ?? candidate.platformId,
+    graduatedAt: preferPositiveNumber(base.graduatedAt, candidate.graduatedAt),
+    creationAt: preferPositiveNumber(base.creationAt, candidate.creationAt),
+    recentListingAt: preferPositiveNumber(base.recentListingAt, candidate.recentListingAt),
+    lastTradeAt: preferPositiveNumber(base.lastTradeAt, candidate.lastTradeAt),
+    decimals: base.decimals ?? candidate.decimals,
+    priceUsd: preferPositiveNumber(base.priceUsd, candidate.priceUsd),
+    liquidityUsd: preferPositiveNumber(base.liquidityUsd, candidate.liquidityUsd),
+    marketCapUsd: preferPositiveNumber(base.marketCapUsd, candidate.marketCapUsd),
+    fdvUsd: preferPositiveNumber(base.fdvUsd, candidate.fdvUsd),
+    totalSupply: preferPositiveNumber(base.totalSupply, candidate.totalSupply),
+    circulatingSupply: preferPositiveNumber(base.circulatingSupply, candidate.circulatingSupply),
+    holders: preferPositiveNumber(base.holders, candidate.holders),
+  };
+}
+
+function marketCapForWinner(
+  token: DiscoveryToken,
+  tradeData: TradeDataSnapshot | null,
+  mintAuthorities: MintAuthoritySnapshot | null,
+) {
+  if (token.marketCapUsd !== null && token.marketCapUsd !== undefined && token.marketCapUsd > 0) {
+    return token.marketCapUsd;
+  }
+
+  const priceUsd = tradeData?.priceUsd ?? token.priceUsd;
+  if (priceUsd === null || priceUsd === undefined) {
+    return null;
+  }
+
+  if (mintAuthorities && mintAuthorities.decimals >= 0) {
+    const supplyRaw = Number(bigIntValue(mintAuthorities.supplyRaw));
+    const normalizedSupply = supplyRaw / (10 ** mintAuthorities.decimals);
+    if (Number.isFinite(normalizedSupply) && normalizedSupply > 0) {
+      const computedMarketCap = priceUsd * normalizedSupply;
+      return computedMarketCap > 0 ? computedMarketCap : null;
+    }
+  }
+
+  const totalSupply = token.totalSupply ?? token.circulatingSupply;
+  if (totalSupply !== null && totalSupply !== undefined && totalSupply > 0) {
+    const computedMarketCap = priceUsd * totalSupply;
+    return computedMarketCap > 0 ? computedMarketCap : null;
+  }
+
+  return null;
+}
+
+function minutesSince(nowUnix: number, unixTime: number | null | undefined) {
+  if (unixTime === null || unixTime === undefined || unixTime <= 0) {
+    return null;
+  }
+
+  const normalizedUnix = unixTime > nowUnix * 10 ? unixTime / 1_000 : unixTime;
+  return Math.max(0, (nowUnix - normalizedUnix) / 60);
+}
+
+function buildWinnerSummaries(
+  queryOutcomes: QueryOutcome[],
+  deepByCandidate: Map<string, DeepEvaluation>,
+  mintResearchByMint: Map<string, MintResearch>,
+  nowUnix: number,
+) {
+  const winners = new Map<string, {
+    bestToken: DiscoveryToken;
+    winnerFacts: DiscoveryToken;
+    research: MintResearch;
+    bestScore: number;
+    recipes: Map<string, number>;
+  }>();
+
+  for (const outcome of queryOutcomes) {
+    if (outcome.status !== "ok") continue;
+
+    for (const { token } of outcome.selectedTokens) {
+      const deep = deepByCandidate.get(candidateKey(outcome.plan.key, token.mint));
+      if (!deep?.pass) continue;
+
+      const research = mintResearchByMint.get(token.mint);
+      if (!research) continue;
+
+      const current = winners.get(token.mint);
+      if (!current) {
+        winners.set(token.mint, {
+          bestToken: token,
+          winnerFacts: token,
+          research,
+          bestScore: deep.playScore,
+          recipes: new Map([[outcome.plan.recipe.name, deep.playScore]]),
+        });
+        continue;
+      }
+
+      current.winnerFacts = mergeTokenForWinner(current.winnerFacts, token);
+      current.research = current.research.errorMessage ? research : current.research;
+      current.recipes.set(
+        outcome.plan.recipe.name,
+        Math.max(current.recipes.get(outcome.plan.recipe.name) ?? Number.NEGATIVE_INFINITY, deep.playScore),
+      );
+      if (deep.playScore > current.bestScore) {
+        current.bestScore = deep.playScore;
+        current.bestToken = token;
+      }
+    }
+  }
+
+  return [...winners.entries()]
+    .map(([mint, winner]) => {
+      const token = mergeTokenForWinner(winner.bestToken, winner.winnerFacts);
+      const tradeData = winner.research.tradeData;
+      const holderConcentration = winner.research.holderConcentration;
+      const mintAuthorities = winner.research.mintAuthorities;
+      const recipeNames = [...winner.recipes.entries()]
+        .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+        .map(([recipeName]) => recipeName);
+
+      return {
+        tokenName: token.name || token.symbol || mint,
+        address: mint,
+        timeSinceGraduationMin: minutesSince(nowUnix, token.graduatedAt),
+        timeSinceCreationMin: minutesSince(nowUnix, token.creationAt),
+        priceUsd: tradeData?.priceUsd ?? token.priceUsd ?? null,
+        liquidityUsd: token.liquidityUsd ?? null,
+        holders: token.holders ?? null,
+        volume1mUsd: tradeData?.volume1mUsd ?? token.volume1mUsd ?? null,
+        volume5mUsd: tradeData?.volume5mUsd ?? token.volume5mUsd ?? null,
+        volumeChange1mPercent: tradeData?.volume1mChangePercent ?? token.volume1mChangePercent ?? null,
+        volumeChange5mPercent: tradeData?.volume5mChangePercent ?? token.volume5mChangePercent ?? null,
+        priceChange1mPercent: tradeData?.priceChange1mPercent ?? token.priceChange1mPercent ?? null,
+        priceChange5mPercent: tradeData?.priceChange5mPercent ?? token.priceChange5mPercent ?? null,
+        trades1m: tradeData?.trades1m ?? token.trades1m ?? null,
+        trades5m: tradeData?.trades5m ?? token.trades5m ?? null,
+        uniqueWallets5m: tradeData?.uniqueWallets5m ?? null,
+        uniqueWallets24h: tradeData?.uniqueWallets24h ?? null,
+        buySellRatio: tradeData
+          ? (tradeData.volumeBuy5mUsd ?? 0) / Math.max(tradeData.volumeSell5mUsd ?? 0, 1)
+          : null,
+        marketCapUsd: marketCapForWinner(token, tradeData, mintAuthorities),
+        mintAuth: mintAuthorities?.mintAuthority ?? "inactive",
+        top10HolderPercent: holderConcentration?.top10Percent ?? null,
+        maxSingleHolderPercent: holderConcentration?.largestHolderPercent ?? null,
+        score: winner.bestScore,
+        whichRecipes: recipeNames,
+      } satisfies WinnerSummary;
+    })
+    .sort((left, right) => right.score - left.score || left.tokenName.localeCompare(right.tokenName));
+}
+
+function formatCsvCell(value: string | number | null | undefined) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  const text = typeof value === "number" ? String(value) : value;
+  if (/[",\n]/.test(text)) {
+    return `"${text.replaceAll("\"", "\"\"")}"`;
+  }
+  return text;
+}
+
+function formatWinnerNumber(value: number | null, digits: number) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  return value.toFixed(digits);
+}
+
+function renderWinnerCsv(winners: WinnerSummary[]) {
+  const header = [
+    "token_name",
+    "address",
+    "time_since_graduation_min",
+    "time_since_creation_min",
+    "volume_1m_usd",
+    "volume_5m_usd",
+    "volume_change_1m_percent",
+    "volume_change_5m_percent",
+    "price_change_1m_percent",
+    "price_change_5m_percent",
+    "trades_1m",
+    "trades_5m",
+    "unique_wallets_24h",
+    "market_cap_usd",
+    "mint_auth",
+    "top10_holder_percent",
+    "max_single_holder_percent",
+    "score",
+    "which_recipes",
+  ];
+
+  const rows = winners.map((winner) => ([
+    winner.tokenName,
+    winner.address,
+    formatWinnerNumber(winner.timeSinceGraduationMin, 2),
+    formatWinnerNumber(winner.timeSinceCreationMin, 2),
+    formatWinnerNumber(winner.volume1mUsd, 2),
+    formatWinnerNumber(winner.volume5mUsd, 2),
+    formatWinnerNumber(winner.volumeChange1mPercent, 2),
+    formatWinnerNumber(winner.volumeChange5mPercent, 2),
+    formatWinnerNumber(winner.priceChange1mPercent, 2),
+    formatWinnerNumber(winner.priceChange5mPercent, 2),
+    formatWinnerNumber(winner.trades1m, 0),
+    formatWinnerNumber(winner.trades5m, 0),
+    formatWinnerNumber(winner.uniqueWallets24h, 0),
+    formatWinnerNumber(winner.marketCapUsd, 2),
+    winner.mintAuth ?? "",
+    formatWinnerNumber(winner.top10HolderPercent, 2),
+    formatWinnerNumber(winner.maxSingleHolderPercent, 2),
+    formatWinnerNumber(winner.score, 4),
+    winner.whichRecipes.join("|"),
+  ]));
+
+  return [
+    header.map(formatCsvCell).join(","),
+    ...rows.map((row) => row.map(formatCsvCell).join(",")),
+  ].join("\n");
 }
 
 function summarizeQuery(
@@ -1203,8 +1648,12 @@ async function main() {
   );
   const sources = csv(args.sources, DEFAULT_SOURCES);
   const recipeNames = new Set(csv(args["recipe-names"]));
+  const profileNameArg = asString(args.profile, "high-value");
+  const profileName = profileNameArg === "runtime" || profileNameArg === "scalp"
+    ? profileNameArg
+    : "high-value";
   const thresholds = applyThresholdOverrides(
-    buildThresholds(asString(args.profile, "high-value") === "runtime" ? "runtime" : "high-value"),
+    buildThresholds(profileName),
     args,
   );
   const deepEvalLimitOverride = asInt(args["deep-eval-limit"], 0);
@@ -1212,6 +1661,9 @@ async function main() {
   const deepConcurrency = asInt(args["deep-concurrency"], 4);
   const cacheTtlSeconds = asInt(args["cache-ttl-seconds"], 300);
   const outPath = typeof args.out === "string" ? path.resolve(process.cwd(), args.out) : null;
+  const outCsvPath = typeof args["out-csv"] === "string"
+    ? path.resolve(process.cwd(), args["out-csv"])
+    : (outPath ? deriveWinnerCsvPath(outPath) : null);
   const allowOverfiltered = args["allow-overfiltered"] === true;
   const cachePath = path.resolve(
     typeof args["cache-file"] === "string"
@@ -1344,39 +1796,71 @@ async function main() {
   const cache = await loadCache(cachePath);
   const deepByCandidate = new Map<string, DeepEvaluation>();
   const selectedEntries = [...selectedTokenMap.values()];
+  const uncachedEntries: RankedToken[] = [];
 
-  await mapWithConcurrency(selectedEntries, deepConcurrency, async ({ token }) => {
-    if (mintResearchByMint.has(token.mint)) {
-      return;
-    }
-
-    const cached = cache[token.mint];
+  for (const entry of selectedEntries) {
+    const cached = cache[entry.token.mint];
     if (cached && isMintResearch(cached.value) && (Date.now() - cached.fetchedAt) <= cacheTtlSeconds * 1_000) {
-      mintResearchByMint.set(token.mint, cached.value);
-      return;
+      mintResearchByMint.set(entry.token.mint, cached.value);
+      continue;
     }
 
+    uncachedEntries.push(entry);
+  }
+
+  const tradeDataByMint = new Map<string, BatchFetchResult<TradeDataSnapshot>>();
+  await mapWithConcurrency(uncachedEntries, deepConcurrency, async ({ token }) => {
     try {
-      const tradeData = await getTradeData(token.mint);
-      const mintAuthorities = await getMintAuthorities(token.mint);
-      const holderConcentration = mintAuthorities
-        ? await getHolderConcentration(token.mint, mintAuthorities.supplyRaw)
-        : null;
-      mintResearchByMint.set(token.mint, {
-        tradeData,
-        mintAuthorities,
-        holderConcentration,
-        errorMessage: null,
+      tradeDataByMint.set(token.mint, {
+        value: await getTradeData(token.mint),
+        error: null,
       });
     } catch (error) {
-      mintResearchByMint.set(token.mint, {
-        tradeData: null,
-        mintAuthorities: null,
-        holderConcentration: null,
-        errorMessage: error instanceof Error ? error.message : String(error),
+      tradeDataByMint.set(token.mint, {
+        value: null,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
   });
+
+  const mintAuthorityByMint = await getMintAuthoritiesBatch(
+    uncachedEntries.map(({ token }) => token.mint),
+  );
+  const holderConcentrationByMint = await getHolderConcentrationsBatch(
+    uncachedEntries.map(({ token }) => ({
+      mint: token.mint,
+      supplyRaw: mintAuthorityByMint.get(token.mint)?.value?.supplyRaw ?? "0",
+    })),
+    Math.min(Math.max(1, deepConcurrency), 4),
+  );
+
+  for (const { token } of uncachedEntries) {
+    const tradeDataResult = tradeDataByMint.get(token.mint) ?? {
+      value: null,
+      error: "missing birdeye trade-data result",
+    } satisfies BatchFetchResult<TradeDataSnapshot>;
+    const mintAuthorityResult = mintAuthorityByMint.get(token.mint) ?? {
+      value: null,
+      error: "missing helius mint-authority result",
+    } satisfies BatchFetchResult<MintAuthoritySnapshot>;
+    const holderResult = holderConcentrationByMint.get(token.mint) ?? {
+      value: null,
+      error: "missing helius holder-concentration result",
+    } satisfies BatchFetchResult<HolderConcentration>;
+
+    const errors = [
+      tradeDataResult.error,
+      mintAuthorityResult.error,
+      holderResult.error,
+    ].filter((value): value is string => typeof value === "string" && value.length > 0);
+
+    mintResearchByMint.set(token.mint, {
+      tradeData: tradeDataResult.value,
+      mintAuthorities: mintAuthorityResult.value,
+      holderConcentration: holderResult.value,
+      errorMessage: errors.length > 0 ? errors.join("; ") : null,
+    });
+  }
 
   for (const outcome of queryOutcomes) {
     if (outcome.status !== "ok") continue;
@@ -1473,9 +1957,17 @@ async function main() {
     }
   }
 
+  const generatedAt = new Date().toISOString();
+  const winnerSummaries = buildWinnerSummaries(
+    queryOutcomes,
+    deepByCandidate,
+    mintResearchByMint,
+    Math.floor(new Date(generatedAt).getTime() / 1_000),
+  );
+
   if (outPath) {
     const report = {
-      generatedAt: new Date().toISOString(),
+      generatedAt,
       profile: thresholds.profileName,
       thresholds,
       recipePath,
@@ -1483,6 +1975,7 @@ async function main() {
       queryCount: plans.length,
       querySummaries,
       sourceSummaries,
+      winners: winnerSummaries,
       deepEvaluations: queryOutcomes
         .filter((outcome) => outcome.status === "ok")
         .flatMap((outcome) => outcome.selectedTokens.map(({ token }) => {
@@ -1500,6 +1993,22 @@ async function main() {
             grade: deep.grade,
             pass: deep.pass,
             rejectReason: deep.rejectReason,
+            priceUsd: deep.tradeData?.priceUsd ?? token.priceUsd ?? null,
+            liquidityUsd: token.liquidityUsd ?? null,
+            marketCapUsd: token.marketCapUsd ?? null,
+            holders: token.holders ?? null,
+            volume5mUsd: deep.tradeData?.volume5mUsd ?? token.volume5mUsd ?? null,
+            volume30mUsd: deep.tradeData?.volume30mUsd ?? token.volume30mUsd ?? null,
+            uniqueWallets5m: deep.tradeData?.uniqueWallets5m ?? null,
+            buySellRatio: deep.tradeData
+              ? (deep.tradeData.volumeBuy5mUsd ?? 0) / Math.max(deep.tradeData.volumeSell5mUsd ?? 0, 1)
+              : null,
+            priceChange5mPercent: deep.tradeData?.priceChange5mPercent ?? token.priceChange5mPercent ?? null,
+            priceChange30mPercent: deep.tradeData?.priceChange30mPercent ?? token.priceChange30mPercent ?? null,
+            top10HolderPercent: deep.holderConcentration?.top10Percent ?? null,
+            largestHolderPercent: deep.holderConcentration?.largestHolderPercent ?? null,
+            timeSinceGraduationMin: minutesSince(nowUnix, token.graduatedAt),
+            timeSinceCreationMin: minutesSince(nowUnix, token.creationAt),
             softIssues: deep.softIssues,
             notes: deep.notes,
           };
@@ -1509,6 +2018,12 @@ async function main() {
     await fs.mkdir(path.dirname(outPath), { recursive: true });
     await fs.writeFile(outPath, JSON.stringify(report, null, 2));
     console.log(`\nWrote report to ${outPath}`);
+  }
+
+  if (outCsvPath) {
+    await fs.mkdir(path.dirname(outCsvPath), { recursive: true });
+    await fs.writeFile(outCsvPath, renderWinnerCsv(winnerSummaries));
+    console.log(`Wrote winners CSV to ${outCsvPath}`);
   }
 }
 

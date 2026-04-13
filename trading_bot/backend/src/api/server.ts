@@ -1,7 +1,14 @@
 import express from "express";
+import { ZodError } from "zod";
 import { db } from "../db/client.js";
 import { env } from "../config/env.js";
 import type { BotSettings, RuntimeSnapshot } from "../types/domain.js";
+import type {
+  DiscoveryLabCatalog,
+  DiscoveryLabPackDraft,
+  DiscoveryLabRunRequest,
+} from "../services/discovery-lab-service.js";
+import type { DiscoveryLabMarketRegimeResponse } from "../services/discovery-lab-market-regime-service.js";
 
 function parseLimit(value: unknown, fallback: number, max: number): number {
   const parsed = Number(value);
@@ -13,6 +20,9 @@ function parseLimit(value: unknown, fallback: number, max: number): number {
 }
 
 function errorToStatus(error: unknown): number {
+  if (error instanceof ZodError) {
+    return 400;
+  }
   const message = error instanceof Error ? error.message.toLowerCase() : "";
   if (message.includes("not found")) {
     return 404;
@@ -28,6 +38,18 @@ function errorToStatus(error: unknown): number {
   }
 
   return 500;
+}
+
+function formatErrorMessage(error: unknown): string {
+  if (error instanceof ZodError) {
+    return error.issues
+      .map((issue) => {
+        const path = issue.path.length > 0 ? issue.path.join(".") : "request";
+        return `${path}: ${issue.message}`;
+      })
+      .join("; ");
+  }
+  return error instanceof Error ? error.message : "internal server error";
 }
 
 export function createApiServer(deps: {
@@ -52,6 +74,14 @@ export function createApiServer(deps: {
   triggerDiscovery: () => Promise<void>;
   triggerEvaluation: () => Promise<void>;
   triggerExitCheck: () => Promise<void>;
+  getDiscoveryLabCatalog: () => Promise<DiscoveryLabCatalog>;
+  validateDiscoveryLabDraft: (input: DiscoveryLabPackDraft, allowOverfiltered?: boolean) => Promise<unknown>;
+  saveDiscoveryLabPack: (input: DiscoveryLabPackDraft) => Promise<unknown>;
+  deleteDiscoveryLabPack: (packId: string) => Promise<unknown>;
+  startDiscoveryLabRun: (input: DiscoveryLabRunRequest) => Promise<unknown>;
+  listDiscoveryLabRuns: () => Promise<unknown>;
+  getDiscoveryLabRun: (runId: string) => Promise<unknown | null>;
+  getDiscoveryLabMarketRegime: (runId: string) => Promise<DiscoveryLabMarketRegimeResponse>;
 }) {
   const app = express();
   app.use(express.json());
@@ -74,6 +104,12 @@ export function createApiServer(deps: {
   });
 
   app.use("/api/settings", (req, res, next) => {
+    if (req.method === "GET" || !env.CONTROL_API_SECRET) return next();
+    if (req.headers["x-control-secret"] === env.CONTROL_API_SECRET) return next();
+    return res.status(401).json({ error: "unauthorized" });
+  });
+
+  app.use("/api/operator/discovery-lab", (req, res, next) => {
     if (req.method === "GET" || !env.CONTROL_API_SECRET) return next();
     if (req.headers["x-control-secret"] === env.CONTROL_API_SECRET) return next();
     return res.status(401).json({ error: "unauthorized" });
@@ -134,6 +170,49 @@ export function createApiServer(deps: {
 
   app.get("/api/operator/diagnostics", async (_req, res) => {
     res.json(await deps.getDiagnostics());
+  });
+
+  app.get("/api/operator/discovery-lab/catalog", async (_req, res) => {
+    res.json(await deps.getDiscoveryLabCatalog());
+  });
+
+  app.get("/api/operator/discovery-lab/market-regime", async (req, res) => {
+    const runId = typeof req.query.runId === "string" ? req.query.runId.trim() : "";
+    if (!runId) {
+      return res.status(400).json({ error: "runId is required" });
+    }
+    return res.json(await deps.getDiscoveryLabMarketRegime(runId));
+  });
+
+  app.post("/api/operator/discovery-lab/validate", async (req, res) => {
+    res.json(await deps.validateDiscoveryLabDraft(req.body?.draft ?? req.body ?? {}, req.body?.allowOverfiltered === true));
+  });
+
+  app.post("/api/operator/discovery-lab/packs/save", async (req, res) => {
+    res.json(await deps.saveDiscoveryLabPack(req.body ?? {}));
+  });
+
+  app.post("/api/operator/discovery-lab/packs/delete", async (req, res) => {
+    if (typeof req.body?.packId !== "string" || req.body.packId.trim().length === 0) {
+      return res.status(400).json({ error: "packId is required" });
+    }
+    return res.json(await deps.deleteDiscoveryLabPack(req.body.packId));
+  });
+
+  app.post("/api/operator/discovery-lab/run", async (req, res) => {
+    res.json(await deps.startDiscoveryLabRun(req.body ?? {}));
+  });
+
+  app.get("/api/operator/discovery-lab/runs", async (_req, res) => {
+    res.json(await deps.listDiscoveryLabRuns());
+  });
+
+  app.get("/api/operator/discovery-lab/runs/:id", async (req, res) => {
+    const run = await deps.getDiscoveryLabRun(req.params.id);
+    if (!run) {
+      return res.status(404).json({ error: "discovery lab run not found" });
+    }
+    return res.json(run);
   });
 
   app.get("/api/candidates", async (req, res) => {
@@ -303,7 +382,7 @@ export function createApiServer(deps: {
   });
 
   app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    const message = error instanceof Error ? error.message : "internal server error";
+    const message = formatErrorMessage(error);
     res.status(errorToStatus(error)).json({ error: message });
   });
 

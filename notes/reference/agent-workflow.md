@@ -66,11 +66,12 @@ Put the knowledge in the narrowest correct place:
 ## Standard Procedure
 
 1. Read the minimum note surface that can answer the task.
-2. Ask questions only if they change the shape of the solution.
-3. Change the smallest correct file set.
-4. Verify the changed surface.
-5. Update the owning note in the same pass.
-6. Promote repeated procedures into skills instead of preserving prompt-heavy notes.
+2. For ambiguous or planning-heavy work, start in ask mode and use a structured prompt shape: title, description, context.
+3. Ask questions only if they change the shape of the solution.
+4. Change the smallest correct file set.
+5. Verify the changed surface.
+6. Update the owning note in the same pass.
+7. Promote repeated procedures into skills instead of preserving prompt-heavy notes.
 
 ## Vault Rules
 
@@ -87,6 +88,10 @@ Put the knowledge in the narrowest correct place:
 - prefer concise summaries over long copied logs, code, or command output
 - convert repeated procedures into skills so future runs stop paying note tax
 - follow [`tool-routing.md`](tool-routing.md) so overlapping MCPs do not turn simple tasks into expensive ones
+- prefer the compact MCP startup profile unless the task clearly needs `postgres`, browser tools, or external research
+- use background terminals and task queues for long-running or noisy work
+- compact the session before the thread becomes bloated instead of waiting for a hard reset
+- use lightweight git checkpoints like `git status` and `git diff --stat` to re-anchor repo state during long sessions
 
 ## Failure Modes
 

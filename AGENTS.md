@@ -73,6 +73,16 @@ Do not jump straight into source files before completing that read order.
 - Use Graphify only for architecture or ownership questions, not as a default preflight on every task.
 - Follow `notes/reference/tool-routing.md` for MCP and tool choice so agents do not waste context on overlapping surfaces.
 
+## Session Context Optimization
+
+- Treat `~/.codex/config.toml` as the live MCP registry. The repo `.codex/config.toml` is only the checked-in template for `node ./.codex/scripts/install-mcp-config.cjs`.
+- Default MCP profile should stay compact. Enable broader MCP surfaces only when the task clearly needs browser automation, external docs, Grafana, Helius, or database reads.
+- Prefer primary tools over helper duplicates. In practice: `desktop_commander` before `filesystem`, `chrome_devtools` before `browsermcp`, and local notes/code before external research.
+- Prefer repo-local skills under `.agents/skills/`. Do not rely on global skills for repo-specific workflows unless the skill is genuinely cross-repo.
+- For ambiguous or planning-heavy work, start in ask mode before broad file reads. Use a structured prompt shape with title, description, and context so scope is explicit.
+- For longer tasks, use task queues and background terminals so the active thread is not flooded with shell output.
+- Use compaction before the thread becomes bloated, and use lightweight git checkpoints like `git status` and `git diff --stat` before and after substantive work.
+
 ## Skill Promotion Rule
 
 Create or update a skill when a workflow has most of these traits:
@@ -113,11 +123,11 @@ When a procedure becomes a skill:
 
 - Repo-local graph workflow lives in `.agents/skills/graphify/SKILL.md`.
 - Repo-local Obsidian workflow lives in `.agents/skills/obsidian/SKILL.md`.
-- Use `.codex/scripts/graphify.sh build-local .` for the default full build path in this repo.
+- Use `node ./.codex/scripts/graphify.mjs build-local .` for the default full build path in this repo.
 - The repo graph is code-only. `.md` and other non-code files are intentionally excluded.
 - Use the repo-local `$graphify` skill for the supported local workflow in this repo.
 - Graph output lives at `graphify-out/` in repo root.
 - Repo memory notes live at `notes/` in repo root.
 - Canonical repo docs also live inside the vault at `notes/reference/`.
 - Before opening code for architecture or ownership work, read `graphify-out/GRAPH_REPORT.md` when it exists.
-- After modifying code files, run `.codex/scripts/graphify-rebuild.sh` if `graphify-out/graph.json` already exists.
+- After modifying code files, run `node ./.codex/scripts/graphify-rebuild.mjs` if `graphify-out/graph.json` already exists.

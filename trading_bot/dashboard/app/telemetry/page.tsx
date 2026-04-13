@@ -27,7 +27,7 @@ export default async function TelemetryPage() {
     <div className="space-y-5">
       <PageHero
         eyebrow="Telemetry"
-        title="Fault console"
+        title="Faults"
         description={undefined}
         actions={telemetryHref ? (
           <a
@@ -43,7 +43,7 @@ export default async function TelemetryPage() {
         ) : null}
         aside={(
           <div className="panel-muted rounded-[16px] p-4">
-            <div className="section-kicker">Live slice</div>
+            <div className="section-kicker">Live</div>
             <div className="mt-4 grid gap-3">
               <SummaryRow label="Top issue" value={topIssue?.label ?? "None"} />
               <SummaryRow label="Stale" value={diagnostics.staleComponents.join(", ") || "None"} />
@@ -60,7 +60,7 @@ export default async function TelemetryPage() {
                 >
                   {item.provider}
                 </a>
-              )) : <span className="text-sm text-text-secondary">No provider pivots configured.</span>}
+              )) : <span className="text-sm text-text-secondary">No provider link.</span>}
             </div>
           </div>
         )}
@@ -68,8 +68,8 @@ export default async function TelemetryPage() {
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Provider errors" value={formatInteger(diagnostics.summary.providerErrors)} detail={`${formatInteger(diagnostics.summary.totalCalls)} calls today`} tone={diagnostics.summary.providerErrors > 0 ? "danger" : "default"} />
-        <StatCard label="Provider units" value={formatInteger(diagnostics.summary.totalUnits)} detail="Burn today" tone="warning" />
-        <StatCard label="Payload failures" value={formatInteger(diagnostics.summary.latestPayloadFailures)} detail="Last six hours" tone={diagnostics.summary.latestPayloadFailures > 0 ? "danger" : "default"} />
+        <StatCard label="Provider units" value={formatInteger(diagnostics.summary.totalUnits)} detail="Today" tone="warning" />
+        <StatCard label="Payload failures" value={formatInteger(diagnostics.summary.latestPayloadFailures)} detail="6h" tone={diagnostics.summary.latestPayloadFailures > 0 ? "danger" : "default"} />
         <StatCard label="Stale components" value={formatInteger(diagnostics.staleComponents.length)} detail={diagnostics.staleComponents.join(", ") || "None"} tone={diagnostics.staleComponents.length > 0 ? "warning" : "success"} />
       </section>
 
@@ -100,7 +100,7 @@ export default async function TelemetryPage() {
         <DataTable
           title="Provider pressure"
           eyebrow="Today"
-          description="Current provider failure and burn."
+          description="Current burn."
           rows={diagnostics.providerRows}
           preferredKeys={["provider", "total_calls", "total_units", "avg_latency_ms", "error_count"]}
           emptyTitle="No provider rows"
@@ -110,7 +110,7 @@ export default async function TelemetryPage() {
         <DataTable
           title="Endpoint faults"
           eyebrow="Highest burn first"
-          description="Endpoint burn, latency, and failure."
+          description="Hot endpoints."
           rows={diagnostics.endpointRows}
           preferredKeys={["provider", "endpoint", "total_calls", "total_units", "avg_latency_ms", "error_count", "last_called_at"]}
           emptyTitle="No endpoint rows"

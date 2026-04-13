@@ -45,7 +45,7 @@ export default async function PositionsPage(props: { searchParams?: SearchParams
         meta={<StatusPill value={book} />}
         actions={(
           <div className="flex flex-wrap gap-3">
-            <IconAction href={buildPositionsHref({ book, sort, q: query }) as Route} icon={ArrowDownUp} label={sortLabel(sort)} title="Current position sort" subtle />
+            <IconAction href={buildPositionsHref({ book, sort, q: query }) as Route} icon={ArrowDownUp} label={`Sort: ${sortLabel(sort)}`} title="Current position sort" subtle />
             {grafanaHref ? (
               <a
                 href={grafanaHref}
@@ -62,7 +62,7 @@ export default async function PositionsPage(props: { searchParams?: SearchParams
         )}
         aside={(
           <div className="panel-muted rounded-[16px] p-4">
-            <div className="section-kicker">Snapshot</div>
+            <div className="section-kicker">View</div>
             <div className="mt-4 grid gap-3">
               <SummaryRow label="Open" value={formatInteger(payload.totals.openCount)} />
               <SummaryRow label="Closed" value={formatInteger(payload.totals.closedCount)} />
@@ -82,7 +82,7 @@ export default async function PositionsPage(props: { searchParams?: SearchParams
           <div className="mt-3 text-3xl font-semibold tracking-tight text-text-primary">{formatInteger(payload.totals.closedCount)}</div>
         </Link>
         <div className="rounded-[16px] border border-bg-border bg-bg-hover/35 px-4 py-4">
-          <div className="section-kicker">Realized edge</div>
+          <div className="section-kicker">Realized</div>
           <div className="mt-3 text-3xl font-semibold tracking-tight text-text-primary">{formatCompactCurrency(payload.totals.realizedPnlUsd)}</div>
         </div>
       </section>
@@ -90,10 +90,10 @@ export default async function PositionsPage(props: { searchParams?: SearchParams
       <section className="workbench-controls sticky top-[5.15rem] z-20">
         <div className="flex flex-1 flex-wrap gap-2">
           {([
-            ["priority", "Intervention priority"],
-            ["opened", "Newest opened"],
-            ["current", "Highest current price"],
-            ["remaining", "Largest remaining"],
+            ["priority", "Priority"],
+            ["opened", "Opened"],
+            ["current", "Current"],
+            ["remaining", "Remaining"],
           ] as const).map(([value, label]) => (
             <Link
               key={value}
@@ -113,7 +113,7 @@ export default async function PositionsPage(props: { searchParams?: SearchParams
             <input
               name="q"
               defaultValue={query}
-              placeholder="Filter symbol, mint, intervention, exit"
+              placeholder="Filter symbol, mint, exit"
               className="w-full bg-transparent text-sm text-text-primary outline-none placeholder:text-text-muted"
             />
           </div>
@@ -136,7 +136,7 @@ export default async function PositionsPage(props: { searchParams?: SearchParams
       >
         {rows.length === 0 ? (
           <div className="rounded-[14px] border border-bg-border bg-bg-hover/40 px-4 py-4 text-sm text-text-secondary">
-            {query ? "No positions match this filter." : "No positions in this book yet."}
+            {query ? "No match." : "No positions in this book."}
           </div>
         ) : (
           <div className="overflow-hidden rounded-[16px] border border-bg-border bg-bg-card/45">

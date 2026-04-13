@@ -75,7 +75,7 @@ When a procedure becomes a skill:
 - The repo-level graph lives at `../graphify-out/`.
 - Repo memory notes live at `../notes/`.
 - Canonical repo docs also live inside the vault at `../notes/reference/`.
-- If the graph does not exist yet, build it from repo root with `.codex/scripts/graphify.sh build-local .`.
+- If the graph does not exist yet, build it from repo root with `node ./.codex/scripts/graphify.mjs build-local .`.
 - The repo graph is code-only; markdown docs are intentionally excluded.
 - Before opening code for architecture or ownership questions, read `../graphify-out/GRAPH_REPORT.md` when it exists.
-- After modifying code files in `trading_bot/`, run `.codex/scripts/graphify-rebuild.sh` from repo root if the repo graph already exists.
+- After modifying code files in `trading_bot/`, run `node ./.codex/scripts/graphify-rebuild.mjs` from repo root if the repo graph already exists.

@@ -32,6 +32,7 @@ Thumbs.db
 .claude/settings.local.json
 trading_bot/.claude/settings.local.json
 .codex/tmp/
+.local/
 .codex/scripts/__pycache__/
 .graphify-venv/
 graphify-out/

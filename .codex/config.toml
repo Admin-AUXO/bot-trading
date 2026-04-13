@@ -1,3 +1,15 @@
+# Repo-local Codex template for this repository.
+# Current Codex CLI builds load MCP servers from ~/.codex/config.toml rather than
+# this file directly. Install the managed repo MCP block with:
+#   node ./.codex/scripts/install-mcp-config.cjs
+# Optional profiles:
+#   node ./.codex/scripts/install-mcp-config.cjs --profile db
+#   node ./.codex/scripts/install-mcp-config.cjs --profile full
+# Then restart Codex so the refreshed MCP registry is loaded.
+#
+# Default policy: keep startup compact. Only the primary local file tool should
+# come up on fresh sessions unless the task clearly needs more.
+
 approval_policy = "never"
 experimental_windows_sandbox = false
 model = "gpt-5.4"
@@ -14,8 +26,9 @@ max_depth = 1
 max_threads = 3
 
 [mcp_servers.browsermcp]
-args = ["-y", "@browsermcp/mcp"]
-command = "npx"
+args = [".codex/scripts/start-stdio-command.cjs", "npx", "-y", "@browsermcp/mcp"]
+command = "node"
+enabled = false
 required = false
 startup_timeout_ms = 20000
 tool_timeout_sec = 90
@@ -32,38 +45,41 @@ tool_timeout_sec = 45
 
 [mcp_servers.chrome_devtools]
 args = [
+    ".codex/scripts/start-stdio-command.cjs",
+    "npx",
     "-y",
     "chrome-devtools-mcp@latest",
 ]
-command = "npx"
+command = "node"
+enabled = false
 required = false
 startup_timeout_sec = 45
 tool_timeout_sec = 90
 
 [mcp_servers.context7]
+enabled = false
 required = false
 startup_timeout_ms = 20000
 url = "https://mcp.context7.com/mcp"
 
 [mcp_servers.desktop_commander]
-args = [
-    "-y",
-    "@wonderwhy-er/desktop-commander@latest",
-    "--no-onboarding",
-]
-command = "npx"
+args = [".codex/scripts/start-desktop-commander.cjs"]
+command = "node"
 required = false
-startup_timeout_ms = 30000
+startup_timeout_ms = 90000
 tool_timeout_sec = 120
 
 [mcp_servers.fetch]
-args = ["mcp-server-fetch"]
-command = "uvx"
+args = [".codex/scripts/start-stdio-command.cjs", "uvx", "mcp-server-fetch"]
+command = "node"
+enabled = false
 required = false
 startup_timeout_ms = 20000
 
 [mcp_servers.github]
 args = [
+    ".codex/scripts/start-stdio-command.cjs",
+    "docker",
     "run",
     "-i",
     "--rm",
@@ -74,7 +90,7 @@ args = [
     "--toolsets",
     "repos,issues,pull_requests,actions",
 ]
-command = "docker"
+command = "node"
 # Disabled by default in shared repo config.
 # Verified broken on this Windows host because the current GitHub Docker stdio server
 # speaks newline-delimited JSON instead of framed MCP stdio. macOS users can opt in
@@ -85,51 +101,62 @@ required = false
 [mcp_servers.filesystem]
 args = [".codex/scripts/start-filesystem-mcp.cjs"]
 command = "node"
+enabled = false
 required = false
 
 [mcp_servers.memory]
 args = [
+    ".codex/scripts/start-stdio-command.cjs",
+    "npx",
     "-y",
     "@modelcontextprotocol/server-memory",
 ]
-command = "npx"
+command = "node"
 enabled = false
 required = false
 startup_timeout_ms = 20000
 
 [mcp_servers.postgres]
 args = [
+    ".codex/scripts/start-stdio-command.cjs",
+    "npx",
     "-y",
     "@modelcontextprotocol/server-postgres",
     "postgresql://botuser:botpass@127.0.0.1:56432/trading_bot",
 ]
-command = "npx"
-enabled = true
-required = true
+command = "node"
+enabled = false
+required = false
 startup_timeout_ms = 20000
 
 [mcp_servers.helius]
 args = [
+    ".codex/scripts/start-stdio-command.cjs",
+    "npx",
     "-y",
     "helius-mcp@latest",
 ]
-command = "npx"
-enabled = true
+command = "node"
+enabled = false
 required = false
 startup_timeout_ms = 30000
 
 [mcp_servers.sequential_thinking]
 args = [
+    ".codex/scripts/start-stdio-command.cjs",
+    "npx",
     "-y",
     "@modelcontextprotocol/server-sequential-thinking",
 ]
-command = "npx"
+command = "node"
+enabled = false
 required = false
 startup_timeout_ms = 20000
 
 [mcp_servers.time]
-args = ["mcp-server-time"]
-command = "uvx"
+args = [".codex/scripts/start-stdio-command.cjs", "uvx", "mcp-server-time"]
+command = "node"
+enabled = false
 required = false
 startup_timeout_ms = 20000
 

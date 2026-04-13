@@ -62,7 +62,7 @@ export function DashboardClient(props: {
       <PageHero
         eyebrow="Graduation control"
         title={home.readiness.summary}
-        description={home.readiness.detail ?? undefined}
+        description={home.readiness.allowed ? undefined : home.readiness.detail ?? undefined}
         meta={<StatusPill value={home.readiness.allowed ? "ready" : "blocked"} />}
         actions={(
           <>
@@ -72,7 +72,7 @@ export function DashboardClient(props: {
               title="Refresh the control desk"
             >
               <RefreshCcw className="h-4 w-4" />
-              {isPending ? "Refreshing" : "Refresh desk"}
+              {isPending ? "Refreshing" : "Refresh"}
             </button>
             <Link href="/telemetry" className="btn-ghost inline-flex items-center gap-2 border border-bg-border" title="Open telemetry">
               <RadioTower className="h-4 w-4" />
@@ -101,7 +101,6 @@ export function DashboardClient(props: {
             <div className="mt-4 grid gap-3">
               <SnapshotRow label="Open" value={`${formatInteger(home.exposure.openPositions)}/${formatInteger(home.exposure.maxOpenPositions)}`} />
               <SnapshotRow label="Queue" value={formatInteger(home.queue.queuedCandidates)} />
-              <SnapshotRow label="Pace" value={`${formatInteger(home.providerPressure.usedUnits)}/${formatInteger(home.providerPressure.monthlyBudgetUnits)}`} />
               <SnapshotRow label="Updated" value={formatTimestamp(lastRefreshedAt)} />
             </div>
           </div>
@@ -125,7 +124,7 @@ export function DashboardClient(props: {
         <StatCard
           label="Queued work"
           value={formatInteger(home.queue.queuedCandidates)}
-          detail="Candidates awaiting review"
+          detail="Queue"
           tone="default"
           icon={ShieldAlert}
         />
@@ -153,7 +152,7 @@ export function DashboardClient(props: {
             <div className="flex items-center gap-2">
               <StatusPill value={home.diagnostics.status} />
               <span className="text-sm text-text-secondary">
-                {home.diagnostics.issues.length > 0 ? `${formatInteger(home.diagnostics.issues.length)} active issue(s)` : "Diagnostics are quiet."}
+                {home.diagnostics.issues.length > 0 ? `${formatInteger(home.diagnostics.issues.length)} issue(s)` : "Quiet"}
               </span>
             </div>
             {home.diagnostics.issues.length > 0 ? (
@@ -228,11 +227,11 @@ export function DashboardClient(props: {
 
       <section className="grid gap-6 2xl:grid-cols-2">
         <Panel title="Recent failures" eyebrow="Breaks first" tone={home.recentFailures.length > 0 ? "critical" : "passive"}>
-          <EventList events={home.recentFailures} emptyText="No recent warning or danger event." />
+          <EventList events={home.recentFailures} emptyText="No recent failure." />
         </Panel>
 
-        <Panel title="Recent events" eyebrow="Actions and state changes">
-          <EventList events={events.slice(0, 10)} emptyText="No operator or system events recorded yet." />
+        <Panel title="Recent events" eyebrow="Actions">
+          <EventList events={events.slice(0, 10)} emptyText="No recent event." />
         </Panel>
       </section>
     </div>
@@ -254,7 +253,7 @@ function InterventionStack(props: {
   if (props.items.length === 0) {
     return (
       <div className="rounded-[14px] border border-bg-border bg-bg-hover/40 px-4 py-4 text-sm text-text-secondary">
-        No queued intervention right now.
+        Nothing urgent.
       </div>
     );
   }
@@ -373,7 +372,7 @@ function buildInterventionItems(home: DeskHomePayload) {
       id: `queue-${bucket.bucket}`,
       level: bucket.bucket === "ready" ? "info" : bucket.bucket === "provider" ? "warning" : "danger",
       label: `${formatInteger(bucket.count)} ${bucket.label.toLowerCase()}`,
-      detail: bucket.bucket === "ready" ? "Fastest path from queue to intervention." : "Blocked candidates still need operator attention.",
+      detail: bucket.bucket === "ready" ? "Ready first." : "Still blocked.",
       href: `/candidates?bucket=${bucket.bucket}`,
     });
   }
