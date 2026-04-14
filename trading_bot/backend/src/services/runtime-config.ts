@@ -5,6 +5,24 @@ import { env } from "../config/env.js";
 import type { BotSettings } from "../types/domain.js";
 import { toJsonValue } from "../utils/json.js";
 
+function buildDefaultLiveStrategy() {
+  return {
+    enabled: false,
+    sourceRunId: null,
+    packId: null,
+    packName: null,
+    sources: [] as string[],
+    recipes: [] as BotSettings["strategy"]["liveStrategy"]["recipes"],
+    thresholdOverrides: {},
+    exitOverrides: {},
+    capitalModifierPercent: 100,
+    dominantMode: null,
+    dominantPresetId: null,
+    calibrationSummary: null,
+    updatedAt: null,
+  } satisfies BotSettings["strategy"]["liveStrategy"];
+}
+
 export type SettingsValidationIssue = {
   path: string;
   message: string;
@@ -73,6 +91,7 @@ const SETTINGS_SECTIONS: SettingsControlState["sections"] = [
       "strategy.livePresetId",
       "strategy.dryRunPresetId",
       "strategy.heliusWatcherEnabled",
+      "strategy.liveStrategy",
     ],
   },
   {
@@ -170,6 +189,64 @@ const botSettingsSchema = z.object({
     livePresetId: z.enum(["FIRST_MINUTE_POSTGRAD_CONTINUATION", "LATE_CURVE_MIGRATION_SNIPE"]),
     dryRunPresetId: z.enum(["FIRST_MINUTE_POSTGRAD_CONTINUATION", "LATE_CURVE_MIGRATION_SNIPE"]),
     heliusWatcherEnabled: z.boolean(),
+    liveStrategy: z.object({
+      enabled: z.boolean(),
+      sourceRunId: z.string().trim().min(1).nullable(),
+      packId: z.string().trim().min(1).nullable(),
+      packName: z.string().trim().min(1).nullable(),
+      sources: z.array(z.string().trim().min(1)),
+      recipes: z.array(z.object({
+        name: z.string().trim().min(1),
+        mode: z.enum(["graduated", "pregrad"]),
+        description: z.string().optional(),
+        deepEvalLimit: z.number().int().positive().max(25).optional(),
+        params: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])),
+      })),
+      thresholdOverrides: z.object({
+        minLiquidityUsd: z.number().nonnegative().optional(),
+        maxMarketCapUsd: z.number().positive().optional(),
+        minHolders: z.number().int().nonnegative().optional(),
+        minUniqueBuyers5m: z.number().int().nonnegative().optional(),
+        minBuySellRatio: z.number().nonnegative().optional(),
+        maxTop10HolderPercent: z.number().nonnegative().max(100).optional(),
+        maxSingleHolderPercent: z.number().nonnegative().max(100).optional(),
+        maxGraduationAgeSeconds: z.number().int().positive().optional(),
+        minVolume5mUsd: z.number().nonnegative().optional(),
+        maxNegativePriceChange5mPercent: z.number().nonnegative().optional(),
+        securityCheckMinLiquidityUsd: z.number().nonnegative().optional(),
+        securityCheckVolumeMultiplier: z.number().positive().optional(),
+        maxTransferFeePercent: z.number().nonnegative().max(100).optional(),
+      }),
+      exitOverrides: z.object({
+        stopLossPercent: z.number().min(4).max(35).optional(),
+        tp1Multiplier: z.number().min(1.05).max(2.2).optional(),
+        tp2Multiplier: z.number().min(1.2).max(3.5).optional(),
+        tp1SellFraction: z.number().min(0.1).max(0.9).optional(),
+        tp2SellFraction: z.number().min(0.05).max(0.6).optional(),
+        postTp1RetracePercent: z.number().min(3).max(25).optional(),
+        trailingStopPercent: z.number().min(4).max(30).optional(),
+        timeStopMinutes: z.number().min(1).max(30).optional(),
+        timeStopMinReturnPercent: z.number().min(0).max(25).optional(),
+        timeLimitMinutes: z.number().min(2).max(60).optional(),
+      }),
+      capitalModifierPercent: z.number().min(40).max(180),
+      dominantMode: z.enum(["graduated", "pregrad"]).nullable(),
+      dominantPresetId: z.enum(["FIRST_MINUTE_POSTGRAD_CONTINUATION", "LATE_CURVE_MIGRATION_SNIPE"]).nullable(),
+      calibrationSummary: z.object({
+        winnerCount: z.number().int().nonnegative(),
+        avgWinnerScore: z.number().nonnegative().nullable(),
+        avgWinnerVolume5mUsd: z.number().nonnegative().nullable(),
+        avgWinnerMarketCapUsd: z.number().nonnegative().nullable(),
+        avgWinnerTimeSinceGraduationMin: z.number().nonnegative().nullable(),
+        avgRecipeOverlap: z.number().nonnegative().nullable(),
+        volumeStrength: z.number().min(0).max(1).nullable(),
+        graduationFreshness: z.number().min(0).max(1).nullable(),
+        calibrationConfidence: z.number().min(0).max(1).nullable(),
+        dominantMode: z.enum(["graduated", "pregrad"]).nullable(),
+        derivedProfile: z.enum(["scalp", "balanced", "runner"]).nullable(),
+      }).nullable(),
+      updatedAt: z.string().datetime().nullable(),
+    }),
   }),
   capital: z.object({
     capitalUsd: z.number().positive(),
@@ -267,6 +344,52 @@ const botSettingsSchema = z.object({
       path: ["exits", "timeLimitMinutes"],
     });
   }
+
+  const liveStrategy = settings.strategy.liveStrategy;
+  if (liveStrategy.enabled && liveStrategy.recipes.length === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "live strategy requires at least one discovery recipe when enabled",
+      path: ["strategy", "liveStrategy", "recipes"],
+    });
+  }
+
+  const liveExits = liveStrategy.exitOverrides;
+  if (
+    liveExits.tp1Multiplier !== undefined
+    && liveExits.tp2Multiplier !== undefined
+    && liveExits.tp2Multiplier <= liveExits.tp1Multiplier
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "live strategy TP2 must be greater than TP1",
+      path: ["strategy", "liveStrategy", "exitOverrides", "tp2Multiplier"],
+    });
+  }
+
+  if (
+    liveExits.tp1SellFraction !== undefined
+    && liveExits.tp2SellFraction !== undefined
+    && liveExits.tp1SellFraction + liveExits.tp2SellFraction > 1
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "live strategy TP sell fractions cannot exceed 1 in total",
+      path: ["strategy", "liveStrategy", "exitOverrides", "tp2SellFraction"],
+    });
+  }
+
+  if (
+    liveExits.timeStopMinutes !== undefined
+    && liveExits.timeLimitMinutes !== undefined
+    && liveExits.timeLimitMinutes < liveExits.timeStopMinutes
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "live strategy hard time limit must be greater than or equal to soft time stop",
+      path: ["strategy", "liveStrategy", "exitOverrides", "timeLimitMinutes"],
+    });
+  }
 });
 
 export function buildDefaultSettings(): BotSettings {
@@ -295,6 +418,7 @@ export function buildDefaultSettings(): BotSettings {
       livePresetId: env.LIVE_STRATEGY_PRESET_ID,
       dryRunPresetId: env.DRY_RUN_STRATEGY_PRESET_ID,
       heliusWatcherEnabled: env.HELIUS_MIGRATION_WATCHER_ENABLED,
+      liveStrategy: buildDefaultLiveStrategy(),
     },
     capital: {
       capitalUsd: env.CAPITAL_USD,
@@ -336,7 +460,14 @@ function mergeSettings(base: BotSettings, overrides: Partial<BotSettings>): BotS
     tradeMode: overrides.tradeMode ?? base.tradeMode,
     cadence: { ...base.cadence, ...(overrides.cadence ?? {}) },
     research: { ...base.research, ...(overrides.research ?? {}) },
-    strategy: { ...base.strategy, ...(overrides.strategy ?? {}) },
+    strategy: {
+      ...base.strategy,
+      ...(overrides.strategy ?? {}),
+      liveStrategy: {
+        ...base.strategy.liveStrategy,
+        ...(overrides.strategy?.liveStrategy ?? {}),
+      },
+    },
     capital: { ...base.capital, ...(overrides.capital ?? {}) },
     filters: { ...base.filters, ...(overrides.filters ?? {}) },
     exits: { ...base.exits, ...(overrides.exits ?? {}) },

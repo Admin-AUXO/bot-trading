@@ -12,6 +12,8 @@ import {
   FlaskConical,
   Layers3,
   ListFilter,
+  PanelRightClose,
+  PanelRightOpen,
   Play,
   Plus,
   Save,
@@ -27,6 +29,7 @@ import { EmptyState, Panel, StatusPill } from "@/components/dashboard-primitives
 import { fetchJson } from "@/lib/api";
 import { formatInteger, formatTimestamp, smartFormatValue } from "@/lib/format";
 import type {
+  DiscoveryLabApplyLiveStrategyResponse,
   DiscoveryLabCatalog,
   DiscoveryLabPack,
   DiscoveryLabPackDraft,
@@ -37,6 +40,8 @@ import type {
   DiscoveryLabThresholdOverrides,
   DiscoveryLabValidationIssue,
   DiscoveryLabValidationResponse,
+  LiveStrategySettings,
+  SettingsControlState,
 } from "@/lib/types";
 
 const THRESHOLD_FIELDS: Array<{ key: keyof DiscoveryLabThresholdOverrides; label: string }> = [
@@ -49,6 +54,11 @@ const THRESHOLD_FIELDS: Array<{ key: keyof DiscoveryLabThresholdOverrides; label
   { key: "maxTop10HolderPercent", label: "Max top10 holder %" },
   { key: "maxSingleHolderPercent", label: "Max single holder %" },
   { key: "maxNegativePriceChange5mPercent", label: "Max negative 5m change %" },
+];
+
+const LIVE_PRESET_OPTIONS: Array<{ value: "FIRST_MINUTE_POSTGRAD_CONTINUATION" | "LATE_CURVE_MIGRATION_SNIPE"; label: string }> = [
+  { value: "FIRST_MINUTE_POSTGRAD_CONTINUATION", label: "First-Minute Post-Grad Continuation" },
+  { value: "LATE_CURVE_MIGRATION_SNIPE", label: "Late-Curve Migration Snipe" },
 ];
 
 type DiscoveryView = "results" | "builder" | "runs";
@@ -67,9 +77,9 @@ const DISCOVERY_VIEWS: Array<{
   detail: string;
   icon: typeof Layers3;
 }> = [
-  { id: "results", label: "Results", detail: "Latest run evidence and winners", icon: FlaskConical },
-  { id: "builder", label: "Builder", detail: "Package + strategy editing in one place", icon: ListFilter },
-  { id: "runs", label: "Runs", detail: "Launches, history, and live logs", icon: SquareTerminal },
+  { id: "results", label: "Results", detail: "Current run and winners", icon: FlaskConical },
+  { id: "builder", label: "Builder", detail: "Pack and strategy edits", icon: ListFilter },
+  { id: "runs", label: "Runs", detail: "Launches and logs", icon: SquareTerminal },
 ];
 
 export function DiscoveryLabClient(props: {
@@ -96,20 +106,26 @@ export function DiscoveryLabClient(props: {
   const [strategySearch, setStrategySearch] = useState("");
   const [marketRegimeLoadState, setMarketRegimeLoadState] = useState<MarketRegimeLoadState>("loading");
   const [marketRegimeSuggestion, setMarketRegimeSuggestion] = useState<MarketRegimeSuggestion | null>(null);
+  const [liveStrategyDraft, setLiveStrategyDraft] = useState<LiveStrategySettings>(initialRuntimeSnapshot.settings.strategy.liveStrategy);
+  const [livePresetDraftId, setLivePresetDraftId] = useState<"FIRST_MINUTE_POSTGRAD_CONTINUATION" | "LATE_CURVE_MIGRATION_SNIPE">(
+    initialRuntimeSnapshot.settings.strategy.livePresetId,
+  );
+  const [hasSettingsDraft, setHasSettingsDraft] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [hasHydrated, setHasHydrated] = useState(false);
+  const [showSupportRail, setShowSupportRail] = useState(true);
 
   const selectedPack = catalog.packs.find((pack) => pack.id === selectedPackId) ?? null;
   const readOnly = draftKind === "builtin";
   const validationErrors = issues.filter((issue) => issue.level === "error");
   const selectedRecipe = draft.recipes[selectedRecipeIndex] ?? null;
-  const packNameError = draft.name.trim().length === 0 ? "Package name is required before validating, saving, or running." : null;
   const recipeCountError = draft.recipes.length === 0 ? "Add at least one strategy before validating, saving, or running." : null;
   const blankRecipeIndex = draft.recipes.findIndex((recipe) => recipe.name.trim().length === 0);
   const recipeNameError = blankRecipeIndex >= 0 ? `Strategy ${blankRecipeIndex + 1} needs a name before validating, saving, or running.` : null;
-  const editorBlockingError = packNameError ?? recipeCountError ?? recipeNameError;
-  const draftTitle = draft.name.trim() || displayPackName(selectedPack);
-  const loadedPackageName = selectedPack ? displayPackName(selectedPack) : draft.name.trim() || "New custom package";
+  const editorBlockingError = recipeCountError ?? recipeNameError;
+  const suggestedPackName = derivePackNameFromDraft(draft, paramTexts);
+  const draftTitle = draft.name.trim() || suggestedPackName || displayPackName(selectedPack);
+  const loadedPackageName = selectedPack ? displayPackName(selectedPack) : draft.name.trim() || suggestedPackName || "New custom package";
 
   useEffect(() => {
     if (!selectedRunId) {
@@ -128,6 +144,10 @@ export function DiscoveryLabClient(props: {
 
   useEffect(() => {
     setHasHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    void loadSettingsControl();
   }, []);
 
   useEffect(() => {
@@ -181,10 +201,10 @@ export function DiscoveryLabClient(props: {
   }, [draft, paramTexts, selectedPack]);
 
   const nextStep = readOnly
-    ? "Run this starter as-is, or clone it into a custom draft before changing thresholds or strategies."
+    ? "Run the starter or clone it before editing."
     : dirty
-      ? "Validate the draft next, then save it or launch a run."
-      : "Tune a threshold or strategy, or launch the current draft directly.";
+      ? "Validate next, then save or run."
+      : "Tune a threshold or strategy, or run the draft.";
 
   const activeRun = useMemo(() => {
     if (runDetail?.status === "RUNNING") {
@@ -207,6 +227,12 @@ export function DiscoveryLabClient(props: {
   const stderrLines = collectLogLines(runDetail?.stderr);
   const report = runDetail?.report ?? null;
   const commandPreview = buildRunCommandPreview(draft, allowOverfiltered);
+  const canApplyRunCalibration = Boolean(
+    runDetail
+    && runDetail.status === "COMPLETED"
+    && (runDetail.strategyCalibration?.calibrationSummary?.winnerCount ?? 0) > 0,
+  );
+  const calibrationSummary = runDetail?.strategyCalibration?.calibrationSummary ?? null;
 
   const filteredRecipeIndexes = useMemo(() => {
     const query = strategySearch.trim().toLowerCase();
@@ -251,6 +277,18 @@ export function DiscoveryLabClient(props: {
     }
   }
 
+  async function loadSettingsControl() {
+    try {
+      const control = await fetchJson<SettingsControlState>("/settings/control");
+      const source = control.draft ?? control.active;
+      setLiveStrategyDraft(source.strategy.liveStrategy);
+      setLivePresetDraftId(source.strategy.livePresetId);
+      setHasSettingsDraft(Boolean(control.draft));
+    } catch {
+      // Keep discovery-lab UI usable even if settings control is temporarily unavailable.
+    }
+  }
+
   async function loadRun(runId: string, silent = false) {
     try {
       const next = await fetchJson<DiscoveryLabRunDetail>(`/operator/discovery-lab/runs/${runId}`);
@@ -287,6 +325,58 @@ export function DiscoveryLabClient(props: {
       setMarketRegimeSuggestion(null);
       setMarketRegimeLoadState("unavailable");
     }
+  }
+
+  function updateLiveStrategyDraft(mutator: (current: LiveStrategySettings) => LiveStrategySettings) {
+    setLiveStrategyDraft((current) => sanitizeLiveStrategy(mutator(current)));
+  }
+
+  function applyRunToLiveStrategyDraft() {
+    if (!runDetail) {
+      return;
+    }
+    startTransition(async () => {
+      try {
+        const response = await fetchJson<DiscoveryLabApplyLiveStrategyResponse>("/operator/discovery-lab/apply-live-strategy", {
+          method: "POST",
+          body: JSON.stringify({ runId: runDetail.id }),
+        });
+        await loadSettingsControl();
+        setLiveStrategyDraft(sanitizeLiveStrategy(response.strategy));
+        setLivePresetDraftId(response.strategy.dominantPresetId ?? "FIRST_MINUTE_POSTGRAD_CONTINUATION");
+        setMessage(`Run calibration staged to settings draft at ${response.strategy.capitalModifierPercent}% capital modifier.`);
+        setError(null);
+      } catch (issue) {
+        setError(issue instanceof Error ? issue.message : "failed to apply discovery-lab run to live strategy draft");
+        setMessage(null);
+      }
+    });
+  }
+
+  function saveLiveStrategyDraft() {
+    startTransition(async () => {
+      try {
+        const nextLiveStrategy = sanitizeLiveStrategy(liveStrategyDraft);
+        const control = await fetchJson<SettingsControlState>("/settings/draft", {
+          method: "POST",
+          body: JSON.stringify({
+            strategy: {
+              livePresetId: livePresetDraftId,
+              liveStrategy: nextLiveStrategy,
+            },
+          }),
+        });
+        const source = control.draft ?? control.active;
+        setLiveStrategyDraft(source.strategy.liveStrategy);
+        setLivePresetDraftId(source.strategy.livePresetId);
+        setHasSettingsDraft(Boolean(control.draft));
+        setMessage("Live strategy draft updated. Run dry-run/promote from Settings when ready.");
+        setError(null);
+      } catch (issue) {
+        setError(issue instanceof Error ? issue.message : "failed to save live strategy draft");
+        setMessage(null);
+      }
+    });
   }
 
   function focusPackageEditor(nextTab: PackageTab = "basics") {
@@ -398,24 +488,21 @@ export function DiscoveryLabClient(props: {
       if (editorBlockingError) {
         setError(editorBlockingError);
         setMessage(null);
-        if (packNameError) {
-          focusPackageEditor("basics");
-        } else {
-          focusStrategies(blankRecipeIndex >= 0 ? blankRecipeIndex : 0);
-        }
+        focusStrategies(blankRecipeIndex >= 0 ? blankRecipeIndex : 0);
         return null;
       }
-      const normalizedName = draft.name.trim();
+      const parsedRecipes = draft.recipes.map((recipe, index) => ({
+        ...recipe,
+        name: recipe.name.trim(),
+        description: recipe.description?.trim(),
+        params: parseRecipeParams(paramTexts[index] ?? "{}"),
+      }));
+      const normalizedName = draft.name.trim() || derivePackNameFromDraft(draft, paramTexts, parsedRecipes);
       return {
         ...draft,
         name: normalizedName,
         description: draft.description?.trim() ?? "",
-        recipes: draft.recipes.map((recipe, index) => ({
-          ...recipe,
-          name: recipe.name.trim(),
-          description: recipe.description?.trim(),
-          params: parseRecipeParams(paramTexts[index] ?? "{}"),
-        })),
+        recipes: parsedRecipes,
       };
     } catch (issue) {
       setError(issue instanceof Error ? issue.message : "strategy params must be valid JSON objects");
@@ -642,8 +729,8 @@ export function DiscoveryLabClient(props: {
   ) : null;
 
   const headerPanel = (
-    <section className="panel-strong rounded-[22px] p-5 md:p-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+    <section className="panel-strong rounded-[16px] px-3 py-3 md:px-4 md:py-3.5">
+      <div className="flex flex-wrap items-end justify-between gap-2">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <p className="section-kicker text-accent">Discovery lab</p>
@@ -652,19 +739,19 @@ export function DiscoveryLabClient(props: {
             <StatusPill value={dirty ? "changed" : "synced"} />
             {editorBlockingError ? <StatusPill value="needs attention" /> : null}
           </div>
-          <h1 className="mt-2 font-display text-[1.45rem] font-semibold tracking-[-0.03em] text-text-primary md:text-[1.65rem]">
-            Discovery lab workbench
+          <h1 className="mt-1.5 font-display text-[1.12rem] font-semibold tracking-[-0.02em] text-text-primary md:text-[1.28rem]">
+            Discovery lab
           </h1>
-          <p className="mt-1 text-sm text-text-secondary">
-            Results first, compact edits, and one action rail.
+          <p className="mt-1 text-xs text-text-secondary">
+            Results, builder, and runs in one workbench.
           </p>
         </div>
-        <div className="text-xs text-text-muted">
+        <div className="text-[11px] text-text-muted">
           {loadedPackageName} · {formatInteger(draft.recipes.length)} strategies
         </div>
       </div>
 
-      <div className="mt-4 overflow-auto pb-1">
+      <div className="mt-3 overflow-auto pb-1">
         <Tabs.List className="flex min-w-max gap-2 rounded-[18px] border border-bg-border bg-[#0f0f10] p-2 lg:min-w-0">
           {DISCOVERY_VIEWS.map((view) => (
             <DiscoveryTabTrigger key={view.id} value={view.id} label={view.label} detail={view.detail} icon={view.icon} />
@@ -675,7 +762,7 @@ export function DiscoveryLabClient(props: {
   );
 
   const actionBar = (
-    <section className="sticky top-3 z-20 rounded-[18px] border border-bg-border bg-[#0f0f10f2] px-3 py-3 backdrop-blur-sm">
+    <section className="sticky top-[calc(var(--shell-header-height)+0.45rem)] z-20 rounded-[14px] border border-bg-border bg-[#0f0f10f2] px-2.5 py-2.5 backdrop-blur-sm">
       <div className="flex flex-wrap items-center gap-2">
         <button onClick={createBlankPack} className="btn-ghost inline-flex items-center gap-2" disabled={isPending}>
           <Plus className="h-4 w-4" />
@@ -707,6 +794,14 @@ export function DiscoveryLabClient(props: {
             Load run package
           </button>
         ) : null}
+        <button
+          type="button"
+          onClick={() => setShowSupportRail((current) => !current)}
+          className="btn-ghost hidden items-center gap-2 xl:inline-flex"
+        >
+          {showSupportRail ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
+          {showSupportRail ? "Hide rail" : "Show rail"}
+        </button>
       </div>
     </section>
   );
@@ -714,7 +809,7 @@ export function DiscoveryLabClient(props: {
   const libraryPanel = (
     <Panel
       title="Package library"
-      description="Built-in packages stay read-only. Clone one or start a blank custom package to experiment."
+      description="Built-ins stay read-only. Clone or start blank."
     >
       <div className="space-y-2">
         {catalog.packs.map((pack) => (
@@ -762,7 +857,7 @@ export function DiscoveryLabClient(props: {
     <Panel
       title={draftTitle}
       eyebrow="Package editor"
-      description={readOnly ? "Built-in packages stay locked. Clone or start a custom package to edit." : "Tune basics and thresholds with split tabs instead of a stacked rail."}
+      description={readOnly ? "Clone to edit." : "Basics and thresholds stay split."}
       action={<StatusPill value={draft.defaultProfile ?? "high-value"} />}
     >
       <div className="rounded-[16px] border border-bg-border bg-[#101012] px-4 py-4">
@@ -793,14 +888,14 @@ export function DiscoveryLabClient(props: {
                 value={draft.name}
                 onChange={(event) => {
                   setDraft((current) => ({ ...current, name: event.target.value }));
-                  if (error === "Package name is required before validating, saving, or running." && event.target.value.trim().length > 0) {
-                    setError(null);
-                  }
                 }}
+                placeholder={suggestedPackName}
                 disabled={readOnly}
-                className={clsx(inputClassName, packNameError ? "border-[rgba(251,113,133,0.32)]" : "")}
+                className={inputClassName}
               />
-              {packNameError ? <div className="mt-2 text-xs text-[var(--danger)]">{packNameError}</div> : null}
+              <div className="mt-2 text-xs text-text-muted">
+                Leave blank to auto-name from profile, sources, and filter thresholds.
+              </div>
             </Field>
 
             <Field label="Profile">
@@ -1251,7 +1346,7 @@ export function DiscoveryLabClient(props: {
     <Panel
       title="Run center"
       eyebrow="Live progress"
-      description="The dashboard starts the existing local script and polls the persisted run record every 3 seconds."
+      description="Starts the local script and polls every 3s."
       tone={activeRun?.status === "FAILED" ? "critical" : activeRun ? "warning" : "passive"}
       action={runDetail ? (
         <button onClick={() => setActiveView("results")} className="btn-ghost inline-flex items-center gap-2">
@@ -1329,59 +1424,252 @@ export function DiscoveryLabClient(props: {
         {messageBanner}
 
         <Tabs.Content value="builder" className="space-y-4 outline-none">
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
+          <div className={clsx("grid gap-4", showSupportRail ? "xl:grid-cols-[minmax(0,1fr)_20rem]" : "xl:grid-cols-1")}>
             <div className="space-y-4">
               {regimeSuggestionPanel}
               {packageEditorPanel}
               {strategyStudioPanel}
             </div>
-            <div className="space-y-4">
-              {libraryPanel}
-              {validationPanel}
-            </div>
+            {showSupportRail ? (
+              <div className="space-y-4">
+                {libraryPanel}
+                {validationPanel}
+              </div>
+            ) : null}
           </div>
         </Tabs.Content>
 
         <Tabs.Content value="runs" className="space-y-4 outline-none">
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
+          <div className={clsx("grid gap-4", showSupportRail ? "xl:grid-cols-[minmax(0,1fr)_20rem]" : "xl:grid-cols-1")}>
             <div className="space-y-4">
               {runCockpitPanel}
               {logPanel}
             </div>
-            <div className="space-y-4">
-              {runsPanel}
-              {runSummaryPanel}
-            </div>
+            {showSupportRail ? (
+              <div className="space-y-4">
+                {runsPanel}
+                {runSummaryPanel}
+              </div>
+            ) : null}
           </div>
         </Tabs.Content>
 
         <Tabs.Content value="results" className="space-y-4 outline-none">
-          <Panel
-            title="Results"
-            description="Deduplicated winners first, then supporting run context."
-            action={runDetail ? (
-              <button onClick={() => setActiveView("runs")} className="btn-ghost inline-flex items-center gap-2">
-                <SquareTerminal className="h-4 w-4" />
-                Open runs
-              </button>
-            ) : null}
-          >
-            {runDetail ? (
+          <section className="rounded-[16px] border border-bg-border bg-[#101012] px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-2">
-                <StatusPill value={runDetail.status} />
-                <span className="meta-chip">{runDetail.packName}</span>
-                <span className="meta-chip">{runDetail.profile}</span>
-                <span className="meta-chip">{runDetail.sources.join(", ")}</span>
-                {runDetail.completedAt ? <span className="meta-chip">Completed {safeFormatTimestamp(runDetail.completedAt, hasHydrated)}</span> : null}
+                <span className="section-kicker text-accent">Current run</span>
+                {runDetail ? (
+                  <>
+                    <StatusPill value={runDetail.status} />
+                    <span className="meta-chip">{runDetail.packName}</span>
+                    <span className="meta-chip">{runDetail.profile}</span>
+                    <span className="meta-chip">{runDetail.sources.join(", ")}</span>
+                    {runDetail.completedAt ? <span className="meta-chip">Completed {safeFormatTimestamp(runDetail.completedAt, hasHydrated)}</span> : null}
+                  </>
+                ) : (
+                  <span className="text-sm text-text-secondary">No run selected.</span>
+                )}
               </div>
-            ) : (
-              <EmptyState title="No run selected" detail="Pick a completed run to populate the full-width results tab." />
+              {runDetail ? (
+                <button onClick={() => setActiveView("runs")} className="btn-ghost inline-flex items-center gap-2">
+                  <SquareTerminal className="h-4 w-4" />
+                  Open runs
+                </button>
+              ) : null}
+            </div>
+          </section>
+
+          <Panel
+            title="Live strategy pack"
+            eyebrow="Calibration + guardrails"
+            description="Discovery-lab is now the primary surface for staging and tuning live strategy packs before promotion."
+            tone={liveStrategyDraft.enabled ? "default" : "passive"}
+            action={(
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={applyRunToLiveStrategyDraft}
+                  className="btn-ghost inline-flex items-center gap-2"
+                  disabled={!canApplyRunCalibration || isPending}
+                >
+                  <WandSparkles className="h-4 w-4" />
+                  Stage selected run
+                </button>
+                <button
+                  onClick={saveLiveStrategyDraft}
+                  className="btn-primary inline-flex items-center gap-2"
+                  disabled={isPending}
+                >
+                  <Save className="h-4 w-4" />
+                  Save strategy draft
+                </button>
+              </div>
             )}
+          >
+            <div className="grid gap-4 xl:grid-cols-[0.92fr_1.08fr]">
+              <div className="space-y-3">
+                <div className="rounded-[14px] border border-bg-border bg-[#101112] px-3 py-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusPill value={liveStrategyDraft.enabled ? "enabled" : "disabled"} />
+                    {hasSettingsDraft ? <StatusPill value="draft staged" /> : <StatusPill value="active baseline" />}
+                    <StatusPill value={liveStrategyDraft.dominantMode ?? "mixed"} />
+                  </div>
+                  <div className="mt-2 text-xs text-text-secondary">
+                    Source run: {liveStrategyDraft.sourceRunId ?? "none"} · Pack: {liveStrategyDraft.packName ?? "none"}
+                  </div>
+                </div>
+
+                <label className="flex items-center gap-2 rounded-[12px] border border-bg-border bg-[#101012] px-3 py-2 text-sm text-text-secondary">
+                  <input
+                    type="checkbox"
+                    checked={liveStrategyDraft.enabled}
+                    onChange={(event) => updateLiveStrategyDraft((current) => ({ ...current, enabled: event.target.checked }))}
+                    className="h-4 w-4"
+                  />
+                  Enable live strategy pack
+                </label>
+
+                <Field label="Live preset fallback">
+                  <select
+                    value={livePresetDraftId}
+                    onChange={(event) => setLivePresetDraftId(event.target.value as typeof livePresetDraftId)}
+                    className={inputClassName}
+                  >
+                    {LIVE_PRESET_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </Field>
+
+                <Field label="Capital modifier %">
+                  <input
+                    type="number"
+                    min={40}
+                    max={180}
+                    step={1}
+                    value={liveStrategyDraft.capitalModifierPercent}
+                    onChange={(event) => updateLiveStrategyDraft((current) => ({
+                      ...current,
+                      capitalModifierPercent: Number(event.target.value),
+                    }))}
+                    className={inputClassName}
+                  />
+                </Field>
+              </div>
+
+              <div className="space-y-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <CompactLiveField
+                    label="Stop loss %"
+                    value={liveStrategyDraft.exitOverrides.stopLossPercent}
+                    min={4}
+                    max={35}
+                    step={0.1}
+                    onChange={(value) => updateLiveStrategyDraft((current) => ({
+                      ...current,
+                      exitOverrides: { ...current.exitOverrides, stopLossPercent: value },
+                    }))}
+                  />
+                  <CompactLiveField
+                    label="TP1 multiplier"
+                    value={liveStrategyDraft.exitOverrides.tp1Multiplier}
+                    min={1.05}
+                    max={2.2}
+                    step={0.01}
+                    onChange={(value) => updateLiveStrategyDraft((current) => ({
+                      ...current,
+                      exitOverrides: { ...current.exitOverrides, tp1Multiplier: value },
+                    }))}
+                  />
+                  <CompactLiveField
+                    label="TP2 multiplier"
+                    value={liveStrategyDraft.exitOverrides.tp2Multiplier}
+                    min={1.2}
+                    max={3.5}
+                    step={0.01}
+                    onChange={(value) => updateLiveStrategyDraft((current) => ({
+                      ...current,
+                      exitOverrides: { ...current.exitOverrides, tp2Multiplier: value },
+                    }))}
+                  />
+                  <CompactLiveField
+                    label="Trailing stop %"
+                    value={liveStrategyDraft.exitOverrides.trailingStopPercent}
+                    min={4}
+                    max={30}
+                    step={0.1}
+                    onChange={(value) => updateLiveStrategyDraft((current) => ({
+                      ...current,
+                      exitOverrides: { ...current.exitOverrides, trailingStopPercent: value },
+                    }))}
+                  />
+                  <CompactLiveField
+                    label="Time stop min"
+                    value={liveStrategyDraft.exitOverrides.timeStopMinutes}
+                    min={1}
+                    max={30}
+                    step={0.5}
+                    onChange={(value) => updateLiveStrategyDraft((current) => ({
+                      ...current,
+                      exitOverrides: { ...current.exitOverrides, timeStopMinutes: value },
+                    }))}
+                  />
+                  <CompactLiveField
+                    label="Time limit min"
+                    value={liveStrategyDraft.exitOverrides.timeLimitMinutes}
+                    min={2}
+                    max={60}
+                    step={0.5}
+                    onChange={(value) => updateLiveStrategyDraft((current) => ({
+                      ...current,
+                      exitOverrides: { ...current.exitOverrides, timeLimitMinutes: value },
+                    }))}
+                  />
+                </div>
+
+                <div className="rounded-[14px] border border-bg-border bg-[#0f1112] px-3 py-3">
+                  <div className="text-xs font-semibold uppercase tracking-[0.16em] text-text-muted">Calibration</div>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2 text-sm">
+                    <SummaryRow label="Winners" value={calibrationSummary?.winnerCount ?? "—"} />
+                    <SummaryRow label="Avg score" value={calibrationSummary?.avgWinnerScore ?? "—"} />
+                    <SummaryRow label="Avg 5m volume" value={calibrationSummary?.avgWinnerVolume5mUsd ?? "—"} />
+                    <SummaryRow label="Avg grad age (min)" value={calibrationSummary?.avgWinnerTimeSinceGraduationMin ?? "—"} />
+                    <SummaryRow label="Volume strength" value={calibrationSummary?.volumeStrength ?? "—"} />
+                    <SummaryRow label="Freshness" value={calibrationSummary?.graduationFreshness ?? "—"} />
+                    <SummaryRow label="Confidence" value={calibrationSummary?.calibrationConfidence ?? "—"} />
+                    <SummaryRow label="Profile" value={calibrationSummary?.derivedProfile ?? "—"} />
+                  </div>
+                </div>
+              </div>
+            </div>
           </Panel>
 
-          <DiscoveryLabResultsBoard runDetail={runDetail} runtimeSnapshot={runtimeSnapshot} />
+          {!runDetail ? (
+            <EmptyState title="No run selected" detail="Pick a completed run to populate the full-width results tab." />
+          ) : null}
 
-          <DiscoveryLabResearchSummary runDetail={runDetail} />
+          {runDetail ? (
+            <DiscoveryLabResultsBoard
+              runDetail={runDetail}
+              runtimeSnapshot={runtimeSnapshot}
+              onRuntimeSnapshotChange={setRuntimeSnapshot}
+            />
+          ) : null}
+
+          <details className="rounded-[18px] border border-bg-border bg-bg-hover/20">
+            <summary className="cursor-pointer list-none px-5 py-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="section-kicker">Secondary synthesis</div>
+                  <div className="mt-2 text-sm font-semibold text-text-primary">Research summary</div>
+                </div>
+                <span className="meta-chip">Collapsed by default</span>
+              </div>
+            </summary>
+            <div className="border-t border-bg-border/80 p-1">
+              <DiscoveryLabResearchSummary runDetail={runDetail} />
+            </div>
+          </details>
         </Tabs.Content>
       </div>
     </Tabs.Root>
@@ -1466,6 +1754,30 @@ function SummaryRow(props: { label: string; value: unknown }) {
   );
 }
 
+function CompactLiveField(props: {
+  label: string;
+  value: number | undefined;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="rounded-[12px] border border-bg-border bg-[#0f1011] px-3 py-2">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">{props.label}</div>
+      <input
+        type="number"
+        min={props.min}
+        max={props.max}
+        step={props.step}
+        value={props.value ?? ""}
+        onChange={(event) => props.onChange(Number(event.target.value))}
+        className="mt-2 w-full rounded-[10px] border border-bg-border bg-[#0b0c0d] px-2 py-1.5 text-sm text-text-primary outline-none"
+      />
+    </label>
+  );
+}
+
 function LogBlock(props: { title: string; lines: string[]; tone: "default" | "critical" }) {
   return (
     <div className={clsx(
@@ -1500,6 +1812,159 @@ function Field(props: { label: string; children: React.ReactNode; className?: st
 const inputClassName = "w-full rounded-[12px] border border-bg-border bg-[#0d0d0f] px-3 py-2 text-sm text-text-primary outline-none";
 const bodyTextareaClassName = `${inputClassName} min-h-[7rem] resize-y`;
 const jsonTextareaClassName = `${inputClassName} min-h-[14rem] resize-y font-mono text-xs`;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function normalizeOptionalNumber(value: number | undefined, min: number, max: number): number | undefined {
+  if (!Number.isFinite(value ?? NaN)) {
+    return undefined;
+  }
+  return clamp(Number(value), min, max);
+}
+
+function sanitizeLiveStrategy(input: LiveStrategySettings): LiveStrategySettings {
+  const exits = input.exitOverrides;
+  let tp1SellFraction = normalizeOptionalNumber(exits.tp1SellFraction, 0.1, 0.9);
+  let tp2SellFraction = normalizeOptionalNumber(exits.tp2SellFraction, 0.05, 0.6);
+
+  if (tp1SellFraction !== undefined && tp2SellFraction !== undefined && tp1SellFraction + tp2SellFraction > 1) {
+    const scale = 1 / (tp1SellFraction + tp2SellFraction);
+    tp1SellFraction = tp1SellFraction * scale;
+    tp2SellFraction = tp2SellFraction * scale;
+  }
+
+  const tp1Multiplier = normalizeOptionalNumber(exits.tp1Multiplier, 1.05, 2.2);
+  let tp2Multiplier = normalizeOptionalNumber(exits.tp2Multiplier, 1.2, 3.5);
+  if (tp1Multiplier !== undefined && tp2Multiplier !== undefined && tp2Multiplier <= tp1Multiplier) {
+    tp2Multiplier = clamp(tp1Multiplier + 0.05, 1.2, 3.5);
+  }
+
+  const timeStopMinutes = normalizeOptionalNumber(exits.timeStopMinutes, 1, 30);
+  let timeLimitMinutes = normalizeOptionalNumber(exits.timeLimitMinutes, 2, 60);
+  if (timeStopMinutes !== undefined && timeLimitMinutes !== undefined && timeLimitMinutes < timeStopMinutes) {
+    timeLimitMinutes = timeStopMinutes;
+  }
+
+  return {
+    ...input,
+    capitalModifierPercent: clamp(Math.round(input.capitalModifierPercent), 40, 180),
+    exitOverrides: {
+      ...exits,
+      stopLossPercent: normalizeOptionalNumber(exits.stopLossPercent, 4, 35),
+      tp1Multiplier,
+      tp2Multiplier,
+      tp1SellFraction,
+      tp2SellFraction,
+      postTp1RetracePercent: normalizeOptionalNumber(exits.postTp1RetracePercent, 3, 25),
+      trailingStopPercent: normalizeOptionalNumber(exits.trailingStopPercent, 4, 30),
+      timeStopMinutes,
+      timeStopMinReturnPercent: normalizeOptionalNumber(exits.timeStopMinReturnPercent, 0, 25),
+      timeLimitMinutes,
+    },
+  };
+}
+
+function derivePackNameFromDraft(
+  draft: DiscoveryLabPackDraft,
+  paramTexts: Record<number, string>,
+  parsedRecipes?: DiscoveryLabRecipe[],
+): string {
+  const recipes = parsedRecipes ?? draft.recipes.map((recipe, index) => ({
+    ...recipe,
+    params: safeParseParams(paramTexts[index]),
+  }));
+  const profile = (draft.defaultProfile ?? "high-value").toUpperCase();
+  const modeTag = summarizeRecipeModes(recipes);
+  const sourceTag = summarizeSources(draft.defaultSources ?? ["pump_dot_fun"]);
+  const thresholds = draft.thresholdOverrides ?? {};
+  const chips: string[] = [];
+
+  if (typeof thresholds.minLiquidityUsd === "number") {
+    chips.push(`L${formatCompactThreshold(thresholds.minLiquidityUsd)}`);
+  }
+  if (typeof thresholds.minVolume5mUsd === "number") {
+    chips.push(`V5${formatCompactThreshold(thresholds.minVolume5mUsd)}`);
+  }
+  if (typeof thresholds.maxMarketCapUsd === "number") {
+    chips.push(`MC${formatCompactThreshold(thresholds.maxMarketCapUsd)}`);
+  }
+  if (typeof thresholds.minBuySellRatio === "number") {
+    chips.push(`R${formatCompactNumber(thresholds.minBuySellRatio)}`);
+  }
+  if (typeof thresholds.minUniqueBuyers5m === "number") {
+    chips.push(`UB${Math.round(thresholds.minUniqueBuyers5m)}`);
+  }
+
+  const providerFilters = recipes.reduce((total, recipe) => total + countRecipeProviderFilters(recipe.params), 0);
+  if (providerFilters > 0) {
+    chips.push(`F${providerFilters}`);
+  }
+
+  const suffix = chips.length > 0 ? ` ${chips.join(" ")}` : "";
+  return `${modeTag} ${profile} ${sourceTag}${suffix}`.trim().slice(0, 96);
+}
+
+function safeParseParams(value: string | undefined): DiscoveryLabRecipe["params"] {
+  if (!value || value.trim().length === 0) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(value);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+    return parsed as DiscoveryLabRecipe["params"];
+  } catch {
+    return {};
+  }
+}
+
+function summarizeRecipeModes(recipes: DiscoveryLabRecipe[]): string {
+  const modes = new Set(recipes.map((recipe) => recipe.mode));
+  if (modes.size === 0) {
+    return "PACK";
+  }
+  if (modes.size > 1) {
+    return "MIX";
+  }
+  return modes.has("pregrad") ? "PRE" : "GRAD";
+}
+
+function summarizeSources(sources: string[]): string {
+  const normalized = sources
+    .map((source) => source.replace(/_dot_/g, ".").replace(/_/g, ""))
+    .slice(0, 2);
+  return normalized.length > 0 ? normalized.join("+") : "pump";
+}
+
+function formatCompactThreshold(value: number): string {
+  if (value >= 1_000_000) {
+    return `${formatCompactNumber(value / 1_000_000)}M`;
+  }
+  if (value >= 1_000) {
+    return `${formatCompactNumber(value / 1_000)}K`;
+  }
+  return `${Math.round(value)}`;
+}
+
+function formatCompactNumber(value: number): string {
+  if (value >= 100) {
+    return `${Math.round(value)}`;
+  }
+  if (value >= 10) {
+    return value.toFixed(1).replace(/\.0$/, "");
+  }
+  return value.toFixed(2).replace(/\.?0+$/, "");
+}
+
+function countRecipeProviderFilters(params: DiscoveryLabRecipe["params"]): number {
+  return Object.entries(params)
+    .filter(([key]) => key.startsWith("min_") || key.startsWith("max_") || key === "source" || key === "creator" || key === "platform_id")
+    .filter(([, value]) => value !== null && value !== "" && value !== undefined)
+    .length;
+}
 
 function parseMarketRegimeSuggestion(payload: unknown): MarketRegimeSuggestion | null {
   const root = asRecord(payload);
@@ -1602,7 +2067,7 @@ function displayPackName(pack?: Pick<DiscoveryLabPack, "id" | "name"> | null): s
 function toDraft(pack?: DiscoveryLabPack | null): DiscoveryLabPackDraft {
   if (!pack) {
     return {
-      name: "New custom package",
+      name: "",
       description: "",
       defaultSources: ["pump_dot_fun"],
       defaultProfile: "high-value",

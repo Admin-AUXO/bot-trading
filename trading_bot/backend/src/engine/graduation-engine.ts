@@ -6,7 +6,15 @@ import { HeliusClient } from "../services/helius-client.js";
 import { ProviderBudgetService } from "../services/provider-budget-service.js";
 import { RuntimeConfigService } from "../services/runtime-config.js";
 import { SharedTokenFactsService, type FreshTokenFacts } from "../services/shared-token-facts.js";
-import { applyStrategySettings, getStrategyPreset, getStrategyPresetForMode, type StrategyDiscoveryRecipe } from "../services/strategy-presets.js";
+import {
+  applyStrategySettings,
+  derivePresetIdFromRecipeMode,
+  getLiveStrategyRecipes,
+  getStrategyPreset,
+  getStrategyPresetForMode,
+  hasLiveStrategy,
+  type StrategyDiscoveryRecipe,
+} from "../services/strategy-presets.js";
 import { recordTokenSnapshot } from "../services/token-snapshot-recorder.js";
 import { toOptionalDate } from "../utils/dates.js";
 import { ExecutionEngine } from "./execution-engine.js";
@@ -15,6 +23,7 @@ import type {
   CandidateEvaluation,
   CandidateFilterState,
   DiscoveryToken,
+  StrategyPackRecipe,
   StrategyPresetId,
 } from "../types/domain.js";
 import { toJsonValue } from "../utils/json.js";
@@ -23,6 +32,13 @@ import { logger } from "../utils/logger.js";
 const DUE_CANDIDATE_STATUSES: CandidateStatus[] = ["DISCOVERED", "SKIPPED", "ERROR"];
 const ACTIVE_CANDIDATE_STATUSES: CandidateStatus[] = ["DISCOVERED", "SKIPPED", "ERROR", "ACCEPTED", "BOUGHT"];
 const EVALUATION_POOL_MULTIPLIER = 6;
+
+type DiscoveryCandidateSeed = {
+  token: DiscoveryToken;
+  strategyPresetId: StrategyPresetId;
+  discoveryRecipeName: string;
+  metadata?: Record<string, unknown>;
+};
 
 export class GraduationEngine {
   private discoveryInFlight = false;
@@ -81,14 +97,30 @@ export class GraduationEngine {
     try {
       const settings = await this.config.getSettings();
       const preset = getStrategyPresetForMode(settings, "LIVE");
-      const freshTokens = await this.fetchDiscoveryTokens(
-        settings,
-        preset.discovery,
-        settings.cadence.evaluationConcurrency * 20,
-        true,
-      );
+      const discoverySeeds = hasLiveStrategy(settings)
+        ? await this.fetchDiscoverySeedsFromLiveStrategy(
+          settings,
+          getLiveStrategyRecipes(settings),
+          settings.cadence.evaluationConcurrency * 20,
+          true,
+        )
+        : (await this.fetchDiscoveryTokens(
+          settings,
+          preset.discovery,
+          settings.cadence.evaluationConcurrency * 20,
+          true,
+        )).map((token) => ({
+          token,
+          strategyPresetId: preset.id,
+          discoveryRecipeName: preset.discovery.name,
+          metadata: {
+            stage: "discovered",
+            strategyPresetId: preset.id,
+            strategyRecipeName: preset.discovery.name,
+          },
+        }));
 
-      await Promise.all(freshTokens.map(async (token) => {
+      await Promise.all(discoverySeeds.map(async ({ token, strategyPresetId, discoveryRecipeName, metadata }) => {
         const discoveryState = this.toDiscoveryFilterState(token);
         const created = await db.candidate.create({
           data: {
@@ -96,23 +128,23 @@ export class GraduationEngine {
             symbol: token.symbol,
             name: token.name,
             source: token.source,
-            strategyPresetId: preset.id,
-            discoveryRecipeName: preset.discovery.name,
+            strategyPresetId,
+            discoveryRecipeName,
             creator: token.creator,
             status: "DISCOVERED",
             discoveredAt: new Date(),
             graduatedAt: toOptionalDate(token.graduatedAt),
             ...this.toCandidateData(discoveryState, false),
             scheduledEvaluationAt: new Date(Date.now() + settings.cadence.entryDelayMs),
-            metadata: toJsonValue({
+            metadata: toJsonValue(metadata ?? {
               stage: "discovered",
-              strategyPresetId: preset.id,
-              strategyRecipeName: preset.discovery.name,
+              strategyPresetId,
+              strategyRecipeName: discoveryRecipeName,
             }),
             metrics: toJsonValue({
               ...token,
-              strategyPresetId: preset.id,
-              strategyRecipeName: preset.discovery.name,
+              strategyPresetId,
+              strategyRecipeName: discoveryRecipeName,
             }),
           },
         });
@@ -131,6 +163,74 @@ export class GraduationEngine {
     } finally {
       this.discoveryInFlight = false;
     }
+  }
+
+  private async fetchDiscoverySeedsFromLiveStrategy(
+    settings: Awaited<ReturnType<RuntimeConfigService["getSettings"]>>,
+    recipes: StrategyPackRecipe[],
+    limit: number,
+    excludeExistingMints: boolean,
+  ): Promise<DiscoveryCandidateSeed[]> {
+    const sources = settings.strategy.liveStrategy.sources.length > 0
+      ? [...new Set(settings.strategy.liveStrategy.sources)]
+      : env.DISCOVERY_SOURCES.includes("all")
+        ? ["all"]
+        : [...new Set(env.DISCOVERY_SOURCES)];
+    const discoveryBudget = await this.providerBudget.canSpend("discovery", sources.length * recipes.length * 100);
+    if (!discoveryBudget.allowed) {
+      logger.warn({ reason: discoveryBudget.reason }, "custom live discovery skipped to preserve Birdeye monthly budget");
+      return [];
+    }
+
+    const seeds = new Map<string, DiscoveryCandidateSeed>();
+    const sourceRecipePairs = sources.flatMap((source) => recipes.map((recipe) => ({ source, recipe })));
+    const groups = await Promise.all(sourceRecipePairs.map(async ({ source, recipe }) => {
+      const rows = await this.birdeye.getMemeTokensForRecipe({
+        recipeParams: recipe.params,
+        source,
+        mode: recipe.mode,
+        limit: Math.min(limit, recipe.deepEvalLimit ?? limit),
+      });
+      return rows.map((token) => ({
+        token,
+        strategyPresetId: derivePresetIdFromRecipeMode(recipe.mode),
+        discoveryRecipeName: recipe.name,
+        metadata: {
+          stage: "discovered",
+          strategyPresetId: derivePresetIdFromRecipeMode(recipe.mode),
+          strategyRecipeName: recipe.name,
+          liveStrategyPackId: settings.strategy.liveStrategy.packId,
+          liveStrategyRunId: settings.strategy.liveStrategy.sourceRunId,
+        },
+      } satisfies DiscoveryCandidateSeed));
+    }));
+
+    for (const seed of groups.flat()) {
+      if (!seeds.has(seed.token.mint)) {
+        seeds.set(seed.token.mint, seed);
+      }
+    }
+
+    const tokens = [...seeds.values()];
+    await Promise.all(tokens.map((seed) => this.sharedFacts.rememberDiscovery(seed.token)));
+
+    if (!excludeExistingMints || tokens.length === 0) {
+      return tokens;
+    }
+
+    const existingMints = new Set(
+      (
+        await db.candidate.findMany({
+          where: {
+            mint: { in: tokens.map((seed) => seed.token.mint) },
+            status: { in: ACTIVE_CANDIDATE_STATUSES },
+          },
+          select: { mint: true },
+        })
+      ).map((row) => row.mint),
+    );
+
+    return tokens.filter((seed) => !existingMints.has(seed.token.mint));
   }
 
   private async fetchDiscoveryTokens(

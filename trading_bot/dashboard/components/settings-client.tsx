@@ -42,9 +42,8 @@ const fieldGroups: Array<{
   {
     section: "strategy",
     title: "Strategy",
-    description: "Preset selection.",
+    description: "Dry-run and watcher controls.",
     fields: [
-      { path: "strategy.livePresetId", label: "Live preset", kind: "select", options: strategyOptions },
       { path: "strategy.dryRunPresetId", label: "Dry-run preset", kind: "select", options: strategyOptions },
       { path: "strategy.heliusWatcherEnabled", label: "Helius watcher", kind: "checkbox" },
     ],
@@ -119,7 +118,6 @@ const fieldGroups: Array<{
 
 const fieldHelp: Partial<Record<string, string>> = {
   tradeMode: "Changing trade mode is live-affecting and can be blocked while open positions or research activity exist.",
-  "strategy.livePresetId": "Live mode can be conservative while dry run keeps researching the dirtier edge.",
   "strategy.dryRunPresetId": "Dry-run preset controls which recipe the bounded research lane uses.",
   "strategy.heliusWatcherEnabled": "Watcher only helps when program IDs are configured; otherwise it stays inert.",
   "capital.capitalUsd": "Capital changes are gated because they alter available risk budget immediately.",
@@ -270,7 +268,7 @@ export function SettingsClient({ initial, grafanaHref }: { initial: SettingsCont
 
       <section className="grid gap-6 2xl:grid-cols-[1.18fr_0.82fr]">
         <Panel title="Promotion rail" eyebrow="Draft -> Review -> Promote">
-          <div className="grid gap-3 lg:grid-cols-4">
+          <div className="grid gap-2 lg:grid-cols-4">
             <WorkflowStepCard
               title="Draft"
               detail={localDirty ? "Unsaved edits." : serverState.draft ? `${formatInteger(serverState.changedPaths.length)} changed path(s).` : "No draft."}
@@ -337,9 +335,22 @@ export function SettingsClient({ initial, grafanaHref }: { initial: SettingsCont
         </div>
       ) : null}
 
-      <section className="grid gap-6 xl:grid-cols-[0.24fr_0.76fr]">
+      <section className="grid gap-5 xl:grid-cols-[minmax(15rem,0.22fr)_minmax(0,0.78fr)]">
         <Panel title="Sections" eyebrow="Edit surface">
-          <div className="space-y-2">
+          <div className="md:hidden">
+            <select
+              value={activeSection}
+              onChange={(event) => setActiveSection(event.target.value as SectionId)}
+              className="w-full rounded-[12px] border border-bg-border bg-bg-primary/65 px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent"
+            >
+              {serverState.sections.map((section) => (
+                <option key={section.id} value={section.id}>
+                  {section.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="hidden space-y-2 md:block">
             {serverState.sections.map((section) => (
               <button
                 key={section.id}
@@ -366,6 +377,12 @@ export function SettingsClient({ initial, grafanaHref }: { initial: SettingsCont
         </Panel>
 
         <Panel title={selectedGroup.title} eyebrow={selectedGroup.description} tone={selectedGroup.section === "advanced" ? "passive" : "default"}>
+          {selectedGroup.section === "strategy" ? (
+            <div className="mb-4 rounded-[14px] border border-[rgba(163,230,53,0.2)] bg-[rgba(163,230,53,0.08)] px-4 py-3 text-sm text-text-primary">
+              Live strategy packs, calibrated exits, and capital modifiers are now managed from discovery lab results.
+              <a href="/discovery-lab" className="ml-2 font-semibold text-accent underline underline-offset-2">Open discovery lab</a>
+            </div>
+          ) : null}
           <div className="grid gap-4 md:grid-cols-2">
             {selectedGroup.fields.map((field) => {
               const value = readValue(draftValues, field.path);
@@ -527,9 +544,9 @@ export function SettingsClient({ initial, grafanaHref }: { initial: SettingsCont
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div>
             <div className="text-sm font-medium text-text-primary">Save, dry run, promote.</div>
-            <div className="mt-1 text-sm text-text-secondary">
-              Active {formatTimestamp(serverState.activeUpdatedAt)}.
-              {serverState.basedOnUpdatedAt ? ` Draft base ${formatTimestamp(serverState.basedOnUpdatedAt)}.` : ""}
+            <div className="mt-1 text-xs text-text-secondary">
+              Active {formatTimestamp(serverState.activeUpdatedAt)}
+              {serverState.basedOnUpdatedAt ? ` · Draft base ${formatTimestamp(serverState.basedOnUpdatedAt)}` : ""}
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -567,15 +584,15 @@ function WorkflowStepCard(props: {
   }[props.status];
 
   return (
-    <div className={`rounded-[16px] border px-4 py-4 ${toneClass}`}>
+    <div className={`rounded-[14px] border px-3 py-3 ${toneClass}`}>
       <div className="flex items-center justify-between gap-3">
         <div className="section-kicker">{props.title}</div>
         <Icon className="h-4 w-4 text-text-secondary" />
       </div>
-      <div className="mt-3">
+      <div className="mt-2">
         <StatusPill value={props.status === "idle" ? "waiting" : props.status} />
       </div>
-      <div className="mt-3 text-sm leading-6 text-text-secondary">{props.detail}</div>
+      <div className="mt-2 text-sm leading-5 text-text-secondary">{props.detail}</div>
     </div>
   );
 }
@@ -624,6 +641,10 @@ function FieldDiff(props: {
   value: string | number | boolean;
   issues: SettingsControlState["validation"]["issues"];
 }) {
+  if (isSameValue(props.activeValue, props.value) && props.issues.length === 0) {
+    return null;
+  }
+
   return (
     <div className="mt-3 space-y-2">
       <div className="flex flex-wrap items-center gap-2 text-xs text-text-muted">

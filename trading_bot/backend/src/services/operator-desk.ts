@@ -753,14 +753,36 @@ export class OperatorDeskService {
   }
 
   private fillRecord(fill: Fill) {
+    const metadata = asRecord(fill.metadata);
+    const live = asRecord(metadata.live);
+    const timing = asRecord(live.timing);
+    const executionReason = typeof metadata.reason === "string" ? metadata.reason : null;
+    const entryOrigin = typeof metadata.entryOrigin === "string" ? metadata.entryOrigin : null;
+
     return {
       id: fill.id,
       side: fill.side,
+      executionReason,
+      entryOrigin,
       priceUsd: Number(fill.priceUsd),
       amountUsd: Number(fill.amountUsd),
       amountToken: Number(fill.amountToken),
       pnlUsd: fill.pnlUsd == null ? null : Number(fill.pnlUsd),
       txSignature: fill.txSignature,
+      totalLatencyMs: maybeNumber(timing.totalMs),
+      quoteLatencyMs: maybeNumber(timing.quoteMs),
+      swapBuildLatencyMs: maybeNumber(timing.swapBuildMs),
+      senderBuildLatencyMs: maybeNumber(timing.senderBuildMs),
+      broadcastConfirmLatencyMs: maybeNumber(timing.broadcastAndConfirmMs),
+      settlementReadLatencyMs: maybeNumber(timing.settlementReadMs),
+      executionSlippageBps: maybeNumber(live.executionSlippageBps),
+      quotedOutAmountUsd: maybeNumber(live.quotedOutAmountUsd),
+      actualOutAmountUsd: maybeNumber(live.actualOutAmountUsd),
+      quotedOutAmountToken: maybeNumber(live.quotedOutAmountToken),
+      actualOutAmountToken: maybeNumber(live.actualOutAmountToken),
+      discoveryLabReportAgeMsAtEntry: maybeNumber(metadata.discoveryLabReportAgeMsAtEntry),
+      discoveryLabRunAgeMsAtEntry: maybeNumber(metadata.discoveryLabRunAgeMsAtEntry),
+      discoveryLabCompletionLagMsAtEntry: maybeNumber(metadata.discoveryLabCompletionLagMsAtEntry),
       metadata: fill.metadata,
       createdAt: fill.createdAt.toISOString(),
     };

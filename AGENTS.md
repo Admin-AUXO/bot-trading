@@ -57,12 +57,13 @@ Do not jump straight into source files before completing that read order.
 ## Standard Procedure
 
 1. Read the startup path with the minimum useful scope.
-2. Open one task-specific reference note and one task-specific durable note.
-3. Open code only after the note surface tells you where truth should live.
-4. Make the smallest correct change.
-5. Verify the changed surface.
-6. Update the owning note in the same pass, and update the nearest index if you added, archived, or renamed durable notes or skills.
-7. If the same workflow is likely to recur, create or update a skill and trim the note down to a pointer.
+2. For ambiguous, planning-heavy, or high-risk work, prefer Plan mode before broad file reads. Frame the task with goal, context, constraints, and done-when so scope and verification stay explicit.
+3. Open one task-specific reference note and one task-specific durable note.
+4. Open code only after the note surface tells you where truth should live.
+5. Make the smallest correct change.
+6. Run the relevant checks, then review the diff for regressions, missing tests, and contract drift.
+7. Update the owning note in the same pass, and update the nearest index if you added, archived, or renamed durable notes or skills.
+8. If the same workflow is likely to recur, create or update a skill and trim the note down to a pointer.
 
 ## Token Discipline
 
@@ -75,11 +76,13 @@ Do not jump straight into source files before completing that read order.
 
 ## Session Context Optimization
 
-- Treat `~/.codex/config.toml` as the live MCP registry. The repo `.codex/config.toml` is only the checked-in template for `node ./.codex/scripts/install-mcp-config.cjs`.
+- Treat the repo `.codex/config.toml` as the shared project default and the source of truth for `node ./.codex/scripts/install-mcp-config.cjs`. If a session is missing the expected MCP surface, refresh the user-scoped config block and restart Codex.
 - Default MCP profile should stay compact. Enable broader MCP surfaces only when the task clearly needs browser automation, external docs, Grafana, Helius, or database reads.
 - Prefer primary tools over helper duplicates. In practice: `desktop_commander` before `filesystem`, `chrome_devtools` before `browsermcp`, and local notes/code before external research.
 - Prefer repo-local skills under `.agents/skills/`. Do not rely on global skills for repo-specific workflows unless the skill is genuinely cross-repo.
-- For ambiguous or planning-heavy work, start in ask mode before broad file reads. Use a structured prompt shape with title, description, and context so scope is explicit.
+- Keep the shared repo baseline at `approval_policy = "on-request"` and `sandbox_mode = "workspace-write"`. Use the `fast`, `deep`, `review`, or `full_access` profiles only when the task actually needs different reasoning or permissions.
+- For ambiguous or planning-heavy work, prefer Plan mode before broad file reads. Use a structured prompt shape with goal, context, constraints, and done-when so scope and verification are explicit.
+- Keep one thread per coherent task. Fork only when the work truly branches.
 - For longer tasks, use task queues and background terminals so the active thread is not flooded with shell output.
 - Use compaction before the thread becomes bloated, and use lightweight git checkpoints like `git status` and `git diff --stat` before and after substantive work.
 
@@ -114,6 +117,7 @@ When a procedure becomes a skill:
 ## Verification
 
 - Run the relevant checks for the area you changed.
+- Review the final diff for regressions, missing tests, and instruction drift after the checks pass.
 - If Prisma changed, run `npm run db:generate` before trusting TypeScript output.
 - If dashboard code changed, make sure `trading_bot/dashboard` still builds.
 - If backend runtime, routes, or schema changed, update the matching reference docs under `notes/reference/` before you finish.

@@ -12,6 +12,8 @@ source_files:
   - trading_bot/dashboard/components/discovery-lab-client.tsx
   - trading_bot/dashboard/components/discovery-lab-results-board.tsx
   - trading_bot/dashboard/components/settings-client.tsx
+  - trading_bot/dashboard/components/pinned-items.tsx
+  - trading_bot/dashboard/components/workbench-row-actions.tsx
   - trading_bot/dashboard/app/candidates/page.tsx
   - trading_bot/dashboard/app/candidates/[id]/page.tsx
   - trading_bot/dashboard/app/discovery-lab/page.tsx
@@ -58,11 +60,13 @@ Purpose: document the current UI contract for the Next.js operator desk so later
 ## Shell Contract
 
 - Sidebar owns primary route navigation
+- Sidebar active state must follow nested routes, so detail pages keep their parent section selected
 - Sidebar also carries one compact shell-state block:
   mode
   queued count
   open positions
   alert count
+- Sidebar carries one compact current-page context block beneath navigation with route-specific quick links or focus chips
 - Desktop sidebar can collapse into an icon rail and should remember that state locally so the workbench can expand without losing route access
 - Sidebar can carry one compact pinned-items watchlist below navigation when the operator desk needs repeated jumps back into the same candidate and position records
 - Top bar owns:
@@ -71,6 +75,7 @@ Purpose: document the current UI contract for the Next.js operator desk so later
   command launcher
   refresh shell
   global runtime actions
+- Sticky page bars under the shell must anchor from the real shell-header height, not a route-local magic number
 - When the backend boots in `LIVE`, the primary action should read as an explicit live-arm control rather than pretending live trading is already running
 - Do not duplicate shell truth in extra footer summaries or decorative chrome
 
@@ -87,7 +92,7 @@ Purpose: document the current UI contract for the Next.js operator desk so later
 - `/candidates`: triage workbench by blocker bucket
 - `/positions`: open-risk-first book and closed-book review
 - `/discovery-lab`: results-first discovery workspace with three top tabs (`Results`, `Builder`, `Runs`), a sticky action bar for core package and run actions, market-regime guidance, and same-page full result review
-- `/telemetry`: current diagnostics and faults, not trend analysis
+- `/telemetry`: current diagnostics and faults, not trend analysis; active issues should lead before summary cards
 - `/settings`: draft, validate, dry run, promote
 
 ## Detail Page Order
@@ -95,6 +100,7 @@ Purpose: document the current UI contract for the Next.js operator desk so later
 - Candidate detail pages answer `why this matters now` first
 - Candidate detail pages show decision trace second
 - Candidate detail pages keep normalized gate state and raw provider evidence below the top summary
+- Candidate detail pages can collapse raw provider payload metadata behind a disclosure; snapshot history stays directly visible
 - Position detail pages answer `what needs action` first
 - Position detail pages keep execution and exit reasoning separate from raw fill and snapshot history
 - Raw evidence belongs last unless a current blocker depends on it
@@ -111,6 +117,7 @@ Purpose: document the current UI contract for the Next.js operator desk so later
   package editing remains split into `Basics` and `Thresholds`, with strategy editing directly below in the same builder tab
   active run progress must be visible while the CLI is still working
   the primary result surface should be a deduplicated token board keyed by mint, not a repeated per-strategy dump
+  results should not spend vertical space on a duplicate outer frame before the token board
   the result table should prioritize decision metrics over prose and include run-relative heatmap cells on selected columns
   each token row should expose a direct details action that opens a full-screen review surface, not a route jump
   the result board should take full page width and support full-screen review mode
@@ -119,6 +126,7 @@ Purpose: document the current UI contract for the Next.js operator desk so later
   market-regime suggestions belong in `Builder` with one-click apply to draft threshold overrides; they must never silently rewrite runtime settings
   source, strategy, and winner rollups should stay compact and secondary so the page does not drown the operator in helper tables
   raw per-strategy hits can stay available, but they should live behind a quieter secondary surface instead of dominating the page
+  builder and runs support rails can stay present, but they should be narrow and collapsible on wide screens
   on narrow screens, discovery should open into an editing-first flow and results should degrade into stacked cards instead of forcing page-level horizontal scroll
 - Both workbenches support URL-backed text filtering through `q` so operators can jump to a symbol, mint, blocker, or exit phrase without leaving keyboard flow
 - Row actions belong inline on the workbench:
@@ -128,14 +136,17 @@ Purpose: document the current UI contract for the Next.js operator desk so later
   `Copy`
 - Sticky workbench controls are acceptable when they keep sort, bucket, or book state visible during scan-heavy use
 - `Pin` creates a local watchlist surface in the shell and on the homepage; it does not create backend state
+- Mobile workbenches can collapse row actions behind a compact menu; desktop keeps inline `Open`, `Pin`, `Grafana`, and `Copy`
 - Actionable rows should read differently from passive rows through density, tone, and urgency cues instead of extra prose
 
 ## Homepage Rules
 
 - Keep only the exposure and queue stat cards above the fold
 - Use the main body to rank interventions, surface diagnostics, and show the pinned watchlist
+- When nothing is pinned yet, collapse the watchlist into a small inline hint instead of a full empty band
 - Homepage diagnostics must surface fresh provider payload failures; a green desk summary while the backend is logging live provider errors is a broken contract
 - Do not reintroduce a filler quick-routes panel if the shell and pinned strip already cover navigation
+- Page headers across the app stay compact: short title, status, actions, and at most one concise aside summary block
 
 ## Copy Tone
 
@@ -152,6 +163,7 @@ Purpose: document the current UI contract for the Next.js operator desk so later
   “respectable box” filler copy
   repeating the same state in three different sentences
 - If extra explanation is necessary, prefer tooltips or concise secondary text
+- Use lime tint mainly for active route state, live-success state, and small functional emphasis surfaces, not for broad section fills
 
 ## Grafana Split
 

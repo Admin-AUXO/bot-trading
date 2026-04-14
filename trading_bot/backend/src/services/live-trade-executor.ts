@@ -150,6 +150,29 @@ function getWalletLamportsDelta(transaction: ParsedTransactionWithMeta | null, o
   return post - pre;
 }
 
+function toDecimalNumber(rawAmount: string | null | undefined, decimals: number): number | null {
+  if (!rawAmount) return null;
+  try {
+    return Number(rawUnitsToDecimalString(BigInt(rawAmount), decimals));
+  } catch {
+    return null;
+  }
+}
+
+function toBpsFromShortfall(
+  quotedOutAmount: number | null,
+  actualOutAmount: number | null,
+): number | null {
+  if (!Number.isFinite(quotedOutAmount) || !Number.isFinite(actualOutAmount)) {
+    return null;
+  }
+  if ((quotedOutAmount ?? 0) <= 0 || (actualOutAmount ?? 0) <= 0) {
+    return null;
+  }
+  const shortfallRatio = ((quotedOutAmount ?? 0) - (actualOutAmount ?? 0)) / (quotedOutAmount ?? 0);
+  return Math.round(shortfallRatio * 10_000 * 100) / 100;
+}
+
 export function getLiveTradingReadiness(): { ready: boolean; reason?: string } {
   if (!env.TRADING_WALLET_PRIVATE_KEY_B58) {
     return { ready: false, reason: "TRADING_WALLET_PRIVATE_KEY_B58 is not configured" };
@@ -190,6 +213,7 @@ export class LiveTradeExecutor {
     budgetUsd: number;
     tokenDecimalsHint?: number | null;
   }): Promise<LiveTradeExecution> {
+    const startedAtMs = Date.now();
     const wallet = this.requireWallet();
     const quoteMint = env.LIVE_QUOTE_MINT;
     const quoteDecimals = env.LIVE_QUOTE_DECIMALS;
@@ -201,15 +225,24 @@ export class LiveTradeExecutor {
 
     await this.ensureWalletFunding(quoteMint, quoteAmountRaw);
 
+    const quoteStartedAtMs = Date.now();
     const quote = await this.getQuote({
       inputMint: quoteMint,
       outputMint: input.mint,
       amount: quoteAmountRaw.toString(),
       slippageBps: env.LIVE_SLIPPAGE_BPS,
     });
+    const quoteCompletedAtMs = Date.now();
+    const swapStartedAtMs = quoteCompletedAtMs;
     const swap = await this.getSwapTransaction(quote, wallet.publicKey.toBase58());
+    const swapCompletedAtMs = Date.now();
+    const senderBuildStartedAtMs = swapCompletedAtMs;
     const senderTx = await this.buildSenderTransaction(swap, wallet);
+    const senderBuildCompletedAtMs = Date.now();
+    const broadcastStartedAtMs = senderBuildCompletedAtMs;
     const signature = await this.broadcastTransaction(senderTx);
+    const broadcastCompletedAtMs = Date.now();
+    const settlementStartedAtMs = broadcastCompletedAtMs;
     const settled = await this.parseSettlement({
       signature,
       walletAddress: wallet.publicKey.toBase58(),
@@ -221,6 +254,14 @@ export class LiveTradeExecutor {
       quoteDecimalsHint: quoteDecimals,
       side: "BUY",
     });
+    const settlementCompletedAtMs = Date.now();
+    const quotedInAmountRaw = quote.inAmount ?? quoteAmountRaw.toString();
+    const quotedOutAmountRaw = quote.outAmount ?? null;
+    const actualInAmountRaw = settled.quoteAmountRaw;
+    const actualOutAmountRaw = settled.baseAmountRaw;
+    const quotedOutAmountToken = toDecimalNumber(quotedOutAmountRaw, settled.baseDecimals);
+    const actualOutAmountToken = Number(settled.baseAmount);
+    const executionSlippageBps = toBpsFromShortfall(quotedOutAmountToken, actualOutAmountToken);
 
     return {
       signature,
@@ -235,11 +276,26 @@ export class LiveTradeExecutor {
         wallet: wallet.publicKey.toBase58(),
         quoteMint,
         quoteDecimals,
-        quotedInAmountRaw: quote.inAmount ?? quoteAmountRaw.toString(),
-        quotedOutAmountRaw: quote.outAmount ?? null,
+        quotedInAmountRaw,
+        quotedOutAmountRaw,
+        actualInAmountRaw,
+        actualOutAmountRaw,
+        quotedOutAmountToken,
+        actualOutAmountToken,
+        executionSlippageBps,
         quoteSlippageBps: quote.slippageBps ?? env.LIVE_SLIPPAGE_BPS,
         senderUrl: env.LIVE_HELIUS_SENDER_URL,
         walletLamportsDelta: settled.walletLamportsDelta,
+        timing: {
+          startedAt: new Date(startedAtMs).toISOString(),
+          completedAt: new Date(settlementCompletedAtMs).toISOString(),
+          totalMs: settlementCompletedAtMs - startedAtMs,
+          quoteMs: quoteCompletedAtMs - quoteStartedAtMs,
+          swapBuildMs: swapCompletedAtMs - swapStartedAtMs,
+          senderBuildMs: senderBuildCompletedAtMs - senderBuildStartedAtMs,
+          broadcastAndConfirmMs: broadcastCompletedAtMs - broadcastStartedAtMs,
+          settlementReadMs: settlementCompletedAtMs - settlementStartedAtMs,
+        },
       },
     };
   }
@@ -249,6 +305,7 @@ export class LiveTradeExecutor {
     tokenAmount: string;
     tokenDecimals: number;
   }): Promise<LiveTradeExecution> {
+    const startedAtMs = Date.now();
     const wallet = this.requireWallet();
     const quoteMint = env.LIVE_QUOTE_MINT;
     const quoteDecimals = env.LIVE_QUOTE_DECIMALS;
@@ -261,15 +318,24 @@ export class LiveTradeExecutor {
     await this.ensureWalletFunding(quoteMint, 0n);
     await this.ensureTokenBalance(input.mint, baseAmountRaw);
 
+    const quoteStartedAtMs = Date.now();
     const quote = await this.getQuote({
       inputMint: input.mint,
       outputMint: quoteMint,
       amount: baseAmountRaw.toString(),
       slippageBps: env.LIVE_SLIPPAGE_BPS,
     });
+    const quoteCompletedAtMs = Date.now();
+    const swapStartedAtMs = quoteCompletedAtMs;
     const swap = await this.getSwapTransaction(quote, wallet.publicKey.toBase58());
+    const swapCompletedAtMs = Date.now();
+    const senderBuildStartedAtMs = swapCompletedAtMs;
     const senderTx = await this.buildSenderTransaction(swap, wallet);
+    const senderBuildCompletedAtMs = Date.now();
+    const broadcastStartedAtMs = senderBuildCompletedAtMs;
     const signature = await this.broadcastTransaction(senderTx);
+    const broadcastCompletedAtMs = Date.now();
+    const settlementStartedAtMs = broadcastCompletedAtMs;
     const settled = await this.parseSettlement({
       signature,
       walletAddress: wallet.publicKey.toBase58(),
@@ -281,6 +347,14 @@ export class LiveTradeExecutor {
       quoteDecimalsHint: quoteDecimals,
       side: "SELL",
     });
+    const settlementCompletedAtMs = Date.now();
+    const quotedInAmountRaw = quote.inAmount ?? baseAmountRaw.toString();
+    const quotedOutAmountRaw = quote.outAmount ?? null;
+    const actualInAmountRaw = settled.baseAmountRaw;
+    const actualOutAmountRaw = settled.quoteAmountRaw;
+    const quotedOutAmountUsd = toDecimalNumber(quotedOutAmountRaw, quoteDecimals);
+    const actualOutAmountUsd = Number(settled.quoteAmount);
+    const executionSlippageBps = toBpsFromShortfall(quotedOutAmountUsd, actualOutAmountUsd);
 
     return {
       signature,
@@ -295,11 +369,26 @@ export class LiveTradeExecutor {
         wallet: wallet.publicKey.toBase58(),
         quoteMint,
         quoteDecimals,
-        quotedInAmountRaw: quote.inAmount ?? baseAmountRaw.toString(),
-        quotedOutAmountRaw: quote.outAmount ?? null,
+        quotedInAmountRaw,
+        quotedOutAmountRaw,
+        actualInAmountRaw,
+        actualOutAmountRaw,
+        quotedOutAmountUsd,
+        actualOutAmountUsd,
+        executionSlippageBps,
         quoteSlippageBps: quote.slippageBps ?? env.LIVE_SLIPPAGE_BPS,
         senderUrl: env.LIVE_HELIUS_SENDER_URL,
         walletLamportsDelta: settled.walletLamportsDelta,
+        timing: {
+          startedAt: new Date(startedAtMs).toISOString(),
+          completedAt: new Date(settlementCompletedAtMs).toISOString(),
+          totalMs: settlementCompletedAtMs - startedAtMs,
+          quoteMs: quoteCompletedAtMs - quoteStartedAtMs,
+          swapBuildMs: swapCompletedAtMs - swapStartedAtMs,
+          senderBuildMs: senderBuildCompletedAtMs - senderBuildStartedAtMs,
+          broadcastAndConfirmMs: broadcastCompletedAtMs - broadcastStartedAtMs,
+          settlementReadMs: settlementCompletedAtMs - settlementStartedAtMs,
+        },
       },
     };
   }
@@ -498,7 +587,9 @@ export class LiveTradeExecutor {
     side: "BUY" | "SELL";
   }): Promise<{
     baseAmount: string;
+    baseAmountRaw: string;
     quoteAmount: string;
+    quoteAmountRaw: string;
     baseDecimals: number;
     walletLamportsDelta: string;
   }> {
@@ -531,7 +622,9 @@ export class LiveTradeExecutor {
 
     return {
       baseAmount: rawUnitsToDecimalString(safeBaseRaw, baseDecimals),
+      baseAmountRaw: safeBaseRaw.toString(),
       quoteAmount: rawUnitsToDecimalString(safeQuoteRaw, quoteDecimals),
+      quoteAmountRaw: safeQuoteRaw.toString(),
       baseDecimals,
       walletLamportsDelta: rawUnitsToDecimalString(getWalletLamportsDelta(parsed, input.walletAddress), 9),
     };

@@ -66,12 +66,13 @@ Put the knowledge in the narrowest correct place:
 ## Standard Procedure
 
 1. Read the minimum note surface that can answer the task.
-2. For ambiguous or planning-heavy work, start in ask mode and use a structured prompt shape: title, description, context.
-3. Ask questions only if they change the shape of the solution.
-4. Change the smallest correct file set.
-5. Verify the changed surface.
-6. Update the owning note in the same pass.
-7. Promote repeated procedures into skills instead of preserving prompt-heavy notes.
+2. For ambiguous, planning-heavy, or high-risk work, prefer Plan mode when it is available; otherwise start in ask mode.
+3. Use a structured prompt shape: goal, context, constraints, done-when.
+4. Ask questions only if they change the shape of the solution.
+5. Change the smallest correct file set.
+6. Verify the changed surface and review the resulting diff for regressions or missing tests.
+7. Update the owning note in the same pass.
+8. Promote repeated procedures into skills instead of preserving prompt-heavy notes.
 
 ## Vault Rules
 
@@ -97,6 +98,7 @@ Put the knowledge in the narrowest correct place:
 
 - asking broad open-ended questions when a choice architecture would do
 - letting the user define implementation details before the problem is scoped
+- skipping Plan mode or a clear prompt contract on tasks that are obviously multi-step
 - burying reusable guidance in a one-off runbook
 - creating note duplicates because the nearest existing note was not checked first
 - documenting a plan in chat only and leaving the vault empty

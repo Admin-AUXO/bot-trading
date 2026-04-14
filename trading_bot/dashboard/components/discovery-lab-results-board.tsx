@@ -28,7 +28,13 @@ import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { EmptyState, Panel } from "@/components/dashboard-primitives";
 import { fetchJson } from "@/lib/api";
 import { formatCompactCurrency, formatCurrency, formatInteger, formatNumber, formatPercent, formatRelativeMinutes, formatTimestamp } from "@/lib/format";
-import type { BotSettings, DiscoveryLabRunDetail, DiscoveryLabRunReport, DiscoveryLabRuntimeSnapshot } from "@/lib/types";
+import type {
+  BotSettings,
+  DiscoveryLabManualEntryResponse,
+  DiscoveryLabRunDetail,
+  DiscoveryLabRunReport,
+  DiscoveryLabRuntimeSnapshot,
+} from "@/lib/types";
 
 type ResultFilter = "all" | "winner" | "pass" | "overlap" | "reject";
 type TokenOutcome = "winner" | "pass" | "reject";
@@ -61,8 +67,12 @@ type TokenTradeSetup = {
   stopLossPriceUsd: number | null;
   tp1Percent: number;
   tp1PriceUsd: number | null;
+  tp1SellFractionPercent: number;
   tp2Percent: number;
   tp2PriceUsd: number | null;
+  tp2SellFractionPercent: number;
+  postTp1RetracePercent: number;
+  trailingStopPercent: number;
   maxHoldMinutes: number;
   timeStopMinutes: number;
   timeStopMinReturnPercent: number;
@@ -155,8 +165,9 @@ type MarketRegimeSnapshot = {
 export function DiscoveryLabResultsBoard(props: {
   runDetail: DiscoveryLabRunDetail | null;
   runtimeSnapshot: DiscoveryLabRuntimeSnapshot | null;
+  onRuntimeSnapshotChange: (snapshot: DiscoveryLabRuntimeSnapshot) => void;
 }) {
-  const { runDetail, runtimeSnapshot } = props;
+  const { runDetail, runtimeSnapshot, onRuntimeSnapshotChange } = props;
   const report = runDetail?.report ?? null;
   const [resultFilter, setResultFilter] = useState<ResultFilter>("all");
   const [sorting, setSorting] = useState<SortingState>([{ id: "score", desc: true }]);
@@ -167,6 +178,13 @@ export function DiscoveryLabResultsBoard(props: {
   const [marketRegime, setMarketRegime] = useState<MarketRegimeSnapshot | null>(null);
   const [marketRegimeLoading, setMarketRegimeLoading] = useState(false);
   const [marketRegimeError, setMarketRegimeError] = useState<string | null>(null);
+  const [manualEntryPendingMint, setManualEntryPendingMint] = useState<string | null>(null);
+  const [manualEntryError, setManualEntryError] = useState<string | null>(null);
+  const [manualEntrySuccess, setManualEntrySuccess] = useState<{
+    mint: string;
+    symbol: string;
+    positionId: string;
+  } | null>(null);
   const deferredSearchText = useDeferredValue(searchText);
 
   const tokenRows = useMemo(() => buildTokenRows(report), [report]);
@@ -203,6 +221,48 @@ export function DiscoveryLabResultsBoard(props: {
       setSelectedMint(null);
     }
   }, [selectedMint, selectedRow]);
+
+  async function startManualTrade(row: TokenBoardRow) {
+    const disabledReason = getManualTradeDisabledReason(row, runtimeSnapshot, runDetail);
+    if (disabledReason) {
+      setManualEntryError(disabledReason);
+      setManualEntrySuccess(null);
+      return;
+    }
+    if (!runDetail) {
+      return;
+    }
+    if (!window.confirm(`Enter ${row.symbol} from discovery-lab results as a live trade and start managed exits immediately?`)) {
+      return;
+    }
+
+    setManualEntryPendingMint(row.mint);
+    setManualEntryError(null);
+    setManualEntrySuccess(null);
+
+    try {
+      const response = await fetchJson<DiscoveryLabManualEntryResponse>("/operator/discovery-lab/manual-entry", {
+        method: "POST",
+        body: JSON.stringify({
+          runId: runDetail.id,
+          mint: row.mint,
+        }),
+      });
+      const nextRuntime = await fetchJson<DiscoveryLabRuntimeSnapshot>("/status");
+      onRuntimeSnapshotChange(nextRuntime);
+      setManualEntrySuccess({
+        mint: row.mint,
+        symbol: response.symbol,
+        positionId: response.positionId,
+      });
+      setManualEntryError(null);
+    } catch (error) {
+      setManualEntryError(error instanceof Error ? error.message : "failed to enter manual trade");
+      setManualEntrySuccess(null);
+    } finally {
+      setManualEntryPendingMint(null);
+    }
+  }
 
   useEffect(() => {
     const runIdValue = runDetail?.id;
@@ -429,11 +489,22 @@ export function DiscoveryLabResultsBoard(props: {
       cell: ({ row }) => {
         const setup = tradeSetups.get(row.original.mint) ?? null;
         const metrics = rowMetrics.get(row.original.mint) ?? EMPTY_ROW_METRICS;
+        const manualTradeDisabledReason = getManualTradeDisabledReason(row.original, runtimeSnapshot, runDetail);
+        const manualTradePending = manualEntryPendingMint === row.original.mint;
         return (
           <div className="min-w-[11rem] space-y-1.5 text-right">
             <MetricLine label="Capital" value={setup && setup.suggestedCapitalUsd !== null ? formatCurrency(setup.suggestedCapitalUsd) : "—"} compact />
             <MetricLine label="Risk$" value={formatSignedCurrency(metrics.riskUsd, false)} compact />
             <MetricLine label="Edge" value={formatSignedPp(metrics.edgePp)} compact />
+            <button
+              type="button"
+              onClick={() => void startManualTrade(row.original)}
+              disabled={Boolean(manualTradeDisabledReason) || manualEntryPendingMint !== null}
+              title={manualTradeDisabledReason ?? undefined}
+              className="btn-ghost mt-1 inline-flex items-center gap-2 border border-bg-border px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {manualTradePending ? "Entering..." : "Enter trade"}
+            </button>
             <button
               type="button"
               onClick={() => setSelectedMint(row.original.mint)}
@@ -446,7 +517,7 @@ export function DiscoveryLabResultsBoard(props: {
         );
       },
     },
-  ], [heatmapScales, rowMetrics, tradeSetups]);
+  ], [heatmapScales, manualEntryPendingMint, rowMetrics, runDetail, runtimeSnapshot, tradeSetups]);
 
   const table = useReactTable({
     data: visibleRows,
@@ -504,6 +575,25 @@ export function DiscoveryLabResultsBoard(props: {
                 error={marketRegimeError}
               />
 
+              {manualEntrySuccess ? (
+                <div className="rounded-[16px] border border-[rgba(163,230,53,0.24)] bg-[#11170f] px-4 py-3 text-sm text-text-primary">
+                  Manual trade opened for {manualEntrySuccess.symbol}. Exit monitoring was refreshed immediately.
+                  {" "}
+                  <a
+                    href={`/positions/${manualEntrySuccess.positionId}?book=open&focus=${manualEntrySuccess.positionId}`}
+                    className="font-semibold text-[#d6ff78] underline underline-offset-4"
+                  >
+                    Open tracked position
+                  </a>
+                </div>
+              ) : null}
+
+              {manualEntryError ? (
+                <div className="rounded-[16px] border border-[rgba(248,113,113,0.24)] bg-[#1a1011] px-4 py-3 text-sm text-[#f7c0c0]">
+                  {manualEntryError}
+                </div>
+              ) : null}
+
               <div className="flex flex-col gap-3 border-t border-bg-border/80 pt-4 xl:flex-row xl:items-center xl:justify-between">
                 <div className="flex flex-wrap items-center gap-2">
                   {RESULT_FILTERS.map((filter) => (
@@ -546,6 +636,9 @@ export function DiscoveryLabResultsBoard(props: {
                             reportGeneratedAt={reportGeneratedAt}
                             runDurationLabel={runDurationLabel}
                             metrics={rowMetrics.get(row.original.mint) ?? EMPTY_ROW_METRICS}
+                            onStartManualTrade={() => void startManualTrade(row.original)}
+                            manualTradeDisabledReason={getManualTradeDisabledReason(row.original, runtimeSnapshot, runDetail)}
+                            manualTradePending={manualEntryPendingMint === row.original.mint}
                             onViewDetails={() => setSelectedMint(row.original.mint)}
                           />
                         ))}
@@ -684,6 +777,9 @@ export function DiscoveryLabResultsBoard(props: {
           row={selectedRow}
           tradeSetup={selectedSetup}
           metrics={selectedMetrics ?? EMPTY_ROW_METRICS}
+          onStartManualTrade={() => void startManualTrade(selectedRow)}
+          manualTradeDisabledReason={getManualTradeDisabledReason(selectedRow, runtimeSnapshot, runDetail)}
+          manualTradePending={manualEntryPendingMint === selectedRow.mint}
           onClose={() => setSelectedMint(null)}
         />
       ) : null}
@@ -876,6 +972,9 @@ function TokenCard(props: {
   reportGeneratedAt: string | null;
   runDurationLabel: string | null;
   metrics: TokenRowMetrics;
+  onStartManualTrade: () => void;
+  manualTradeDisabledReason: string | null;
+  manualTradePending: boolean;
   onViewDetails: () => void;
 }) {
   return (
@@ -931,6 +1030,15 @@ function TokenCard(props: {
         </div>
         <button
           type="button"
+          onClick={props.onStartManualTrade}
+          disabled={Boolean(props.manualTradeDisabledReason) || props.manualTradePending}
+          title={props.manualTradeDisabledReason ?? undefined}
+          className="btn-ghost mt-3 inline-flex items-center gap-2 border border-bg-border px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {props.manualTradePending ? "Entering..." : "Enter trade"}
+        </button>
+        <button
+          type="button"
           onClick={props.onViewDetails}
           className="btn-ghost mt-3 inline-flex items-center gap-2 border border-bg-border px-3 py-2 text-xs"
         >
@@ -946,6 +1054,9 @@ function TokenDetailsDrawer(props: {
   row: TokenBoardRow;
   tradeSetup: TokenTradeSetup | null;
   metrics: TokenRowMetrics;
+  onStartManualTrade: () => void;
+  manualTradeDisabledReason: string | null;
+  manualTradePending: boolean;
   onClose: () => void;
 }) {
   const signal = props.row.signal;
@@ -970,6 +1081,17 @@ function TokenDetailsDrawer(props: {
               <div className="mt-3 flex flex-wrap gap-2">
                 <TokenMarketLinks mint={props.row.mint} symbol={props.row.symbol} />
               </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={props.onStartManualTrade}
+                  disabled={Boolean(props.manualTradeDisabledReason) || props.manualTradePending}
+                  title={props.manualTradeDisabledReason ?? undefined}
+                  className="btn-ghost inline-flex items-center gap-2 border border-bg-border px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {props.manualTradePending ? "Entering..." : "Enter trade"}
+                </button>
+              </div>
             </div>
             <button
               type="button"
@@ -993,7 +1115,11 @@ function TokenDetailsDrawer(props: {
               <MetricTile label="Entry reference" value={formatTokenPrice(props.tradeSetup?.entryPriceUsd ?? signal?.priceUsd ?? null)} />
               <MetricTile label="Stop loss" value={formatTargetValue(props.tradeSetup?.stopLossPriceUsd ?? null, props.tradeSetup ? -props.tradeSetup.stopLossPercent : null)} />
               <MetricTile label="Take profit 1" value={formatTargetValue(props.tradeSetup?.tp1PriceUsd ?? null, props.tradeSetup?.tp1Percent ?? null)} />
+              <MetricTile label="TP1 sell size" value={props.tradeSetup ? formatPercent(props.tradeSetup.tp1SellFractionPercent, 0) : "—"} />
               <MetricTile label="Take profit 2" value={formatTargetValue(props.tradeSetup?.tp2PriceUsd ?? null, props.tradeSetup?.tp2Percent ?? null)} />
+              <MetricTile label="TP2 sell size" value={props.tradeSetup ? formatPercent(props.tradeSetup.tp2SellFractionPercent, 0) : "—"} />
+              <MetricTile label="Post-TP1 retrace" value={props.tradeSetup ? formatPercent(props.tradeSetup.postTp1RetracePercent, 0) : "—"} />
+              <MetricTile label="Trail after TP2" value={props.tradeSetup ? formatPercent(props.tradeSetup.trailingStopPercent, 0) : "—"} />
               <MetricTile label="Max hold" value={props.tradeSetup ? formatRelativeMinutes(props.tradeSetup.maxHoldMinutes) : "—"} />
               <MetricTile label="Time stop" value={props.tradeSetup ? `${formatRelativeMinutes(props.tradeSetup.timeStopMinutes)} if under ${formatPercent(props.tradeSetup.timeStopMinReturnPercent, 0)}` : "—"} />
               <MetricTile label="2x confidence" value={props.tradeSetup ? formatPercent(props.tradeSetup.doubleUpConfidencePercent, 0) : "—"} />
@@ -1413,8 +1539,12 @@ function buildTokenTradeSetup(
     stopLossPriceUsd: entryPriceUsd !== null ? entryPriceUsd * (1 - exitPlan.stopLossPercent / 100) : null,
     tp1Percent: (exitPlan.tp1Multiplier - 1) * 100,
     tp1PriceUsd: entryPriceUsd !== null ? entryPriceUsd * exitPlan.tp1Multiplier : null,
+    tp1SellFractionPercent: exitPlan.tp1SellFraction * 100,
     tp2Percent: (exitPlan.tp2Multiplier - 1) * 100,
     tp2PriceUsd: entryPriceUsd !== null ? entryPriceUsd * exitPlan.tp2Multiplier : null,
+    tp2SellFractionPercent: exitPlan.tp2SellFraction * 100,
+    postTp1RetracePercent: exitPlan.postTp1RetracePercent,
+    trailingStopPercent: exitPlan.trailingStopPercent,
     maxHoldMinutes: exitPlan.timeLimitMinutes,
     timeStopMinutes: exitPlan.timeStopMinutes,
     timeStopMinReturnPercent: exitPlan.timeStopMinReturnPercent,
@@ -1426,6 +1556,32 @@ function inferPresetId(row: TokenBoardRow): StrategyPresetId {
   return row.modes.includes("pregrad")
     ? "LATE_CURVE_MIGRATION_SNIPE"
     : "FIRST_MINUTE_POSTGRAD_CONTINUATION";
+}
+
+function getManualTradeDisabledReason(
+  row: TokenBoardRow,
+  runtimeSnapshot: DiscoveryLabRuntimeSnapshot | null,
+  runDetail: DiscoveryLabRunDetail | null,
+): string | null {
+  if (!runDetail?.id || !runDetail.report) {
+    return "Load a completed discovery-lab run before entering a manual trade.";
+  }
+  if (!runtimeSnapshot) {
+    return "Runtime snapshot is unavailable.";
+  }
+  if (runtimeSnapshot.botState.tradeMode !== "LIVE") {
+    return "Manual trade entry is only available in LIVE mode.";
+  }
+  if (runtimeSnapshot.botState.pauseReason) {
+    return runtimeSnapshot.botState.pauseReason;
+  }
+  if (row.passedRecipes.length === 0) {
+    return "Only pass-grade discovery-lab tokens can be entered manually.";
+  }
+  if (!row.signal?.priceUsd || row.signal.priceUsd <= 0) {
+    return "This token does not have a usable entry price snapshot.";
+  }
+  return null;
 }
 
 function calculateSuggestedCapitalUsd(
@@ -1478,6 +1634,10 @@ function buildExitPlan(
   stopLossPercent: number;
   tp1Multiplier: number;
   tp2Multiplier: number;
+  tp1SellFraction: number;
+  tp2SellFraction: number;
+  postTp1RetracePercent: number;
+  trailingStopPercent: number;
   timeStopMinutes: number;
   timeStopMinReturnPercent: number;
   timeLimitMinutes: number;
@@ -1487,6 +1647,10 @@ function buildExitPlan(
       stopLossPercent: 16,
       tp1Multiplier: 1.4,
       tp2Multiplier: 2.0,
+      tp1SellFraction: 0.55,
+      tp2SellFraction: 0.25,
+      postTp1RetracePercent: 10,
+      trailingStopPercent: 14,
       timeStopMinutes: 3,
       timeStopMinReturnPercent: 6,
       timeLimitMinutes: 6,
@@ -1495,6 +1659,10 @@ function buildExitPlan(
       stopLossPercent: 14,
       tp1Multiplier: 1.3,
       tp2Multiplier: 2.0,
+      tp1SellFraction: 0.5,
+      tp2SellFraction: 0.2,
+      postTp1RetracePercent: 9,
+      trailingStopPercent: 12,
       timeStopMinutes: 4,
       timeStopMinReturnPercent: 5,
       timeLimitMinutes: 8,
@@ -1512,6 +1680,10 @@ function buildExitPlan(
       stopLossPercent: clamp(exits.stopLossPercent * 1.05, 12, 35),
       tp1Multiplier: Math.max(exits.tp1Multiplier + 0.15, 1.55),
       tp2Multiplier: Math.max(exits.tp2Multiplier + 0.4, 2.6),
+      tp1SellFraction: clamp(exits.tp1SellFraction - 0.15, 0.2, 0.45),
+      tp2SellFraction: clamp(exits.tp2SellFraction - 0.05, 0.15, 0.35),
+      postTp1RetracePercent: clamp(exits.postTp1RetracePercent + 3, 10, 25),
+      trailingStopPercent: clamp(exits.trailingStopPercent + 4, 12, 30),
       timeStopMinutes,
       timeStopMinReturnPercent: Math.max(exits.timeStopMinReturnPercent + 3, 8),
       timeLimitMinutes: ensureTimeLimit(
@@ -1527,6 +1699,10 @@ function buildExitPlan(
       stopLossPercent: exits.stopLossPercent,
       tp1Multiplier: exits.tp1Multiplier,
       tp2Multiplier: exits.tp2Multiplier,
+      tp1SellFraction: exits.tp1SellFraction,
+      tp2SellFraction: exits.tp2SellFraction,
+      postTp1RetracePercent: exits.postTp1RetracePercent,
+      trailingStopPercent: exits.trailingStopPercent,
       timeStopMinutes: exits.timeStopMinutes,
       timeStopMinReturnPercent: exits.timeStopMinReturnPercent,
       timeLimitMinutes: exits.timeLimitMinutes,
@@ -1539,6 +1715,10 @@ function buildExitPlan(
     stopLossPercent: clamp(exits.stopLossPercent * 0.8, 10, 25),
     tp1Multiplier: Math.max(exits.tp1Multiplier - 0.1, 1.28),
     tp2Multiplier: Math.max(exits.tp2Multiplier - 0.3, exits.tp1Multiplier + 0.25),
+    tp1SellFraction: clamp(exits.tp1SellFraction + 0.15, 0.45, 0.75),
+    tp2SellFraction: clamp(exits.tp2SellFraction - 0.1, 0.1, 0.3),
+    postTp1RetracePercent: clamp(exits.postTp1RetracePercent - 5, 8, 18),
+    trailingStopPercent: clamp(exits.trailingStopPercent - 8, 10, 20),
     timeStopMinutes,
     timeStopMinReturnPercent: Math.max(exits.timeStopMinReturnPercent - 2, 2),
     timeLimitMinutes: ensureTimeLimit(

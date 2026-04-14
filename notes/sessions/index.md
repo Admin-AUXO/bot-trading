@@ -18,12 +18,11 @@ Use this folder for short active workstream summaries.
 
 ## Active Workstreams
 
+- [2026-04-14 Compose Refresh Script And Skill](2026-04-14-compose-refresh-script-and-skill.md)
+- [2026-04-14 Dashboard Shell Contextual Sidebar And Compact Headers](2026-04-14-dashboard-shell-contextual-sidebar-and-compact-headers.md)
 - [2026-04-14 Discovery Lab Redesign And Shell Collapse](2026-04-14-discovery-lab-redesign-and-shell-collapse.md)
-- [2026-04-13 Discovery Lab And Birdeye MCP Handoff](2026-04-13-discovery-lab-and-birdeye-mcp-handoff.md)
-- [2026-04-12 Compose Env And Dry Run Summary](2026-04-12-compose-env-and-dry-run-summary.md)
-- [2026-04-11 Dashboard Workstream Summary](2026-04-11-dashboard-workstream-summary.md)
-- [2026-04-11 Provider And Runtime Workstream Summary](2026-04-11-provider-runtime-workstream-summary.md)
 
 ## Archive
 
 - [Session Archive](archive/index.md)
+- Moved from active during cleanup: `2026-04-11*`, `2026-04-12*`, `2026-04-13*`

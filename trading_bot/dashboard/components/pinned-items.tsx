@@ -173,8 +173,19 @@ export function PinnedItemsSidebar() {
   );
 }
 
-export function PinnedItemsStrip(props: { className?: string }) {
+export function PinnedItemsStrip(props: { className?: string; compactEmpty?: boolean }) {
   const { items } = usePinnedItems();
+
+  if (items.length === 0 && props.compactEmpty) {
+    return (
+      <section className={clsx("rounded-[16px] border border-dashed border-bg-border bg-bg-hover/20 px-4 py-3", props.className)}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="text-sm text-text-secondary">No pinned rows yet.</div>
+          <span className="text-xs uppercase tracking-[0.18em] text-text-muted">Pin from candidates or positions</span>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className={clsx("rounded-[18px] border border-bg-border bg-bg-hover/35 px-4 py-4", props.className)}>

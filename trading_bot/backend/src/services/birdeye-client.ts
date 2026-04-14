@@ -340,6 +340,50 @@ export class BirdeyeClient {
       .filter((token) => token.mint.length > 0);
   }
 
+  async getMemeTokensForRecipe(params: {
+    recipeParams: Record<string, string | number | boolean | null>;
+    source?: string;
+    mode: "graduated" | "pregrad";
+    limit: number;
+  }): Promise<DiscoveryToken[]> {
+    const requestParams: Record<string, string | number | boolean> = {
+      sort_by: typeof params.recipeParams.sort_by === "string" && params.recipeParams.sort_by.trim().length > 0
+        ? params.recipeParams.sort_by
+        : params.mode === "graduated"
+          ? "graduated_time"
+          : "trade_1m_count",
+      sort_type: params.recipeParams.sort_type === "asc" ? "asc" : "desc",
+      limit: params.limit,
+      graduated: params.mode === "graduated",
+    };
+
+    const source = params.source?.trim()
+      || (typeof params.recipeParams.source === "string" ? params.recipeParams.source.trim() : "");
+    if (source && source !== "all") {
+      requestParams.source = source;
+    }
+
+    for (const [key, value] of Object.entries(params.recipeParams)) {
+      if (key === "sort_by" || key === "sort_type" || key === "source") {
+        continue;
+      }
+      if (value === null || value === undefined || value === "") {
+        continue;
+      }
+      requestParams[key] = value;
+    }
+
+    const response = await this.request<{ data?: { items?: Record<string, unknown>[] } }>(
+      "/defi/v3/token/meme/list",
+      100,
+      requestParams,
+    );
+
+    return (response.data?.items ?? [])
+      .map(parseDiscoveryToken)
+      .filter((token) => token.mint.length > 0);
+  }
+
   async getMemeTokenDetail(mint: string): Promise<DiscoveryToken | null> {
     const response = await this.request<{ data?: Record<string, unknown> }>(
       "/defi/v3/token/meme/detail/single",

@@ -1,25 +1,33 @@
 # Repo-local Codex template for this repository.
-# Current Codex CLI builds load MCP servers from ~/.codex/config.toml rather than
-# this file directly. Install the managed repo MCP block with:
+# Keep this file as the shared project default and the source of truth for the
+# managed MCP block. If a session is missing the expected MCP servers, install or
+# refresh the user-scoped block with:
 #   node ./.codex/scripts/install-mcp-config.cjs
 # Optional profiles:
 #   node ./.codex/scripts/install-mcp-config.cjs --profile db
 #   node ./.codex/scripts/install-mcp-config.cjs --profile full
 # Then restart Codex so the refreshed MCP registry is loaded.
 #
-# Default policy: keep startup compact. Only the primary local file tool should
-# come up on fresh sessions unless the task clearly needs more.
+# Default policy: keep startup compact and day-to-day execution safe. Use explicit
+# profiles when a task needs deeper reasoning or looser permissions.
 
-approval_policy = "never"
-experimental_windows_sandbox = false
+approval_policy = "on-request"
 model = "gpt-5.4"
 model_reasoning_effort = "medium"
+plan_mode_reasoning_effort = "high"
+personality = "pragmatic"
 project_doc_fallback_filenames = ["AGENTS.md"]
 project_root_markers = [
     ".git",
 ]
-sandbox_mode = "danger-full-access"
+sandbox_mode = "workspace-write"
 web_search = "cached"
+
+[features]
+codex_hooks = true
+
+[windows]
+sandbox = "elevated"
 
 [agents]
 max_depth = 1
@@ -160,12 +168,20 @@ enabled = false
 required = false
 startup_timeout_ms = 20000
 
+[profiles.fast]
+model_reasoning_effort = "low"
+
 [profiles.deep]
 model_reasoning_effort = "high"
 
 [profiles.review]
 model = "gpt-5.4"
 model_reasoning_effort = "high"
+sandbox_mode = "read-only"
+
+[profiles.full_access]
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
 
 [shell_environment_policy]
 inherit = "all"

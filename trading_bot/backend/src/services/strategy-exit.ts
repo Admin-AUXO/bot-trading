@@ -1,5 +1,5 @@
 import type { BotSettings } from "../types/domain.js";
-import { getStrategyPreset } from "./strategy-presets.js";
+import { applyStrategySettings } from "./strategy-presets.js";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -63,11 +63,7 @@ export function buildExitPlan(
   entryScore: number,
   strategyPresetId = settings.strategy.livePresetId,
 ): ExitPlan {
-  const preset = getStrategyPreset(strategyPresetId);
-  const exits = {
-    ...settings.exits,
-    ...preset.exitOverrides,
-  };
+  const exits = applyStrategySettings(settings, strategyPresetId).exits;
 
   if (entryScore >= 0.82) {
     const timeStopMinutes = scaleMinutes(exits.timeStopMinutes, 1.7, exits.timeStopMinutes + 1, 60);

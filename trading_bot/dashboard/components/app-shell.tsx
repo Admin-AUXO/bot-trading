@@ -31,7 +31,21 @@ import { PinnedItemsProvider, PinnedItemsSidebar } from "@/components/pinned-ite
 
 const SIDEBAR_STORAGE_KEY = "graduation-control-sidebar-collapsed";
 
-const nav: Array<{ href: Route; label: string; icon: React.ComponentType<{ className?: string }> }> = [
+type NavItem = {
+  href: Route;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+};
+
+type SidebarContext = {
+  eyebrow: string;
+  title: string;
+  detail: string;
+  links?: Array<{ href: string; label: string; badge?: string | null }>;
+  notes?: string[];
+};
+
+const nav: NavItem[] = [
   { href: "/", label: "Desk", icon: Activity },
   { href: "/candidates", label: "Candidates", icon: CandlestickChart },
   { href: "/positions", label: "Positions", icon: BarChart3 },
@@ -52,6 +66,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const commandInputRef = useRef<HTMLInputElement | null>(null);
+  const headerRef = useRef<HTMLElement | null>(null);
   const [shell, setShell] = useState<DeskShellPayload | null>(null);
   const [shellError, setShellError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -61,6 +76,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarReady, setSidebarReady] = useState(false);
   const [isPending, startTransition] = useTransition();
+  const currentPath = pathname ?? "/";
+  const activeNav = getActiveNav(currentPath);
+  const ActiveNavIcon = activeNav.icon;
+  const sidebarContext = buildSidebarContext(currentPath, shell);
 
   const refreshShell = useEffectEvent(async () => {
     try {
@@ -90,6 +109,27 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
     window.localStorage.setItem(SIDEBAR_STORAGE_KEY, sidebarCollapsed ? "1" : "0");
   }, [sidebarCollapsed, sidebarReady]);
+
+  useEffect(() => {
+    const node = headerRef.current;
+    if (!node) {
+      return;
+    }
+
+    const applyHeaderHeight = () => {
+      document.documentElement.style.setProperty("--shell-header-height", `${node.offsetHeight}px`);
+    };
+
+    applyHeaderHeight();
+    const observer = new ResizeObserver(() => applyHeaderHeight());
+    observer.observe(node);
+    window.addEventListener("resize", applyHeaderHeight);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", applyHeaderHeight);
+    };
+  }, [shell?.availableActions.length, shell?.health, shell?.lastSyncAt, shell?.mode, shell?.primaryBlocker?.label, shellError, actionError]);
 
   const runAction = (actionId: DeskShellPayload["availableActions"][number]["id"], confirmation?: string) => {
     if (confirmation && !window.confirm(confirmation)) {
@@ -205,7 +245,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div className="border-b border-bg-border px-4 py-5">
               <div className={clsx("flex items-center gap-3", sidebarCollapsed ? "justify-center" : "justify-between")}>
                 <div className="flex min-w-0 items-center gap-3">
-                  <div className="rounded-xl border border-bg-border bg-[#111113] p-2 text-accent">
+                  <div className="rounded-xl border border-[rgba(163,230,53,0.2)] bg-[var(--panel-raised)] p-2 text-accent">
                     <Radar className="h-5 w-5" />
                   </div>
                   {!sidebarCollapsed ? (
@@ -249,16 +289,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   </div>
                 </div>
               ) : (
-                <div className="mt-5 space-y-4 rounded-[18px] border border-bg-border bg-[#121214] p-4">
+                <div className="mt-5 space-y-4 rounded-[18px] border border-bg-border bg-[var(--panel-raised)] p-4">
                   <div className="flex items-center justify-between gap-3">
-                    <div className="section-kicker">Shell state</div>
+                    <div>
+                      <div className="section-kicker">Shell</div>
+                      <div className="mt-2 text-sm font-semibold text-text-primary">
+                        {shell?.primaryBlocker?.label ?? "Desk clear"}
+                      </div>
+                    </div>
                     <StatusPill value={shell?.health ?? "waiting"} />
-                  </div>
-                  <div className="text-lg font-semibold tracking-tight text-text-primary">
-                    {shell?.primaryBlocker?.label ?? "No primary blocker"}
-                  </div>
-                  <div className="text-sm leading-6 text-text-secondary">
-                    {shell?.primaryBlocker?.detail ?? "Manual controls are available."}
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-xs text-text-secondary">
                     <ShellMetric label="Mode" value={shell?.mode ?? "Waiting"} />
@@ -276,7 +315,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <nav className={clsx("space-y-2 py-5", sidebarCollapsed ? "px-3" : "px-4")}>
               {nav.map((item) => {
                 const Icon = item.icon;
-                const active = pathname === item.href;
+                const active = matchesRoute(currentPath, item.href);
                 const count = routeCount(shell, item.href);
                 const link = (
                   <Link
@@ -336,6 +375,46 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </nav>
 
             <div className={clsx("min-h-0 flex-1 overflow-y-auto pb-5", sidebarCollapsed ? "px-3" : "px-4")}>
+              {!sidebarCollapsed ? (
+                <div className="mb-4 rounded-[18px] border border-[rgba(163,230,53,0.16)] bg-[var(--panel-raised)] p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="section-kicker text-accent">{sidebarContext.eyebrow}</div>
+                      <div className="mt-2 text-sm font-semibold text-text-primary">{sidebarContext.title}</div>
+                    </div>
+                    <div className="rounded-[12px] border border-[rgba(163,230,53,0.18)] bg-[var(--panel-accent)] p-2 text-accent">
+                      <ActiveNavIcon className="h-4 w-4" />
+                    </div>
+                  </div>
+                  <div className="mt-2 text-xs leading-5 text-text-secondary">{sidebarContext.detail}</div>
+                  {sidebarContext.links?.length ? (
+                    <div className="mt-3 grid gap-2">
+                      {sidebarContext.links.map((link) => (
+                        <Link
+                          key={`${sidebarContext.title}-${link.href}-${link.label}`}
+                          href={link.href as Route}
+                          className="flex items-center justify-between gap-3 rounded-[12px] border border-bg-border bg-[#0f1010] px-3 py-2 text-sm text-text-secondary transition hover:border-[rgba(163,230,53,0.18)] hover:text-text-primary"
+                        >
+                          <span>{link.label}</span>
+                          {link.badge ? <span className="meta-chip !px-2.5 !py-1 text-[10px]">{link.badge}</span> : null}
+                        </Link>
+                      ))}
+                    </div>
+                  ) : null}
+                  {sidebarContext.notes?.length ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {sidebarContext.notes.map((note) => (
+                        <span
+                          key={`${sidebarContext.title}-${note}`}
+                          className="rounded-full border border-bg-border bg-[#0f1010] px-3 py-1.5 text-[11px] font-medium text-text-secondary"
+                        >
+                          {note}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               {!sidebarCollapsed ? <PinnedItemsSidebar /> : null}
             </div>
           </aside>
@@ -346,24 +425,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               sidebarCollapsed ? "lg:pl-[5.5rem]" : "lg:pl-72",
             )}
           >
-            <header className="sticky top-0 z-30 border-b border-bg-border/80 bg-bg-secondary">
-              <div className="mx-auto flex w-full max-w-[1680px] flex-wrap items-center justify-between gap-3 px-4 py-3 lg:px-6">
+            <header ref={headerRef} className="sticky top-0 z-30 border-b border-bg-border/80 bg-bg-secondary/95 backdrop-blur-sm">
+              <div className="mx-auto flex w-full max-w-[1680px] flex-wrap items-center justify-between gap-2 px-4 py-2 lg:px-6">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
+                    <span className="section-kicker text-accent">{sidebarContext.eyebrow}</span>
                     <StatusPill value={shell?.mode ?? "waiting"} />
                     <StatusPill value={shell?.health ?? "waiting"} />
                     {shell?.primaryBlocker ? <StatusPill value={shell.primaryBlocker.level} /> : null}
-                    <span className="meta-chip">
-                      Last sync {shell ? formatTimestamp(shell.lastSyncAt) : "awaiting"}
-                    </span>
+                    {shell?.primaryBlocker?.label ? <span className="meta-chip">{shell.primaryBlocker.label}</span> : null}
+                    <span className="meta-chip">Sync {shell ? formatTimestamp(shell.lastSyncAt) : "awaiting"}</span>
                   </div>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-semibold text-text-primary">
-                      {shell?.primaryBlocker?.label ?? "Desk clear"}
-                    </span>
-                    <span className="text-xs text-text-secondary">
-                      {shell?.primaryBlocker?.detail ?? "No active blocker."}
-                    </span>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold text-text-primary">{sidebarContext.title}</span>
+                    <span className="text-[11px] text-text-secondary">{sidebarContext.detail}</span>
                     {shellError ? <span className="meta-chip text-accent-red">{shellError}</span> : null}
                     {actionError ? <span className="meta-chip text-accent-red">{actionError}</span> : null}
                   </div>
@@ -409,12 +484,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
             </header>
 
-            <main className="overflow-x-hidden px-4 py-4 lg:px-6 lg:py-6">
-              <div className="mx-auto mb-4 overflow-auto pb-1 lg:hidden">
+            <main className="overflow-x-hidden px-4 py-3 lg:px-6 lg:py-4">
+              <div className="mx-auto mb-3 overflow-auto pb-1 lg:hidden">
                 <div className="flex min-w-max gap-2">
                   {nav.map((item) => {
                     const Icon = item.icon;
-                    const active = pathname === item.href;
+                    const active = matchesRoute(currentPath, item.href);
                     const count = routeCount(shell, item.href);
                     return (
                       <Link
@@ -544,6 +619,106 @@ function routeCount(shell: DeskShellPayload | null, href: Route) {
     default:
       return null;
   }
+}
+
+function getActiveNav(pathname: string): NavItem {
+  return nav.find((item) => matchesRoute(pathname, item.href)) ?? nav[0];
+}
+
+function matchesRoute(pathname: string, href: Route) {
+  if (href === "/") {
+    return pathname === "/";
+  }
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+function buildSidebarContext(pathname: string, shell: DeskShellPayload | null): SidebarContext {
+  if (matchesRoute(pathname, "/candidates")) {
+    if (pathname !== "/candidates") {
+      return {
+        eyebrow: "Current page",
+        title: "Candidate detail",
+        detail: "Why it matters, gate state, and stored evidence.",
+        links: [
+          { href: "/candidates", label: "Back to queue", badge: routeCount(shell, "/candidates") },
+          { href: "/telemetry", label: "Live faults", badge: routeCount(shell, "/telemetry") },
+        ],
+      };
+    }
+    return {
+      eyebrow: "Current page",
+      title: "Candidate queue",
+      detail: "Triage by blocker bucket with URL-backed sort and filter state.",
+      links: [
+        { href: "/candidates?bucket=ready", label: "Ready" },
+        { href: "/candidates?bucket=risk", label: "Risk" },
+        { href: "/candidates?bucket=provider", label: "Provider" },
+        { href: "/candidates?bucket=data", label: "Data" },
+      ],
+    };
+  }
+
+  if (matchesRoute(pathname, "/positions")) {
+    if (pathname !== "/positions") {
+      return {
+        eyebrow: "Current page",
+        title: "Position detail",
+        detail: "Intervention state, execution trace, fills, and snapshots.",
+        links: [
+          { href: "/positions", label: "Back to book", badge: routeCount(shell, "/positions") },
+          { href: "/settings", label: "Runtime settings" },
+        ],
+      };
+    }
+    return {
+      eyebrow: "Current page",
+      title: "Position book",
+      detail: "Scan open risk first, then review the closed book.",
+      links: [
+        { href: "/positions?book=open", label: "Open book", badge: routeCount(shell, "/positions") },
+        { href: "/positions?book=closed", label: "Closed book" },
+        { href: "/settings", label: "Settings" },
+      ],
+    };
+  }
+
+  if (matchesRoute(pathname, "/discovery-lab")) {
+    return {
+      eyebrow: "Current page",
+      title: "Discovery lab",
+      detail: "Results, builder, and run control stay on one workbench.",
+      notes: ["Results first", "Pack + strategy edits", "Runs and logs"],
+    };
+  }
+
+  if (matchesRoute(pathname, "/telemetry")) {
+    return {
+      eyebrow: "Current page",
+      title: "Telemetry",
+      detail: "Faults first, then provider burn and hot endpoints.",
+      notes: ["Active issues", "Provider pressure", "Endpoint faults"],
+    };
+  }
+
+  if (matchesRoute(pathname, "/settings")) {
+    return {
+      eyebrow: "Current page",
+      title: "Settings",
+      detail: "Draft, validate, dry run, then promote.",
+      notes: ["Draft", "Validate", "Dry run", "Promote"],
+    };
+  }
+
+  return {
+    eyebrow: "Current page",
+    title: "Control desk",
+    detail: "Exposure, queue pressure, and live faults at a glance.",
+    links: [
+      { href: "/candidates", label: "Candidate queue", badge: routeCount(shell, "/candidates") },
+      { href: "/positions", label: "Open positions", badge: routeCount(shell, "/positions") },
+      { href: "/telemetry", label: "Telemetry", badge: routeCount(shell, "/telemetry") },
+    ],
+  };
 }
 
 function shortMode(value?: string | null) {

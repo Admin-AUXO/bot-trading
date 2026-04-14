@@ -1,7 +1,7 @@
 import clsx from "clsx";
 import Link from "next/link";
 import type { Route } from "next";
-import { ArrowUpRight, Filter, PanelTopOpen, Search } from "lucide-react";
+import { ArrowUpRight, PanelTopOpen, Search } from "lucide-react";
 import { IconAction, PageHero, Panel, StatusPill } from "@/components/dashboard-primitives";
 import { WorkbenchRowActions } from "@/components/workbench-row-actions";
 import { serverFetch } from "@/lib/api";
@@ -47,13 +47,6 @@ export default async function CandidatesPage(props: { searchParams?: SearchParam
         meta={<StatusPill value={payload.bucket} />}
         actions={(
           <div className="flex flex-wrap gap-3">
-            <IconAction
-              href={buildCandidatesHref({ bucket, sort, q: query }) as Route}
-              icon={Filter}
-              label={`Sort: ${sortLabel(sort)}`}
-              title="Current candidate sort"
-              subtle
-            />
             {grafanaHref ? (
               <a
                 href={grafanaHref}
@@ -98,7 +91,7 @@ export default async function CandidatesPage(props: { searchParams?: SearchParam
         ))}
       </section>
 
-      <section className="workbench-controls sticky top-[5.15rem] z-20">
+      <section className="workbench-controls sticky top-[calc(var(--shell-header-height)+0.75rem)] z-20">
         <div className="flex flex-1 flex-wrap items-center gap-2">
           {([
             ["recent", "Recent"],

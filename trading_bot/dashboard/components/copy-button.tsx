@@ -1,9 +1,10 @@
 "use client";
 
+import clsx from "clsx";
 import { Copy, Check } from "lucide-react";
 import { useState } from "react";
 
-export function CopyButton(props: { value: string; label: string }) {
+export function CopyButton(props: { value: string; label: string; className?: string }) {
   const [copied, setCopied] = useState(false);
 
   async function handleCopy() {
@@ -20,7 +21,7 @@ export function CopyButton(props: { value: string; label: string }) {
     <button
       type="button"
       onClick={() => void handleCopy()}
-      className="btn-ghost inline-flex items-center gap-2 border border-bg-border px-3 py-2 text-xs"
+      className={clsx("btn-ghost inline-flex items-center gap-2 border border-bg-border px-3 py-2 text-xs", props.className)}
       title={`Copy ${props.label}`}
       aria-label={`Copy ${props.label}`}
     >

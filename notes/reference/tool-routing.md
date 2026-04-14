@@ -15,7 +15,7 @@ next_action:
 
 Purpose: keep future agents from wasting tokens by using overlapping tools for the same job.
 
-Current Codex CLI builds load MCP servers from `~/.codex/config.toml`, not the repo-local `.codex/config.toml` template. In this repo, install or refresh the managed MCP block with `node ./.codex/scripts/install-mcp-config.cjs`, then restart Codex.
+Treat the repo `.codex/config.toml` as the shared project default. If a session is missing the expected MCP surface, install or refresh the managed user-scoped block with `node ./.codex/scripts/install-mcp-config.cjs`, then restart Codex.
 
 The installer now supports startup profiles:
 
@@ -30,6 +30,16 @@ Use:
 - `node ./.codex/scripts/install-mcp-config.cjs --profile full`
 
 The shared `desktop_commander` launcher now skips Puppeteer and Playwright browser downloads during first-run package install. That avoids startup failures from optional browser payloads, but browser-backed export features may still need a host browser if you use them later.
+
+## Shared Config Posture
+
+- Default repo posture: `approval_policy = "on-request"`, `sandbox_mode = "workspace-write"`, `model_reasoning_effort = "medium"`, `plan_mode_reasoning_effort = "high"`, `personality = "pragmatic"`, and hooks enabled via `[features].codex_hooks = true`
+- `fast` profile: lower reasoning for well-scoped tasks
+- `deep` profile: higher reasoning for difficult implementation or debugging
+- `review` profile: higher reasoning plus `read-only` sandbox for review-heavy sessions
+- `full_access` profile: explicit opt-in for `approval_policy = "never"` and `sandbox_mode = "danger-full-access"`
+
+Keep the unrestricted profile off the default path. Reach for it only after the task and trust boundary are clear.
 
 ## Default Stack
 
@@ -50,6 +60,7 @@ The shared `desktop_commander` launcher now skips Puppeteer and Playwright brows
 - Default new-session profile: `compact`
 - Keep helper MCPs installed but disabled until the task needs them.
 - Do not pay startup cost for browser, research, or provider MCPs on normal local-code tasks.
+- Keep the day-to-day execution baseline on-request/workspace-write; widen permissions only when the task actually needs it.
 - Prefer repo-local skills under `.agents/skills/` over global skills for repo-specific procedures.
 
 ## Routing Rules
@@ -58,7 +69,7 @@ The shared `desktop_commander` launcher now skips Puppeteer and Playwright brows
 - Use one tool that answers the question well instead of stacking three tools that partially overlap.
 - Read notes before browsing. Read code before browser automation. Read schema before guessing analytics logic.
 - Use the cheapest sufficient surface first.
-- For ambiguous work, start in ask mode before widening the file read surface.
+- For ambiguous or planning-heavy work, prefer Plan mode before widening the file read surface, and use goal/context/constraints/done-when to frame the task.
 - Use background terminals or task queues for long-running commands so terminal spam does not crowd the active thread.
 
 ## Browser Policy

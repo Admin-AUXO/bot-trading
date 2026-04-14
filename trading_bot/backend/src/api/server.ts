@@ -82,6 +82,8 @@ export function createApiServer(deps: {
   listDiscoveryLabRuns: () => Promise<unknown>;
   getDiscoveryLabRun: (runId: string) => Promise<unknown | null>;
   getDiscoveryLabMarketRegime: (runId: string) => Promise<DiscoveryLabMarketRegimeResponse>;
+  enterDiscoveryLabManualTrade: (input: { runId?: string; mint?: string }) => Promise<unknown>;
+  applyDiscoveryLabLiveStrategy: (input: { runId?: string }) => Promise<unknown>;
 }) {
   const app = express();
   app.use(express.json());
@@ -201,6 +203,14 @@ export function createApiServer(deps: {
 
   app.post("/api/operator/discovery-lab/run", async (req, res) => {
     res.json(await deps.startDiscoveryLabRun(req.body ?? {}));
+  });
+
+  app.post("/api/operator/discovery-lab/manual-entry", async (req, res) => {
+    res.json(await deps.enterDiscoveryLabManualTrade(req.body ?? {}));
+  });
+
+  app.post("/api/operator/discovery-lab/apply-live-strategy", async (req, res) => {
+    res.json(await deps.applyDiscoveryLabLiveStrategy(req.body ?? {}));
   });
 
   app.get("/api/operator/discovery-lab/runs", async (_req, res) => {

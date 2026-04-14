@@ -31,6 +31,7 @@ Do not skip ahead to source files before that sequence.
 
 - Read `../notes/README.md`, `../notes/reference/index.md`, the relevant reference doc, and the relevant durable note before reading code. Read `../graphify-out/GRAPH_REPORT.md` only when architecture or ownership context matters.
 - Keep context tight: start with one reference note and one durable note, not whole note trees.
+- For ambiguous or planning-heavy work, prefer Plan mode before broad file reads and frame the task with goal, context, constraints, and done-when.
 - Treat entry, exit, and capital rules as safety-critical.
 - When strategy logic changes, check `backend/src/engine/` and `../notes/reference/strategy.md` together so the docs keep pace with the runtime.
 - Do not create Prisma migration files.
@@ -45,11 +46,12 @@ Do not skip ahead to source files before that sequence.
 ## Standard Procedure
 
 1. Read the minimum note surface that can answer the task.
-2. Trace the real code path.
-3. Change the smallest correct file set.
-4. Verify the changed area.
-5. Update the owning reference or durable note, and refresh the nearest index if you added, archived, or renamed durable notes or skills.
-6. If the workflow will recur, create or update a skill instead of preserving a fat handoff.
+2. For ambiguous, planning-heavy, or high-risk work, prefer Plan mode before coding and make the success criteria explicit with goal, context, constraints, and done-when.
+3. Trace the real code path.
+4. Change the smallest correct file set.
+5. Verify the changed area and review the diff for regressions or missing tests.
+6. Update the owning reference or durable note, and refresh the nearest index if you added, archived, or renamed durable notes or skills.
+7. If the workflow will recur, create or update a skill instead of preserving a fat handoff.
 
 ## Token Discipline
 
@@ -59,6 +61,7 @@ Do not skip ahead to source files before that sequence.
 - Prefer one owning note update over several overlapping note edits.
 - Use Graphify only when architecture or ownership context matters.
 - Follow `../notes/reference/tool-routing.md` for MCP and tool choice; default to the cheapest sufficient surface.
+- Keep the repo baseline on `approval_policy = "on-request"` and `sandbox_mode = "workspace-write"`. Reach for `deep`, `review`, or `full_access` only when the task justifies it.
 
 ## Skill Promotion Rule
 

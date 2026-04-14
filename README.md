@@ -95,6 +95,13 @@ node ./scripts/sync-compose-env.mjs
 docker compose up --build
 ```
 
+For repeat refreshes after code or env changes:
+
+```bash
+cd trading_bot
+./scripts/update-compose-stack.sh
+```
+
 Important:
 
 - keep `DATABASE_URL` pointed at `postgres`

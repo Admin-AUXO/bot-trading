@@ -144,6 +144,9 @@ Persistence on evaluation:
   - `MAX_CONSECUTIVE_LOSSES` breached for the current trading day
 - `ExecutionEngine` serializes wallet-affecting actions so overlapping manual triggers and scheduler loops cannot open or close simultaneously
 - `LIVE` buys execute onchain first, then persist the fill, `txSignature`, position, and cash update; if persistence fails after a live trade lands, the bot pauses itself for manual intervention
+- Live execution metadata now records a timing bundle for each onchain buy or sell, including quote, swap-build, sender-build, broadcast-and-confirm, and settlement-read latency so operator review can compare entry and exit execution speed by fill reason.
+- Live fill metadata now also stores quoted-vs-actual execution output and `executionSlippageBps`, and manual discovery-lab entries persist report-age timing (`discoveryLabReportAgeMsAtEntry`, `discoveryLabRunAgeMsAtEntry`) so fill analytics can separate execution latency from stale-decision delay.
+- Discovery-lab results can now promote a pass-grade token into a live manual entry. That path creates a linked `Candidate`, opens the `Position` through the same execution engine the automatic lane uses, stores the manual entry origin plus discovery-lab context in metadata, and keeps the position inside the normal open-position counts and workbench.
 - Research mock buys are written to dedicated research tables and never touch `BotState.cashUsd` or `BotState.realizedPnlUsd`
 - The continuation preset can optionally arm a Helius `logsSubscribe` watcher. When a watched migration program emits a signal and the preset is active in `LIVE`, the runtime immediately runs another discovery sweep instead of waiting for the next scheduled loop.
 
@@ -168,6 +171,8 @@ Pause semantics matter:
 
 Every sell writes a `SELL` fill, updates remaining size and TP flags, increments `BotState.cashUsd` and `realizedPnlUsd`, and writes a `trade_sell` snapshot. Live sells also persist the onchain `txSignature`, and the exit lane tracks in-flight position ids so overlapping checks do not double-trigger the same close. Research mock exits use the shared exit-plan helper, write `ResearchFill` rows instead of `Fill`, and never mutate the operational desk singleton.
 
+Manual discovery-lab entries use the same exit-plan contract as automatic buys. After a live manual entry lands, the runtime immediately refreshes exit monitoring so the new position is priced and managed without waiting for the next scheduled sweep.
+
 Exit tuning is now score-aware:
 
 - lower-score entries get the scalp profile: earlier TP1, tighter time-stop, tighter trailing logic
@@ -178,6 +183,11 @@ Exit tuning is now score-aware:
 - profile timing is monotonic again even under the fast-turn presets:
   scalp time-stop and hard-limit stay shorter than balanced
   runner stays longer than both
+- Discovery-lab run completion now computes a calibrated live strategy pack (`strategy.liveStrategy`). Exit overrides and capital modifier now derive from winner score, winner 5m volume, and winner time-since-graduation freshness; this is the primary operator path for live-strategy tuning.
+- Runtime uses the calibrated pack when `strategy.liveStrategy.enabled` is true:
+  - discovery recipes and sources come from the calibrated pack
+  - filters and exits are overlaid from calibrated overrides
+  - planned live ticket size is multiplied by `capitalModifierPercent / 100`
 
 Profile thresholds in code:
 

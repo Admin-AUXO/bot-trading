@@ -14,20 +14,20 @@ export function PageHero(props: {
   meta?: React.ReactNode;
 }) {
   return (
-    <section className="panel-strong rounded-[20px] p-5 md:p-6">
-      <div className="relative z-10 grid gap-5 xl:grid-cols-[minmax(0,1.3fr)_minmax(18rem,21rem)] xl:items-end">
+    <section className="panel-strong rounded-[16px] px-3 py-3 md:px-4 md:py-3.5">
+      <div className="relative z-10 grid gap-3 xl:grid-cols-[minmax(0,1.2fr)_minmax(14rem,16rem)] xl:items-start">
         <div className="max-w-3xl">
           <div className="flex flex-wrap items-center gap-2">
             <p className="section-kicker text-accent">{props.eyebrow}</p>
             {props.meta}
           </div>
-          <h1 className="mt-3 font-display text-[2rem] font-semibold tracking-[-0.03em] text-balance text-text-primary md:text-[2.5rem]">
+          <h1 className="mt-1.5 font-display text-[1.15rem] font-semibold tracking-[-0.02em] text-balance text-text-primary md:text-[1.4rem]">
             {props.title}
           </h1>
           {props.description ? (
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-text-secondary md:text-[15px]">{props.description}</p>
+            <p className="mt-1.5 max-w-2xl text-xs leading-5 text-text-secondary">{props.description}</p>
           ) : null}
-          {props.actions ? <div className="mt-4 flex flex-wrap gap-2.5">{props.actions}</div> : null}
+          {props.actions ? <div className="mt-2 flex flex-wrap gap-2">{props.actions}</div> : null}
         </div>
         {props.aside ? <div className="relative z-10">{props.aside}</div> : null}
       </div>
@@ -52,20 +52,20 @@ export function Panel(props: {
   }[props.tone ?? "default"];
 
   return (
-    <section className={clsx("rounded-[18px] p-5", toneClass, props.className)}>
+    <section className={clsx("rounded-[16px] p-3.5 md:p-4", toneClass, props.className)}>
       {(props.eyebrow || props.action) ? (
-        <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
           <div>
             {props.eyebrow ? <p className="section-kicker">{props.eyebrow}</p> : null}
-            <h2 className="mt-2 font-display text-[1.2rem] font-semibold tracking-[-0.03em] text-text-primary md:text-[1.45rem]">{props.title}</h2>
-            {props.description ? <p className="mt-2 max-w-3xl text-sm leading-6 text-text-secondary">{props.description}</p> : null}
+            <h2 className="mt-1.5 font-display text-[0.98rem] font-semibold tracking-[-0.02em] text-text-primary md:text-[1.08rem]">{props.title}</h2>
+            {props.description ? <p className="mt-1 max-w-3xl text-xs leading-5 text-text-secondary">{props.description}</p> : null}
           </div>
           {props.action}
         </div>
       ) : (
-        <div className="mb-4">
-          <h2 className="font-display text-[1.2rem] font-semibold tracking-[-0.03em] text-text-primary md:text-[1.45rem]">{props.title}</h2>
-          {props.description ? <p className="mt-2 max-w-3xl text-sm leading-6 text-text-secondary">{props.description}</p> : null}
+        <div className="mb-3">
+          <h2 className="font-display text-[0.98rem] font-semibold tracking-[-0.02em] text-text-primary md:text-[1.08rem]">{props.title}</h2>
+          {props.description ? <p className="mt-1 max-w-3xl text-xs leading-5 text-text-secondary">{props.description}</p> : null}
         </div>
       )}
       {props.children}
@@ -90,13 +90,13 @@ export function StatCard(props: {
   const Icon = props.icon;
 
   return (
-    <div className={clsx("rounded-[16px] border px-4 py-4", tones[props.tone ?? "default"])}>
+    <div className={clsx("rounded-[14px] border px-3.5 py-3", tones[props.tone ?? "default"])}>
       <div className="flex items-start justify-between gap-3">
         <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">{props.label}</div>
         {Icon ? <Icon className="h-4 w-4 text-text-secondary" /> : null}
       </div>
-      <div className="mt-3 text-2xl font-semibold tabular-nums tracking-tight text-text-primary">{props.value}</div>
-      <div className="mt-2 text-[13px] leading-5 text-text-secondary">{props.detail}</div>
+      <div className="mt-2 text-[1.3rem] font-semibold tabular-nums tracking-tight text-text-primary">{props.value}</div>
+      <div className="mt-1.5 text-[12px] leading-5 text-text-secondary">{props.detail}</div>
     </div>
   );
 }
@@ -117,9 +117,9 @@ export function StatusPill(props: { value: string | null | undefined }) {
   const value = String(props.value ?? "unknown").toUpperCase();
   const tone = value.includes("REJECT") || value.includes("ERROR") || value.includes("BLOCK") || value.includes("FAIL") || value.includes("DANGER")
     ? "border-[rgba(251,113,133,0.26)] bg-[rgba(251,113,133,0.12)] text-[var(--danger)]"
-    : value.includes("OPEN") || value.includes("ACCEPT") || value.includes("BOUGHT") || value.includes("READY") || value.includes("PASS") || value.includes("HEALTHY") || value.includes("LIVE") || value.includes("RUNNING") || value === "OK"
+    : value.includes("OPEN") || value.includes("ACCEPT") || value.includes("BOUGHT") || value.includes("READY") || value.includes("PASS") || value.includes("HEALTHY") || value.includes("LIVE") || value.includes("RUNNING") || value.includes("ENABLED") || value === "OK"
       ? "border-[rgba(163,230,53,0.26)] bg-[rgba(163,230,53,0.12)] text-[var(--success)]"
-      : value.includes("WARNING") || value.includes("PAUSE") || value.includes("WAIT") || value.includes("QUEUE") || value.includes("STALE") || value.includes("DISCOVER") || value.includes("SKIP") || value.includes("CHANGED")
+      : value.includes("WARNING") || value.includes("PAUSE") || value.includes("WAIT") || value.includes("QUEUE") || value.includes("STALE") || value.includes("DISCOVER") || value.includes("SKIP") || value.includes("CHANGED") || value.includes("DISABLED")
         ? "border-[rgba(250,204,21,0.24)] bg-[rgba(250,204,21,0.12)] text-[var(--warning)]"
         : "border-[var(--line)] bg-white/[0.05] text-text-secondary";
 

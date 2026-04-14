@@ -130,7 +130,7 @@ export function DashboardClient(props: {
         />
       </section>
 
-      <PinnedItemsStrip />
+      <PinnedItemsStrip compactEmpty />
 
       <section className="grid gap-6 2xl:grid-cols-[1.2fr_0.95fr]">
         <Panel
@@ -174,21 +174,21 @@ export function DashboardClient(props: {
         </Panel>
       </section>
 
-      <section className="grid gap-6 2xl:grid-cols-[0.92fr_1.08fr]">
+      <section className="grid gap-4 xl:grid-cols-2">
         <Panel
           title="Guardrails"
           eyebrow="Live checks"
-          description={undefined}
+          description="Compact gate summary."
+          action={<IconAction href="/settings" icon={ShieldAlert} label="Settings" title="Open runtime settings" subtle />}
         >
-          <div className="grid gap-3 md:grid-cols-3">
+          <div className="flex flex-wrap gap-2">
             {home.guardrails.map((guardrail) => (
-              <div key={guardrail.id} className="micro-stat">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="micro-stat-label">{guardrail.label}</div>
+              <div key={guardrail.id} className="rounded-full border border-bg-border bg-bg-hover/40 px-3 py-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">{guardrail.label}</span>
                   <StatusPill value={guardrail.status} />
+                  <span className="text-sm font-semibold text-text-primary">{guardrail.value}</span>
                 </div>
-                <div className="micro-stat-value">{guardrail.value}</div>
-                <div className="mt-2 text-xs leading-5 text-text-secondary">{guardrail.detail}</div>
               </div>
             ))}
           </div>
@@ -197,41 +197,42 @@ export function DashboardClient(props: {
         <Panel
           title="Provider pace"
           eyebrow="Lane usage"
-          description={undefined}
+          description="Budget pressure without the full telemetry table."
+          action={<IconAction href="/telemetry" icon={RadioTower} label="Telemetry" title="Open telemetry" subtle />}
         >
           <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusPill value={home.providerPressure.paceStatus} />
+              <span className="meta-chip">
+                {formatInteger(home.providerPressure.projectedMonthlyUnits)} / {formatInteger(home.providerPressure.monthlyBudgetUnits)} projected
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2">
             {home.providerPressure.laneStatus.map((lane) => (
-              <div key={lane.lane} className="rounded-[16px] border border-bg-border bg-bg-hover/40 px-4 py-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold capitalize text-text-primary">{lane.lane}</div>
-                    <div className="mt-1 text-xs text-text-muted">
-                      {formatInteger(lane.projectedMonthlyUnits)} projected monthly units
-                    </div>
-                  </div>
-                  <div className="text-xs tabular-nums text-text-secondary">
+              <div key={lane.lane} className="rounded-full border border-bg-border bg-bg-hover/40 px-3 py-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">{lane.lane}</span>
+                  <span className="text-sm font-semibold text-text-primary">
                     {formatInteger(lane.usedUnits)} / {formatInteger(lane.budgetUnits)}
-                  </div>
-                </div>
-                <div className="mt-4 h-2 overflow-hidden rounded-full bg-bg-border">
-                  <div
-                    className="h-full rounded-full bg-accent"
-                    style={{ width: `${Math.min((lane.usedUnits / Math.max(lane.budgetUnits, 1)) * 100, 100)}%` }}
-                  />
+                  </span>
+                  <span className="text-xs text-text-secondary">
+                    {formatInteger(lane.projectedMonthlyUnits)} projected
+                  </span>
                 </div>
               </div>
             ))}
+            </div>
           </div>
         </Panel>
       </section>
 
       <section className="grid gap-6 2xl:grid-cols-2">
         <Panel title="Recent failures" eyebrow="Breaks first" tone={home.recentFailures.length > 0 ? "critical" : "passive"}>
-          <EventList events={home.recentFailures} emptyText="No recent failure." />
+          <EventList events={home.recentFailures.slice(0, 6)} emptyText="No recent failure." />
         </Panel>
 
         <Panel title="Recent events" eyebrow="Actions">
-          <EventList events={events.slice(0, 10)} emptyText="No recent event." />
+          <EventList events={events.slice(0, 6)} emptyText="No recent event." />
         </Panel>
       </section>
     </div>

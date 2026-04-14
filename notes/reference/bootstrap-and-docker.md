@@ -128,6 +128,13 @@ cd trading_bot
 docker compose up --build
 ```
 
+Fast refresh after code or env changes:
+
+```bash
+cd trading_bot
+./scripts/update-compose-stack.sh
+```
+
 Compose contract:
 
 - Only compose file: [`../../trading_bot/docker-compose.yml`](../../trading_bot/docker-compose.yml)
@@ -144,6 +151,7 @@ Compose contract:
 - Grafana provisioning assumes a direct PostgreSQL datasource from inside Compose using `postgres:5432`
 - `node ./scripts/sync-compose-env.mjs` is the supported way to derive those service env files from `backend/.env`
 - after changing `backend/.env` or regenerating the compose env files, recreate `bot` and `dashboard` so stale container env does not keep serving placeholder secrets
+- `./scripts/update-compose-stack.sh` is the supported refresh path when you want that sync, build, and recreate flow in one command
 - First login to Grafana with the default admin credentials will prompt for a password change. If you are only smoke-testing the local stack, you can skip that prompt and still reach the provisioned dashboards.
 
 ## Run Mode C: Obsidian Notes Sidecar
@@ -224,6 +232,7 @@ cd trading_bot && docker compose config
 cd trading_bot && docker compose --profile notes config
 cd trading_bot && docker compose --profile automation config
 cd trading_bot && node ./scripts/sync-compose-env.mjs
+cd trading_bot && ./scripts/update-compose-stack.sh --build-only
 cd trading_bot && docker compose build dashboard
 cd trading_bot && docker compose up -d --build db-setup grafana bot dashboard
 cd trading_bot && docker compose --profile automation up -d n8n

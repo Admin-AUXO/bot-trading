@@ -308,10 +308,81 @@ export type StrategyPresetId =
   | "FIRST_MINUTE_POSTGRAD_CONTINUATION"
   | "LATE_CURVE_MIGRATION_SNIPE";
 
+export type StrategyRecipeMode = "graduated" | "pregrad";
+export type StrategyRecipeParamValue = string | number | boolean | null;
+
+export interface StrategyPackRecipe {
+  name: string;
+  mode: StrategyRecipeMode;
+  description?: string;
+  deepEvalLimit?: number;
+  params: Record<string, StrategyRecipeParamValue>;
+}
+
+export interface StrategyThresholdOverrides {
+  minLiquidityUsd?: number;
+  maxMarketCapUsd?: number;
+  minHolders?: number;
+  minUniqueBuyers5m?: number;
+  minBuySellRatio?: number;
+  maxTop10HolderPercent?: number;
+  maxSingleHolderPercent?: number;
+  maxGraduationAgeSeconds?: number;
+  minVolume5mUsd?: number;
+  maxNegativePriceChange5mPercent?: number;
+  securityCheckMinLiquidityUsd?: number;
+  securityCheckVolumeMultiplier?: number;
+  maxTransferFeePercent?: number;
+}
+
+export interface StrategyExitOverrides {
+  stopLossPercent?: number;
+  tp1Multiplier?: number;
+  tp2Multiplier?: number;
+  tp1SellFraction?: number;
+  tp2SellFraction?: number;
+  postTp1RetracePercent?: number;
+  trailingStopPercent?: number;
+  timeStopMinutes?: number;
+  timeStopMinReturnPercent?: number;
+  timeLimitMinutes?: number;
+}
+
+export interface LiveStrategyCalibrationSummary {
+  winnerCount: number;
+  avgWinnerScore: number | null;
+  avgWinnerVolume5mUsd: number | null;
+  avgWinnerMarketCapUsd: number | null;
+  avgWinnerTimeSinceGraduationMin: number | null;
+  avgRecipeOverlap: number | null;
+  volumeStrength: number | null;
+  graduationFreshness: number | null;
+  calibrationConfidence: number | null;
+  dominantMode: StrategyRecipeMode | null;
+  derivedProfile: "scalp" | "balanced" | "runner" | null;
+}
+
+export interface LiveStrategySettings {
+  enabled: boolean;
+  sourceRunId: string | null;
+  packId: string | null;
+  packName: string | null;
+  sources: string[];
+  recipes: StrategyPackRecipe[];
+  thresholdOverrides: StrategyThresholdOverrides;
+  exitOverrides: StrategyExitOverrides;
+  capitalModifierPercent: number;
+  dominantMode: StrategyRecipeMode | null;
+  dominantPresetId: StrategyPresetId | null;
+  calibrationSummary: LiveStrategyCalibrationSummary | null;
+  updatedAt: string | null;
+}
+
 export interface StrategySettings {
   livePresetId: StrategyPresetId;
   dryRunPresetId: StrategyPresetId;
   heliusWatcherEnabled: boolean;
+  liveStrategy: LiveStrategySettings;
 }
 
 export interface BotSettings {

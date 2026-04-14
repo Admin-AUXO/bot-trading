@@ -231,6 +231,76 @@ export type DiscoveryLabThresholdOverrides = Partial<{
   maxNegativePriceChange5mPercent: number;
 }>;
 
+export type StrategyRecipeMode = "graduated" | "pregrad";
+export type StrategyRecipeParamValue = string | number | boolean | null;
+
+export type StrategyPackRecipe = {
+  name: string;
+  mode: StrategyRecipeMode;
+  description?: string;
+  deepEvalLimit?: number;
+  params: Record<string, StrategyRecipeParamValue>;
+};
+
+export type StrategyThresholdOverrides = Partial<{
+  minLiquidityUsd: number;
+  maxMarketCapUsd: number;
+  minHolders: number;
+  minUniqueBuyers5m: number;
+  minBuySellRatio: number;
+  maxTop10HolderPercent: number;
+  maxSingleHolderPercent: number;
+  maxGraduationAgeSeconds: number;
+  minVolume5mUsd: number;
+  maxNegativePriceChange5mPercent: number;
+  securityCheckMinLiquidityUsd: number;
+  securityCheckVolumeMultiplier: number;
+  maxTransferFeePercent: number;
+}>;
+
+export type StrategyExitOverrides = Partial<{
+  stopLossPercent: number;
+  tp1Multiplier: number;
+  tp2Multiplier: number;
+  tp1SellFraction: number;
+  tp2SellFraction: number;
+  postTp1RetracePercent: number;
+  trailingStopPercent: number;
+  timeStopMinutes: number;
+  timeStopMinReturnPercent: number;
+  timeLimitMinutes: number;
+}>;
+
+export type LiveStrategyCalibrationSummary = {
+  winnerCount: number;
+  avgWinnerScore: number | null;
+  avgWinnerVolume5mUsd: number | null;
+  avgWinnerMarketCapUsd: number | null;
+  avgWinnerTimeSinceGraduationMin: number | null;
+  avgRecipeOverlap: number | null;
+  volumeStrength: number | null;
+  graduationFreshness: number | null;
+  calibrationConfidence: number | null;
+  dominantMode: StrategyRecipeMode | null;
+  derivedProfile: "scalp" | "balanced" | "runner" | null;
+};
+
+export type LiveStrategySettings = {
+  enabled: boolean;
+  sourceRunId: string | null;
+  packId: string | null;
+  packName: string | null;
+  sources: string[];
+  recipes: StrategyPackRecipe[];
+  thresholdOverrides: StrategyThresholdOverrides;
+  exitOverrides: StrategyExitOverrides;
+  capitalModifierPercent: number;
+  dominantMode: StrategyRecipeMode | null;
+  dominantPresetId: "FIRST_MINUTE_POSTGRAD_CONTINUATION" | "LATE_CURVE_MIGRATION_SNIPE" | null;
+  calibrationSummary: LiveStrategyCalibrationSummary | null;
+  updatedAt: string | null;
+};
+
 export type DiscoveryLabRecipe = {
   name: string;
   mode: DiscoveryLabRecipeMode;
@@ -391,6 +461,7 @@ export type DiscoveryLabRunDetail = DiscoveryLabRunSummary & {
   stdout: string;
   stderr: string;
   report: DiscoveryLabRunReport | null;
+  strategyCalibration: LiveStrategySettings | null;
 };
 
 export type DiscoveryLabCatalog = {
@@ -416,6 +487,7 @@ export type BotSettings = {
     livePresetId: "FIRST_MINUTE_POSTGRAD_CONTINUATION" | "LATE_CURVE_MIGRATION_SNIPE";
     dryRunPresetId: "FIRST_MINUTE_POSTGRAD_CONTINUATION" | "LATE_CURVE_MIGRATION_SNIPE";
     heliusWatcherEnabled: boolean;
+    liveStrategy: LiveStrategySettings;
   };
   capital: {
     capitalUsd: number;
@@ -471,4 +543,19 @@ export type DiscoveryLabRuntimeSnapshot = {
   };
   openPositions: number;
   settings: BotSettings;
+};
+
+export type DiscoveryLabManualEntryResponse = {
+  candidateId: string;
+  positionId: string;
+  symbol: string;
+  entryPriceUsd: number;
+  strategyPresetId: "FIRST_MINUTE_POSTGRAD_CONTINUATION" | "LATE_CURVE_MIGRATION_SNIPE";
+};
+
+export type DiscoveryLabStrategyCalibration = LiveStrategySettings;
+
+export type DiscoveryLabApplyLiveStrategyResponse = {
+  ok: true;
+  strategy: DiscoveryLabStrategyCalibration;
 };

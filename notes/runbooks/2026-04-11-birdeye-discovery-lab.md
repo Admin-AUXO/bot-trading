@@ -33,6 +33,7 @@ npm run lab:discovery -- --profile scalp --sources pump_dot_fun --cache-ttl-seco
 - the winners CSV now uses the explicit holder column name `top10_holder_percent`
 - Helius mint authorities and Helius holder concentration are batch-fetched once per unique uncached mint in the run, then reused across recipes
 - the default pack now blends two fresh `10m` probes with the `30m`, `45m`, and `60m` continuation windows that produced usable pass-grade names in the latest scalp-profile rerun
+- pass-grade results in the dashboard can now open a live manual trade directly from the token board; that path reuses the real execution engine, creates a linked candidate row for traceability, and drops the position into the normal managed-exit and open-position surfaces
 - the new `scalp` profile is the current small-ticket grading lens for recipe experiments; it matches the calibrated proxy lens:
   `minLiquidityUsd=8000`
   `maxMarketCapUsd=2000000`

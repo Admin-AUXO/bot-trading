@@ -6,10 +6,14 @@ date: 2026-04-11
 source_files:
   - AGENTS.md
   - notes/README.md
+  - notes/reference/agent-workflow.md
+  - notes/reference/tool-routing.md
   - notes/reference/obsidian.md
   - .codex/config.toml
+  - .codex/hooks.json
   - .codex/agents/
   - .codex/scripts/start-birdeye-mcp.cjs
+  - trading_bot/AGENTS.md
   - .codex/log/codex-tui.log
 graph_checked:
 next_action: Re-run the direct shell-side Birdeye MCP newline-JSON probe from a fresh top-level session so the local opt-in path can be classified as working or broken on this macOS host instead of left half-validated.
@@ -446,3 +450,43 @@ The efficient stack for this repo is:
 - Grafana and Helius only when the task truly needs their domain
 
 Anything broader than that is how agents waste context and pretend it is research.
+
+## 2026-04-14 Shared Session Posture Refresh
+
+Observed drift:
+
+- the shared repo template still defaulted to `approval_policy = "never"`, `sandbox_mode = "danger-full-access"`, and `model_reasoning_effort = "high"` even though the repo guidance said to start compact and widen only when needed
+- `.codex/hooks.json` existed, but the config surface did not explicitly enable Codex hooks
+- the repo instructions still pushed “ask mode” plus `title/description/context` instead of preferring Plan mode and a clearer prompt contract
+
+Fix applied:
+
+- changed the repo template and live user config baseline to `approval_policy = "on-request"`, `sandbox_mode = "workspace-write"`, and `model_reasoning_effort = "medium"` for normal work
+- added explicit `fast`, `deep`, `review`, and `full_access` profiles so speed, heavier reasoning, reviews, and unrestricted execution are opt-in instead of the default path
+- enabled hooks with `[features].codex_hooks = true`
+- rewrote the canonical workflow guidance around Plan mode plus `goal/context/constraints/done-when`
+
+Current repo contract:
+
+- normal implementation work should start from the safer shared baseline and only widen permissions or reasoning when the task actually requires it
+- review-heavy work should prefer the `review` profile over ad hoc full-access sessions
+- if a session is missing the expected MCP surface, refresh the managed block with `node ./.codex/scripts/install-mcp-config.cjs` instead of guessing at per-server failures
+
+## 2026-04-15 Hook Contract Fix
+
+Observed behavior on this macOS host:
+
+- the repo-local `.codex/hooks.json` used a `PreToolUse` Bash hook that returned `permissionDecision = "allow"` together with a reminder message
+- `codex-cli 0.120.0` rejected that output with `unsupported permissionDecision:allow`, so the reminder hook surfaced as a recurring failure
+- the reminder also fired on every Bash tool call, which was the wrong lifecycle point for startup-order guidance
+
+Fix applied:
+
+- replaced the `PreToolUse` reminder with a `SessionStart` hook scoped to `startup|resume`
+- changed the output shape to `hookSpecificOutput.additionalContext`, which the current hooks docs support for `SessionStart`
+- removed the unsupported `permissionDecision = "allow"` path entirely
+
+Current repo contract:
+
+- use `SessionStart` or `UserPromptSubmit` for lightweight guidance that should shape the turn without acting like a permission gate
+- reserve `PreToolUse` for real Bash interception, and only use supported outputs there such as `systemMessage` or `permissionDecision = "deny"`

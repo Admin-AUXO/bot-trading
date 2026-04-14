@@ -11,6 +11,7 @@ import { RuntimeConfigService } from "../services/runtime-config.js";
 import { SharedTokenFactsService } from "../services/shared-token-facts.js";
 import { DiscoveryLabService } from "../services/discovery-lab-service.js";
 import { DiscoveryLabMarketRegimeService } from "../services/discovery-lab-market-regime-service.js";
+import { DiscoveryLabManualEntryService } from "../services/discovery-lab-manual-entry.js";
 import { getStrategyPreset } from "../services/strategy-presets.js";
 import { RiskEngine } from "./risk-engine.js";
 import { ExecutionEngine } from "./execution-engine.js";
@@ -34,6 +35,7 @@ export class BotRuntime {
     getRun: (runId) => this.discoveryLab.getRun(runId),
   });
   private readonly execution = new ExecutionEngine(this.risk, this.config);
+  private readonly discoveryLabManualEntry = new DiscoveryLabManualEntryService(this.discoveryLab, this.execution);
   private readonly exits = new ExitEngine(this.birdeye, this.execution, this.config, this.risk);
   private readonly graduation = new GraduationEngine(this.birdeye, this.helius, this.execution, this.risk, this.config);
   private readonly desk = new OperatorDeskService(this.config, this.risk, this.providerBudget);
@@ -85,6 +87,8 @@ export class BotRuntime {
       listDiscoveryLabRuns: () => this.discoveryLab.listRunSummaries(),
       getDiscoveryLabRun: (runId) => this.discoveryLab.getRun(runId),
       getDiscoveryLabMarketRegime: (runId) => this.discoveryLabMarketRegime.getMarketRegime(runId),
+      enterDiscoveryLabManualTrade: (input) => this.enterDiscoveryLabManualTrade(input),
+      applyDiscoveryLabLiveStrategy: (input) => this.applyDiscoveryLabLiveStrategy(input),
     });
 
     app.listen(env.BOT_PORT, () => {
@@ -320,6 +324,85 @@ export class BotRuntime {
     });
   }
 
+  private async enterDiscoveryLabManualTrade(
+    input: {
+      runId?: string;
+      mint?: string;
+    },
+  ) {
+    await this.ensureLiveControl("manual trade entry");
+    const result = await this.discoveryLabManualEntry.enterFromRun({
+      runId: input.runId ?? "",
+      mint: input.mint ?? "",
+    });
+    await this.ensureExitMonitoringArmed();
+    await this.exits.run();
+    await recordOperatorEvent({
+      kind: "manual_action",
+      title: "Discovery-lab trade entered",
+      detail: `Opened ${result.symbol} from discovery-lab results and refreshed exit monitoring immediately.`,
+      entityType: "position",
+      entityId: result.positionId,
+      metadata: {
+        candidateId: result.candidateId,
+        positionId: result.positionId,
+        symbol: result.symbol,
+        entryPriceUsd: result.entryPriceUsd,
+        strategyPresetId: result.strategyPresetId,
+        runId: input.runId ?? null,
+        mint: input.mint ?? null,
+        entryOrigin: "discovery_lab_manual_entry",
+      },
+    });
+    return result;
+  }
+
+  private async applyDiscoveryLabLiveStrategy(input: { runId?: string }) {
+    const runId = typeof input.runId === "string" ? input.runId.trim() : "";
+    if (!runId) {
+      throw new Error("runId is required");
+    }
+
+    const run = await this.discoveryLab.getRun(runId);
+    if (!run || !run.report) {
+      throw new Error("discovery-lab run not found or not completed");
+    }
+    const calibration = run.strategyCalibration;
+    if (!calibration) {
+      throw new Error("strategy calibration is unavailable for this run");
+    }
+    if ((calibration.calibrationSummary?.winnerCount ?? 0) <= 0) {
+      throw new Error("cannot apply a live strategy from a run with no winners");
+    }
+
+    await this.config.patchDraft({
+      strategy: {
+        livePresetId: calibration.dominantPresetId ?? "FIRST_MINUTE_POSTGRAD_CONTINUATION",
+        liveStrategy: calibration,
+      },
+    });
+
+    await recordOperatorEvent({
+      kind: "settings_draft",
+      title: "Discovery-lab live strategy staged",
+      detail: `Run ${run.packName} updated the settings draft with pack discovery, calibrated exits, and a ${calibration.capitalModifierPercent}% capital modifier.`,
+      metadata: {
+        runId,
+        packId: calibration.packId,
+        packName: calibration.packName,
+        dominantMode: calibration.dominantMode,
+        dominantPresetId: calibration.dominantPresetId,
+        winnerCount: calibration.calibrationSummary?.winnerCount ?? 0,
+        capitalModifierPercent: calibration.capitalModifierPercent,
+      },
+    });
+
+    return {
+      ok: true as const,
+      strategy: calibration,
+    };
+  }
+
   private async ensureLiveControl(label: string): Promise<void> {
     const settings = await this.config.getSettings();
     if (settings.tradeMode !== "LIVE") {
@@ -371,6 +454,12 @@ export class BotRuntime {
     }
     if (!this.exitHandle) {
       await this.safeRun("initial exit check", () => this.exits.run());
+      this.scheduleExit();
+    }
+  }
+
+  private async ensureExitMonitoringArmed(): Promise<void> {
+    if (!this.exitHandle) {
       this.scheduleExit();
     }
   }

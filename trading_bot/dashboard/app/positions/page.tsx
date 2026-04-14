@@ -66,13 +66,14 @@ export default async function PositionsPage(props: { searchParams?: SearchParams
             <div className="mt-4 grid gap-3">
               <SummaryRow label="Open" value={formatInteger(payload.totals.openCount)} />
               <SummaryRow label="Closed" value={formatInteger(payload.totals.closedCount)} />
+              <SummaryRow label="Realized" value={formatCompactCurrency(payload.totals.realizedPnlUsd)} />
               <SummaryRow label="Showing" value={`${formatInteger(rows.length)} / ${formatInteger(sortedRows.length)}`} />
             </div>
           </div>
         )}
       />
 
-      <section className="grid gap-4 md:grid-cols-3">
+      <section className="grid gap-4 md:grid-cols-2">
         <Link href={buildPositionsHref({ book: "open", sort, q: query }) as Route} title="Open active positions" className={`rounded-[16px] border px-4 py-4 transition ${book === "open" ? "border-[rgba(163,230,53,0.28)] bg-[#121511]" : "border-bg-border bg-bg-hover/35 hover:border-[rgba(255,255,255,0.12)] hover:bg-bg-hover/50"}`}>
           <div className="section-kicker">Open book</div>
           <div className="mt-3 text-3xl font-semibold tracking-tight text-text-primary">{formatInteger(payload.totals.openCount)}</div>
@@ -81,13 +82,9 @@ export default async function PositionsPage(props: { searchParams?: SearchParams
           <div className="section-kicker">Closed book</div>
           <div className="mt-3 text-3xl font-semibold tracking-tight text-text-primary">{formatInteger(payload.totals.closedCount)}</div>
         </Link>
-        <div className="rounded-[16px] border border-bg-border bg-bg-hover/35 px-4 py-4">
-          <div className="section-kicker">Realized</div>
-          <div className="mt-3 text-3xl font-semibold tracking-tight text-text-primary">{formatCompactCurrency(payload.totals.realizedPnlUsd)}</div>
-        </div>
       </section>
 
-      <section className="workbench-controls sticky top-[5.15rem] z-20">
+      <section className="workbench-controls sticky top-[calc(var(--shell-header-height)+0.75rem)] z-20">
         <div className="flex flex-1 flex-wrap gap-2">
           {([
             ["priority", "Priority"],

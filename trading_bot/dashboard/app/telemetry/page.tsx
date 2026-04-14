@@ -1,5 +1,5 @@
 import { ArrowUpRight } from "lucide-react";
-import { DataTable, PageHero, Panel, StatCard } from "@/components/dashboard-primitives";
+import { DataTable, PageHero, Panel, StatCard, StatusPill } from "@/components/dashboard-primitives";
 import { serverFetch } from "@/lib/api";
 import { formatInteger } from "@/lib/format";
 import { buildGrafanaDashboardLink } from "@/lib/grafana";
@@ -47,7 +47,6 @@ export default async function TelemetryPage() {
             <div className="mt-4 grid gap-3">
               <SummaryRow label="Top issue" value={topIssue?.label ?? "None"} />
               <SummaryRow label="Stale" value={diagnostics.staleComponents.join(", ") || "None"} />
-              <SummaryRow label="Provider errors" value={formatInteger(diagnostics.summary.providerErrors)} />
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
               {providerLinks.length > 0 ? providerLinks.map((item) => (
@@ -66,13 +65,6 @@ export default async function TelemetryPage() {
         )}
       />
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Provider errors" value={formatInteger(diagnostics.summary.providerErrors)} detail={`${formatInteger(diagnostics.summary.totalCalls)} calls today`} tone={diagnostics.summary.providerErrors > 0 ? "danger" : "default"} />
-        <StatCard label="Provider units" value={formatInteger(diagnostics.summary.totalUnits)} detail="Today" tone="warning" />
-        <StatCard label="Payload failures" value={formatInteger(diagnostics.summary.latestPayloadFailures)} detail="6h" tone={diagnostics.summary.latestPayloadFailures > 0 ? "danger" : "default"} />
-        <StatCard label="Stale components" value={formatInteger(diagnostics.staleComponents.length)} detail={diagnostics.staleComponents.join(", ") || "None"} tone={diagnostics.staleComponents.length > 0 ? "warning" : "success"} />
-      </section>
-
       <Panel
         title="Active issues"
         eyebrow="Triage first"
@@ -86,15 +78,31 @@ export default async function TelemetryPage() {
         ) : (
           <div className="space-y-3">
             {diagnostics.issues.map((issue) => (
-              <div key={issue.id} className="rounded-[14px] border border-bg-border bg-bg-hover/40 px-4 py-4">
-                <div className="section-kicker">{issue.level}</div>
-                <div className="mt-2 text-sm font-semibold text-text-primary">{issue.label}</div>
+              <div
+                key={issue.id}
+                className={`rounded-[14px] border px-4 py-3 ${
+                  issue.level === "danger"
+                    ? "border-[rgba(251,113,133,0.22)] bg-[rgba(251,113,133,0.08)]"
+                    : "border-[rgba(250,204,21,0.18)] bg-[rgba(250,204,21,0.07)]"
+                }`}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <StatusPill value={issue.level} />
+                  <div className="text-sm font-semibold text-text-primary">{issue.label}</div>
+                </div>
                 <div className="mt-2 text-sm leading-6 text-text-secondary">{issue.detail}</div>
               </div>
             ))}
           </div>
         )}
       </Panel>
+
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <StatCard label="Provider errors" value={formatInteger(diagnostics.summary.providerErrors)} detail={`${formatInteger(diagnostics.summary.totalCalls)} calls today`} tone={diagnostics.summary.providerErrors > 0 ? "danger" : "default"} />
+        <StatCard label="Provider units" value={formatInteger(diagnostics.summary.totalUnits)} detail="Today" tone="warning" />
+        <StatCard label="Payload failures" value={formatInteger(diagnostics.summary.latestPayloadFailures)} detail="6h" tone={diagnostics.summary.latestPayloadFailures > 0 ? "danger" : "default"} />
+        <StatCard label="Stale components" value={formatInteger(diagnostics.staleComponents.length)} detail={diagnostics.staleComponents.join(", ") || "None"} tone={diagnostics.staleComponents.length > 0 ? "warning" : "success"} />
+      </section>
 
       <section className="grid gap-6 2xl:grid-cols-2">
         <DataTable

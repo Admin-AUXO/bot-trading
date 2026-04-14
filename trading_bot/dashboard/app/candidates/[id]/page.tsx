@@ -152,15 +152,29 @@ export default async function CandidateDetailPage(props: {
         emptyDetail="No snapshots were found for this candidate."
       />
 
-      <DataTable
-        title="Provider payloads"
-        eyebrow="Upstream evidence"
-        description="Persisted payload metadata."
-        rows={detail.payloads}
-        preferredKeys={["capturedAt", "provider", "endpoint", "success", "statusCode", "errorMessage", "entityKey"]}
-        emptyTitle="No provider payloads"
-        emptyDetail="No persisted provider payloads were found for this mint."
-      />
+      <details className="rounded-[18px] border border-bg-border bg-bg-hover/20">
+        <summary className="cursor-pointer list-none px-5 py-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="section-kicker">Upstream evidence</div>
+              <div className="mt-2 text-sm font-semibold text-text-primary">Provider payloads</div>
+            </div>
+            <span className="meta-chip">{detail.payloads.length} row{detail.payloads.length === 1 ? "" : "s"}</span>
+          </div>
+        </summary>
+        <div className="border-t border-bg-border/80 px-1 pb-1">
+          <DataTable
+            title="Provider payloads"
+            eyebrow="Upstream evidence"
+            description="Persisted payload metadata."
+            rows={detail.payloads}
+            preferredKeys={["capturedAt", "provider", "endpoint", "success", "statusCode", "errorMessage", "entityKey"]}
+            emptyTitle="No provider payloads"
+            emptyDetail="No persisted provider payloads were found for this mint."
+            className="border-none bg-transparent shadow-none"
+          />
+        </div>
+      </details>
     </div>
   );
 }

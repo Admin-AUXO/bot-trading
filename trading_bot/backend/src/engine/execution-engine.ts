@@ -2,6 +2,7 @@ import type { Position, Prisma } from "@prisma/client";
 import { db } from "../db/client.js";
 import { RuntimeConfigService } from "../services/runtime-config.js";
 import { LiveTradeExecutor, type LiveTradeExecution } from "../services/live-trade-executor.js";
+import { recordOperatorEvent } from "../services/operator-events.js";
 import { buildExitPlan } from "../services/strategy-exit.js";
 import { recordTokenSnapshot } from "../services/token-snapshot-recorder.js";
 import type { BotSettings } from "../types/domain.js";
@@ -147,11 +148,21 @@ export class ExecutionEngine {
       throw new Error(capacity.reason ?? "risk blocked entry");
     }
 
-    const executed = await this.live.executeBuy({
-      mint: input.mint,
-      budgetUsd: capacity.positionSizeUsd,
-      tokenDecimalsHint: this.extractTokenDecimals(input.metrics),
-    });
+    let executed: LiveTradeExecution;
+    try {
+      executed = await this.live.executeBuy({
+        mint: input.mint,
+        budgetUsd: capacity.positionSizeUsd,
+        tokenDecimalsHint: this.extractTokenDecimals(input.metrics),
+      });
+    } catch (error) {
+      await this.recordLiveAttemptFailure("BUY", {
+        mint: input.mint,
+        candidateId: input.candidateId,
+        entryOrigin: toTrimmedString(input.metrics.entryOrigin),
+      }, error);
+      throw error;
+    }
 
     const amountUsd = Number(executed.amountUsd);
     const amountToken = Number(executed.amountToken);
@@ -199,11 +210,21 @@ export class ExecutionEngine {
       return;
     }
 
-    const executed = await this.live.executeSell({
-      mint: position.mint,
-      tokenAmount: formatTokenAmount(requestedAmountToken, liveContext.tokenDecimals),
-      tokenDecimals: liveContext.tokenDecimals,
-    });
+    let executed: LiveTradeExecution;
+    try {
+      executed = await this.live.executeSell({
+        mint: position.mint,
+        tokenAmount: formatTokenAmount(requestedAmountToken, liveContext.tokenDecimals),
+        tokenDecimals: liveContext.tokenDecimals,
+      });
+    } catch (error) {
+      await this.recordLiveAttemptFailure("SELL", {
+        mint: position.mint,
+        positionId: position.id,
+        reason: input.reason,
+      }, error);
+      throw error;
+    }
 
     const amountToken = Math.min(Number(executed.amountToken), remainingToken);
     const amountUsd = Number(executed.amountUsd);
@@ -368,6 +389,15 @@ export class ExecutionEngine {
     const entryScore = this.readEntryScore(input.input.metrics);
     const strategyPresetId = this.readStrategyPresetId(input.input.metrics, input.settings);
     const exitPlan = buildExitPlan(input.settings, entryScore, strategyPresetId);
+    const source = toTrimmedString(input.input.metrics.source);
+    const discoveryRecipeName = toTrimmedString(input.input.metrics.discoveryRecipeName);
+    const entryOrigin = toTrimmedString(input.input.metrics.entryOrigin);
+    const manualEntry = input.input.metrics.manualEntry === true;
+    const discoveryLabReportAgeMsAtEntry = toNumber(input.input.metrics.discoveryLabReportAgeMsAtEntry);
+    const discoveryLabRunAgeMsAtEntry = toNumber(input.input.metrics.discoveryLabRunAgeMsAtEntry);
+    const discoveryLabCompletionLagMsAtEntry = toNumber(input.input.metrics.discoveryLabCompletionLagMsAtEntry);
+    const liveFill = asRecord(input.fillMetadata?.live);
+    const liveTiming = asRecord(liveFill?.timing);
     const created = await tx.position.create({
       data: {
         mint: input.input.mint,
@@ -388,6 +418,15 @@ export class ExecutionEngine {
           settings: input.settings,
           strategyPresetId,
           entryScore,
+          exitProfile: exitPlan.profile,
+          source,
+          discoveryRecipeName,
+          entryOrigin,
+          manualEntry,
+          discoveryLabReportAgeMsAtEntry,
+          discoveryLabRunAgeMsAtEntry,
+          discoveryLabCompletionLagMsAtEntry,
+          liveTiming,
           exitPlan,
           metrics: input.input.metrics,
           live: input.liveContext ?? undefined,
@@ -408,6 +447,14 @@ export class ExecutionEngine {
           settings: input.settings,
           strategyPresetId,
           entryScore,
+          exitProfile: exitPlan.profile,
+          source,
+          discoveryRecipeName,
+          entryOrigin,
+          manualEntry,
+          discoveryLabReportAgeMsAtEntry,
+          discoveryLabRunAgeMsAtEntry,
+          discoveryLabCompletionLagMsAtEntry,
           exitPlan,
           ...(input.fillMetadata ?? {}),
         }),
@@ -538,6 +585,42 @@ export class ExecutionEngine {
       });
     } catch (pauseError) {
       logger.error({ err: pauseError, message }, "failed to persist emergency pause after live trade drift");
+    }
+  }
+
+  private async recordLiveAttemptFailure(
+    side: "BUY" | "SELL",
+    context: {
+      mint: string;
+      candidateId?: string;
+      positionId?: string;
+      reason?: string;
+      entryOrigin?: string | null;
+    },
+    error: unknown,
+  ): Promise<void> {
+    const detail = error instanceof Error ? error.message : String(error);
+    const entityType = context.positionId ? "position" : context.candidateId ? "candidate" : "mint";
+    const entityId = context.positionId ?? context.candidateId ?? context.mint;
+    try {
+      await recordOperatorEvent({
+        kind: "live_trade_attempt_failed",
+        level: "danger",
+        title: `${side} attempt failed`,
+        detail,
+        entityType,
+        entityId,
+        metadata: {
+          side,
+          mint: context.mint,
+          positionId: context.positionId ?? null,
+          candidateId: context.candidateId ?? null,
+          reason: context.reason ?? null,
+          entryOrigin: context.entryOrigin ?? null,
+        },
+      });
+    } catch (eventError) {
+      logger.error({ err: eventError, side, mint: context.mint }, "failed to record live trade attempt failure");
     }
   }
 

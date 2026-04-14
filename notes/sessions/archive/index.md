@@ -26,9 +26,16 @@ Completed or superseded handoffs live here so active sessions stay readable.
 - `2026-04-11-backend-refactor-pump-defaults-and-clean-dry-run.md`
 - `2026-04-11-birdeye-discovery-lab-quality-pack.md`
 - `2026-04-11-birdeye-helius-mcp-validation-handoff.md`
+- `2026-04-11-provider-runtime-workstream-summary.md`
 - `2026-04-11-dry-run-fixes-and-failure-surfacing.md`
 - `2026-04-11-entry-discovery-optimization-handoff.md`
 - `2026-04-11-strategy-preset-runtime-and-shared-facts.md`
+
+## Session Summaries Archive
+
+- `2026-04-11-dashboard-workstream-summary.md`
+- `2026-04-12-compose-env-and-dry-run-summary.md`
+- `2026-04-13-discovery-lab-and-birdeye-mcp-handoff.md`
 
 ## Repo Ops Archive
 

@@ -77,6 +77,9 @@ export default async function PositionDetailPage(props: {
               <SummaryRow label="Closed" value={detail.summary.closedAt ? formatTimestamp(detail.summary.closedAt) : "—"} />
               <SummaryRow label="Entry" value={formatCurrency(detail.summary.entryPriceUsd, 6)} />
               <SummaryRow label="Current" value={formatCurrency(detail.summary.currentPriceUsd, 6)} />
+              <SummaryRow label="Peak" value={formatCurrency(detail.summary.peakPriceUsd, 6)} />
+              <SummaryRow label="Stop loss" value={formatCurrency(detail.summary.stopLossPriceUsd, 6)} />
+              <SummaryRow label="Ticket" value={formatCurrency(detail.summary.amountUsd)} />
             </div>
           </div>
         )}
@@ -135,7 +138,7 @@ export default async function PositionDetailPage(props: {
         >
           <FieldGrid
             data={detail.summary.metadata}
-            preferredKeys={["entryScore", "exitProfile", "source", "liveTradable", "error"]}
+            preferredKeys={["entryOrigin", "entryScore", "exitProfile", "source", "liveTradable", "error"]}
             emptyText="This position does not have stored metadata."
           />
         </Panel>
@@ -146,7 +149,23 @@ export default async function PositionDetailPage(props: {
         eyebrow="Execution history"
         description="Recorded execution events."
         rows={detail.fills}
-        preferredKeys={["createdAt", "side", "priceUsd", "amountUsd", "amountToken", "pnlUsd", "txSignature"]}
+        preferredKeys={[
+          "createdAt",
+          "side",
+          "executionReason",
+          "priceUsd",
+          "amountUsd",
+          "amountToken",
+          "pnlUsd",
+          "totalLatencyMs",
+          "quoteLatencyMs",
+          "swapBuildLatencyMs",
+          "broadcastConfirmLatencyMs",
+          "executionSlippageBps",
+          "discoveryLabReportAgeMsAtEntry",
+          "discoveryLabRunAgeMsAtEntry",
+          "txSignature",
+        ]}
         emptyTitle="No fills yet"
         emptyDetail="No execution trail is stored for this position."
       />
@@ -244,6 +263,7 @@ function buildPositionTrace(detail: PositionDetailPayload) {
   const trace = [
     namedValue("TP1 state", detail.summary.tp1Done ? "Done" : "Pending"),
     namedValue("TP2 state", detail.summary.tp2Done ? "Done" : "Pending"),
+    namedValue("Entry origin", readString(metadata, "entryOrigin")),
     namedValue("Exit profile", readString(metadata, "exitProfile")),
     namedValue("Entry score", toDisplayValue(metadata.entryScore)),
     namedValue("Origin candidate", detail.linkedCandidate ? readCandidateOrigin(detail.linkedCandidate) : null),

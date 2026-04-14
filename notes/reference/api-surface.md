@@ -51,7 +51,7 @@ Transport model:
 - `GET /api/operator/discovery-lab/catalog`: discovery-lab pack catalog, active run summary, recent run summaries, available profiles, and known sources
 - `GET /api/operator/discovery-lab/market-regime?runId=`: per-run market-regime snapshot for discovery-lab results and builder guidance, including regime, confidence, factor breakdown, stale flag, and suggested threshold overrides
 - `GET /api/operator/discovery-lab/runs`: recent discovery-lab run summaries, newest first
-- `GET /api/operator/discovery-lab/runs/:id`: full persisted discovery-lab run detail, including pack snapshot, thresholds, report, and captured stdout or stderr
+- `GET /api/operator/discovery-lab/runs/:id`: full persisted discovery-lab run detail, including pack snapshot, thresholds, calibrated live-strategy payload (`strategyCalibration`), report, and captured stdout or stderr
 - `GET /api/candidates?limit=`: candidates ordered by `discoveredAt DESC`, max `200`
 - `GET /api/positions?limit=`: positions with fills included, ordered by `openedAt DESC`, max `200`
 - `GET /api/fills?limit=`: fills ordered by `createdAt DESC`, max `500`
@@ -83,6 +83,8 @@ Transport model:
 - `POST /api/operator/discovery-lab/packs/save`: saves or updates a custom local discovery-lab pack
 - `POST /api/operator/discovery-lab/packs/delete`: deletes a custom local discovery-lab pack by `packId`
 - `POST /api/operator/discovery-lab/run`: starts a discovery-lab run from a saved pack or inline draft; returns `409` if another run is already active
+- `POST /api/operator/discovery-lab/manual-entry`: live-only operator entry that promotes one pass-grade result row into a linked candidate and tracked open position, then refreshes managed exit monitoring immediately
+- `POST /api/operator/discovery-lab/apply-live-strategy`: stages the selected completed run’s calibrated strategy pack into settings draft (`strategy.liveStrategy` + `strategy.livePresetId`)
 
 Settings mutation rules:
 
@@ -105,6 +107,8 @@ Dashboard navigation conventions:
 - Position workbench state lives in dashboard query params: `/positions?book=<book>&sort=<sort>&q=<optional-filter>`
 - Discovery-lab state is primarily page-local, but recent-run reload stays on `/discovery-lab` and swaps the loaded result set without leaving the page
 - Discovery-lab now consumes market-regime data through `/api/operator/discovery-lab/market-regime?runId=<selected-run-id>`; clients should always pass `runId`
+- Discovery-lab results can now open a live manual trade directly from a selected token row. The browser should call the proxy write route, not the backend directly, so control-secret auth still applies.
+- Discovery-lab results now also stage and edit live strategy packs; keep this flow on `/discovery-lab` and use settings page primarily for promotion, dry-run checks, and non-strategy controls.
 - Routed detail pages carry `focus=<row-id>` and return to `#candidate-<id>` or `#position-<id>` anchors so bucket or book, sort, text filter, and scroll target survive the round trip
 
 ## Auth Boundary

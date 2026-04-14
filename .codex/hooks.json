@@ -1,12 +1,12 @@
 {
   "hooks": {
-    "PreToolUse": [
+    "SessionStart": [
       {
-        "matcher": "Bash",
+        "matcher": "startup|resume",
         "hooks": [
           {
             "type": "command",
-            "command": "if [ -f AGENTS.md ]; then if [ -f graphify-out/graph.json ]; then echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\"},\"systemMessage\":\"Follow the repo startup order from AGENTS.md and notes/reference before opening raw code. Read graphify-out/GRAPH_REPORT.md when architecture context matters, and update notes/ if the task leaves durable knowledge.\"}'; else echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\"},\"systemMessage\":\"Follow the repo startup order from AGENTS.md and notes/reference before opening raw code. Build or read the graph only when architecture context matters, and update notes/ if the task leaves durable knowledge.\"}'; fi; else true; fi"
+            "command": "if [ -f AGENTS.md ]; then if [ -f graphify-out/graph.json ]; then echo '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"Follow the repo startup order from AGENTS.md and notes/reference before opening raw code. Read graphify-out/GRAPH_REPORT.md when architecture context matters, and update notes/ if the task leaves durable knowledge.\"}}'; else echo '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"Follow the repo startup order from AGENTS.md and notes/reference before opening raw code. Build or read the graph only when architecture context matters, and update notes/ if the task leaves durable knowledge.\"}}'; fi; fi"
           }
         ]
       }

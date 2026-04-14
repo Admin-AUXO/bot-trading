@@ -3,7 +3,10 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { z } from "zod";
+import type { LiveStrategySettings } from "../types/domain.js";
+import { RuntimeConfigService } from "./runtime-config.js";
 import { logger } from "../utils/logger.js";
+import { buildDiscoveryLabLiveStrategy } from "./discovery-lab-strategy-calibration.js";
 
 type Scalar = string | number | boolean;
 type QueryValue = Scalar | null;
@@ -203,6 +206,7 @@ export type DiscoveryLabRunSummary = {
 export type DiscoveryLabRunDetail = DiscoveryLabRunSummary & {
   packSnapshot: DiscoveryLabPack;
   thresholdOverrides: DiscoveryLabThresholdOverrides;
+  strategyCalibration: LiveStrategySettings | null;
   stdout: string;
   stderr: string;
   report: DiscoveryLabReport | null;
@@ -344,6 +348,7 @@ export class DiscoveryLabService {
   private readonly packsDir: string;
   private readonly runsDir: string;
   private runningProcess: RunningProcess | null = null;
+  private readonly config = new RuntimeConfigService();
 
   constructor() {
     this.backendRoot = process.cwd();
@@ -379,7 +384,7 @@ export class DiscoveryLabService {
     issues: DiscoveryLabValidationIssue[];
     pack: DiscoveryLabPackDraft;
   }> {
-    const parsed = draftSchema.parse(input);
+    const parsed = draftSchema.parse(withAutoPackName(input));
     const issues: DiscoveryLabValidationIssue[] = [];
     const recipeNames = new Set<string>();
 
@@ -511,6 +516,7 @@ export class DiscoveryLabService {
       errorMessage: null,
       packSnapshot,
       thresholdOverrides,
+      strategyCalibration: null,
       stdout: "",
       stderr: "",
       report: null,
@@ -740,6 +746,12 @@ export class DiscoveryLabService {
     current.queryCount = report?.queryCount ?? null;
     current.winnerCount = report?.winners.length ?? null;
     current.evaluationCount = report?.deepEvaluations.length ?? null;
+    if (report) {
+      const baseSettings = await this.config.getSettings();
+      current.strategyCalibration = buildDiscoveryLabLiveStrategy(current, baseSettings);
+    } else {
+      current.strategyCalibration = null;
+    }
     if (code === 0 && report) {
       current.status = "COMPLETED";
       current.errorMessage = null;
@@ -814,6 +826,94 @@ function countRecipeFilters(params: Record<string, QueryValue>): number {
     .filter(([key]) => FILTER_KEYS.has(key))
     .filter(([, value]) => value !== undefined && value !== null && value !== "")
     .length;
+}
+
+function withAutoPackName(input: DiscoveryLabPackDraft): DiscoveryLabPackDraft {
+  const nextName = shouldAutoGeneratePackName(input.name)
+    ? derivePackNameFromFilters(input)
+    : input.name.trim();
+  return {
+    ...input,
+    name: nextName,
+  };
+}
+
+function shouldAutoGeneratePackName(value: string | undefined): boolean {
+  const normalized = (value ?? "").trim().toLowerCase();
+  return normalized.length === 0
+    || normalized === "new custom package"
+    || normalized === "new package"
+    || normalized === "custom package";
+}
+
+function derivePackNameFromFilters(input: DiscoveryLabPackDraft): string {
+  const profile = (input.defaultProfile ?? DEFAULT_PROFILE).toUpperCase();
+  const modes = new Set(input.recipes.map((recipe) => recipe.mode));
+  const modeTag = modes.size === 0
+    ? "PACK"
+    : modes.size > 1
+      ? "MIX"
+      : modes.has("pregrad")
+        ? "PRE"
+        : "GRAD";
+  const sourceTag = summarizeSources(input.defaultSources);
+  const thresholds = cleanThresholdOverrides(input.thresholdOverrides);
+  const chips: string[] = [];
+
+  if (thresholds.minLiquidityUsd !== undefined) {
+    chips.push(`L${formatUsdCompact(thresholds.minLiquidityUsd)}`);
+  }
+  if (thresholds.minVolume5mUsd !== undefined) {
+    chips.push(`V5${formatUsdCompact(thresholds.minVolume5mUsd)}`);
+  }
+  if (thresholds.maxMarketCapUsd !== undefined) {
+    chips.push(`MC${formatUsdCompact(thresholds.maxMarketCapUsd)}`);
+  }
+  if (thresholds.minBuySellRatio !== undefined) {
+    chips.push(`R${roundCompact(thresholds.minBuySellRatio)}`);
+  }
+  if (thresholds.minUniqueBuyers5m !== undefined) {
+    chips.push(`UB${Math.round(thresholds.minUniqueBuyers5m)}`);
+  }
+
+  const providerFilterCount = input.recipes.reduce((total, recipe) => total + countRecipeFilters(recipe.params), 0);
+  if (providerFilterCount > 0) {
+    chips.push(`F${providerFilterCount}`);
+  }
+
+  const suffix = chips.length > 0 ? ` ${chips.join(" ")}` : "";
+  return `${modeTag} ${profile} ${sourceTag}${suffix}`.trim().slice(0, 96);
+}
+
+function summarizeSources(input?: string[]): string {
+  const sources = normalizeSources(input).slice(0, 2).map((source) => source.replace(/_dot_/g, ".").replace(/_/g, ""));
+  if (sources.length === 0) {
+    return "pump";
+  }
+  return sources.join("+");
+}
+
+function formatUsdCompact(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "0";
+  }
+  if (value >= 1_000_000) {
+    return `${roundCompact(value / 1_000_000)}M`;
+  }
+  if (value >= 1_000) {
+    return `${roundCompact(value / 1_000)}K`;
+  }
+  return `${Math.round(value)}`;
+}
+
+function roundCompact(value: number): string {
+  if (value >= 100) {
+    return `${Math.round(value)}`;
+  }
+  if (value >= 10) {
+    return value.toFixed(1).replace(/\.0$/, "");
+  }
+  return value.toFixed(2).replace(/\.?0+$/, "");
 }
 
 function slugify(value: string): string {

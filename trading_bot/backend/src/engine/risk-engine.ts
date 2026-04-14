@@ -275,6 +275,10 @@ export class RiskEngine {
       );
     }
 
+    if (settings.tradeMode === "LIVE" && settings.strategy.liveStrategy.enabled) {
+      plannedSizeUsd *= settings.strategy.liveStrategy.capitalModifierPercent / 100;
+    }
+
     const floorUsd = Math.min(cashUsd, openPositions >= maxOpenPositions - 1 ? 10 : minimumTicketUsd);
     return this.roundUsd(this.clamp(plannedSizeUsd, floorUsd, cashUsd));
   }

@@ -1,4 +1,4 @@
-import type { BotSettings, StrategyPresetId } from "../types/domain.js";
+import type { BotSettings, StrategyPackRecipe, StrategyPresetId, StrategyRecipeMode } from "../types/domain.js";
 
 export type StrategyDiscoveryMode = "graduated" | "pregrad";
 
@@ -139,15 +139,38 @@ export function applyStrategySettings(
   presetId: StrategyPresetId,
 ): BotSettings {
   const preset = getStrategyPreset(presetId);
+  const liveStrategy = settings.tradeMode === "LIVE" && settings.strategy.liveStrategy.enabled
+    ? settings.strategy.liveStrategy
+    : null;
   return {
     ...settings,
     filters: {
       ...settings.filters,
       ...preset.filterOverrides,
+      ...(liveStrategy?.thresholdOverrides ?? {}),
     },
     exits: {
       ...settings.exits,
       ...preset.exitOverrides,
+      ...(liveStrategy?.exitOverrides ?? {}),
     },
   };
+}
+
+export function hasLiveStrategy(settings: BotSettings): boolean {
+  return settings.tradeMode === "LIVE"
+    && settings.strategy.liveStrategy.enabled
+    && settings.strategy.liveStrategy.recipes.length > 0;
+}
+
+export function getLiveStrategyRecipes(settings: BotSettings): StrategyPackRecipe[] {
+  return hasLiveStrategy(settings)
+    ? settings.strategy.liveStrategy.recipes
+    : [];
+}
+
+export function derivePresetIdFromRecipeMode(mode: StrategyRecipeMode): StrategyPresetId {
+  return mode === "pregrad"
+    ? "LATE_CURVE_MIGRATION_SNIPE"
+    : "FIRST_MINUTE_POSTGRAD_CONTINUATION";
 }
