@@ -200,33 +200,31 @@ export class OperatorDeskService {
       availableActions: [
         {
           id: botState.pauseReason ? "resume" : "pause",
-          label: botState.pauseReason === LIVE_STARTUP_PAUSE_REASON ? "Turn On Live" : botState.pauseReason ? "Resume" : "Pause",
-          enabled: settings.tradeMode === "LIVE",
-          confirmation: settings.tradeMode === "LIVE"
-            ? (botState.pauseReason === LIVE_STARTUP_PAUSE_REASON
-              ? "Turn on live trading now?"
-              : botState.pauseReason
-                ? "Resume live trading controls?"
-                : "Pause live trading controls?")
-            : undefined,
+          label: botState.pauseReason === LIVE_STARTUP_PAUSE_REASON ? "Start Auto Live Bot" : botState.pauseReason ? "Resume" : "Pause",
+          enabled: true,
+          confirmation: botState.pauseReason === LIVE_STARTUP_PAUSE_REASON
+            ? "Start full automated live bot now?"
+            : botState.pauseReason
+              ? "Resume runtime loops and monitoring?"
+              : "Pause runtime loops and monitoring?",
         },
         {
           id: "discover-now",
           label: "Discover",
-          enabled: settings.tradeMode === "LIVE",
-          confirmation: settings.tradeMode === "LIVE" ? "Run discovery now?" : undefined,
+          enabled: true,
+          confirmation: "Run discovery now?",
         },
         {
           id: "evaluate-now",
           label: "Evaluate",
-          enabled: settings.tradeMode === "LIVE",
-          confirmation: settings.tradeMode === "LIVE" ? "Run evaluation now?" : undefined,
+          enabled: true,
+          confirmation: "Run evaluation now?",
         },
         {
           id: "exit-check-now",
           label: "Exit Check",
-          enabled: settings.tradeMode === "LIVE",
-          confirmation: settings.tradeMode === "LIVE" ? "Run exit checks now?" : undefined,
+          enabled: true,
+          confirmation: "Run exit checks now?",
         },
       ],
       statusSummary: {

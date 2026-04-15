@@ -1,11 +1,10 @@
-import clsx from "clsx";
 import Link from "next/link";
 import type { Route } from "next";
 import { ArrowUpRight, PanelTopOpen, Search } from "lucide-react";
+import { CandidatesGrid } from "@/components/candidates-grid";
 import { IconAction, PageHero, Panel, StatusPill } from "@/components/dashboard-primitives";
-import { WorkbenchRowActions } from "@/components/workbench-row-actions";
 import { serverFetch } from "@/lib/api";
-import { formatCompactCurrency, formatInteger, formatNumber, formatPercent, formatTimestamp } from "@/lib/format";
+import { formatInteger } from "@/lib/format";
 import { buildGrafanaDashboardLink } from "@/lib/grafana";
 import type { CandidateBucket, CandidateQueuePayload } from "@/lib/types";
 
@@ -62,9 +61,9 @@ export default async function CandidatesPage(props: { searchParams?: SearchParam
           </div>
         )}
         aside={(
-          <div className="panel-muted rounded-[16px] p-4">
+          <div className="panel-muted rounded-[14px] p-3">
             <div className="section-kicker">View</div>
-            <div className="mt-4 grid gap-3">
+            <div className="mt-3 grid gap-2">
               <SummaryRow label="Rows" value={`${formatInteger(rows.length)} / ${formatInteger(sortedRows.length)}`} />
               <SummaryRow label="Sort" value={sortLabel(sort)} />
               <SummaryRow label="Filter" value={query || "None"} />
@@ -73,20 +72,20 @@ export default async function CandidatesPage(props: { searchParams?: SearchParam
         )}
       />
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {payload.buckets.map((item) => (
           <Link
             key={item.bucket}
               href={buildCandidatesHref({ bucket: item.bucket, sort, q: query }) as Route}
             title={`Open ${item.label}`}
-            className={`rounded-[16px] border px-4 py-4 transition ${
+            className={`rounded-[14px] border px-3 py-3 transition ${
               item.bucket === payload.bucket
                 ? "border-[rgba(163,230,53,0.28)] bg-[#121511]"
                 : "border-bg-border bg-bg-hover/35 hover:border-[rgba(255,255,255,0.12)] hover:bg-bg-hover/50"
             }`}
           >
             <div className="section-kicker">{item.label}</div>
-            <div className="mt-3 text-3xl font-semibold tracking-tight text-text-primary">{formatInteger(item.count)}</div>
+            <div className="mt-2 text-2xl font-semibold tracking-tight text-text-primary">{formatInteger(item.count)}</div>
           </Link>
         ))}
       </section>
@@ -138,97 +137,7 @@ export default async function CandidatesPage(props: { searchParams?: SearchParam
         description={undefined}
         action={<IconAction href="/telemetry" icon={PanelTopOpen} label="Telemetry" title="Open telemetry" subtle />}
       >
-        {rows.length === 0 ? (
-          <div className="rounded-[14px] border border-bg-border bg-bg-hover/40 px-4 py-4 text-sm text-text-secondary">
-            {query ? "No match." : "No candidates in this bucket."}
-          </div>
-        ) : (
-          <div className="overflow-hidden rounded-[16px] border border-bg-border bg-bg-card/45">
-            <div className="overflow-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="bg-bg-hover/60">
-                  <tr>
-                    {["Token", "Blocker", "Status", "Liquidity", "Volume 5m", "Buy/sell", "Top 10", "Last touch", "Actions"].map((label) => (
-                      <th key={label} className="table-header whitespace-nowrap">{label}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row, index) => {
-                    const detailHref = `/candidates/${row.id}?bucket=${payload.bucket}&sort=${sort}&focus=${row.id}${query ? `&q=${encodeURIComponent(query)}` : ""}`;
-                    const actionable = payload.bucket === "ready" && index < 5;
-                    const grafanaRowHref = buildGrafanaDashboardLink("candidate", {
-                      from: Date.parse(row.discoveredAt) - 60 * 60 * 1000,
-                      vars: {
-                        mint: row.mint,
-                        symbol: row.symbol,
-                        source: row.source,
-                      },
-                    });
-
-                    return (
-                      <tr
-                        key={row.id}
-                        id={`candidate-${row.id}`}
-                        className={clsx(
-                          "table-row scroll-mt-32 align-top",
-                          actionable && "table-row-actionable",
-                        )}
-                      >
-                        <td className="table-cell">
-                          <Link
-                            href={detailHref as Route}
-                            title={`Open ${row.symbol || shortMint(row.mint)} details`}
-                            className="inline-flex items-center gap-2 text-text-primary transition hover:text-accent"
-                          >
-                            <span className="font-semibold">{row.symbol || shortMint(row.mint)}</span>
-                            <ArrowUpRight className="h-4 w-4" />
-                          </Link>
-                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-text-muted">
-                            <span className="font-mono">{shortMint(row.mint)}</span>
-                            <span className="meta-chip" title={`Source: ${row.source}`}>{row.source}</span>
-                            {actionable ? <span className="meta-chip border-[rgba(163,230,53,0.26)] bg-[rgba(163,230,53,0.08)] text-text-primary">Front of queue</span> : null}
-                          </div>
-                        </td>
-                        <td className="table-cell">
-                          <div className="font-medium text-text-primary">{row.primaryBlocker}</div>
-                          {row.secondaryReasons.length > 0 ? (
-                            <div className="mt-2 text-xs leading-5 text-text-muted">{row.secondaryReasons.join(" · ")}</div>
-                          ) : null}
-                        </td>
-                        <td className="table-cell"><StatusPill value={row.status} /></td>
-                        <td className="table-cell text-right tabular-nums text-text-secondary">{formatCompactCurrency(row.liquidityUsd)}</td>
-                        <td className="table-cell text-right tabular-nums text-text-secondary">{formatCompactCurrency(row.volume5mUsd)}</td>
-                        <td className="table-cell text-right tabular-nums text-text-secondary">{formatNumber(row.buySellRatio)}</td>
-                        <td className="table-cell text-right tabular-nums text-text-secondary">{row.top10HolderPercent == null ? "—" : formatPercent(row.top10HolderPercent)}</td>
-                        <td className="table-cell whitespace-nowrap text-text-secondary">
-                          {formatTimestamp(row.lastEvaluatedAt ?? row.discoveredAt)}
-                        </td>
-                        <td className="table-cell">
-                          <WorkbenchRowActions
-                            openHref={detailHref}
-                            openLabel={row.symbol || shortMint(row.mint)}
-                            grafanaHref={grafanaRowHref}
-                            pinItem={{
-                              id: row.id,
-                              kind: "candidate",
-                              label: row.symbol || shortMint(row.mint),
-                              href: detailHref,
-                              secondary: row.primaryBlocker,
-                              meta: row.source,
-                            }}
-                            copyValue={row.mint}
-                            copyLabel="Copy"
-                          />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+        <CandidatesGrid rows={rows} bucket={payload.bucket} sort={sort} query={query} />
       </Panel>
     </div>
   );
@@ -236,7 +145,7 @@ export default async function CandidatesPage(props: { searchParams?: SearchParam
 
 function SummaryRow(props: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-[12px] border border-bg-border bg-bg-primary/55 px-3 py-3">
+    <div className="flex items-center justify-between gap-2 rounded-[10px] border border-bg-border bg-bg-primary/55 px-2.5 py-2">
       <div className="text-xs uppercase tracking-[0.18em] text-text-muted">{props.label}</div>
       <div className="text-sm font-semibold text-text-primary">{props.value}</div>
     </div>
@@ -255,10 +164,6 @@ function sortLabel(sort: CandidateSort) {
     default:
       return "Recent";
   }
-}
-
-function shortMint(mint: string) {
-  return `${mint.slice(0, 6)}…${mint.slice(-4)}`;
 }
 
 function compareCandidateRows(left: CandidateQueuePayload["rows"][number], right: CandidateQueuePayload["rows"][number], sort: CandidateSort) {

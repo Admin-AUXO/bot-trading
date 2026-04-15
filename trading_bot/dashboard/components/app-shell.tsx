@@ -80,6 +80,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const activeNav = getActiveNav(currentPath);
   const ActiveNavIcon = activeNav.icon;
   const sidebarContext = buildSidebarContext(currentPath, shell);
+  const liveArmAction = (shell?.availableActions ?? []).find((action) => isLiveArmAction(action)) ?? null;
 
   const refreshShell = useEffectEvent(async () => {
     try {
@@ -166,7 +167,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       .map((action) => ({
         id: action.id,
         label: action.label,
-        hint: action.id === "pause" || action.id === "resume" ? "Runtime control" : "Operator action",
+        hint: isLiveArmAction(action)
+          ? "Start full automated live bot"
+          : action.id === "pause" || action.id === "resume"
+            ? "Runtime control"
+            : "Operator action",
         icon: action.id === "pause" ? PauseCircle : action.id === "resume" ? PlayCircle : RefreshCcw,
         type: "Action",
         run: () => runAction(action.id, action.confirmation),
@@ -462,7 +467,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <RefreshCcw className="h-4 w-4" />
                     Refresh
                   </button>
-                  {shell?.availableActions.map((action) => (
+                  {liveArmAction ? (
+                    <button
+                      onClick={() => runAction(liveArmAction.id, liveArmAction.confirmation)}
+                      disabled={!liveArmAction.enabled || isPending}
+                      title={liveArmAction.label}
+                      className={clsx(
+                        "btn-primary inline-flex items-center gap-2 !px-3 !py-2",
+                        (!liveArmAction.enabled || isPending) && "cursor-not-allowed opacity-50",
+                      )}
+                    >
+                      <PlayCircle className="h-4 w-4" />
+                      {liveArmAction.label}
+                    </button>
+                  ) : null}
+                  {(shell?.availableActions ?? []).filter((action) => !isLiveArmAction(action)).map((action) => (
                     <button
                       key={action.id}
                       onClick={() => runAction(action.id, action.confirmation)}
@@ -737,4 +756,8 @@ function ActionIcon(props: { actionId: DeskShellPayload["availableActions"][numb
     default:
       return <RefreshCcw className="h-4 w-4" />;
   }
+}
+
+function isLiveArmAction(action: DeskShellPayload["availableActions"][number]) {
+  return action.id === "resume" && action.label === "Start Auto Live Bot";
 }

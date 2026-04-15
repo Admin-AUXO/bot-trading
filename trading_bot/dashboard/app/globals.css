@@ -32,13 +32,21 @@
 
 :root {
   color-scheme: dark;
-  --shell-header-height: 4.6rem;
+  --shell-header-height: 4.4rem;
   --paper: #040505;
   --paper-alt: #090a09;
   --panel: #101111;
   --panel-strong: #131515;
   --panel-raised: #171a17;
   --panel-accent: #11150d;
+  --surface-sticky: rgba(9, 10, 10, 0.94);
+  --surface-sticky-strong: rgba(7, 8, 8, 0.97);
+  --surface-modal: #080909;
+  --surface-modal-strong: #0b0c0c;
+  --surface-grid: #090a0a;
+  --surface-grid-strong: #0d0e0e;
+  --surface-grid-header: #101112;
+  --surface-grid-pinned: #111213;
   --hover: #171a19;
   --line: rgba(255, 255, 255, 0.09);
   --line-strong: rgba(163, 230, 53, 0.16);
@@ -232,9 +240,9 @@ a {
   border-radius: 0.72rem;
   border: 1px solid rgba(163, 230, 53, 0.3);
   color: var(--ink);
-  font-size: 0.875rem;
+  font-size: 0.82rem;
   font-weight: 700;
-  padding: 0.58rem 0.86rem;
+  padding: 0.5rem 0.74rem;
   transition: border-color 180ms ease, background-color 180ms ease, color 180ms ease;
 }
 
@@ -247,9 +255,9 @@ a {
 .btn-ghost {
   border-radius: 0.72rem;
   color: var(--text-secondary);
-  font-size: 0.875rem;
+  font-size: 0.82rem;
   font-weight: 600;
-  padding: 0.58rem 0.86rem;
+  padding: 0.5rem 0.74rem;
   transition: border-color 180ms ease, background-color 180ms ease, color 180ms ease;
 }
 
@@ -304,8 +312,8 @@ a {
   gap: 0.55rem;
   border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
   border-radius: 0.85rem;
-  background: rgba(11, 11, 11, 0.92);
-  padding: 0.62rem 0.72rem;
+  background: var(--surface-sticky);
+  padding: 0.52rem 0.62rem;
   backdrop-filter: blur(8px);
 }
 
@@ -319,7 +327,222 @@ a {
 .floating-menu {
   border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
   border-radius: 0.95rem;
-  background: rgba(10, 10, 11, 0.97);
+  background: var(--surface-sticky-strong);
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
   backdrop-filter: blur(10px);
+}
+
+.ag-grid-desk.ag-theme-quartz-dark {
+  --ag-background-color: var(--surface-grid);
+  --ag-foreground-color: var(--ink);
+  --ag-header-background-color: var(--surface-grid-header);
+  --ag-header-foreground-color: var(--muted);
+  --ag-odd-row-background-color: var(--surface-grid-strong);
+  --ag-row-hover-color: #151718;
+  --ag-selected-row-background-color: rgba(163, 230, 53, 0.14);
+  --ag-border-color: color-mix(in srgb, var(--line) 86%, transparent);
+  --ag-secondary-border-color: color-mix(in srgb, var(--line) 80%, transparent);
+  --ag-row-border-color: color-mix(in srgb, var(--line) 94%, transparent);
+  --ag-header-column-separator-color: color-mix(in srgb, var(--line) 84%, transparent);
+  --ag-input-focus-border-color: color-mix(in srgb, var(--accent) 48%, transparent);
+  --ag-input-focus-box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
+  --ag-checkbox-checked-color: var(--accent);
+  --ag-checkbox-unchecked-color: var(--muted);
+  --ag-range-selection-border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  --ag-wrapper-border-radius: 0.875rem;
+  --ag-borders: none;
+  --ag-input-background-color: #0d0f0f;
+  --ag-input-border-color: color-mix(in srgb, var(--line) 84%, transparent);
+  --ag-input-text-color: var(--ink);
+  --ag-checkbox-background-color: #0d0f0f;
+  --ag-disabled-foreground-color: var(--muted);
+  --ag-disabled-background-color: #0d0f0f;
+  --ag-chip-background-color: #111214;
+  --ag-chip-border-color: color-mix(in srgb, var(--line) 84%, transparent);
+  --ag-subheader-background-color: #0f1011;
+  --ag-side-panel-background-color: var(--surface-modal-strong);
+  --ag-control-panel-background-color: var(--surface-modal-strong);
+  --ag-menu-background-color: var(--surface-modal-strong);
+  --ag-popup-shadow: 0 22px 48px rgba(0, 0, 0, 0.42);
+  --ag-dialog-background-color: var(--surface-modal-strong);
+  --ag-modal-overlay-background-color: rgba(3, 4, 4, 0.72);
+  --ag-column-drop-background-color: #0d0f10;
+  --ag-advanced-filter-builder-background-color: var(--surface-modal-strong);
+  --ag-card-radius: 14px;
+  --ag-font-size: 12px;
+  --ag-font-family: var(--font-body);
+  --ag-cell-horizontal-padding: 9px;
+  --ag-grid-size: 5px;
+  --ag-row-height: 38px;
+  --ag-header-height: 32px;
+  --ag-cell-horizontal-border: 1px solid color-mix(in srgb, var(--line) 94%, transparent);
+  border-radius: 0.875rem;
+}
+
+.ag-grid-desk .ag-header-cell-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.ag-grid-desk .ag-cell {
+  display: flex;
+  align-items: center;
+  line-height: 1.45;
+  background: var(--surface-grid);
+}
+
+.ag-grid-desk .ag-header {
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  background: var(--surface-grid-header);
+}
+
+.ag-grid-desk .ag-pinned-right-header,
+.ag-grid-desk .ag-pinned-right-cols-container .ag-cell {
+  background: var(--surface-grid-pinned);
+}
+
+.ag-grid-desk .ag-row-odd .ag-cell {
+  background: var(--surface-grid-strong);
+}
+
+.ag-grid-desk .ag-row-hover .ag-cell,
+.ag-grid-desk .ag-row-hover.ag-row-odd .ag-cell {
+  background: #141617;
+}
+
+.ag-grid-desk .ag-paging-panel {
+  border-top: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+  min-height: 2rem;
+  color: var(--text-secondary);
+  background: linear-gradient(180deg, rgba(11, 12, 12, 0.94), rgba(8, 9, 9, 0.98));
+}
+
+.ag-grid-desk .ag-root-wrapper {
+  border: none;
+  background: transparent;
+}
+
+.ag-grid-desk .ag-row,
+.ag-grid-desk .ag-row-odd,
+.ag-grid-desk .ag-row-even {
+  background-color: var(--surface-grid);
+}
+
+.ag-grid-desk .ag-row-focus .ag-cell,
+.ag-grid-desk .ag-row-selected .ag-cell {
+  background-color: rgba(163, 230, 53, 0.08);
+}
+
+.ag-grid-desk .ag-menu,
+.ag-grid-desk .ag-popup,
+.ag-grid-desk .ag-dialog,
+.ag-grid-desk .ag-popup-child,
+.ag-grid-desk .ag-picker-field-wrapper,
+.ag-grid-desk .ag-select-list,
+.ag-grid-desk .ag-rich-select,
+.ag-grid-desk .ag-filter-wrapper,
+.ag-grid-desk .ag-advanced-filter-builder {
+  background: var(--surface-modal-strong);
+  color: var(--ink);
+}
+
+.ag-grid-desk .ag-menu,
+.ag-grid-desk .ag-dialog,
+.ag-grid-desk .ag-select-list,
+.ag-grid-desk .ag-rich-select {
+  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.38);
+}
+
+.ag-grid-desk .ag-filter-toolpanel-header,
+.ag-grid-desk .ag-panel-title-bar,
+.ag-grid-desk .ag-column-drop,
+.ag-grid-desk .ag-advanced-filter-builder-header,
+.ag-grid-desk .ag-menu-header,
+.ag-grid-desk .ag-tabs-header {
+  background: #101112;
+}
+
+.ag-grid-desk .ag-menu-list,
+.ag-grid-desk .ag-set-filter-list,
+.ag-grid-desk .ag-virtual-list-container,
+.ag-grid-desk .ag-rich-select-list {
+  background: var(--surface-modal-strong);
+}
+
+.ag-grid-desk .ag-input-field-input,
+.ag-grid-desk .ag-text-field-input,
+.ag-grid-desk .ag-picker-field-wrapper,
+.ag-grid-desk .ag-select {
+  background: #0d0f10;
+  color: var(--ink);
+}
+
+.ag-grid-desk .ag-icon {
+  color: var(--text-secondary);
+}
+
+.ag-grid-cell-base {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.ag-grid-cell-number {
+  justify-content: flex-end;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.ag-grid-cell-identifier {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.03em;
+}
+
+.ag-grid-cell-reason {
+  white-space: normal;
+}
+
+.ag-grid-cell-action {
+  align-items: flex-start;
+}
+
+.ag-grid-view-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  border-radius: 0.62rem;
+  background: var(--surface-grid-header);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 0.34rem 0.56rem;
+  transition: border-color 180ms ease, color 180ms ease, background-color 180ms ease;
+}
+
+.ag-grid-view-button:hover {
+  border-color: rgba(255, 255, 255, 0.16);
+  color: var(--ink);
+  background: #141516;
+}
+
+.ag-grid-action-row .ag-cell {
+  background:
+    linear-gradient(90deg, rgba(163, 230, 53, 0.08), transparent 20%),
+    rgba(255, 255, 255, 0.01);
+}
+
+.ag-grid-warning-row .ag-cell {
+  background:
+    linear-gradient(90deg, rgba(250, 204, 21, 0.08), transparent 24%),
+    rgba(255, 255, 255, 0.01);
+}
+
+.ag-grid-focus-row .ag-cell {
+  background:
+    linear-gradient(90deg, rgba(217, 249, 157, 0.12), transparent 26%),
+    rgba(255, 255, 255, 0.02);
 }

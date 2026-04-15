@@ -7,6 +7,10 @@ source_files:
   - trading_bot/dashboard/app/layout.tsx
   - trading_bot/dashboard/app/globals.css
   - trading_bot/dashboard/components/app-shell.tsx
+  - trading_bot/dashboard/components/ag-grid-shared.tsx
+  - trading_bot/dashboard/components/ag-grid-table.tsx
+  - trading_bot/dashboard/components/candidates-grid.tsx
+  - trading_bot/dashboard/components/positions-grid.tsx
   - trading_bot/dashboard/components/dashboard-primitives.tsx
   - trading_bot/dashboard/components/dashboard-client.tsx
   - trading_bot/dashboard/components/discovery-lab-client.tsx
@@ -108,20 +112,32 @@ Purpose: document the current UI contract for the Next.js operator desk so later
 ## Workbench Rules
 
 - Candidates and positions stay as dense tables, not card grids
+- Main operator tables use AG Grid with compact defaults:
+  sortable, filterable, resizable columns
+  pagination for long books
+  right-pinned action column
+  full-row modal for secondary or verbose fields so base rows stay scan-friendly
+  AG Grid chrome must stay near-black across cells, headers, pinned columns, menus, filters, and pagination; it should never flash a white or light-gray default surface
 - Discovery lab should feel like a compact research workbench:
   `Results` is the default entry tab
   top-level tabs are `Results`, `Builder`, `Runs`
   `Builder` combines package and strategy editing in one surface
   sticky core actions stay visible while scrolling: `New`, `Clone`, `Delete`, `Validate`, `Save`, `Run`, `Load run package`
+  the sticky action bar should visually separate build/edit controls from run/review controls so the operator can parse intent at a glance
   starter packages still need explicit `use`, `clone`, `load run package`, and `delete` actions so operators do not guess how to begin
   package editing remains split into `Basics` and `Thresholds`, with strategy editing directly below in the same builder tab
   active run progress must be visible while the CLI is still working
+  the results header should carry the current run context once, ahead of the live strategy pack and token board, instead of repeating the same package and run facts in several stacked panels
   the primary result surface should be a deduplicated token board keyed by mint, not a repeated per-strategy dump
   results should not spend vertical space on a duplicate outer frame before the token board
+  result controls should read in one strip: filters, search, score timestamp, run duration, and a small amount of scan-critical summary
   the result table should prioritize decision metrics over prose and include run-relative heatmap cells on selected columns
+  desktop token-board tables now run on AG Grid; mobile stays on stacked cards
   each token row should expose a direct details action that opens a full-screen review surface, not a route jump
   the result board should take full page width and support full-screen review mode
   token details should surface price and structure context plus derived setup, conservative EV, risk, and outcome metrics without bloating base rows
+  full-screen token review should scan in this order: setup summary, EV/risk, market structure, timing/liquidity, recipe consensus, then watchouts
+  the token review modal should keep a persistent summary rail with outcome, overlap, best score, setup profile, and manual-entry CTA visible while scrolling
   a compact market-regime strip and refresh timestamp should remain visible above table controls so operators can interpret table scores in context
   market-regime suggestions belong in `Builder` with one-click apply to draft threshold overrides; they must never silently rewrite runtime settings
   source, strategy, and winner rollups should stay compact and secondary so the page does not drown the operator in helper tables

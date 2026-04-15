@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { DiscoveryLabResearchSummary, DiscoveryLabResultsBoard } from "@/components/discovery-lab-results-board";
-import { EmptyState, Panel, StatusPill } from "@/components/dashboard-primitives";
+import { EmptyState, Panel, ScanStat, StatusPill } from "@/components/dashboard-primitives";
 import { fetchJson } from "@/lib/api";
 import { formatInteger, formatTimestamp, smartFormatValue } from "@/lib/format";
 import type {
@@ -751,6 +751,45 @@ export function DiscoveryLabClient(props: {
         </div>
       </div>
 
+      {activeView === "results" ? (
+        <div className="mt-3 rounded-[14px] border border-bg-border bg-[#0d0f10] px-3 py-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="section-kicker text-accent">Run context</span>
+            {runDetail ? (
+              <>
+                <StatusPill value={runDetail.status} />
+                <span className="meta-chip">{runDetail.packName}</span>
+                <span className="meta-chip">{runDetail.profile}</span>
+                <span className="meta-chip">{runDetail.sources.join(", ")}</span>
+                {runDetail.completedAt ? <span className="meta-chip">Completed {safeFormatTimestamp(runDetail.completedAt, hasHydrated)}</span> : null}
+              </>
+            ) : (
+              <span className="text-sm text-text-secondary">No run selected.</span>
+            )}
+          </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-3">
+            <ScanStat
+              label="Selected run"
+              value={runDetail?.packName ?? "No run selected"}
+              detail={runDetail ? `${formatInteger(runDetail.queryCount ?? 0)} queries · ${formatInteger(runDetail.evaluationCount ?? 0)} evaluations` : "Pick a completed run to load the results workbench."}
+              tone={runDetail ? "accent" : "default"}
+            />
+            <ScanStat
+              label="Strategies"
+              value={formatInteger(draft.recipes.length)}
+              detail={readOnly ? "Starter package loaded" : dirty ? "Draft has unsaved changes" : "Draft synced"}
+              tone={dirty ? "warning" : "default"}
+            />
+            <ScanStat
+              label="Next step"
+              value={runDetail ? "Review board" : "Open runs"}
+              detail={runDetail ? "Scan the token board, then inspect individual setups in full view." : "Launch or reopen a run before using results."}
+              tone={runDetail ? "default" : "warning"}
+            />
+          </div>
+        </div>
+      ) : null}
+
       <div className="mt-3 overflow-auto pb-1">
         <Tabs.List className="flex min-w-max gap-2 rounded-[18px] border border-bg-border bg-[#0f0f10] p-2 lg:min-w-0">
           {DISCOVERY_VIEWS.map((view) => (
@@ -762,46 +801,53 @@ export function DiscoveryLabClient(props: {
   );
 
   const actionBar = (
-    <section className="sticky top-[calc(var(--shell-header-height)+0.45rem)] z-20 rounded-[14px] border border-bg-border bg-[#0f0f10f2] px-2.5 py-2.5 backdrop-blur-sm">
-      <div className="flex flex-wrap items-center gap-2">
-        <button onClick={createBlankPack} className="btn-ghost inline-flex items-center gap-2" disabled={isPending}>
-          <Plus className="h-4 w-4" />
-          New
-        </button>
-        <button onClick={cloneCurrentPack} className="btn-ghost inline-flex items-center gap-2" disabled={isPending}>
-          <CopyPlus className="h-4 w-4" />
-          Clone
-        </button>
-        <button onClick={deletePack} className="btn-ghost inline-flex items-center gap-2" disabled={isPending || selectedPack?.kind !== "custom"}>
-          <Trash2 className="h-4 w-4" />
-          Delete
-        </button>
-        <button onClick={runValidation} className="btn-ghost inline-flex items-center gap-2" disabled={isPending || editorBlocked}>
-          <ShieldAlert className="h-4 w-4" />
-          Validate
-        </button>
-        <button onClick={savePack} className="btn-ghost inline-flex items-center gap-2" disabled={isPending || readOnly || editorBlocked}>
-          <Save className="h-4 w-4" />
-          Save
-        </button>
-        <button onClick={startRun} className="btn-primary inline-flex items-center gap-2" disabled={runBusy || editorBlocked}>
-          <Play className="h-4 w-4" />
-          {runBusy ? "Run in progress" : "Run"}
-        </button>
-        {runDetail ? (
-          <button onClick={loadRunPackSnapshot} className="btn-ghost inline-flex items-center gap-2" disabled={isPending}>
-            <ArrowUpRight className="h-4 w-4" />
-            Load run package
+    <section className="sticky top-[calc(var(--shell-header-height)+0.45rem)] z-20 rounded-[14px] border border-bg-border bg-[var(--surface-sticky)] px-2.5 py-2.5 backdrop-blur-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2 rounded-[12px] border border-bg-border bg-[#0d0f10] px-2 py-2">
+          <span className="section-kicker px-1">Build</span>
+          <button onClick={createBlankPack} className="btn-ghost inline-flex items-center gap-2" disabled={isPending}>
+            <Plus className="h-4 w-4" />
+            New
           </button>
-        ) : null}
-        <button
-          type="button"
-          onClick={() => setShowSupportRail((current) => !current)}
-          className="btn-ghost hidden items-center gap-2 xl:inline-flex"
-        >
-          {showSupportRail ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
-          {showSupportRail ? "Hide rail" : "Show rail"}
-        </button>
+          <button onClick={cloneCurrentPack} className="btn-ghost inline-flex items-center gap-2" disabled={isPending}>
+            <CopyPlus className="h-4 w-4" />
+            Clone
+          </button>
+          <button onClick={deletePack} className="btn-ghost inline-flex items-center gap-2" disabled={isPending || selectedPack?.kind !== "custom"}>
+            <Trash2 className="h-4 w-4" />
+            Delete
+          </button>
+          <button onClick={runValidation} className="btn-ghost inline-flex items-center gap-2" disabled={isPending || editorBlocked}>
+            <ShieldAlert className="h-4 w-4" />
+            Validate
+          </button>
+          <button onClick={savePack} className="btn-ghost inline-flex items-center gap-2" disabled={isPending || readOnly || editorBlocked}>
+            <Save className="h-4 w-4" />
+            Save
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 rounded-[12px] border border-[rgba(163,230,53,0.18)] bg-[#0f120f] px-2 py-2">
+          <span className="section-kicker px-1 text-accent">Run + review</span>
+          <button onClick={startRun} className="btn-primary inline-flex items-center gap-2" disabled={runBusy || editorBlocked}>
+            <Play className="h-4 w-4" />
+            {runBusy ? "Run in progress" : "Run"}
+          </button>
+          {runDetail ? (
+            <button onClick={loadRunPackSnapshot} className="btn-ghost inline-flex items-center gap-2" disabled={isPending}>
+              <ArrowUpRight className="h-4 w-4" />
+              Load run package
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => setShowSupportRail((current) => !current)}
+            className="btn-ghost hidden items-center gap-2 xl:inline-flex"
+          >
+            {showSupportRail ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
+            {showSupportRail ? "Hide rail" : "Show rail"}
+          </button>
+        </div>
       </div>
     </section>
   );
@@ -1455,31 +1501,6 @@ export function DiscoveryLabClient(props: {
         </Tabs.Content>
 
         <Tabs.Content value="results" className="space-y-4 outline-none">
-          <section className="rounded-[16px] border border-bg-border bg-[#101012] px-4 py-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="section-kicker text-accent">Current run</span>
-                {runDetail ? (
-                  <>
-                    <StatusPill value={runDetail.status} />
-                    <span className="meta-chip">{runDetail.packName}</span>
-                    <span className="meta-chip">{runDetail.profile}</span>
-                    <span className="meta-chip">{runDetail.sources.join(", ")}</span>
-                    {runDetail.completedAt ? <span className="meta-chip">Completed {safeFormatTimestamp(runDetail.completedAt, hasHydrated)}</span> : null}
-                  </>
-                ) : (
-                  <span className="text-sm text-text-secondary">No run selected.</span>
-                )}
-              </div>
-              {runDetail ? (
-                <button onClick={() => setActiveView("runs")} className="btn-ghost inline-flex items-center gap-2">
-                  <SquareTerminal className="h-4 w-4" />
-                  Open runs
-                </button>
-              ) : null}
-            </div>
-          </section>
-
           <Panel
             title="Live strategy pack"
             eyebrow="Calibration + guardrails"

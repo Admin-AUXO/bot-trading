@@ -83,7 +83,7 @@ Transport model:
 - `POST /api/operator/discovery-lab/packs/save`: saves or updates a custom local discovery-lab pack
 - `POST /api/operator/discovery-lab/packs/delete`: deletes a custom local discovery-lab pack by `packId`
 - `POST /api/operator/discovery-lab/run`: starts a discovery-lab run from a saved pack or inline draft; returns `409` if another run is already active
-- `POST /api/operator/discovery-lab/manual-entry`: live-only operator entry that promotes one pass-grade result row into a linked candidate and tracked open position, then refreshes managed exit monitoring immediately
+- `POST /api/operator/discovery-lab/manual-entry`: operator entry that promotes one pass-grade result row into a linked candidate and tracked open position, then refreshes managed exit monitoring immediately; execution path follows runtime mode (`LIVE` onchain, `DRY_RUN` simulated fills)
 - `POST /api/operator/discovery-lab/apply-live-strategy`: stages the selected completed run’s calibrated strategy pack into settings draft (`strategy.liveStrategy` + `strategy.livePresetId`)
 
 Settings mutation rules:
@@ -96,7 +96,7 @@ Settings mutation rules:
 
 Control-route mode rules:
 
-- `discover-now`, `evaluate-now`, and `exit-check-now` are live-only controls and return an error in `DRY_RUN`
+- `discover-now`, `evaluate-now`, and `exit-check-now` are available in both `LIVE` and `DRY_RUN`
 - Control routes now return `{ ok, action, shell, home }` so the desk can refresh from the authoritative post-action state
 - API errors are returned as JSON `{ "error": "..." }` instead of default HTML
 - A backend boot into `LIVE` now surfaces a startup hold through `pauseReason`; the operator must use `resume` from the dashboard before discovery and evaluation loops arm.
@@ -107,7 +107,7 @@ Dashboard navigation conventions:
 - Position workbench state lives in dashboard query params: `/positions?book=<book>&sort=<sort>&q=<optional-filter>`
 - Discovery-lab state is primarily page-local, but recent-run reload stays on `/discovery-lab` and swaps the loaded result set without leaving the page
 - Discovery-lab now consumes market-regime data through `/api/operator/discovery-lab/market-regime?runId=<selected-run-id>`; clients should always pass `runId`
-- Discovery-lab results can now open a live manual trade directly from a selected token row. The browser should call the proxy write route, not the backend directly, so control-secret auth still applies.
+- Discovery-lab results can now open a manual trade directly from a selected token row in either runtime mode. The browser should call the proxy write route, not the backend directly, so control-secret auth still applies.
 - Discovery-lab results now also stage and edit live strategy packs; keep this flow on `/discovery-lab` and use settings page primarily for promotion, dry-run checks, and non-strategy controls.
 - Routed detail pages carry `focus=<row-id>` and return to `#candidate-<id>` or `#position-<id>` anchors so bucket or book, sort, text filter, and scroll target survive the round trip
 

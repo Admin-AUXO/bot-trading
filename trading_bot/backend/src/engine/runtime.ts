@@ -295,7 +295,6 @@ export class BotRuntime {
   }
 
   private async runDiscoveryNow(): Promise<void> {
-    await this.ensureLiveControl("manual discovery");
     await this.graduation.discover();
     await recordOperatorEvent({
       kind: "manual_action",
@@ -305,7 +304,6 @@ export class BotRuntime {
   }
 
   private async runEvaluationNow(): Promise<void> {
-    await this.ensureLiveControl("manual evaluation");
     await this.graduation.evaluateDueCandidates();
     await recordOperatorEvent({
       kind: "manual_action",
@@ -315,7 +313,6 @@ export class BotRuntime {
   }
 
   private async runExitCheckNow(): Promise<void> {
-    await this.ensureLiveControl("manual exit check");
     await this.exits.run();
     await recordOperatorEvent({
       kind: "manual_action",
@@ -330,7 +327,6 @@ export class BotRuntime {
       mint?: string;
     },
   ) {
-    await this.ensureLiveControl("manual trade entry");
     const result = await this.discoveryLabManualEntry.enterFromRun({
       runId: input.runId ?? "",
       mint: input.mint ?? "",
@@ -401,13 +397,6 @@ export class BotRuntime {
       ok: true as const,
       strategy: calibration,
     };
-  }
-
-  private async ensureLiveControl(label: string): Promise<void> {
-    const settings = await this.config.getSettings();
-    if (settings.tradeMode !== "LIVE") {
-      throw new Error(`${label} is only available in LIVE mode`);
-    }
   }
 
   private async pause(reason?: string): Promise<void> {

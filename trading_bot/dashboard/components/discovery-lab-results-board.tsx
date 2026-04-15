@@ -2,21 +2,11 @@
 
 import * as Dialog from "@radix-ui/react-dialog";
 import clsx from "clsx";
-import {
-  flexRender,
-  getCoreRowModel,
-  getPaginationRowModel,
-  getSortedRowModel,
-  useReactTable,
-  type Column,
-  type ColumnDef,
-  type PaginationState,
-  type SortingState,
-} from "@tanstack/react-table";
+import { type ColDef, type GetRowIdParams, type ICellRendererParams } from "ag-grid-community";
+import { AgGridReact } from "ag-grid-react";
 import {
   ChevronLeft,
   ChevronRight,
-  ChevronsUpDown,
   Eye,
   ExternalLink,
   Maximize2,
@@ -25,7 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
-import { EmptyState, Panel } from "@/components/dashboard-primitives";
+import { EmptyState, Panel, ScanStat } from "@/components/dashboard-primitives";
 import { fetchJson } from "@/lib/api";
 import { formatCompactCurrency, formatCurrency, formatInteger, formatNumber, formatPercent, formatRelativeMinutes, formatTimestamp } from "@/lib/format";
 import type {
@@ -162,6 +152,8 @@ type MarketRegimeSnapshot = {
   chips: Array<{ label: string; value: string }>;
 };
 
+const MOBILE_PAGE_SIZE = 12;
+
 export function DiscoveryLabResultsBoard(props: {
   runDetail: DiscoveryLabRunDetail | null;
   runtimeSnapshot: DiscoveryLabRuntimeSnapshot | null;
@@ -170,8 +162,7 @@ export function DiscoveryLabResultsBoard(props: {
   const { runDetail, runtimeSnapshot, onRuntimeSnapshotChange } = props;
   const report = runDetail?.report ?? null;
   const [resultFilter, setResultFilter] = useState<ResultFilter>("all");
-  const [sorting, setSorting] = useState<SortingState>([{ id: "score", desc: true }]);
-  const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 12 });
+  const [mobilePageIndex, setMobilePageIndex] = useState(0);
   const [searchText, setSearchText] = useState("");
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
   const [selectedMint, setSelectedMint] = useState<string | null>(null);
@@ -205,6 +196,15 @@ export function DiscoveryLabResultsBoard(props: {
     () => tokenRows.filter((row) => matchesResultFilter(row, resultFilter) && matchesSearch(row, deferredSearchText)),
     [deferredSearchText, resultFilter, tokenRows],
   );
+  const mobileSortedRows = useMemo(
+    () => [...visibleRows].sort(compareDiscoveryRowsForMobile),
+    [visibleRows],
+  );
+  const mobilePageCount = Math.max(1, Math.ceil(mobileSortedRows.length / MOBILE_PAGE_SIZE));
+  const mobilePageRows = useMemo(() => {
+    const start = mobilePageIndex * MOBILE_PAGE_SIZE;
+    return mobileSortedRows.slice(start, start + MOBILE_PAGE_SIZE);
+  }, [mobilePageIndex, mobileSortedRows]);
   const selectedRow = useMemo(
     () => tokenRows.find((row) => row.mint === selectedMint) ?? null,
     [selectedMint, tokenRows],
@@ -213,8 +213,14 @@ export function DiscoveryLabResultsBoard(props: {
   const selectedMetrics = selectedRow ? rowMetrics.get(selectedRow.mint) ?? null : null;
 
   useEffect(() => {
-    setPagination((current) => ({ ...current, pageIndex: 0 }));
+    setMobilePageIndex(0);
   }, [deferredSearchText, resultFilter, runDetail?.id]);
+
+  useEffect(() => {
+    if (mobilePageIndex >= mobilePageCount) {
+      setMobilePageIndex(Math.max(0, mobilePageCount - 1));
+    }
+  }, [mobilePageCount, mobilePageIndex]);
 
   useEffect(() => {
     if (selectedMint && !selectedRow) {
@@ -232,7 +238,7 @@ export function DiscoveryLabResultsBoard(props: {
     if (!runDetail) {
       return;
     }
-    if (!window.confirm(`Enter ${row.symbol} from discovery-lab results as a live trade and start managed exits immediately?`)) {
+    if (!window.confirm(`Enter ${row.symbol} from discovery-lab results as a manual trade and start managed exits immediately?`)) {
       return;
     }
 
@@ -316,117 +322,147 @@ export function DiscoveryLabResultsBoard(props: {
   const reportGeneratedAt = report?.generatedAt ?? runDetail?.completedAt ?? runDetail?.startedAt ?? null;
   const runDurationLabel = formatRunDuration(runDetail);
 
-  const columns = useMemo<ColumnDef<TokenBoardRow>[]>(() => [
+  const columnDefs = useMemo<ColDef<TokenBoardRow>[]>(() => [
     {
-      accessorKey: "symbol",
-      header: ({ column }) => <SortHeader column={column} label="Token" />,
-      cell: ({ row }) => (
-        <div className="min-w-[15rem]">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="text-sm font-semibold text-text-primary">{row.original.symbol}</div>
-            <OutcomePill outcome={row.original.outcome} compact />
+      colId: "token",
+      headerName: "Token",
+      minWidth: 290,
+      flex: 1.25,
+      valueGetter: (params) => params.data?.symbol ?? "",
+      cellRenderer: (params: ICellRendererParams<TokenBoardRow>) => {
+        const row = params.data;
+        if (!row) {
+          return null;
+        }
+        return (
+          <div className="min-w-[15rem] py-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="text-sm font-semibold text-text-primary">{row.symbol}</div>
+              <OutcomePill outcome={row.outcome} compact />
+            </div>
+            <div className="mt-1 font-mono text-[11px] tracking-[0.04em] text-text-muted">{row.mint}</div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {row.sources.map((source) => (
+                <span key={source} className="rounded-full border border-bg-border bg-[#0d0d0f] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-text-secondary">
+                  {humanizeLabel(source)}
+                </span>
+              ))}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <TokenMarketLinks mint={row.mint} symbol={row.symbol} />
+            </div>
           </div>
-          <div className="mt-1 font-mono text-[11px] tracking-[0.04em] text-text-muted">{row.original.mint}</div>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {row.original.sources.map((source) => (
-              <span key={source} className="rounded-full border border-bg-border bg-[#0d0d0f] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-text-secondary">
-                {humanizeLabel(source)}
-              </span>
-            ))}
-          </div>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            <TokenMarketLinks mint={row.original.mint} symbol={row.original.symbol} />
-          </div>
-        </div>
-      ),
+        );
+      },
     },
     {
-      id: "coverage",
-      accessorFn: (row) => row.overlapCount,
-      header: ({ column }) => <SortHeader column={column} label="Consensus" align="right" />,
-      cell: ({ row }) => {
-        const passRate = row.original.overlapCount > 0
-          ? Math.round((row.original.passedRecipes.length / row.original.overlapCount) * 100)
+      colId: "coverage",
+      headerName: "Consensus",
+      minWidth: 150,
+      maxWidth: 190,
+      cellClass: "ag-grid-cell-number",
+      valueGetter: (params) => params.data?.overlapCount ?? 0,
+      cellRenderer: (params: ICellRendererParams<TokenBoardRow>) => {
+        const row = params.data;
+        if (!row) {
+          return null;
+        }
+        const passRate = row.overlapCount > 0
+          ? Math.round((row.passedRecipes.length / row.overlapCount) * 100)
           : 0;
         return (
           <div className="min-w-[8rem] text-right">
-            <MetricLine label="Recipes" value={formatInteger(row.original.overlapCount)} compact />
+            <MetricLine label="Recipes" value={formatInteger(row.overlapCount)} compact />
             <MetricLine label="Pass rate" value={formatPercent(passRate, 0)} compact />
-            <MetricLine label="Best play" value={formatNumber(row.original.bestPlayScore)} compact emphasis={row.original.outcome === "winner"} />
+            <MetricLine label="Best play" value={formatNumber(row.bestPlayScore)} compact emphasis={row.outcome === "winner"} />
           </div>
         );
       },
     },
     {
-      id: "evPercent",
-      accessorFn: (row) => rowMetrics.get(row.mint)?.evPercent ?? Number.NEGATIVE_INFINITY,
-      header: ({ column }) => <SortHeader column={column} label="EV%" align="right" />,
-      cell: ({ row }) => {
-        const metrics = rowMetrics.get(row.original.mint) ?? EMPTY_ROW_METRICS;
+      colId: "quality",
+      headerName: "Quality",
+      minWidth: 120,
+      maxWidth: 145,
+      cellClass: "ag-grid-cell-number",
+      valueGetter: (params) => params.data ? (params.data.winnerScore ?? params.data.bestEntryScore) : Number.NEGATIVE_INFINITY,
+      cellRenderer: (params: ICellRendererParams<TokenBoardRow>) => {
+        const row = params.data;
+        if (!row) {
+          return null;
+        }
+        const quality = row.winnerScore ?? row.bestEntryScore;
+        const label = row.winnerScore !== null ? "Winner" : "Entry";
         return (
-          <HeatmapMetricCell
-            value={metrics.evPercent}
-            scale={heatmapScales.evPercent}
-            displayValue={formatSignedPercent(metrics.evPercent)}
-            align="right"
-          />
+          <div className="min-w-[6rem] text-right">
+            <MetricLine label={label} value={formatNumber(quality)} compact emphasis={row.outcome === "winner"} />
+          </div>
         );
       },
     },
     {
-      id: "evUsd",
-      accessorFn: (row) => rowMetrics.get(row.mint)?.evUsd ?? Number.NEGATIVE_INFINITY,
-      header: ({ column }) => <SortHeader column={column} label="EV$" align="right" />,
-      cell: ({ row }) => {
-        const metrics = rowMetrics.get(row.original.mint) ?? EMPTY_ROW_METRICS;
-        return (
-          <HeatmapMetricCell
-            value={metrics.evUsd}
-            scale={heatmapScales.evUsd}
-            displayValue={formatSignedCurrency(metrics.evUsd)}
-            align="right"
-          />
-        );
+      colId: "evPercent",
+      headerName: "EV%",
+      minWidth: 120,
+      maxWidth: 140,
+      cellClass: "ag-grid-cell-number",
+      valueGetter: (params) => params.data ? (rowMetrics.get(params.data.mint)?.evPercent ?? Number.NEGATIVE_INFINITY) : Number.NEGATIVE_INFINITY,
+      cellRenderer: (params: ICellRendererParams<TokenBoardRow>) => {
+        const row = params.data;
+        const metrics = row ? (rowMetrics.get(row.mint) ?? EMPTY_ROW_METRICS) : EMPTY_ROW_METRICS;
+        return <HeatmapMetricCell value={metrics.evPercent} scale={heatmapScales.evPercent} displayValue={formatSignedPercent(metrics.evPercent)} align="right" />;
       },
     },
     {
-      id: "evToRisk",
-      accessorFn: (row) => rowMetrics.get(row.mint)?.evToRisk ?? Number.NEGATIVE_INFINITY,
-      header: ({ column }) => <SortHeader column={column} label="EV/R" align="right" />,
-      cell: ({ row }) => {
-        const metrics = rowMetrics.get(row.original.mint) ?? EMPTY_ROW_METRICS;
-        return (
-          <HeatmapMetricCell
-            value={metrics.evToRisk}
-            scale={heatmapScales.evToRisk}
-            displayValue={formatSignedRatio(metrics.evToRisk)}
-            align="right"
-          />
-        );
+      colId: "evUsd",
+      headerName: "EV$",
+      minWidth: 120,
+      maxWidth: 150,
+      cellClass: "ag-grid-cell-number",
+      valueGetter: (params) => params.data ? (rowMetrics.get(params.data.mint)?.evUsd ?? Number.NEGATIVE_INFINITY) : Number.NEGATIVE_INFINITY,
+      cellRenderer: (params: ICellRendererParams<TokenBoardRow>) => {
+        const row = params.data;
+        const metrics = row ? (rowMetrics.get(row.mint) ?? EMPTY_ROW_METRICS) : EMPTY_ROW_METRICS;
+        return <HeatmapMetricCell value={metrics.evUsd} scale={heatmapScales.evUsd} displayValue={formatSignedCurrency(metrics.evUsd)} align="right" />;
       },
     },
     {
-      id: "netFlow",
-      accessorFn: (row) => rowMetrics.get(row.mint)?.netFlowScore ?? Number.NEGATIVE_INFINITY,
-      header: ({ column }) => <SortHeader column={column} label="Net flow" align="right" />,
-      cell: ({ row }) => {
-        const metrics = rowMetrics.get(row.original.mint) ?? EMPTY_ROW_METRICS;
-        return (
-          <HeatmapMetricCell
-            value={metrics.netFlowScore}
-            scale={heatmapScales.netFlowScore}
-            displayValue={formatMetricScore(metrics.netFlowScore)}
-            align="right"
-          />
-        );
+      colId: "evToRisk",
+      headerName: "EV/R",
+      minWidth: 120,
+      maxWidth: 150,
+      cellClass: "ag-grid-cell-number",
+      valueGetter: (params) => params.data ? (rowMetrics.get(params.data.mint)?.evToRisk ?? Number.NEGATIVE_INFINITY) : Number.NEGATIVE_INFINITY,
+      cellRenderer: (params: ICellRendererParams<TokenBoardRow>) => {
+        const row = params.data;
+        const metrics = row ? (rowMetrics.get(row.mint) ?? EMPTY_ROW_METRICS) : EMPTY_ROW_METRICS;
+        return <HeatmapMetricCell value={metrics.evToRisk} scale={heatmapScales.evToRisk} displayValue={formatSignedRatio(metrics.evToRisk)} align="right" />;
       },
     },
     {
-      id: "runway",
-      accessorFn: (row) => rowMetrics.get(row.mint)?.liquidityRunway ?? Number.NEGATIVE_INFINITY,
-      header: ({ column }) => <SortHeader column={column} label="Runway" align="right" />,
-      cell: ({ row }) => {
-        const metrics = rowMetrics.get(row.original.mint) ?? EMPTY_ROW_METRICS;
+      colId: "netFlow",
+      headerName: "Net flow",
+      minWidth: 120,
+      maxWidth: 150,
+      cellClass: "ag-grid-cell-number",
+      valueGetter: (params) => params.data ? (rowMetrics.get(params.data.mint)?.netFlowScore ?? Number.NEGATIVE_INFINITY) : Number.NEGATIVE_INFINITY,
+      cellRenderer: (params: ICellRendererParams<TokenBoardRow>) => {
+        const row = params.data;
+        const metrics = row ? (rowMetrics.get(row.mint) ?? EMPTY_ROW_METRICS) : EMPTY_ROW_METRICS;
+        return <HeatmapMetricCell value={metrics.netFlowScore} scale={heatmapScales.netFlowScore} displayValue={formatMetricScore(metrics.netFlowScore)} align="right" />;
+      },
+    },
+    {
+      colId: "runway",
+      headerName: "Runway",
+      minWidth: 110,
+      maxWidth: 130,
+      hide: true,
+      cellClass: "ag-grid-cell-number",
+      valueGetter: (params) => params.data ? (rowMetrics.get(params.data.mint)?.liquidityRunway ?? Number.NEGATIVE_INFINITY) : Number.NEGATIVE_INFINITY,
+      cellRenderer: (params: ICellRendererParams<TokenBoardRow>) => {
+        const row = params.data;
+        const metrics = row ? (rowMetrics.get(row.mint) ?? EMPTY_ROW_METRICS) : EMPTY_ROW_METRICS;
         return (
           <div className="min-w-[6rem] text-right">
             <span className="tabular-nums text-sm font-semibold text-text-primary">{formatRunway(metrics.liquidityRunway)}</span>
@@ -435,62 +471,63 @@ export function DiscoveryLabResultsBoard(props: {
       },
     },
     {
-      id: "concentrationRisk",
-      accessorFn: (row) => rowMetrics.get(row.mint)?.concentrationRisk ?? Number.POSITIVE_INFINITY,
-      header: ({ column }) => <SortHeader column={column} label="Conc risk" align="right" />,
-      cell: ({ row }) => {
-        const metrics = rowMetrics.get(row.original.mint) ?? EMPTY_ROW_METRICS;
-        return (
-          <HeatmapMetricCell
-            value={metrics.concentrationRisk}
-            scale={heatmapScales.concentrationRisk}
-            displayValue={formatMetricScore(metrics.concentrationRisk)}
-            align="right"
-          />
-        );
+      colId: "concentrationRisk",
+      headerName: "Conc risk",
+      minWidth: 120,
+      maxWidth: 150,
+      hide: true,
+      cellClass: "ag-grid-cell-number",
+      valueGetter: (params) => params.data ? (rowMetrics.get(params.data.mint)?.concentrationRisk ?? Number.POSITIVE_INFINITY) : Number.POSITIVE_INFINITY,
+      cellRenderer: (params: ICellRendererParams<TokenBoardRow>) => {
+        const row = params.data;
+        const metrics = row ? (rowMetrics.get(row.mint) ?? EMPTY_ROW_METRICS) : EMPTY_ROW_METRICS;
+        return <HeatmapMetricCell value={metrics.concentrationRisk} scale={heatmapScales.concentrationRisk} displayValue={formatMetricScore(metrics.concentrationRisk)} align="right" />;
       },
     },
     {
-      id: "freshnessDecay",
-      accessorFn: (row) => rowMetrics.get(row.mint)?.freshnessDecay ?? Number.POSITIVE_INFINITY,
-      header: ({ column }) => <SortHeader column={column} label="Fresh decay" align="right" />,
-      cell: ({ row }) => {
-        const metrics = rowMetrics.get(row.original.mint) ?? EMPTY_ROW_METRICS;
-        return (
-          <HeatmapMetricCell
-            value={metrics.freshnessDecay}
-            scale={heatmapScales.freshnessDecay}
-            displayValue={formatMetricScore(metrics.freshnessDecay)}
-            align="right"
-          />
-        );
+      colId: "freshnessDecay",
+      headerName: "Fresh decay",
+      minWidth: 130,
+      maxWidth: 160,
+      hide: true,
+      cellClass: "ag-grid-cell-number",
+      valueGetter: (params) => params.data ? (rowMetrics.get(params.data.mint)?.freshnessDecay ?? Number.POSITIVE_INFINITY) : Number.POSITIVE_INFINITY,
+      cellRenderer: (params: ICellRendererParams<TokenBoardRow>) => {
+        const row = params.data;
+        const metrics = row ? (rowMetrics.get(row.mint) ?? EMPTY_ROW_METRICS) : EMPTY_ROW_METRICS;
+        return <HeatmapMetricCell value={metrics.freshnessDecay} scale={heatmapScales.freshnessDecay} displayValue={formatMetricScore(metrics.freshnessDecay)} align="right" />;
       },
     },
     {
-      id: "consensusQuality",
-      accessorFn: (row) => rowMetrics.get(row.mint)?.consensusQuality ?? Number.NEGATIVE_INFINITY,
-      header: ({ column }) => <SortHeader column={column} label="Consensus Q" align="right" />,
-      cell: ({ row }) => {
-        const metrics = rowMetrics.get(row.original.mint) ?? EMPTY_ROW_METRICS;
-        return (
-          <HeatmapMetricCell
-            value={metrics.consensusQuality}
-            scale={heatmapScales.consensusQuality}
-            displayValue={formatMetricScore(metrics.consensusQuality)}
-            align="right"
-          />
-        );
+      colId: "consensusQuality",
+      headerName: "Consensus Q",
+      minWidth: 130,
+      maxWidth: 170,
+      hide: true,
+      cellClass: "ag-grid-cell-number",
+      valueGetter: (params) => params.data ? (rowMetrics.get(params.data.mint)?.consensusQuality ?? Number.NEGATIVE_INFINITY) : Number.NEGATIVE_INFINITY,
+      cellRenderer: (params: ICellRendererParams<TokenBoardRow>) => {
+        const row = params.data;
+        const metrics = row ? (rowMetrics.get(row.mint) ?? EMPTY_ROW_METRICS) : EMPTY_ROW_METRICS;
+        return <HeatmapMetricCell value={metrics.consensusQuality} scale={heatmapScales.consensusQuality} displayValue={formatMetricScore(metrics.consensusQuality)} align="right" />;
       },
     },
     {
-      id: "setup",
-      accessorFn: (row) => rowMetrics.get(row.mint)?.edgePp ?? Number.NEGATIVE_INFINITY,
-      header: ({ column }) => <SortHeader column={column} label="Setup" align="right" />,
-      cell: ({ row }) => {
-        const setup = tradeSetups.get(row.original.mint) ?? null;
-        const metrics = rowMetrics.get(row.original.mint) ?? EMPTY_ROW_METRICS;
-        const manualTradeDisabledReason = getManualTradeDisabledReason(row.original, runtimeSnapshot, runDetail);
-        const manualTradePending = manualEntryPendingMint === row.original.mint;
+      colId: "setup",
+      headerName: "Setup",
+      minWidth: 220,
+      maxWidth: 260,
+      pinned: "right",
+      valueGetter: (params) => params.data ? (rowMetrics.get(params.data.mint)?.edgePp ?? Number.NEGATIVE_INFINITY) : Number.NEGATIVE_INFINITY,
+      cellRenderer: (params: ICellRendererParams<TokenBoardRow>) => {
+        const row = params.data;
+        if (!row) {
+          return null;
+        }
+        const setup = tradeSetups.get(row.mint) ?? null;
+        const metrics = rowMetrics.get(row.mint) ?? EMPTY_ROW_METRICS;
+        const manualTradeDisabledReason = getManualTradeDisabledReason(row, runtimeSnapshot, runDetail);
+        const manualTradePending = manualEntryPendingMint === row.mint;
         return (
           <div className="min-w-[11rem] space-y-1.5 text-right">
             <MetricLine label="Capital" value={setup && setup.suggestedCapitalUsd !== null ? formatCurrency(setup.suggestedCapitalUsd) : "—"} compact />
@@ -498,7 +535,7 @@ export function DiscoveryLabResultsBoard(props: {
             <MetricLine label="Edge" value={formatSignedPp(metrics.edgePp)} compact />
             <button
               type="button"
-              onClick={() => void startManualTrade(row.original)}
+              onClick={() => void startManualTrade(row)}
               disabled={Boolean(manualTradeDisabledReason) || manualEntryPendingMint !== null}
               title={manualTradeDisabledReason ?? undefined}
               className="btn-ghost mt-1 inline-flex items-center gap-2 border border-bg-border px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
@@ -507,11 +544,11 @@ export function DiscoveryLabResultsBoard(props: {
             </button>
             <button
               type="button"
-              onClick={() => setSelectedMint(row.original.mint)}
+              onClick={() => setSelectedMint(row.mint)}
               className="btn-ghost mt-1 inline-flex items-center gap-2 border border-bg-border px-3 py-2 text-xs"
             >
               <Eye className="h-4 w-4" />
-              Details
+              Full view
             </button>
           </div>
         );
@@ -519,19 +556,15 @@ export function DiscoveryLabResultsBoard(props: {
     },
   ], [heatmapScales, manualEntryPendingMint, rowMetrics, runDetail, runtimeSnapshot, tradeSetups]);
 
-  const table = useReactTable({
-    data: visibleRows,
-    columns,
-    state: {
-      sorting,
-      pagination,
-    },
-    onSortingChange: setSorting,
-    onPaginationChange: setPagination,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-  });
+  const defaultColDef = useMemo<ColDef<TokenBoardRow>>(
+    () => ({
+      sortable: true,
+      filter: true,
+      resizable: true,
+      suppressMovable: true,
+    }),
+    [],
+  );
 
   function renderBoard(immersive: boolean) {
     return (
@@ -539,7 +572,7 @@ export function DiscoveryLabResultsBoard(props: {
         <Panel
           title="Token board"
           eyebrow="Deduplicated results"
-          description="One row per mint with conservative setup EV and run-relative quant heat."
+          description="One row per mint with conservative setup EV, market context, and direct review flow."
           action={immersive ? (
             <Dialog.Close asChild>
               <button className="btn-ghost inline-flex items-center gap-2 border border-bg-border">
@@ -560,13 +593,28 @@ export function DiscoveryLabResultsBoard(props: {
         >
           {report ? (
             <div className="space-y-5">
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                <BoardStat label="Unique tokens" value={formatInteger(boardStats.uniqueTokens)} detail={`${formatInteger(boardStats.totalEvaluations)} strategy hits before dedupe`} />
-                <BoardStat label="Pass-grade tokens" value={formatInteger(boardStats.passTokens)} detail={`${formatInteger(boardStats.winnerTokens)} winner${boardStats.winnerTokens === 1 ? "" : "s"} surfaced`} />
-                <BoardStat label="Overlap tokens" value={formatInteger(boardStats.overlapTokens)} detail="Seen in more than one strategy" />
-                <BoardStat label="Duplicate hits removed" value={formatInteger(boardStats.duplicateHitsRemoved)} detail="Strategy repeats collapsed into unique mints" />
-                <BoardStat label="Avg strategies / token" value={formatNumber(boardStats.avgRecipesPerToken)} detail="How concentrated the package is" />
-                <BoardStat label="Visible rows" value={formatInteger(visibleRows.length)} detail={`${humanizeFilterLabel(resultFilter)} filter applied`} />
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <ScanStat
+                  label="Visible tokens"
+                  value={formatInteger(visibleRows.length)}
+                  detail={`${humanizeFilterLabel(resultFilter)} in view`}
+                  tone="accent"
+                />
+                <ScanStat
+                  label="Pass-grade"
+                  value={formatInteger(boardStats.passTokens)}
+                  detail={`${formatInteger(boardStats.winnerTokens)} winner${boardStats.winnerTokens === 1 ? "" : "s"} surfaced`}
+                />
+                <ScanStat
+                  label="Overlap"
+                  value={formatInteger(boardStats.overlapTokens)}
+                  detail="Seen in more than one strategy"
+                />
+                <ScanStat
+                  label="Coverage"
+                  value={formatInteger(boardStats.totalEvaluations)}
+                  detail={`${formatInteger(boardStats.uniqueTokens)} unique mints after dedupe`}
+                />
               </div>
 
               <MarketRegimeStrip
@@ -594,94 +642,92 @@ export function DiscoveryLabResultsBoard(props: {
                 </div>
               ) : null}
 
-              <div className="flex flex-col gap-3 border-t border-bg-border/80 pt-4 xl:flex-row xl:items-center xl:justify-between">
-                <div className="flex flex-wrap items-center gap-2">
-                  {RESULT_FILTERS.map((filter) => (
-                    <button
-                      type="button"
-                      key={filter.id}
-                      onClick={() => setResultFilter(filter.id)}
-                      className={clsx(
-                        "rounded-full border px-3 py-2 text-xs font-semibold transition",
-                        resultFilter === filter.id
-                          ? "border-[rgba(163,230,53,0.3)] bg-[#11130f] text-text-primary"
-                          : "border-bg-border bg-[#0d0d0f] text-text-secondary hover:text-text-primary",
-                      )}
-                    >
-                      {filter.label}
-                    </button>
-                  ))}
-                  {reportGeneratedAt ? <span className="meta-chip">Scored {formatTimestamp(reportGeneratedAt)}</span> : null}
-                  {runDurationLabel ? <span className="meta-chip">Run {runDurationLabel}</span> : null}
+              <div className="rounded-[16px] border border-bg-border bg-[#0d0f10] p-3">
+                <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {RESULT_FILTERS.map((filter) => (
+                      <button
+                        type="button"
+                        key={filter.id}
+                        onClick={() => setResultFilter(filter.id)}
+                        className={clsx(
+                          "rounded-full border px-3 py-2 text-xs font-semibold transition",
+                          resultFilter === filter.id
+                            ? "border-[rgba(163,230,53,0.3)] bg-[#11130f] text-text-primary"
+                            : "border-bg-border bg-[#101112] text-text-secondary hover:text-text-primary",
+                        )}
+                      >
+                        {filter.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    {reportGeneratedAt ? <span className="meta-chip">Scored {formatTimestamp(reportGeneratedAt)}</span> : null}
+                    {runDurationLabel ? <span className="meta-chip">Run {runDurationLabel}</span> : null}
+                    <span className="meta-chip">{formatInteger(boardStats.duplicateHitsRemoved)} duplicate hits removed</span>
+                  </div>
                 </div>
 
-                <label className="relative block w-full xl:w-[18rem]">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
-                  <input
-                    value={searchText}
-                    onChange={(event) => setSearchText(event.target.value)}
-                    placeholder="Search symbol, mint, strategy, source"
-                    className="w-full rounded-[12px] border border-bg-border bg-[#0d0d0f] py-2 pl-9 pr-3 text-sm text-text-primary outline-none"
-                  />
-                </label>
+                <div className="mt-3 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                  <div className="text-xs text-text-muted">
+                    Search by symbol, mint, source, or strategy to narrow the current run without losing the full board state.
+                  </div>
+                  <label className="relative block w-full xl:w-[20rem]">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
+                    <input
+                      value={searchText}
+                      onChange={(event) => setSearchText(event.target.value)}
+                      placeholder="Search symbol, mint, strategy, source"
+                      className="w-full rounded-[12px] border border-bg-border bg-[#101112] py-2 pl-9 pr-3 text-sm text-text-primary outline-none"
+                    />
+                  </label>
+                </div>
               </div>
 
               {visibleRows.length > 0 ? (
                 <>
                   <div className="space-y-3 md:hidden">
-                        {table.getRowModel().rows.map((row) => (
+                    {mobilePageRows.map((row) => (
                           <TokenCard
-                            key={row.id}
-                            row={row.original}
+                            key={row.mint}
+                            row={row}
                             reportGeneratedAt={reportGeneratedAt}
                             runDurationLabel={runDurationLabel}
-                            metrics={rowMetrics.get(row.original.mint) ?? EMPTY_ROW_METRICS}
-                            onStartManualTrade={() => void startManualTrade(row.original)}
-                            manualTradeDisabledReason={getManualTradeDisabledReason(row.original, runtimeSnapshot, runDetail)}
-                            manualTradePending={manualEntryPendingMint === row.original.mint}
-                            onViewDetails={() => setSelectedMint(row.original.mint)}
+                            metrics={rowMetrics.get(row.mint) ?? EMPTY_ROW_METRICS}
+                            onStartManualTrade={() => void startManualTrade(row)}
+                            manualTradeDisabledReason={getManualTradeDisabledReason(row, runtimeSnapshot, runDetail)}
+                            manualTradePending={manualEntryPendingMint === row.mint}
+                            onViewDetails={() => setSelectedMint(row.mint)}
                           />
-                        ))}
-                      </div>
+                    ))}
+                  </div>
 
-                  <div className="hidden md:block overflow-hidden rounded-[16px] border border-bg-border/80 bg-bg-card/45">
-                    <div className={clsx("overflow-auto", immersive ? "max-h-[calc(100vh-24rem)]" : "")}>
-                      <table className="min-w-full text-left text-sm">
-                        <thead className="bg-bg-hover/60">
-                          {table.getHeaderGroups().map((headerGroup) => (
-                            <tr key={headerGroup.id}>
-                              {headerGroup.headers.map((header) => (
-                                <th key={header.id} className="table-header whitespace-nowrap">
-                                  {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
-                                </th>
-                              ))}
-                            </tr>
-                          ))}
-                        </thead>
-                        <tbody>
-                          {table.getRowModel().rows.map((row) => (
-                            <tr key={row.id} className="table-row align-top">
-                              {row.getVisibleCells().map((cell) => (
-                                <td key={cell.id} className="table-cell">
-                                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                                </td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                  <div className={clsx("ag-theme-quartz-dark ag-grid-desk hidden md:block overflow-hidden rounded-[18px] border border-bg-border/80 bg-[linear-gradient(180deg,rgba(13,14,14,0.96),rgba(8,9,9,0.98))]", immersive ? "h-[calc(100vh-22rem)]" : "h-[min(62vh,40rem)]")}>
+                    <AgGridReact<TokenBoardRow>
+                      rowData={visibleRows}
+                      columnDefs={columnDefs}
+                      defaultColDef={defaultColDef}
+                      getRowId={(params: GetRowIdParams<TokenBoardRow>) => params.data.mint}
+                      animateRows={false}
+                      rowHeight={88}
+                      headerHeight={34}
+                      suppressCellFocus
+                      pagination
+                      paginationPageSize={12}
+                    />
                   </div>
 
                   <ResultPagination
-                    showingCount={table.getRowModel().rows.length}
-                    totalCount={visibleRows.length}
-                    pageIndex={table.getState().pagination.pageIndex}
-                    pageCount={table.getPageCount()}
-                    canPrevious={table.getCanPreviousPage()}
-                    canNext={table.getCanNextPage()}
-                    onPrevious={() => table.previousPage()}
-                    onNext={() => table.nextPage()}
+                    className="md:hidden"
+                    showingCount={mobilePageRows.length}
+                    totalCount={mobileSortedRows.length}
+                    pageIndex={mobilePageIndex}
+                    pageCount={mobilePageCount}
+                    canPrevious={mobilePageIndex > 0}
+                    canNext={mobilePageIndex + 1 < mobilePageCount}
+                    onPrevious={() => setMobilePageIndex((current) => Math.max(0, current - 1))}
+                    onNext={() => setMobilePageIndex((current) => Math.min(mobilePageCount - 1, current + 1))}
                   />
                 </>
               ) : (
@@ -692,8 +738,16 @@ export function DiscoveryLabResultsBoard(props: {
               )}
 
               <details className="rounded-[16px] border border-bg-border bg-[#101012]">
-                <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-text-primary">
-                  Raw strategy hits ({formatInteger(report.deepEvaluations.length)})
+                <summary className="cursor-pointer list-none px-4 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="section-kicker">Secondary evidence</div>
+                      <div className="mt-1 text-sm font-semibold text-text-primary">
+                        Raw strategy hits ({formatInteger(report.deepEvaluations.length)})
+                      </div>
+                    </div>
+                    <span className="meta-chip">Collapsed by default</span>
+                  </div>
                 </summary>
                 <div className="border-t border-bg-border/80 px-4 py-4">
                   {report.deepEvaluations.length > 0 ? (
@@ -764,7 +818,7 @@ export function DiscoveryLabResultsBoard(props: {
 
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/80" />
-        <Dialog.Content className="fixed inset-3 z-50 overflow-hidden rounded-[24px] border border-bg-border bg-[#070708] p-4 shadow-2xl outline-none">
+        <Dialog.Content className="fixed inset-3 z-50 overflow-hidden rounded-[24px] border border-bg-border bg-[var(--surface-modal)] p-4 shadow-2xl outline-none">
           <Dialog.Title className="sr-only">Discovery lab results full screen</Dialog.Title>
           <div className="h-full overflow-auto">
             {renderBoard(true)}
@@ -773,7 +827,7 @@ export function DiscoveryLabResultsBoard(props: {
       </Dialog.Portal>
 
       {selectedRow ? (
-        <TokenDetailsDrawer
+        <TokenDetailsModal
           row={selectedRow}
           tradeSetup={selectedSetup}
           metrics={selectedMetrics ?? EMPTY_ROW_METRICS}
@@ -892,6 +946,7 @@ export function DiscoveryLabResearchSummary({ runDetail }: { runDetail: Discover
 }
 
 function ResultPagination(props: {
+  className?: string;
   showingCount: number;
   totalCount: number;
   pageIndex: number;
@@ -902,7 +957,7 @@ function ResultPagination(props: {
   onNext: () => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-bg-border/80 px-1 pt-3">
+    <div className={clsx("flex flex-wrap items-center justify-between gap-3 border-t border-bg-border/80 px-1 pt-3", props.className)}>
       <div className="text-xs text-text-muted">
         Showing {formatInteger(props.showingCount)} of {formatInteger(props.totalCount)} unique tokens
       </div>
@@ -1050,7 +1105,7 @@ function TokenCard(props: {
   );
 }
 
-function TokenDetailsDrawer(props: {
+function TokenDetailsModal(props: {
   row: TokenBoardRow;
   tradeSetup: TokenTradeSetup | null;
   metrics: TokenRowMetrics;
@@ -1060,151 +1115,224 @@ function TokenDetailsDrawer(props: {
   onClose: () => void;
 }) {
   const signal = props.row.signal;
+  const primaryRecipes = sliceLabels(props.row.recipes, 6);
+  const setupSummary = props.tradeSetup
+    ? `Calibrated ${humanizeProfile(props.tradeSetup.profile)} plan with ${formatRelativeMinutes(props.tradeSetup.maxHoldMinutes)} max hold.`
+    : "No calibrated setup is available for this row yet.";
+  const qualitySummary = props.row.outcome === "winner"
+    ? "Winner-grade outcome with the strongest combined play/consensus path in this run."
+    : props.row.outcome === "pass"
+      ? "Pass-grade outcome with actionable setup quality but less dominance than a winner row."
+      : "Rejected outcome. Treat as evidence and watchout context, not as an entry candidate.";
 
   return (
-    <>
-      <button
-        type="button"
-        aria-label="Close token details"
-        onClick={props.onClose}
-        className="fixed inset-0 z-[70] bg-black/70"
-      />
-      <aside className="fixed inset-y-3 right-3 z-[71] w-[min(34rem,calc(100vw-1.5rem))] overflow-y-auto rounded-[24px] border border-bg-border bg-[#090a0b] shadow-2xl">
-        <div className="sticky top-0 z-10 border-b border-bg-border bg-[#090a0b]/95 px-5 py-4 backdrop-blur">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="text-lg font-semibold text-text-primary">{props.row.symbol}</div>
-                <OutcomePill outcome={props.row.outcome} />
-              </div>
-              <div className="mt-1 font-mono text-[11px] tracking-[0.04em] text-text-muted">{props.row.mint}</div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <TokenMarketLinks mint={props.row.mint} symbol={props.row.symbol} />
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={props.onStartManualTrade}
-                  disabled={Boolean(props.manualTradeDisabledReason) || props.manualTradePending}
-                  title={props.manualTradeDisabledReason ?? undefined}
-                  className="btn-ghost inline-flex items-center gap-2 border border-bg-border px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {props.manualTradePending ? "Entering..." : "Enter trade"}
-                </button>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={props.onClose}
-              className="btn-ghost inline-flex items-center gap-2 border border-bg-border px-3 py-2 text-xs"
-            >
-              <X className="h-4 w-4" />
-              Close
-            </button>
-          </div>
-        </div>
-
-        <div className="space-y-6 px-5 py-5">
-          <section className="space-y-3">
-            <div>
-              <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">Trade setup</div>
-              <div className="mt-1 text-xs leading-5 text-text-secondary">Conservative EV model uses confidence plus stop/TP asymmetry.</div>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <MetricTile label="Suggested capital" value={props.tradeSetup && props.tradeSetup.suggestedCapitalUsd !== null ? formatCurrency(props.tradeSetup.suggestedCapitalUsd) : "—"} />
-              <MetricTile label="Entry reference" value={formatTokenPrice(props.tradeSetup?.entryPriceUsd ?? signal?.priceUsd ?? null)} />
-              <MetricTile label="Stop loss" value={formatTargetValue(props.tradeSetup?.stopLossPriceUsd ?? null, props.tradeSetup ? -props.tradeSetup.stopLossPercent : null)} />
-              <MetricTile label="Take profit 1" value={formatTargetValue(props.tradeSetup?.tp1PriceUsd ?? null, props.tradeSetup?.tp1Percent ?? null)} />
-              <MetricTile label="TP1 sell size" value={props.tradeSetup ? formatPercent(props.tradeSetup.tp1SellFractionPercent, 0) : "—"} />
-              <MetricTile label="Take profit 2" value={formatTargetValue(props.tradeSetup?.tp2PriceUsd ?? null, props.tradeSetup?.tp2Percent ?? null)} />
-              <MetricTile label="TP2 sell size" value={props.tradeSetup ? formatPercent(props.tradeSetup.tp2SellFractionPercent, 0) : "—"} />
-              <MetricTile label="Post-TP1 retrace" value={props.tradeSetup ? formatPercent(props.tradeSetup.postTp1RetracePercent, 0) : "—"} />
-              <MetricTile label="Trail after TP2" value={props.tradeSetup ? formatPercent(props.tradeSetup.trailingStopPercent, 0) : "—"} />
-              <MetricTile label="Max hold" value={props.tradeSetup ? formatRelativeMinutes(props.tradeSetup.maxHoldMinutes) : "—"} />
-              <MetricTile label="Time stop" value={props.tradeSetup ? `${formatRelativeMinutes(props.tradeSetup.timeStopMinutes)} if under ${formatPercent(props.tradeSetup.timeStopMinReturnPercent, 0)}` : "—"} />
-              <MetricTile label="2x confidence" value={props.tradeSetup ? formatPercent(props.tradeSetup.doubleUpConfidencePercent, 0) : "—"} />
-            </div>
-          </section>
-
-          <section className="space-y-3">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">Expected value</div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <MetricTile label="EV%" value={formatSignedPercent(props.metrics.evPercent)} />
-              <MetricTile label="EV$" value={formatSignedCurrency(props.metrics.evUsd)} />
-              <MetricTile label="Risk$" value={formatSignedCurrency(props.metrics.riskUsd, false)} />
-              <MetricTile label="EV/R" value={formatSignedRatio(props.metrics.evToRisk)} />
-              <MetricTile label="Edge (pp)" value={formatSignedPp(props.metrics.edgePp)} />
-              <MetricTile label="Runway" value={formatRunway(props.metrics.liquidityRunway)} />
-            </div>
-          </section>
-
-          <section className="space-y-3">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">Market snapshot</div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <MetricTile label="Liquidity" value={formatCompactCurrency(signal?.liquidityUsd)} />
-              <MetricTile label="Market cap" value={formatCompactCurrency(signal?.marketCapUsd ?? props.row.winnerMarketCapUsd)} />
-              <MetricTile label="5m volume" value={formatCompactCurrency(signal?.volume5mUsd ?? props.row.winnerVolume5mUsd)} />
-              <MetricTile label="5m buyers" value={formatInteger(signal?.uniqueWallets5m)} />
-              <MetricTile label="Buy / sell" value={signal?.buySellRatio !== null && signal?.buySellRatio !== undefined ? formatNumber(signal.buySellRatio) : "—"} />
-              <MetricTile label="5m momentum" value={formatPercent(signal?.priceChange5mPercent)} />
-            </div>
-          </section>
-
-          <section className="space-y-3">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">Structure and timing</div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <MetricTile label="Holders" value={formatInteger(signal?.holders)} />
-              <MetricTile label="Top10 concentration" value={formatPercent(signal?.top10HolderPercent ?? props.row.winnerTop10HolderPercent)} />
-              <MetricTile label="Largest holder" value={formatPercent(signal?.largestHolderPercent)} />
-              <MetricTile label="Since graduation" value={formatRelativeMinutes(signal?.timeSinceGraduationMin ?? props.row.winnerTimeSinceGraduationMin)} />
-              <MetricTile label="Since creation" value={formatRelativeMinutes(signal?.timeSinceCreationMin)} />
-              <MetricTile label="Consensus Q" value={formatMetricScore(props.metrics.consensusQuality)} />
-              <MetricTile label="Concentration risk" value={formatMetricScore(props.metrics.concentrationRisk)} />
-              <MetricTile label="Freshness decay" value={formatMetricScore(props.metrics.freshnessDecay)} />
-              <MetricTile label="Net flow" value={formatMetricScore(props.metrics.netFlowScore)} />
-              <MetricTile label="Exit profile" value={props.tradeSetup ? humanizeProfile(props.tradeSetup.profile) : "—"} />
-            </div>
-          </section>
-
-          <section className="space-y-3">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">Coverage</div>
-            <div className="rounded-[16px] border border-bg-border bg-[#101012] p-4">
-              <div className="text-sm text-text-secondary">
-                {formatInteger(props.row.overlapCount)} strategy hits across {formatInteger(props.row.sources.length)} source{props.row.sources.length === 1 ? "" : "s"}.
-              </div>
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {props.row.recipes.map((recipe) => (
-                  <span key={recipe} className="rounded-full border border-[rgba(255,255,255,0.08)] bg-[#111214] px-2 py-1 text-[10px] font-medium text-text-secondary">
-                    {recipe}
-                  </span>
-                ))}
-              </div>
-            </div>
-          </section>
-
-          <section className="space-y-3">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">Watchouts</div>
-            <div className="rounded-[16px] border border-bg-border bg-[#101012] p-4 text-sm leading-6 text-text-secondary">
-              {props.row.topRejectReason ? (
-                <div>
-                  <span className="font-semibold text-text-primary">Primary reject pressure:</span> {props.row.topRejectReason}
+    <Dialog.Root open onOpenChange={(open) => { if (!open) props.onClose(); }}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-[80] bg-black/85" />
+        <Dialog.Content className="fixed inset-2 z-[81] overflow-hidden rounded-[24px] border border-bg-border bg-[var(--surface-modal)] shadow-2xl outline-none">
+          <Dialog.Title className="sr-only">{props.row.symbol} token details</Dialog.Title>
+          <div className="flex h-full flex-col">
+            <div className="border-b border-bg-border bg-[var(--surface-modal-strong)] px-5 py-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="text-lg font-semibold text-text-primary">{props.row.symbol}</div>
+                    <OutcomePill outcome={props.row.outcome} />
+                    <span className="meta-chip">
+                      {formatInteger(props.row.overlapCount)} strategy{props.row.overlapCount === 1 ? "" : "ies"}
+                    </span>
+                    <span className="meta-chip">Best play {formatNumber(props.row.bestPlayScore)}</span>
+                  </div>
+                  <div className="mt-1 font-mono text-[11px] tracking-[0.04em] text-text-muted">{props.row.mint}</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <TokenMarketLinks mint={props.row.mint} symbol={props.row.symbol} />
+                  </div>
                 </div>
-              ) : (
-                <div>No shared reject pressure captured on the best path.</div>
-              )}
-              <div className="mt-3">
-                <span className="font-semibold text-text-primary">Soft issues:</span>{" "}
-                {props.row.softIssues.length > 0 ? props.row.softIssues.join(", ") : "None recorded."}
-              </div>
-              <div className="mt-3">
-                <span className="font-semibold text-text-primary">Notes:</span>{" "}
-                {props.row.notes.length > 0 ? props.row.notes.join(" · ") : "No extra notes."}
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={props.onClose}
+                    className="btn-ghost inline-flex items-center gap-2 border border-bg-border px-3 py-2 text-xs"
+                  >
+                    <X className="h-4 w-4" />
+                    Close
+                  </button>
+                </div>
               </div>
             </div>
-          </section>
-        </div>
-      </aside>
-    </>
+
+            <div className="flex-1 overflow-auto px-5 py-5">
+              <div className="sticky top-0 z-10 -mx-5 mb-5 border-b border-bg-border bg-[rgba(8,9,9,0.96)] px-5 py-3 backdrop-blur-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <OutcomePill outcome={props.row.outcome} />
+                    <span className="meta-chip">{formatInteger(props.row.overlapCount)} strategies</span>
+                    <span className="meta-chip">Best play {formatNumber(props.row.bestPlayScore)}</span>
+                    <span className="meta-chip">
+                      Setup {props.tradeSetup ? humanizeProfile(props.tradeSetup.profile) : "Pending"}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={props.onStartManualTrade}
+                    disabled={Boolean(props.manualTradeDisabledReason) || props.manualTradePending}
+                    title={props.manualTradeDisabledReason ?? undefined}
+                    className="btn-primary inline-flex items-center gap-2 border border-bg-border px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {props.manualTradePending ? "Entering..." : "Enter trade"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]">
+                <div className="space-y-5">
+                  <section className="space-y-4 rounded-[16px] border border-[rgba(163,230,53,0.18)] bg-[#0f130f] p-4">
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <ScanStat
+                        label="Suggested capital"
+                        value={props.tradeSetup && props.tradeSetup.suggestedCapitalUsd !== null ? formatCurrency(props.tradeSetup.suggestedCapitalUsd) : "—"}
+                        detail={props.tradeSetup ? `${humanizeProfile(props.tradeSetup.profile)} setup` : "Setup pending"}
+                        tone="accent"
+                      />
+                      <ScanStat
+                        label="Entry reference"
+                        value={formatTokenPrice(props.tradeSetup?.entryPriceUsd ?? signal?.priceUsd ?? null)}
+                        detail={props.tradeSetup ? `Stop ${formatPercent(props.tradeSetup.stopLossPercent, 0)}` : "Price snapshot only"}
+                      />
+                      <ScanStat
+                        label="2x confidence"
+                        value={props.tradeSetup ? formatPercent(props.tradeSetup.doubleUpConfidencePercent, 0) : "—"}
+                        detail={props.tradeSetup ? `${formatRelativeMinutes(props.tradeSetup.maxHoldMinutes)} max hold` : "No calibrated hold profile"}
+                      />
+                    </div>
+                    <div className="rounded-[14px] border border-[rgba(163,230,53,0.14)] bg-[#0d100d] px-4 py-3">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted">Read first</div>
+                      <div className="mt-2 text-sm leading-6 text-text-primary">{qualitySummary}</div>
+                      <div className="mt-2 text-sm leading-6 text-text-secondary">{setupSummary}</div>
+                    </div>
+                  </section>
+
+                  <section className="space-y-3 rounded-[16px] border border-bg-border bg-[#101112] p-4">
+                    <div>
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">Execution ladder</div>
+                      <div className="mt-1 text-xs leading-5 text-text-secondary">Entry, stops, and take-profit structure for the current run’s calibrated setup.</div>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <MetricTile label="Stop loss" value={formatTargetValue(props.tradeSetup?.stopLossPriceUsd ?? null, props.tradeSetup ? -props.tradeSetup.stopLossPercent : null)} />
+                      <MetricTile label="Take profit 1" value={formatTargetValue(props.tradeSetup?.tp1PriceUsd ?? null, props.tradeSetup?.tp1Percent ?? null)} />
+                      <MetricTile label="TP1 sell size" value={props.tradeSetup ? formatPercent(props.tradeSetup.tp1SellFractionPercent, 0) : "—"} />
+                      <MetricTile label="Take profit 2" value={formatTargetValue(props.tradeSetup?.tp2PriceUsd ?? null, props.tradeSetup?.tp2Percent ?? null)} />
+                      <MetricTile label="TP2 sell size" value={props.tradeSetup ? formatPercent(props.tradeSetup.tp2SellFractionPercent, 0) : "—"} />
+                      <MetricTile label="Post-TP1 retrace" value={props.tradeSetup ? formatPercent(props.tradeSetup.postTp1RetracePercent, 0) : "—"} />
+                      <MetricTile label="Trail after TP2" value={props.tradeSetup ? formatPercent(props.tradeSetup.trailingStopPercent, 0) : "—"} />
+                      <MetricTile label="Max hold" value={props.tradeSetup ? formatRelativeMinutes(props.tradeSetup.maxHoldMinutes) : "—"} />
+                      <MetricTile label="Time stop" value={props.tradeSetup ? `${formatRelativeMinutes(props.tradeSetup.timeStopMinutes)} if under ${formatPercent(props.tradeSetup.timeStopMinReturnPercent, 0)}` : "—"} />
+                    </div>
+                  </section>
+
+                  <section className="space-y-3 rounded-[16px] border border-bg-border bg-[#101112] p-4">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">Expected value and risk</div>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <MetricTile label="EV%" value={formatSignedPercent(props.metrics.evPercent)} />
+                      <MetricTile label="EV$" value={formatSignedCurrency(props.metrics.evUsd)} />
+                      <MetricTile label="Risk$" value={formatSignedCurrency(props.metrics.riskUsd, false)} />
+                      <MetricTile label="EV/R" value={formatSignedRatio(props.metrics.evToRisk)} />
+                      <MetricTile label="Edge (pp)" value={formatSignedPp(props.metrics.edgePp)} />
+                      <MetricTile label="Runway" value={formatRunway(props.metrics.liquidityRunway)} />
+                    </div>
+                  </section>
+
+                  <section className="space-y-3 rounded-[16px] border border-bg-border bg-[#101112] p-4">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">Decision flow</div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="rounded-[12px] border border-bg-border bg-[#0d0f10] px-3 py-3">
+                        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">Consensus</div>
+                        <div className="mt-2 text-sm font-semibold text-text-primary">
+                          {formatInteger(props.row.overlapCount)} strategy hits across {formatInteger(props.row.sources.length)} source{props.row.sources.length === 1 ? "" : "s"}.
+                        </div>
+                        <div className="mt-2 text-xs leading-5 text-text-secondary">
+                          Pass rate {props.row.evaluationCount > 0 ? formatPercent((props.row.passedRecipes.length / props.row.evaluationCount) * 100, 0) : "—"} across recorded evaluations.
+                        </div>
+                      </div>
+                      <div className="rounded-[12px] border border-bg-border bg-[#0d0f10] px-3 py-3">
+                        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">Winning path</div>
+                        <div className="mt-2 text-sm font-semibold text-text-primary">
+                          {props.row.winnerScore !== null ? `Winner score ${formatNumber(props.row.winnerScore)}` : `Best entry ${formatNumber(props.row.bestEntryScore)}`}
+                        </div>
+                        <div className="mt-2 text-xs leading-5 text-text-secondary">
+                          Best play {formatNumber(props.row.bestPlayScore)} from {props.row.modes.map(humanizeLabel).join(", ") || "no mode"} signals.
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {primaryRecipes.map((recipe) => (
+                        <span key={recipe} className="rounded-full border border-[rgba(255,255,255,0.08)] bg-[#111214] px-2 py-1 text-[10px] font-medium text-text-secondary">
+                          {recipe}
+                        </span>
+                      ))}
+                      {props.row.recipes.length > primaryRecipes.length ? (
+                        <span className="rounded-full border border-bg-border bg-[#111214] px-2 py-1 text-[10px] font-medium text-text-secondary">
+                          +{props.row.recipes.length - primaryRecipes.length} more
+                        </span>
+                      ) : null}
+                    </div>
+                  </section>
+
+                  <section className="space-y-3 rounded-[16px] border border-bg-border bg-[#101112] p-4">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">Watchouts</div>
+                    <div className="space-y-2.5 text-sm leading-6 text-text-secondary">
+                      <div>
+                        <span className="font-semibold text-text-primary">Primary reject pressure:</span>{" "}
+                        {props.row.topRejectReason ?? "No shared reject pressure captured on the best path."}
+                      </div>
+                      <div>
+                        <span className="font-semibold text-text-primary">Soft issues:</span>{" "}
+                        {props.row.softIssues.length > 0 ? props.row.softIssues.join(", ") : "None recorded."}
+                      </div>
+                      <div>
+                        <span className="font-semibold text-text-primary">Notes:</span>{" "}
+                        {props.row.notes.length > 0 ? props.row.notes.join(" · ") : "No extra notes."}
+                      </div>
+                    </div>
+                  </section>
+                </div>
+
+                <div className="space-y-5">
+                  <section className="space-y-3 rounded-[16px] border border-bg-border bg-[#101112] p-4">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">Market structure</div>
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                      <MetricTile label="Liquidity" value={formatCompactCurrency(signal?.liquidityUsd)} />
+                      <MetricTile label="Market cap" value={formatCompactCurrency(signal?.marketCapUsd ?? props.row.winnerMarketCapUsd)} />
+                      <MetricTile label="Holders" value={formatInteger(signal?.holders)} />
+                      <MetricTile label="Top10 concentration" value={formatPercent(signal?.top10HolderPercent ?? props.row.winnerTop10HolderPercent)} />
+                      <MetricTile label="Largest holder" value={formatPercent(signal?.largestHolderPercent)} />
+                      <MetricTile label="Buy / sell" value={signal?.buySellRatio !== null && signal?.buySellRatio !== undefined ? formatNumber(signal.buySellRatio) : "—"} />
+                      <MetricTile label="Net flow" value={formatMetricScore(props.metrics.netFlowScore)} />
+                    </div>
+                  </section>
+
+                  <section className="space-y-3 rounded-[16px] border border-bg-border bg-[#101112] p-4">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">Timing and liquidity</div>
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                      <MetricTile label="5m volume" value={formatCompactCurrency(signal?.volume5mUsd ?? props.row.winnerVolume5mUsd)} />
+                      <MetricTile label="5m buyers" value={formatInteger(signal?.uniqueWallets5m)} />
+                      <MetricTile label="5m momentum" value={formatPercent(signal?.priceChange5mPercent)} />
+                      <MetricTile label="Since graduation" value={formatRelativeMinutes(signal?.timeSinceGraduationMin ?? props.row.winnerTimeSinceGraduationMin)} />
+                      <MetricTile label="Since creation" value={formatRelativeMinutes(signal?.timeSinceCreationMin)} />
+                      <MetricTile label="Runway" value={formatRunway(props.metrics.liquidityRunway)} />
+                      <MetricTile label="Consensus Q" value={formatMetricScore(props.metrics.consensusQuality)} />
+                      <MetricTile label="Freshness decay" value={formatMetricScore(props.metrics.freshnessDecay)} />
+                      <MetricTile label="Concentration risk" value={formatMetricScore(props.metrics.concentrationRisk)} />
+                      <MetricTile label="Exit profile" value={props.tradeSetup ? humanizeProfile(props.tradeSetup.profile) : "—"} />
+                    </div>
+                  </section>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 
@@ -1414,6 +1542,21 @@ function buildBoardStats(report: DiscoveryLabRunReport | null, rows: TokenBoardR
   };
 }
 
+function compareDiscoveryRowsForMobile(left: TokenBoardRow, right: TokenBoardRow) {
+  const rightScore = right.winnerScore ?? right.bestPlayScore;
+  const leftScore = left.winnerScore ?? left.bestPlayScore;
+  if (rightScore !== leftScore) {
+    return rightScore - leftScore;
+  }
+  if (right.overlapCount !== left.overlapCount) {
+    return right.overlapCount - left.overlapCount;
+  }
+  if (right.bestEntryScore !== left.bestEntryScore) {
+    return right.bestEntryScore - left.bestEntryScore;
+  }
+  return left.symbol.localeCompare(right.symbol);
+}
+
 function matchesResultFilter(row: TokenBoardRow, filter: ResultFilter): boolean {
   if (filter === "all") {
     return true;
@@ -1568,9 +1711,6 @@ function getManualTradeDisabledReason(
   }
   if (!runtimeSnapshot) {
     return "Runtime snapshot is unavailable.";
-  }
-  if (runtimeSnapshot.botState.tradeMode !== "LIVE") {
-    return "Manual trade entry is only available in LIVE mode.";
   }
   if (runtimeSnapshot.botState.pauseReason) {
     return runtimeSnapshot.botState.pauseReason;
@@ -2092,27 +2232,6 @@ function normalizePercentLike(value: number | null): number | null {
 
 function sliceLabels(values: string[], limit: number): string[] {
   return values.slice(0, limit);
-}
-
-function SortHeader(props: { column: Column<TokenBoardRow, unknown>; label: string; align?: "left" | "right" }) {
-  const canSort = props.column.getCanSort();
-  const direction = props.column.getIsSorted();
-  return (
-    <button
-      type="button"
-      onClick={canSort ? props.column.getToggleSortingHandler() : undefined}
-      className={clsx(
-        "inline-flex w-full items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-text-muted",
-        props.align === "right" ? "justify-end" : "justify-start",
-        canSort ? "cursor-pointer" : "cursor-default",
-      )}
-    >
-      {props.label}
-      {canSort ? (
-        <ChevronsUpDown className={clsx("h-3.5 w-3.5", direction ? "text-text-secondary" : "text-text-muted")} />
-      ) : null}
-    </button>
-  );
 }
 
 function BoardStat(props: { label: string; value: string; detail: string }) {

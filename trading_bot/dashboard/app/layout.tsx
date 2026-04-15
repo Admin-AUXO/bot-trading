@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Geist_Mono, Manrope, Space_Grotesk } from "next/font/google";
 import { AppShell } from "@/components/app-shell";
+import "ag-grid-community/styles/ag-grid.css";
+import "ag-grid-community/styles/ag-theme-quartz.css";
 import "./globals.css";
 
 const manrope = Manrope({

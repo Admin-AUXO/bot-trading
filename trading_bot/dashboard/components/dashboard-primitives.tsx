@@ -1,7 +1,7 @@
 import clsx from "clsx";
 import type { LucideIcon } from "lucide-react";
 import { AlertCircle, ChevronRight } from "lucide-react";
-import { humanizeKey, smartFormatValue } from "@/lib/format";
+import { AgGridTable } from "@/components/ag-grid-table";
 
 type TableRow = Record<string, unknown>;
 
@@ -14,20 +14,20 @@ export function PageHero(props: {
   meta?: React.ReactNode;
 }) {
   return (
-    <section className="panel-strong rounded-[16px] px-3 py-3 md:px-4 md:py-3.5">
-      <div className="relative z-10 grid gap-3 xl:grid-cols-[minmax(0,1.2fr)_minmax(14rem,16rem)] xl:items-start">
+    <section className="panel-strong rounded-[14px] px-3 py-2.5 md:px-3.5 md:py-3">
+      <div className="relative z-10 grid gap-2.5 xl:grid-cols-[minmax(0,1.2fr)_minmax(13rem,15rem)] xl:items-start">
         <div className="max-w-3xl">
           <div className="flex flex-wrap items-center gap-2">
             <p className="section-kicker text-accent">{props.eyebrow}</p>
             {props.meta}
           </div>
-          <h1 className="mt-1.5 font-display text-[1.15rem] font-semibold tracking-[-0.02em] text-balance text-text-primary md:text-[1.4rem]">
+          <h1 className="mt-1 font-display text-[1.08rem] font-semibold tracking-[-0.02em] text-balance text-text-primary md:text-[1.26rem]">
             {props.title}
           </h1>
           {props.description ? (
-            <p className="mt-1.5 max-w-2xl text-xs leading-5 text-text-secondary">{props.description}</p>
+            <p className="mt-1 max-w-2xl text-xs leading-5 text-text-secondary">{props.description}</p>
           ) : null}
-          {props.actions ? <div className="mt-2 flex flex-wrap gap-2">{props.actions}</div> : null}
+          {props.actions ? <div className="mt-1.5 flex flex-wrap gap-2">{props.actions}</div> : null}
         </div>
         {props.aside ? <div className="relative z-10">{props.aside}</div> : null}
       </div>
@@ -52,20 +52,20 @@ export function Panel(props: {
   }[props.tone ?? "default"];
 
   return (
-    <section className={clsx("rounded-[16px] p-3.5 md:p-4", toneClass, props.className)}>
+    <section className={clsx("rounded-[14px] p-3 md:p-3.5", toneClass, props.className)}>
       {(props.eyebrow || props.action) ? (
-        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+        <div className="mb-2.5 flex flex-wrap items-start justify-between gap-2.5">
           <div>
             {props.eyebrow ? <p className="section-kicker">{props.eyebrow}</p> : null}
-            <h2 className="mt-1.5 font-display text-[0.98rem] font-semibold tracking-[-0.02em] text-text-primary md:text-[1.08rem]">{props.title}</h2>
-            {props.description ? <p className="mt-1 max-w-3xl text-xs leading-5 text-text-secondary">{props.description}</p> : null}
+            <h2 className="mt-1 font-display text-[0.93rem] font-semibold tracking-[-0.02em] text-text-primary md:text-[1rem]">{props.title}</h2>
+            {props.description ? <p className="mt-0.5 max-w-3xl text-xs leading-5 text-text-secondary">{props.description}</p> : null}
           </div>
           {props.action}
         </div>
       ) : (
-        <div className="mb-3">
-          <h2 className="font-display text-[0.98rem] font-semibold tracking-[-0.02em] text-text-primary md:text-[1.08rem]">{props.title}</h2>
-          {props.description ? <p className="mt-1 max-w-3xl text-xs leading-5 text-text-secondary">{props.description}</p> : null}
+        <div className="mb-2.5">
+          <h2 className="font-display text-[0.93rem] font-semibold tracking-[-0.02em] text-text-primary md:text-[1rem]">{props.title}</h2>
+          {props.description ? <p className="mt-0.5 max-w-3xl text-xs leading-5 text-text-secondary">{props.description}</p> : null}
         </div>
       )}
       {props.children}
@@ -90,13 +90,35 @@ export function StatCard(props: {
   const Icon = props.icon;
 
   return (
-    <div className={clsx("rounded-[14px] border px-3.5 py-3", tones[props.tone ?? "default"])}>
+    <div className={clsx("rounded-[12px] border px-3 py-2.5", tones[props.tone ?? "default"])}>
       <div className="flex items-start justify-between gap-3">
         <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">{props.label}</div>
         {Icon ? <Icon className="h-4 w-4 text-text-secondary" /> : null}
       </div>
-      <div className="mt-2 text-[1.3rem] font-semibold tabular-nums tracking-tight text-text-primary">{props.value}</div>
-      <div className="mt-1.5 text-[12px] leading-5 text-text-secondary">{props.detail}</div>
+      <div className="mt-1.5 text-[1.18rem] font-semibold tabular-nums tracking-tight text-text-primary">{props.value}</div>
+      <div className="mt-1 text-[12px] leading-5 text-text-secondary">{props.detail}</div>
+    </div>
+  );
+}
+
+export function ScanStat(props: {
+  label: string;
+  value: string;
+  detail?: string;
+  tone?: "default" | "accent" | "warning" | "danger";
+}) {
+  const toneClass = {
+    default: "border-bg-border bg-[#101112]",
+    accent: "border-[rgba(163,230,53,0.2)] bg-[#10140f]",
+    warning: "border-[rgba(250,204,21,0.18)] bg-[#14120f]",
+    danger: "border-[rgba(251,113,133,0.2)] bg-[#151012]",
+  }[props.tone ?? "default"];
+
+  return (
+    <div className={clsx("rounded-[14px] border px-3 py-3", toneClass)}>
+      <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted">{props.label}</div>
+      <div className="mt-2 text-[1.05rem] font-semibold tracking-tight text-text-primary">{props.value}</div>
+      {props.detail ? <div className="mt-1 text-xs leading-5 text-text-secondary">{props.detail}</div> : null}
     </div>
   );
 }
@@ -191,66 +213,15 @@ export function DataTable(props: {
           detail={props.emptyDetail ?? "The backend returned no rows for this slice, which is still better than lying with placeholder numbers."}
         />
       ) : (
-        <div className="overflow-hidden rounded-[16px] border border-bg-border/80 bg-bg-card/45">
-          <div className="overflow-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead className="bg-bg-hover/60">
-                <tr>
-                  {keys.map((key) => (
-                    <th key={key} className="table-header whitespace-nowrap">{humanizeKey(key)}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row, rowIndex) => (
-                  <tr key={rowKey(row, rowIndex)} className="table-row align-top">
-                    {keys.map((key) => {
-                      const value = row[key];
-                      const rendered = key === "status" || key.endsWith("_status")
-                        ? <StatusPill value={String(value ?? "unknown")} />
-                        : key.includes("reason") && typeof value === "string" && value.length > 0
-                          ? <span className="line-clamp-2 max-w-[28ch] text-text-muted">{value}</span>
-                          : <span className="text-text-secondary">{smartFormatValue(key, value)}</span>;
-
-                      return (
-                        <td
-                          key={key}
-                          className={clsx(
-                            "table-cell max-w-[320px]",
-                            looksNumeric(key) ? "text-right tabular-nums" : "",
-                          )}
-                        >
-                          <div
-                            className={clsx(
-                              "min-w-[7rem]",
-                              looksLikeIdentifier(key) ? "font-mono text-xs tracking-[0.04em] text-text-muted" : "",
-                            )}
-                          >
-                            {rendered}
-                          </div>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <AgGridTable
+          rows={rows}
+          preferredKeys={keys}
+          emptyTitle={props.emptyTitle}
+          emptyDetail={props.emptyDetail}
+          heightClassName="h-[20rem]"
+          pageSize={12}
+        />
       )}
     </Panel>
   );
-}
-
-function rowKey(row: TableRow, index: number): string {
-  const candidate = row.id ?? row.mint ?? row.symbol ?? row.endpoint ?? row.provider;
-  return `${String(candidate ?? "row")}-${index}`;
-}
-
-function looksLikeIdentifier(key: string): boolean {
-  return key.includes("id") || key.includes("mint") || key.includes("address") || key.includes("endpoint");
-}
-
-function looksNumeric(key: string): boolean {
-  return /(price|amount|pnl|count|units|percent|ratio|volume|liquidity|cap|remaining|priority)/i.test(key);
 }
