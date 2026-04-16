@@ -1,11 +1,15 @@
 generator client {
-  provider = "prisma-client-js"
+  provider   = "prisma-client-js"
   engineType = "client"
 }
 
 datasource db {
   provider = "postgresql"
 }
+
+
+
+
 
 enum CandidateStatus {
   DISCOVERED
@@ -27,10 +31,17 @@ enum FillSide {
   SELL
 }
 
-enum ResearchRunStatus {
+enum DiscoveryLabRunStatus {
   RUNNING
   COMPLETED
   FAILED
+  INTERRUPTED
+}
+
+enum DiscoveryLabPackKind {
+  CREATED
+  WORKSPACE
+  CUSTOM
 }
 
 enum ProviderName {
@@ -38,307 +49,441 @@ enum ProviderName {
   HELIUS
 }
 
+
+
+
+
+
+
+
+model TokenMetrics {
+  id           String @id @default(cuid())
+  mint         String
+  candidateId  String?
+  positionId   String?
+  trigger      String
+
+
+  priceUsd     Decimal? @db.Decimal(18, 9)
+  liquidityUsd Decimal? @db.Decimal(18, 2)
+  marketCapUsd Decimal? @db.Decimal(18, 2)
+  fdvUsd       Decimal? @db.Decimal(18, 2)
+
+
+  holders      Int?
+  top10HolderPct    Decimal? @db.Decimal(8, 4)
+  largestHolderPct  Decimal? @db.Decimal(8, 4)
+
+
+  volume1mUsd  Decimal? @db.Decimal(18, 2)
+  buys1m       Int?
+  sells1m      Int?
+  trades1m     Int?
+  uniqueWallets1m Int?
+
+
+  priceChange1mPct Decimal? @db.Decimal(12, 4)
+
+
+  decimals     Int?
+  totalSupply  Decimal? @db.Decimal(30, 0)
+
+
+  mintAuthorityActive           Boolean?
+  freezeAuthorityActive         Boolean?
+  transferFeeEnabled           Boolean?
+  trueToken                    Boolean?
+  token2022                    Boolean?
+  nonTransferable               Boolean?
+  fakeToken                     Boolean?
+  honeypot                      Boolean?
+  freezeable                    Boolean?
+
+
+  compositeScore Decimal? @db.Decimal(8, 6)
+  riskScore     Decimal? @db.Decimal(8, 6)
+
+
+  metadata      Json?
+  capturedAt    DateTime @default(now())
+
+
+  latestCandidate        Candidate?   @relation("CandidateLatestMetrics")
+  candidateSnapshots     Candidate[]  @relation("CandidateSnapshots")
+
+
+  positionSnapshots      Position[]  @relation("PositionSnapshots")
+
+  @@index([mint, capturedAt])
+  @@index([candidateId])
+  @@index([positionId])
+  @@index([trigger, capturedAt])
+}
+
+
+
+
+
 model Candidate {
-  id                   String          @id @default(cuid())
-  mint                 String
-  symbol               String          @default("")
-  name                 String          @default("")
-  source               String          @default("")
-  strategyPresetId     String          @default("FIRST_MINUTE_POSTGRAD_CONTINUATION")
-  discoveryRecipeName  String?
-  creator              String?
-  platformId           String?
-  status               CandidateStatus @default(DISCOVERED)
-  rejectReason         String?
-  discoveredAt         DateTime        @default(now())
-  graduatedAt          DateTime?
-  creationAt           DateTime?
-  recentListingAt      DateTime?
-  lastTradeAt          DateTime?
-  decimals             Int?
-  progressPercent      Decimal?        @db.Decimal(12, 4)
-  priceUsd             Decimal?        @db.Decimal(18, 9)
-  liquidityUsd         Decimal?        @db.Decimal(18, 2)
-  marketCapUsd         Decimal?        @db.Decimal(18, 2)
-  fdvUsd               Decimal?        @db.Decimal(18, 2)
-  totalSupply          Decimal?        @db.Decimal(30, 0)
-  circulatingSupply    Decimal?        @db.Decimal(30, 0)
-  holders              Int?
-  volume1mUsd          Decimal?        @db.Decimal(18, 2)
-  volume5mUsd          Decimal?        @db.Decimal(18, 2)
-  volume30mUsd         Decimal?        @db.Decimal(18, 2)
-  volume1hUsd          Decimal?        @db.Decimal(18, 2)
-  volume24hUsd         Decimal?        @db.Decimal(18, 2)
-  volume1mChangePercent Decimal?       @db.Decimal(12, 4)
-  volume5mChangePercent Decimal?       @db.Decimal(12, 4)
-  volume30mChangePercent Decimal?      @db.Decimal(12, 4)
-  volume1hChangePercent Decimal?       @db.Decimal(12, 4)
-  volume24hChangePercent Decimal?      @db.Decimal(12, 4)
-  volumeBuy1mUsd       Decimal?        @db.Decimal(18, 2)
-  volumeBuy5mUsd       Decimal?        @db.Decimal(18, 2)
-  volumeBuy30mUsd      Decimal?        @db.Decimal(18, 2)
-  volumeBuy1hUsd       Decimal?        @db.Decimal(18, 2)
-  volumeBuy24hUsd      Decimal?        @db.Decimal(18, 2)
-  volumeSell1mUsd      Decimal?        @db.Decimal(18, 2)
-  volumeSell5mUsd      Decimal?        @db.Decimal(18, 2)
-  volumeSell30mUsd     Decimal?        @db.Decimal(18, 2)
-  volumeSell1hUsd      Decimal?        @db.Decimal(18, 2)
-  volumeSell24hUsd     Decimal?        @db.Decimal(18, 2)
-  uniqueWallets1m      Int?
-  uniqueWallets5m      Int?
-  uniqueWallets30m     Int?
-  uniqueWallets1h      Int?
-  uniqueWallets24h     Int?
-  trades1m             Int?
-  trades5m             Int?
-  trades30m            Int?
-  trades1h             Int?
-  trades24h            Int?
-  buys1m               Int?
-  buys5m               Int?
-  buys30m              Int?
-  buys1h               Int?
-  buys24h              Int?
-  sells1m              Int?
-  sells5m              Int?
-  sells30m             Int?
-  sells1h              Int?
-  sells24h             Int?
-  buySellRatio         Decimal?        @db.Decimal(12, 4)
-  priceChange1mPercent Decimal?        @db.Decimal(12, 4)
-  priceChange5mPercent Decimal?        @db.Decimal(12, 4)
-  priceChange30mPercent Decimal?       @db.Decimal(12, 4)
-  priceChange1hPercent Decimal?        @db.Decimal(12, 4)
-  priceChange24hPercent Decimal?       @db.Decimal(12, 4)
-  graduationAgeSeconds Int?
-  top10HolderPercent   Decimal?        @db.Decimal(8, 4)
-  largestHolderPercent Decimal?        @db.Decimal(8, 4)
-  largestAccountsCount Int?
-  largestHolderAddress String?
-  creatorBalancePercent Decimal?       @db.Decimal(8, 4)
-  ownerBalancePercent   Decimal?       @db.Decimal(8, 4)
-  updateAuthorityBalancePercent Decimal? @db.Decimal(8, 4)
-  top10UserPercent    Decimal?         @db.Decimal(8, 4)
-  mintAuthorityActive  Boolean?
-  freezeAuthorityActive Boolean?
-  transferFeeEnabled   Boolean?
-  transferFeePercent   Decimal?        @db.Decimal(8, 4)
-  trueToken            Boolean?
-  token2022            Boolean?
-  nonTransferable      Boolean?
-  fakeToken            Boolean?
-  honeypot             Boolean?
-  freezeable           Boolean?
-  mutableMetadata      Boolean?
-  lastFilterSnapshotAt DateTime?
-  securityCheckedAt    DateTime?
+  id               String           @id @default(cuid())
+  mint             String
+  symbol           String           @default("")
+  name             String           @default("")
+  source           String           @default("")
+  strategyPresetId String           @default("FIRST_MINUTE_POSTGRAD_CONTINUATION")
+
+
+  status           CandidateStatus  @default(DISCOVERED)
+  rejectReason     String?
+  entryOrigin     String?
+
+
+  discoveryRecipeName String?
+  creator          String?
+  platformId       String?
+
+
+  discoveredAt     DateTime         @default(now())
+  graduatedAt      DateTime?
+  creationAt       DateTime?
+  recentListingAt  DateTime?
+  lastTradeAt      DateTime?
+
+
   scheduledEvaluationAt DateTime
   lastEvaluatedAt      DateTime?
-  acceptedAt           DateTime?
-  boughtAt             DateTime?
-  metadata             Json?
-  metrics              Json?
-  positionId           String?
-  position             Position?       @relation(fields: [positionId], references: [id])
-  snapshots            TokenSnapshot[]
+  acceptedAt            DateTime?
+  boughtAt              DateTime?
+
+
+  discoveryLabRunId  String?
+  liveStrategyRunId  String?
+  liveStrategyPackId String?
+  discoveryLabRun    DiscoveryLabRun? @relation(fields: [discoveryLabRunId], references: [id], onDelete: SetNull)
+
+
+  latestMetricsId   String?  @unique
+  latestMetrics     TokenMetrics? @relation("CandidateLatestMetrics", fields: [latestMetricsId], references: [id])
+
+
+  metadata          Json?
+
+
+  positionId        String?
+  position          Position? @relation(fields: [positionId], references: [id])
+
+
+  snapshots         TokenMetrics[] @relation("CandidateSnapshots")
+
+
+
+
+
+
 
   @@index([status, scheduledEvaluationAt])
   @@index([mint, status])
   @@index([strategyPresetId, status, scheduledEvaluationAt])
-  @@index([status, liquidityUsd])
-  @@index([status, volume5mUsd])
-  @@index([status, buySellRatio])
-  @@index([status, top10HolderPercent])
-  @@index([status, largestHolderPercent])
+  @@index([discoveryLabRunId, discoveredAt])
   @@index([discoveredAt])
 }
 
+
+
+
+
 model Position {
-  id                 String         @id @default(cuid())
-  mint               String
-  symbol             String         @default("")
-  strategy           String         @default("S2_GRADUATION")
-  strategyPresetId   String         @default("FIRST_MINUTE_POSTGRAD_CONTINUATION")
-  status             PositionStatus @default(OPEN)
-  entryPriceUsd      Decimal        @db.Decimal(18, 9)
-  currentPriceUsd    Decimal        @db.Decimal(18, 9)
-  peakPriceUsd       Decimal        @db.Decimal(18, 9)
-  stopLossPriceUsd   Decimal        @db.Decimal(18, 9)
-  takeProfit1PriceUsd Decimal       @db.Decimal(18, 9)
-  takeProfit2PriceUsd Decimal       @db.Decimal(18, 9)
-  trailingStopPercent Decimal       @db.Decimal(6, 2)
-  amountUsd          Decimal        @db.Decimal(18, 9)
-  amountToken        Decimal        @db.Decimal(24, 9)
-  remainingToken     Decimal        @db.Decimal(24, 9)
-  tp1Done            Boolean        @default(false)
-  tp2Done            Boolean        @default(false)
-  exitReason         String?
-  openedAt           DateTime       @default(now())
-  closedAt           DateTime?
-  metadata           Json?
-  fills              Fill[]
-  candidates         Candidate[]
-  snapshots          TokenSnapshot[]
+  id               String         @id @default(cuid())
+  mint             String
+  symbol           String         @default("")
+  strategy         String         @default("S2_GRADUATION")
+  strategyPresetId String         @default("FIRST_MINUTE_POSTGRAD_CONTINUATION")
+  status           PositionStatus @default(OPEN)
+  entryOrigin      String?
+
+
+  entryPriceUsd    Decimal       @db.Decimal(18, 9)
+  entryLiquidityUsd Decimal?     @db.Decimal(18, 2)
+  entryMktCapUsd   Decimal?       @db.Decimal(18, 2)
+  entryHolders     Int?
+  entryVolume5mUsd Decimal?      @db.Decimal(18, 2)
+  entryBuySellRatio Decimal?     @db.Decimal(12, 4)
+  entryTop10HolderPct Decimal?    @db.Decimal(8, 4)
+
+
+  currentPriceUsd  Decimal       @db.Decimal(18, 9)
+  peakPriceUsd     Decimal       @db.Decimal(18, 9)
+  stopLossPriceUsd Decimal      @db.Decimal(18, 9)
+  takeProfit1PriceUsd Decimal   @db.Decimal(18, 9)
+  takeProfit2PriceUsd Decimal   @db.Decimal(18, 9)
+  trailingStopPercent Decimal   @db.Decimal(6, 2)
+
+
+  amountUsd       Decimal       @db.Decimal(18, 9)
+  amountToken      Decimal       @db.Decimal(24, 9)
+  remainingToken   Decimal       @db.Decimal(24, 9)
+
+
+  tp1Done          Boolean       @default(false)
+  tp2Done          Boolean       @default(false)
+  exitReason       String?
+  exitProfile      String?
+
+
+  maxAdverseExcursionPct Decimal? @db.Decimal(8, 4)
+  timeToFirstProfitMins  Int?
+
+
+  discoveryLabRunId String?
+  liveStrategyRunId String?
+  discoveryLabRun   DiscoveryLabRun? @relation(fields: [discoveryLabRunId], references: [id], onDelete: SetNull)
+
+
+  reportAgeMsAtEntry Int?
+  openedAt          DateTime      @default(now())
+  closedAt          DateTime?
+  metadata          Json?
+
+
+  fills             Fill[]
+  candidates        Candidate[]
+  snapshots         TokenMetrics[] @relation("PositionSnapshots")
 
   @@index([status, openedAt])
   @@index([mint, status])
   @@index([strategyPresetId, status, openedAt])
+  @@index([discoveryLabRunId, openedAt])
 }
+
+
+
+
 
 model Fill {
-  id          String   @id @default(cuid())
-  positionId  String
-  position    Position @relation(fields: [positionId], references: [id], onDelete: Cascade)
-  side        FillSide
-  priceUsd    Decimal  @db.Decimal(18, 9)
-  amountUsd   Decimal  @db.Decimal(18, 9)
-  amountToken Decimal  @db.Decimal(24, 9)
-  pnlUsd      Decimal? @db.Decimal(18, 9)
-  txSignature String?
-  metadata    Json?
-  createdAt   DateTime @default(now())
+  id           String   @id @default(cuid())
+  positionId   String
+  position      Position @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  side         FillSide
+
+
+  priceUsd     Decimal  @db.Decimal(18, 9)
+  amountUsd    Decimal  @db.Decimal(18, 9)
+  amountToken  Decimal  @db.Decimal(24, 9)
+  pnlUsd       Decimal? @db.Decimal(18, 9)
+  txSignature  String?
+
+
+  executionReason  String?
+  executionMode    String?
+  entryOrigin      String?
+
+
+  totalLatencyMs           Int?
+  quoteLatencyMs           Int?
+  swapBuildLatencyMs       Int?
+  senderBuildLatencyMs     Int?
+  broadcastConfirmLatencyMs Int?
+  settlementReadLatencyMs  Int?
+
+
+  executionSlippageBps     Decimal? @db.Decimal(10, 4)
+  quotedOutAmountUsd       Decimal? @db.Decimal(18, 9)
+  actualOutAmountUsd       Decimal? @db.Decimal(18, 9)
+  quotedOutAmountToken     Decimal? @db.Decimal(24, 9)
+  actualOutAmountToken    Decimal? @db.Decimal(24, 9)
+
+  metadata   Json?
+  createdAt  DateTime @default(now())
 
   @@index([positionId, createdAt])
+  @@index([side, createdAt])
+  @@index([executionReason, createdAt])
 }
 
-model ResearchRun {
-  id                     String            @id @default(cuid())
-  status                 ResearchRunStatus @default(RUNNING)
-  strategyPresetId       String            @default("FIRST_MINUTE_POSTGRAD_CONTINUATION")
-  discoveryRecipeName    String?
-  startedAt              DateTime          @default(now())
-  completedAt            DateTime?
-  lastPolledAt           DateTime?
-  pollIntervalMs         Int
-  maxRunDurationMs       Int
-  discoveryLimit         Int
-  fullEvaluationLimit    Int
-  maxMockPositions       Int
-  fixedPositionSizeUsd   Decimal           @db.Decimal(18, 9)
-  birdeyeUnitCap         Int
-  heliusUnitCap          Int
-  totalDiscovered        Int               @default(0)
-  totalShortlisted       Int               @default(0)
-  totalEvaluated         Int               @default(0)
-  totalStrategyPassed    Int               @default(0)
-  totalMockOpened        Int               @default(0)
-  totalMockClosed        Int               @default(0)
-  liveTradablePassed     Int               @default(0)
-  researchTradablePassed Int               @default(0)
-  birdeyeCalls           Int               @default(0)
-  birdeyeUnitsUsed       Int               @default(0)
-  heliusCalls            Int               @default(0)
-  heliusUnitsUsed        Int               @default(0)
-  realizedPnlUsd         Decimal           @default(0) @db.Decimal(18, 9)
-  winRatePercent         Decimal?          @db.Decimal(8, 4)
-  averageHoldMinutes     Decimal?          @db.Decimal(12, 4)
-  errorMessage           String?
-  comparison             Json?
-  configSnapshot         Json
-  metadata               Json?
-  updatedAt              DateTime          @updatedAt
-  tokens                 ResearchToken[]
-  positions              ResearchPosition[]
+
+
+
+
+model DiscoveryLabPack {
+  id             String               @id
+  kind           DiscoveryLabPackKind
+  name           String
+  description    String               @default("")
+  thesis         String?
+  targetPnlBand  Json?
+  defaultProfile String
+  defaultSources Json
+  thresholdOverrides Json?
+  recipes        Json
+  sourcePath     String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@index([kind, updatedAt])
+  @@index([updatedAt])
+}
+
+model DiscoveryLabRun {
+  id                   String                 @id
+  status               DiscoveryLabRunStatus  @default(RUNNING)
+  packId               String
+  packName             String
+  packKind             DiscoveryLabPackKind
+  profile              String
+  sources              Json
+  allowOverfiltered     Boolean                @default(false)
+
+
+  queryCount          Int?
+  winnerCount         Int?
+  evaluationCount     Int?
+  thresholdOverrides  Json?
+
+
+  packSnapshot        Json
+  report              Json?
+  strategyCalibration Json?
+  marketRegime        Json?
+  marketRegimeObservedAt DateTime?
+  statsSnapshot       Json?
+  configSnapshot      Json?
+
+
+  appliedToLiveAt        DateTime?
+  appliedConfigVersionId Int?
+
+
+  stdout        String?
+  stderr        String?
+  errorMessage  String?
+
+
+  createdAt     DateTime @default(now())
+  startedAt     DateTime @default(now())
+  completedAt   DateTime?
+  updatedAt     DateTime @updatedAt
+
+
+  candidates    Candidate[]
+  positions     Position[]
+  queries       DiscoveryLabRunQuery[]
+  tokens        DiscoveryLabRunToken[]
 
   @@index([status, startedAt])
-  @@index([startedAt])
+  @@index([packId, startedAt])
+  @@index([completedAt])
 }
 
-model ResearchToken {
-  id                   String            @id @default(cuid())
+model DiscoveryLabRunQuery {
+  id                   String          @id @default(cuid())
   runId                String
-  run                  ResearchRun       @relation(fields: [runId], references: [id], onDelete: Cascade)
-  mint                 String
-  symbol               String            @default("")
-  name                 String            @default("")
-  source               String            @default("")
-  strategyPresetId     String            @default("FIRST_MINUTE_POSTGRAD_CONTINUATION")
-  creator              String?
-  liveTradable         Boolean           @default(false)
-  researchTradable     Boolean           @default(false)
-  shortlisted          Boolean           @default(false)
-  selectedForMock      Boolean           @default(false)
-  fullEvaluationDone   Boolean           @default(false)
-  strategyPassed       Boolean           @default(false)
-  strategyRejectReason String?
-  evaluationDeferReason String?
-  cheapScore           Decimal?          @db.Decimal(8, 6)
-  entryScore           Decimal?          @db.Decimal(8, 6)
-  exitProfile          String?
-  evaluatedAt          DateTime?
-  mockOpenedAt         DateTime?
-  metrics              Json?
-  filterState          Json?
-  position             ResearchPosition?
-  createdAt            DateTime          @default(now())
-  updatedAt            DateTime          @updatedAt
+  run                  DiscoveryLabRun @relation(fields: [runId], references: [id], onDelete: Cascade)
 
-  @@unique([runId, mint])
-  @@index([runId, shortlisted, cheapScore])
-  @@index([runId, strategyPassed, entryScore])
-  @@index([strategyPresetId, strategyPassed, createdAt])
+
+  key                  String
+  source               String
+  recipeName           String
+  recipeMode           String
+
+
+  filterCount    Int
+  returnedCount  Int
+  selectedCount  Int
+  goodCount      Int
+  rejectCount    Int
+
+
+  selectionRatePercent  Decimal? @db.Decimal(8, 4)
+  passRatePercent      Decimal? @db.Decimal(8, 4)
+  winnerHitRatePercent Decimal? @db.Decimal(8, 4)
+
+
+  avgGoodPlayScore      Decimal? @db.Decimal(8, 6)
+  avgGoodEntryScore     Decimal? @db.Decimal(8, 6)
+  avgSelectedPlayScore   Decimal? @db.Decimal(8, 6)
+  avgSelectedEntryScore Decimal? @db.Decimal(8, 6)
+
+  estimatedCu  Int?
+  metadata     Json?
+  createdAt   DateTime @default(now())
+
+  @@unique([runId, key])
+  @@index([runId, source])
+  @@index([runId, recipeName])
 }
 
-model ResearchPosition {
-  id                  String         @id @default(cuid())
-  runId               String
-  run                 ResearchRun    @relation(fields: [runId], references: [id], onDelete: Cascade)
-  tokenId             String         @unique
-  token               ResearchToken  @relation(fields: [tokenId], references: [id], onDelete: Cascade)
-  mint                String
-  symbol              String         @default("")
-  strategyPresetId    String         @default("FIRST_MINUTE_POSTGRAD_CONTINUATION")
-  status              PositionStatus @default(OPEN)
-  entryPriceUsd       Decimal        @db.Decimal(18, 9)
-  currentPriceUsd     Decimal        @db.Decimal(18, 9)
-  peakPriceUsd        Decimal        @db.Decimal(18, 9)
-  stopLossPriceUsd    Decimal        @db.Decimal(18, 9)
-  takeProfit1PriceUsd Decimal        @db.Decimal(18, 9)
-  takeProfit2PriceUsd Decimal        @db.Decimal(18, 9)
-  trailingStopPercent Decimal        @db.Decimal(6, 2)
-  amountUsd           Decimal        @db.Decimal(18, 9)
-  amountToken         Decimal        @db.Decimal(24, 9)
-  remainingToken      Decimal        @db.Decimal(24, 9)
-  tp1Done             Boolean        @default(false)
-  tp2Done             Boolean        @default(false)
-  exitReason          String?
-  lastSeenPriceUsd    Decimal?       @db.Decimal(18, 9)
-  lastSeenAt          DateTime?
-  openedAt            DateTime       @default(now())
-  closedAt            DateTime?
-  metadata            Json?
-  fills               ResearchFill[]
+model DiscoveryLabRunToken {
+  id              String          @id @default(cuid())
+  runId           String
+  run             DiscoveryLabRun @relation(fields: [runId], references: [id], onDelete: Cascade)
 
-  @@index([runId, status, openedAt])
-  @@index([mint, status])
+
+  mint            String
+  symbol          String          @default("")
+  source          String          @default("")
+  recipeName      String
+  recipeMode      String
+
+
+  passed          Boolean         @default(false)
+  grade           String?
+  rejectReason    String?
+
+
+  playScore       Decimal?        @db.Decimal(8, 6)
+  entryScore      Decimal?        @db.Decimal(8, 6)
+
+
+  priceUsd        Decimal?        @db.Decimal(18, 9)
+  liquidityUsd    Decimal?        @db.Decimal(18, 2)
+  marketCapUsd    Decimal?        @db.Decimal(18, 2)
+  holders         Int?
+  top10HolderPct  Decimal?        @db.Decimal(8, 4)
+  largestHolderPct Decimal?       @db.Decimal(8, 4)
+  buySellRatio    Decimal?        @db.Decimal(12, 4)
+  priceChange5mPct Decimal?       @db.Decimal(12, 4)
+  volume5mUsd     Decimal?        @db.Decimal(18, 2)
+
+
+  timeSinceGraduationMin Decimal? @db.Decimal(12, 4)
+  timeSinceCreationMin   Decimal? @db.Decimal(12, 4)
+
+
+  softIssues      Json?
+  notes           Json?
+
+
+  isWinner        Boolean         @default(false)
+  winnerScore     Decimal?        @db.Decimal(8, 6)
+  winnerRecipeNames Json?
+
+
+  linkedCandidateId  String?
+  linkedPositionId  String?
+  tradeSetup         Json?
+
+  createdAt       DateTime        @default(now())
+
+  @@index([runId, mint])
+  @@index([runId, recipeName])
+  @@index([runId, passed, playScore])
 }
 
-model ResearchFill {
-  id          String           @id @default(cuid())
-  positionId  String
-  position    ResearchPosition @relation(fields: [positionId], references: [id], onDelete: Cascade)
-  side        FillSide
-  priceUsd    Decimal          @db.Decimal(18, 9)
-  amountUsd   Decimal          @db.Decimal(18, 9)
-  amountToken Decimal          @db.Decimal(24, 9)
-  pnlUsd      Decimal?         @db.Decimal(18, 9)
-  metadata    Json?
-  createdAt   DateTime         @default(now())
 
-  @@index([positionId, createdAt])
-}
+
+
 
 model BotState {
-  id              String   @id @default("singleton")
-  tradeMode       String   @default("DRY_RUN")
-  capitalUsd      Decimal  @db.Decimal(18, 9)
-  cashUsd         Decimal  @db.Decimal(18, 9)
-  realizedPnlUsd  Decimal  @default(0) @db.Decimal(18, 9)
-  lastDiscoveryAt DateTime?
-  lastEvaluationAt DateTime?
-  lastExitCheckAt DateTime?
-  pauseReason     String?
-  updatedAt       DateTime @updatedAt
+  id                String    @id @default("singleton")
+  tradeMode         String    @default("DRY_RUN")
+  capitalUsd        Decimal   @db.Decimal(18, 9)
+  cashUsd           Decimal   @db.Decimal(18, 9)
+  realizedPnlUsd    Decimal   @default(0) @db.Decimal(18, 9)
+  lastDiscoveryAt   DateTime?
+  lastEvaluationAt  DateTime?
+  lastExitCheckAt   DateTime?
+  pauseReason       String?
+  updatedAt         DateTime  @updatedAt
 }
 
 model RuntimeConfig {
@@ -352,33 +497,27 @@ model RuntimeConfigVersion {
   settings           Json
   changedPaths       Json?
   liveAffectingPaths Json?
-  dryRunSummary      Json?
   appliedBy          String   @default("system")
-  basedOnUpdatedAt   DateTime?
   activatedAt        DateTime @default(now())
 
   @@index([activatedAt])
   @@index([appliedBy, activatedAt])
 }
 
-model RuntimeConfigDraft {
-  id              String   @id @default("singleton")
-  draftSettings   Json
-  basedOnUpdatedAt DateTime
-  dryRunSummary   Json?
-  updatedAt       DateTime @updatedAt
-}
+
+
+
 
 model OperatorEvent {
-  id         String   @id @default(cuid())
-  kind       String
-  level      String   @default("info")
-  title      String
-  detail     String?
-  entityType String?
-  entityId   String?
-  metadata   Json?
-  createdAt  DateTime @default(now())
+  id          String   @id @default(cuid())
+  kind        String
+  level       String   @default("info")
+  title       String
+  detail      String?
+  entityType  String?
+  entityId    String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
 
   @@index([createdAt])
   @@index([kind, createdAt])
@@ -400,157 +539,72 @@ model ApiEvent {
 }
 
 model RawApiPayload {
-  id            String       @id @default(cuid())
-  provider      ProviderName
-  endpoint      String
-  requestMethod String       @default("GET")
-  entityKey     String?
-  success       Boolean      @default(true)
-  statusCode    Int?
-  latencyMs     Int?
-  requestParams Json?
-  responseBody  Json?
-  errorMessage  String?
-  capturedAt    DateTime     @default(now())
+  id             String       @id @default(cuid())
+  provider       ProviderName
+  endpoint       String
+  requestMethod  String       @default("GET")
+  entityKey      String?
+  success        Boolean      @default(true)
+  statusCode     Int?
+  latencyMs      Int?
+  requestParams  Json?
+  responseBody   Json?
+  errorMessage   String?
+  capturedAt     DateTime     @default(now())
 
   @@index([provider, endpoint, capturedAt])
   @@index([entityKey, capturedAt])
 }
 
+
+
+
+
 model SharedTokenFact {
-  mint                      String   @id
-  symbol                    String   @default("")
-  name                      String   @default("")
-  source                    String?
-  latestDiscovery           Json?
-  latestDetail              Json?
-  latestTradeData           Json?
-  latestMintAuthorities     Json?
+  mint String @id
+
+
+  symbol            String    @default("")
+  name              String    @default("")
+  source            String?
+
+
+  latestDiscovery   Json?
+  latestDetail      Json?
+  latestOverview    Json?
+  latestMetadata    Json?
+  latestMarketStats Json?
+  latestTradeData   Json?
+  latestMintAuthorities Json?
   latestHolderConcentration Json?
-  latestSecurity            Json?
-  latestDiscoveryAt         DateTime?
-  latestDetailAt            DateTime?
-  latestTradeDataAt         DateTime?
-  latestMintAuthoritiesAt   DateTime?
-  latestHolderConcentrationAt DateTime?
-  latestSecurityAt          DateTime?
-  firstSeenAt               DateTime @default(now())
-  lastSeenAt                DateTime @default(now())
-  updatedAt                 DateTime @updatedAt
+  latestSecurity    Json?
+
+
+  latestDiscoveryAt          DateTime?
+  latestDetailAt              DateTime?
+  latestOverviewAt            DateTime?
+  latestMetadataAt            DateTime?
+  latestMarketStatsAt          DateTime?
+  latestTradeDataAt            DateTime?
+  latestMintAuthoritiesAt      DateTime?
+  latestHolderConcentrationAt  DateTime?
+  latestSecurityAt            DateTime?
+
+
+  firstSeenAt       DateTime  @default(now())
+  lastSeenAt        DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   @@index([lastSeenAt])
   @@index([source, lastSeenAt])
 }
 
 model SharedTokenFactMigrationSignal {
-  id         String   @id @default(cuid())
-  programId  String
-  signature  String   @unique
-  observedAt DateTime @default(now())
-  createdAt  DateTime @default(now())
+  id          String   @id @default(cuid())
+  programId   String
+  signature   String   @unique
+  observedAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
 
   @@index([programId, observedAt])
-}
-
-model TokenSnapshot {
-  id                  String   @id @default(cuid())
-  candidateId         String?
-  candidate           Candidate? @relation(fields: [candidateId], references: [id], onDelete: SetNull)
-  positionId          String?
-  position            Position? @relation(fields: [positionId], references: [id], onDelete: SetNull)
-  mint                String
-  symbol              String   @default("")
-  trigger             String
-  source              String?
-  creator             String?
-  platformId          String?
-  creationAt          DateTime?
-  recentListingAt     DateTime?
-  lastTradeAt         DateTime?
-  decimals            Int?
-  progressPercent     Decimal? @db.Decimal(12, 4)
-  priceUsd            Decimal? @db.Decimal(18, 9)
-  liquidityUsd        Decimal? @db.Decimal(18, 2)
-  marketCapUsd        Decimal? @db.Decimal(18, 2)
-  fdvUsd              Decimal? @db.Decimal(18, 2)
-  totalSupply         Decimal? @db.Decimal(30, 0)
-  circulatingSupply   Decimal? @db.Decimal(30, 0)
-  holders             Int?
-  volume1mUsd         Decimal? @db.Decimal(18, 2)
-  volume5mUsd         Decimal? @db.Decimal(18, 2)
-  volume30mUsd        Decimal? @db.Decimal(18, 2)
-  volume1hUsd         Decimal? @db.Decimal(18, 2)
-  volume24hUsd        Decimal? @db.Decimal(18, 2)
-  volume1mChangePercent Decimal? @db.Decimal(12, 4)
-  volume5mChangePercent Decimal? @db.Decimal(12, 4)
-  volume30mChangePercent Decimal? @db.Decimal(12, 4)
-  volume1hChangePercent Decimal? @db.Decimal(12, 4)
-  volume24hChangePercent Decimal? @db.Decimal(12, 4)
-  volumeBuy1mUsd      Decimal? @db.Decimal(18, 2)
-  volumeBuy5mUsd      Decimal? @db.Decimal(18, 2)
-  volumeBuy30mUsd     Decimal? @db.Decimal(18, 2)
-  volumeBuy1hUsd      Decimal? @db.Decimal(18, 2)
-  volumeBuy24hUsd     Decimal? @db.Decimal(18, 2)
-  volumeSell1mUsd     Decimal? @db.Decimal(18, 2)
-  volumeSell5mUsd     Decimal? @db.Decimal(18, 2)
-  volumeSell30mUsd    Decimal? @db.Decimal(18, 2)
-  volumeSell1hUsd     Decimal? @db.Decimal(18, 2)
-  volumeSell24hUsd    Decimal? @db.Decimal(18, 2)
-  uniqueWallets1m     Int?
-  uniqueWallets5m     Int?
-  uniqueWallets30m    Int?
-  uniqueWallets1h     Int?
-  uniqueWallets24h    Int?
-  trades1m            Int?
-  trades5m            Int?
-  trades30m           Int?
-  trades1h            Int?
-  trades24h           Int?
-  buys1m              Int?
-  buys5m              Int?
-  buys30m             Int?
-  buys1h              Int?
-  buys24h             Int?
-  sells1m             Int?
-  sells5m             Int?
-  sells30m            Int?
-  sells1h             Int?
-  sells24h            Int?
-  buySellRatio        Decimal? @db.Decimal(12, 4)
-  priceChange1mPercent Decimal? @db.Decimal(12, 4)
-  priceChange5mPercent Decimal? @db.Decimal(12, 4)
-  priceChange30mPercent Decimal? @db.Decimal(12, 4)
-  priceChange1hPercent Decimal? @db.Decimal(12, 4)
-  priceChange24hPercent Decimal? @db.Decimal(12, 4)
-  graduationAgeSeconds Int?
-  top10HolderPercent  Decimal? @db.Decimal(8, 4)
-  largestHolderPercent Decimal? @db.Decimal(8, 4)
-  largestAccountsCount Int?
-  largestHolderAddress String?
-  creatorBalancePercent Decimal? @db.Decimal(8, 4)
-  ownerBalancePercent Decimal? @db.Decimal(8, 4)
-  updateAuthorityBalancePercent Decimal? @db.Decimal(8, 4)
-  top10UserPercent   Decimal? @db.Decimal(8, 4)
-  mintAuthorityActive Boolean?
-  freezeAuthorityActive Boolean?
-  transferFeeEnabled Boolean?
-  transferFeePercent  Decimal? @db.Decimal(8, 4)
-  trueToken          Boolean?
-  token2022          Boolean?
-  nonTransferable    Boolean?
-  fakeToken           Boolean?
-  honeypot            Boolean?
-  freezeable          Boolean?
-  mutableMetadata     Boolean?
-  securityRisk        String?
-  metadata            Json?
-  capturedAt          DateTime @default(now())
-
-  @@index([mint, capturedAt])
-  @@index([trigger, capturedAt])
-  @@index([capturedAt, liquidityUsd])
-  @@index([capturedAt, volume5mUsd])
-  @@index([capturedAt, buySellRatio])
-  @@index([candidateId])
-  @@index([positionId])
 }

@@ -9,10 +9,14 @@ source_files:
   - trading_bot/dashboard/components/discovery-lab-results-board.tsx
   - trading_bot/dashboard/app/discovery-lab/page.tsx
   - trading_bot/dashboard/lib/types.ts
+  - trading_bot/backend/src/services/discovery-lab-service.ts
+  - trading_bot/backend/src/services/discovery-lab-token-insight-service.ts
+  - trading_bot/backend/src/services/shared-token-facts.ts
   - trading_bot/backend/src/services/discovery-lab-market-stats-service.ts
   - trading_bot/backend/scripts/discovery-lab.ts
   - trading_bot/backend/scripts/discovery-lab/runner.ts
   - trading_bot/backend/src/services/discovery-lab-created-packs.ts
+  - trading_bot/backend/prisma/schema.prisma
   - trading_bot/dashboard/package.json
   - notes/reference/dashboard-operator-ui.md
 graph_checked: 2026-04-14
@@ -47,6 +51,10 @@ next_action: Run one real provider-backed discovery-lab session against the five
 - `discovery-lab-market-stats-service.ts` now treats market stats as a manual-refresh surface: default reads return the in-memory cache, `refresh=true` performs the provider pull, and `focusOnly=true&mint=` refreshes one focus-token read without recomputing the full board.
 - `discovery-lab-strategy-suggestion-service.ts` now treats ideas as a manual-refresh surface layered on cached market stats, so route loads stay cheap and `refresh=true` is the only path that pulls a fresh paid-provider-backed basis.
 - `dashboard/app/discovery-lab/market-stats/page.tsx`, `dashboard/app/discovery-lab/strategy-ideas/page.tsx`, and the new client components now use manual refresh controls, explicit paid/free/local source labels, and distinct empty/stale/degraded UI states instead of silently pulling provider data on every route load.
+- `discovery-lab-results-board.tsx` now keeps Axiom links pair-aware for historical runs by backfilling missing DexScreener `pairAddress` data when a stored run is reopened, instead of leaving older reports stuck on mint-based links.
+- The results grid is now trimmed to decision-first columns: token, flow, structure, timing, and setup. `View details` stays review-focused, while `Trade ticket` is the separate execution surface.
+- The full-details modal now emphasizes `Read first`, market structure, timing or flow, security, and consensus. The trade-ticket CTA is demoted so the review modal no longer duplicates the manual-entry workflow.
+- `discovery-lab-market-stats-client.tsx` and `discovery-lab-strategy-ideas-client.tsx` now trim repeated cost narration and secondary chips so the first screen stays on posture, signal, risk, and action instead of repeating the paid or free source story in multiple panels.
 - `discovery-lab-client.tsx` now uses top-level `Overview`, `Package`, `Strategies`, `Runs`, and `Results` tabs instead of the old fixed pane stack.
 - Package editing is split into `Basics` and `Thresholds`, and package actions are explicit: use, clone, load the active run package, and delete.
 - Strategy management moved into a dedicated studio with search, add, duplicate, remove, reorder, autosizing editors, and direct param JSON editing.
@@ -63,8 +71,12 @@ next_action: Run one real provider-backed discovery-lab session against the five
 
 - Backend build passed.
 - Dashboard build passed.
+- `cd trading_bot/backend && npm run db:generate`
+- `cd trading_bot/backend && npm run db:push`
 - Live `GET /api/operator/discovery-lab/market-stats?limit=18` returned `200` after deploy.
 - Live `GET /api/operator/discovery-lab/strategy-suggestions` returned `200` after deploy.
+- Live `GET /api/operator/discovery-lab/token-insight?mint=FvvR3omxrw7hTgXXh9fs9j712igRT2wvLDHK9Fgspump` returned `200` after restoring the missing `SharedTokenFact` cache columns.
+- Live `GET /api/operator/discovery-lab/runs/:id` for a completed run returned `deepEvaluations` rows with populated `pairAddress`, confirming historical result rows can recover pair-aware Axiom links.
 - Live `GET /api/operator/discovery-lab/market-stats?limit=18` stayed `meta.cacheState="empty"` after restart, then moved to `meta.cacheState="ready"` only after `refresh=true`, confirming cache-only default reads.
 - Live `GET /api/operator/discovery-lab/strategy-suggestions` stayed `meta.cacheState="empty"` before any market refresh, then returned five suggestions from the cached market stats without a separate refresh.
 - Live `/discovery-lab/market-stats` and `/discovery-lab/strategy-ideas` returned `200` after deploy.
@@ -83,6 +95,7 @@ next_action: Run one real provider-backed discovery-lab session against the five
 - Real provider-backed runs still need one pass so package save or delete, strategy updates, polling, and very large result sets are checked with live data.
 - The strategy editor currently keeps JSON param editing inline; if operators start using much larger payloads, it may need a schema-aware editor instead of plain text.
 - The new guidance drawer is only as fresh as the current report price input. If a run sits open for too long without a rerun, the stop-loss and target prices can drift from current tape even though the shape guidance still holds.
+- The compose-side `db-setup` flow reported the `SharedTokenFact` table as synced even while the live table was still missing the mint-authority and holder-concentration cache columns, so the direct `ALTER TABLE` fallback was needed during rollout.
 
 ## Durable Notes Updated
 

@@ -10,7 +10,10 @@ import { logger } from "../utils/logger.js";
 import { buildDiscoveryLabLiveStrategy } from "./discovery-lab-strategy-calibration.js";
 import { listCreatedDiscoveryLabPacks } from "./discovery-lab-created-packs.js";
 import { listWorkspaceDiscoveryLabPackSeeds } from "./discovery-lab-workspace-packs.js";
-import { DexScreenerClient, type DexScreenerTokenPair } from "./dexscreener-client.js";
+import {
+  DexScreenerClient,
+  type DexScreenerTokenPair,
+} from "./dexscreener-client.js";
 import { buildTradeSetup, type TradeSetup } from "./trade-setup.js";
 import {
   KNOWN_SOURCES,
@@ -49,7 +52,11 @@ export type {
 } from "./discovery-lab-pack-types.js";
 
 type Scalar = string | number | boolean;
-export type DiscoveryLabRunStatus = "RUNNING" | "COMPLETED" | "FAILED" | "INTERRUPTED";
+export type DiscoveryLabRunStatus =
+  | "RUNNING"
+  | "COMPLETED"
+  | "FAILED"
+  | "INTERRUPTED";
 
 export type DiscoveryLabRunRequest = {
   packId?: string;
@@ -256,7 +263,8 @@ export class DiscoveryLabService {
       this.listPacks(),
       this.listRunSummaries(),
     ]);
-    const activeRun = recentRuns.find((run) => run.status === "RUNNING") ?? null;
+    const activeRun =
+      recentRuns.find((run) => run.status === "RUNNING") ?? null;
     return {
       packs,
       activeRun,
@@ -266,7 +274,10 @@ export class DiscoveryLabService {
     };
   }
 
-  async validateDraft(input: DiscoveryLabPackDraft, allowOverfiltered = false): Promise<{
+  async validateDraft(
+    input: DiscoveryLabPackDraft,
+    allowOverfiltered = false,
+  ): Promise<{
     ok: boolean;
     issues: DiscoveryLabValidationIssue[];
     pack: DiscoveryLabPackDraft;
@@ -306,7 +317,8 @@ export class DiscoveryLabService {
       } else if (filterCount === 5) {
         issues.push({
           path: `recipes.${index}.params`,
-          message: "Recipe is at the 5-filter provider ceiling; adding another filter will break the request.",
+          message:
+            "Recipe is at the 5-filter provider ceiling; adding another filter will break the request.",
           level: "warning",
         });
       }
@@ -325,12 +337,14 @@ export class DiscoveryLabService {
       throw new Error("pack validation failed");
     }
     const normalized = validation.pack;
-    const id = normalized.id ?? await this.allocatePackId(normalized.name);
+    const id = normalized.id ?? (await this.allocatePackId(normalized.name));
     const record = {
       id,
       name: normalized.name,
       description: normalized.description ?? "",
-      defaultSources: normalized.defaultSources?.length ? normalized.defaultSources : DEFAULT_SOURCES,
+      defaultSources: normalized.defaultSources?.length
+        ? normalized.defaultSources
+        : DEFAULT_SOURCES,
       defaultProfile: normalized.defaultProfile ?? DEFAULT_PROFILE,
       thresholdOverrides: normalized.thresholdOverrides ?? {},
       recipes: normalized.recipes,
@@ -351,7 +365,9 @@ export class DiscoveryLabService {
     return { ok: true };
   }
 
-  async startRun(request: DiscoveryLabRunRequest): Promise<DiscoveryLabRunDetail> {
+  async startRun(
+    request: DiscoveryLabRunRequest,
+  ): Promise<DiscoveryLabRunDetail> {
     if (this.runningProcess) {
       throw new Error("a discovery lab run is already active");
     }
@@ -365,7 +381,10 @@ export class DiscoveryLabService {
     });
     const allowOverfiltered = request.allowOverfiltered === true;
 
-    const validation = await this.validateDraft(packToDraft(pack), allowOverfiltered);
+    const validation = await this.validateDraft(
+      packToDraft(pack),
+      allowOverfiltered,
+    );
     if (!validation.ok) {
       throw new Error("run validation failed");
     }
@@ -383,10 +402,17 @@ export class DiscoveryLabService {
     const outPath = path.join(this.runsDir, `${runId}.report.json`);
     const recordPath = this.runFilePath(runId);
 
-    await fs.writeFile(recipePath, JSON.stringify({
-      description: packSnapshot.description,
-      recipes: packSnapshot.recipes,
-    }, null, 2));
+    await fs.writeFile(
+      recipePath,
+      JSON.stringify(
+        {
+          description: packSnapshot.description,
+          recipes: packSnapshot.recipes,
+        },
+        null,
+        2,
+      ),
+    );
 
     const detail: DiscoveryLabRunDetail = {
       id: runId,
@@ -447,34 +473,75 @@ export class DiscoveryLabService {
     child.stdout?.on("data", (chunk: Buffer | string) => {
       stdout = appendOutput(stdout, String(chunk));
       void this.updateRunOutput(runId, stdout, stderr).catch((error) => {
-        logger.warn({ err: error, runId }, "failed to persist discovery lab stdout");
+        logger.warn(
+          { err: error, runId },
+          "failed to persist discovery lab stdout",
+        );
       });
     });
     child.stderr?.on("data", (chunk: Buffer | string) => {
       stderr = appendOutput(stderr, String(chunk));
       void this.updateRunOutput(runId, stdout, stderr).catch((error) => {
-        logger.warn({ err: error, runId }, "failed to persist discovery lab stderr");
+        logger.warn(
+          { err: error, runId },
+          "failed to persist discovery lab stderr",
+        );
       });
     });
     child.on("close", (code) => {
-      void this.finalizeRun(runId, code ?? 1, stdout, stderr, outPath, recordPath, recipePath);
+      void this.finalizeRun(
+        runId,
+        code ?? 1,
+        stdout,
+        stderr,
+        outPath,
+        recordPath,
+        recipePath,
+      );
     });
     child.on("error", (error) => {
       const message = error instanceof Error ? error.message : String(error);
-      void this.finalizeRun(runId, 1, stdout, `${stderr}\n${message}`, outPath, recordPath, recipePath);
+      void this.finalizeRun(
+        runId,
+        1,
+        stdout,
+        `${stderr}\n${message}`,
+        outPath,
+        recordPath,
+        recipePath,
+      );
     });
 
     return detail;
   }
 
   async getRun(runId: string): Promise<DiscoveryLabRunDetail | null> {
+    let detail: DiscoveryLabRunDetail | null = null;
     try {
       const raw = await fs.readFile(this.runFilePath(runId), "utf8");
-      return JSON.parse(raw) as DiscoveryLabRunDetail;
+      detail = JSON.parse(raw) as DiscoveryLabRunDetail;
     } catch {
       const row = await db.discoveryLabRun.findUnique({ where: { id: runId } });
-      return row ? this.fromDbRun(row) : null;
+      detail = row ? this.fromDbRun(row) : null;
     }
+
+    if (!detail?.report) {
+      return detail;
+    }
+
+    const { report, changed } = await this.enrichReportWithDexPairs(
+      detail.report,
+    );
+    if (!changed) {
+      return detail;
+    }
+
+    const nextDetail = {
+      ...detail,
+      report,
+    };
+    await this.writeRunDetail(nextDetail);
+    return nextDetail;
   }
 
   async listRunSummaries(): Promise<DiscoveryLabRunSummary[]> {
@@ -486,7 +553,9 @@ export class DiscoveryLabService {
       return dbRuns.map((row) => toRunSummary(this.fromDbRun(row)));
     }
 
-    const files = await this.readJsonFiles(this.runsDir, (entry) => entry.endsWith(".run.json"));
+    const files = await this.readJsonFiles(this.runsDir, (entry) =>
+      entry.endsWith(".run.json"),
+    );
     const details = files
       .map((item) => item as DiscoveryLabRunDetail)
       .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
@@ -494,13 +563,23 @@ export class DiscoveryLabService {
     return details.map(toRunSummary);
   }
 
-  private async resolvePackForRun(request: DiscoveryLabRunRequest): Promise<DiscoveryLabPack> {
+  private async resolvePackForRun(
+    request: DiscoveryLabRunRequest,
+  ): Promise<DiscoveryLabPack> {
     if (request.draft) {
-      const validation = await this.validateDraft(request.draft, request.allowOverfiltered === true);
+      const validation = await this.validateDraft(
+        request.draft,
+        request.allowOverfiltered === true,
+      );
       if (!validation.ok) {
         throw new Error("draft pack is invalid");
       }
-      return normalizePackDraft(validation.pack, "custom", "__inline__", "inline");
+      return normalizePackDraft(
+        validation.pack,
+        "custom",
+        "__inline__",
+        "inline",
+      );
     }
 
     if (!request.packId) {
@@ -531,7 +610,11 @@ export class DiscoveryLabService {
   }
 
   private async listCustomPacks(): Promise<DiscoveryLabPack[]> {
-    return this.readJsonFiles(this.packsDir, (entry) => entry.endsWith(".json"), async (filePath) => this.readCustomPack(filePath));
+    return this.readJsonFiles(
+      this.packsDir,
+      (entry) => entry.endsWith(".json"),
+      async (filePath) => this.readCustomPack(filePath),
+    );
   }
 
   private async readCustomPack(filePath: string): Promise<DiscoveryLabPack> {
@@ -544,11 +627,14 @@ export class DiscoveryLabService {
       description: parsed.description ?? "",
       thesis: parsed.thesis,
       targetPnlBand: parsed.targetPnlBand,
-      defaultSources: parsed.defaultSources?.length ? parsed.defaultSources : DEFAULT_SOURCES,
+      defaultSources: parsed.defaultSources?.length
+        ? parsed.defaultSources
+        : DEFAULT_SOURCES,
       defaultProfile: parsed.defaultProfile ?? DEFAULT_PROFILE,
       thresholdOverrides: parsed.thresholdOverrides ?? {},
       recipes: parsed.recipes,
-      updatedAt: parsed.updatedAt ?? (await fs.stat(filePath)).mtime.toISOString(),
+      updatedAt:
+        parsed.updatedAt ?? (await fs.stat(filePath)).mtime.toISOString(),
       sourcePath: filePath,
     };
   }
@@ -592,7 +678,11 @@ export class DiscoveryLabService {
     await this.pruneRuns();
   }
 
-  private async updateRunOutput(runId: string, stdout: string, stderr: string): Promise<void> {
+  private async updateRunOutput(
+    runId: string,
+    stdout: string,
+    stderr: string,
+  ): Promise<void> {
     const current = await this.getRun(runId);
     if (!current || current.status !== "RUNNING") {
       return;
@@ -639,32 +729,26 @@ export class DiscoveryLabService {
         db.botState.findUnique({ where: { id: "singleton" } }),
         db.position.count({ where: { status: "OPEN" } }),
       ]);
-      const dexPairs = await this.loadDexPairsForReport(report);
-      const cashUsd = Number(botState?.cashUsd ?? baseSettings.capital.capitalUsd);
-      const winnerByMint = new Map(report.winners.map((winner) => [winner.address, winner] as const));
+      const enrichedReport = await this.enrichReportWithDexPairs(report);
+      report = enrichedReport.report;
+      const cashUsd = Number(
+        botState?.cashUsd ?? baseSettings.capital.capitalUsd,
+      );
+      const winnerByMint = new Map(
+        report.winners.map((winner) => [winner.address, winner] as const),
+      );
       report.deepEvaluations = report.deepEvaluations.map((evaluation) => ({
         ...evaluation,
-        pairAddress: dexPairs.get(evaluation.mint)?.pairAddress?.trim() || null,
-        pairCreatedAt: dexPairs.get(evaluation.mint)?.pairCreatedAt ?? null,
-        socials: {
-          website: dexPairs.get(evaluation.mint)?.website ?? null,
-          twitter: dexPairs.get(evaluation.mint)?.twitter ?? null,
-          telegram: dexPairs.get(evaluation.mint)?.telegram ?? null,
-          count: [
-            dexPairs.get(evaluation.mint)?.website,
-            dexPairs.get(evaluation.mint)?.twitter,
-            dexPairs.get(evaluation.mint)?.telegram,
-          ].filter(Boolean).length,
-        },
         tradeSetup: buildTradeSetup({
           settings: baseSettings,
           cashUsd,
           openPositions,
           entryPriceUsd: evaluation.priceUsd,
           entryScore: evaluation.entryScore,
-          presetId: evaluation.mode === "pregrad"
-            ? "LATE_CURVE_MIGRATION_SNIPE"
-            : "FIRST_MINUTE_POSTGRAD_CONTINUATION",
+          presetId:
+            evaluation.mode === "pregrad"
+              ? "LATE_CURVE_MIGRATION_SNIPE"
+              : "FIRST_MINUTE_POSTGRAD_CONTINUATION",
           playScore: evaluation.playScore,
           winnerScore: winnerByMint.get(evaluation.mint)?.score ?? null,
           marketContext: {
@@ -672,17 +756,16 @@ export class DiscoveryLabService {
             timeSinceGraduationMin: evaluation.timeSinceGraduationMin,
             top10HolderPercent: evaluation.top10HolderPercent,
             largestHolderPercent: evaluation.largestHolderPercent,
-            socialCount: [
-              dexPairs.get(evaluation.mint)?.website,
-              dexPairs.get(evaluation.mint)?.twitter,
-              dexPairs.get(evaluation.mint)?.telegram,
-            ].filter(Boolean).length,
+            socialCount: evaluation.socials?.count ?? 0,
             lpLockedPercent: null,
             softIssueCount: evaluation.softIssues.length,
           },
         }),
       }));
-      current.strategyCalibration = buildDiscoveryLabLiveStrategy(current, baseSettings);
+      current.strategyCalibration = buildDiscoveryLabLiveStrategy(
+        current,
+        baseSettings,
+      );
     } else {
       current.strategyCalibration = null;
     }
@@ -700,8 +783,16 @@ export class DiscoveryLabService {
     await fs.rm(recipePath, { force: true }).catch(() => undefined);
   }
 
-  private async loadDexPairsForReport(report: DiscoveryLabReport): Promise<Map<string, DexScreenerTokenPair>> {
-    const mints = [...new Set(report.deepEvaluations.map((evaluation) => evaluation.mint).filter(Boolean))];
+  private async loadDexPairsForReport(
+    report: DiscoveryLabReport,
+  ): Promise<Map<string, DexScreenerTokenPair>> {
+    const mints = [
+      ...new Set(
+        report.deepEvaluations
+          .map((evaluation) => evaluation.mint)
+          .filter(Boolean),
+      ),
+    ];
     if (mints.length === 0) {
       return new Map();
     }
@@ -710,9 +801,83 @@ export class DiscoveryLabService {
       const dexscreener = new DexScreenerClient();
       return await dexscreener.getTopPairsByMint(mints);
     } catch (error) {
-      logger.warn({ err: error, mintCount: mints.length }, "discovery-lab dex pair enrichment failed");
+      logger.warn(
+        { err: error, mintCount: mints.length },
+        "discovery-lab dex pair enrichment failed",
+      );
       return new Map();
     }
+  }
+
+  private async enrichReportWithDexPairs(report: DiscoveryLabReport): Promise<{
+    report: DiscoveryLabReport;
+    changed: boolean;
+  }> {
+    const needsHydration = report.deepEvaluations.some((evaluation) => {
+      const socialCount = evaluation.socials?.count ?? 0;
+      return (
+        !evaluation.pairAddress ||
+        !evaluation.pairCreatedAt ||
+        socialCount === 0
+      );
+    });
+
+    if (!needsHydration) {
+      return { report, changed: false };
+    }
+
+    const dexPairs = await this.loadDexPairsForReport(report);
+    let changed = false;
+    const deepEvaluations = report.deepEvaluations.map((evaluation) => {
+      const pair = dexPairs.get(evaluation.mint);
+      if (!pair) {
+        return evaluation;
+      }
+
+      const nextPairAddress =
+        evaluation.pairAddress?.trim() || pair.pairAddress?.trim() || null;
+      const nextPairCreatedAt =
+        evaluation.pairCreatedAt ?? pair.pairCreatedAt ?? null;
+      const nextSocials = {
+        website: evaluation.socials?.website ?? pair.website ?? null,
+        twitter: evaluation.socials?.twitter ?? pair.twitter ?? null,
+        telegram: evaluation.socials?.telegram ?? pair.telegram ?? null,
+        count: [
+          evaluation.socials?.website ?? pair.website ?? null,
+          evaluation.socials?.twitter ?? pair.twitter ?? null,
+          evaluation.socials?.telegram ?? pair.telegram ?? null,
+        ].filter(Boolean).length,
+      };
+
+      if (
+        nextPairAddress === (evaluation.pairAddress ?? null) &&
+        nextPairCreatedAt === (evaluation.pairCreatedAt ?? null) &&
+        nextSocials.website === (evaluation.socials?.website ?? null) &&
+        nextSocials.twitter === (evaluation.socials?.twitter ?? null) &&
+        nextSocials.telegram === (evaluation.socials?.telegram ?? null) &&
+        nextSocials.count === (evaluation.socials?.count ?? 0)
+      ) {
+        return evaluation;
+      }
+
+      changed = true;
+      return {
+        ...evaluation,
+        pairAddress: nextPairAddress,
+        pairCreatedAt: nextPairCreatedAt,
+        socials: nextSocials,
+      };
+    });
+
+    return changed
+      ? {
+          report: {
+            ...report,
+            deepEvaluations,
+          },
+          changed: true,
+        }
+      : { report, changed: false };
   }
 
   private async syncKnownPacksToDb(): Promise<void> {
@@ -731,7 +896,9 @@ export class DiscoveryLabService {
         name: pack.name,
         description: pack.description,
         thesis: pack.thesis ?? null,
-        targetPnlBand: pack.targetPnlBand ? toJsonValue(pack.targetPnlBand) : Prisma.DbNull,
+        targetPnlBand: pack.targetPnlBand
+          ? toJsonValue(pack.targetPnlBand)
+          : Prisma.DbNull,
         defaultProfile: pack.defaultProfile,
         defaultSources: toJsonValue(pack.defaultSources),
         thresholdOverrides: toJsonValue(pack.thresholdOverrides ?? {}),
@@ -744,7 +911,9 @@ export class DiscoveryLabService {
         name: pack.name,
         description: pack.description,
         thesis: pack.thesis ?? null,
-        targetPnlBand: pack.targetPnlBand ? toJsonValue(pack.targetPnlBand) : Prisma.DbNull,
+        targetPnlBand: pack.targetPnlBand
+          ? toJsonValue(pack.targetPnlBand)
+          : Prisma.DbNull,
         defaultProfile: pack.defaultProfile,
         defaultSources: toJsonValue(pack.defaultSources),
         thresholdOverrides: toJsonValue(pack.thresholdOverrides ?? {}),
@@ -772,7 +941,9 @@ export class DiscoveryLabService {
         thresholdOverrides: toJsonValue(detail.thresholdOverrides ?? {}),
         packSnapshot: toJsonValue(detail.packSnapshot),
         report: detail.report ? toJsonValue(detail.report) : Prisma.DbNull,
-        strategyCalibration: detail.strategyCalibration ? toJsonValue(detail.strategyCalibration) : Prisma.DbNull,
+        strategyCalibration: detail.strategyCalibration
+          ? toJsonValue(detail.strategyCalibration)
+          : Prisma.DbNull,
         configSnapshot: toJsonValue(settings),
         stdout: detail.stdout,
         stderr: detail.stderr,
@@ -795,7 +966,9 @@ export class DiscoveryLabService {
         thresholdOverrides: toJsonValue(detail.thresholdOverrides ?? {}),
         packSnapshot: toJsonValue(detail.packSnapshot),
         report: detail.report ? toJsonValue(detail.report) : Prisma.DbNull,
-        strategyCalibration: detail.strategyCalibration ? toJsonValue(detail.strategyCalibration) : Prisma.DbNull,
+        strategyCalibration: detail.strategyCalibration
+          ? toJsonValue(detail.strategyCalibration)
+          : Prisma.DbNull,
         configSnapshot: toJsonValue(settings),
         stdout: detail.stdout,
         stderr: detail.stderr,
@@ -807,14 +980,18 @@ export class DiscoveryLabService {
     });
   }
 
-  private async syncRunReportTables(detail: DiscoveryLabRunDetail): Promise<void> {
+  private async syncRunReportTables(
+    detail: DiscoveryLabRunDetail,
+  ): Promise<void> {
     if (!detail.report) {
       await db.discoveryLabRunQuery.deleteMany({ where: { runId: detail.id } });
       await db.discoveryLabRunToken.deleteMany({ where: { runId: detail.id } });
       return;
     }
 
-    const winnerByMint = new Map(detail.report.winners.map((winner) => [winner.address, winner] as const));
+    const winnerByMint = new Map(
+      detail.report.winners.map((winner) => [winner.address, winner] as const),
+    );
 
     await db.$transaction([
       db.discoveryLabRunQuery.deleteMany({ where: { runId: detail.id } }),
@@ -885,8 +1062,12 @@ export class DiscoveryLabService {
             notes: toJsonValue(evaluation.notes),
             isWinner: Boolean(winner),
             winnerScore: winner?.score ?? null,
-            winnerRecipeNames: winner ? toJsonValue(winner.whichRecipes) : Prisma.DbNull,
-            tradeSetup: evaluation.tradeSetup ? toJsonValue(evaluation.tradeSetup) : Prisma.DbNull,
+            winnerRecipeNames: winner
+              ? toJsonValue(winner.whichRecipes)
+              : Prisma.DbNull,
+            tradeSetup: evaluation.tradeSetup
+              ? toJsonValue(evaluation.tradeSetup)
+              : Prisma.DbNull,
           };
         }),
       });
@@ -926,15 +1107,17 @@ export class DiscoveryLabService {
       packName: row.packName,
       packKind: mapPackKindFromDb(row.packKind),
       profile: row.profile as DiscoveryLabProfile,
-      sources: Array.isArray(row.sources) ? row.sources as string[] : [],
+      sources: Array.isArray(row.sources) ? (row.sources as string[]) : [],
       allowOverfiltered: row.allowOverfiltered,
       queryCount: row.queryCount,
       winnerCount: row.winnerCount,
       evaluationCount: row.evaluationCount,
       errorMessage: row.errorMessage,
       packSnapshot: row.packSnapshot as DiscoveryLabPack,
-      thresholdOverrides: (row.thresholdOverrides ?? {}) as DiscoveryLabThresholdOverrides,
-      strategyCalibration: (row.strategyCalibration ?? null) as LiveStrategySettings | null,
+      thresholdOverrides: (row.thresholdOverrides ??
+        {}) as DiscoveryLabThresholdOverrides,
+      strategyCalibration: (row.strategyCalibration ??
+        null) as LiveStrategySettings | null,
       stdout: row.stdout ?? "",
       stderr: row.stderr ?? "",
       report: (row.report ?? null) as DiscoveryLabReport | null,
@@ -942,7 +1125,9 @@ export class DiscoveryLabService {
   }
 
   private async reconcileInterruptedRuns(): Promise<void> {
-    const files = await this.readJsonFiles(this.runsDir, (entry) => entry.endsWith(".run.json"));
+    const files = await this.readJsonFiles(this.runsDir, (entry) =>
+      entry.endsWith(".run.json"),
+    );
     for (const file of files) {
       const detail = file as DiscoveryLabRunDetail;
       if (detail.status !== "RUNNING") {
@@ -950,7 +1135,8 @@ export class DiscoveryLabService {
       }
       detail.status = "INTERRUPTED";
       detail.completedAt = detail.completedAt ?? new Date().toISOString();
-      detail.errorMessage = detail.errorMessage ?? "run interrupted before completion";
+      detail.errorMessage =
+        detail.errorMessage ?? "run interrupted before completion";
       await writeJsonFileAtomic(this.runFilePath(detail.id), detail);
     }
   }
@@ -963,9 +1149,15 @@ export class DiscoveryLabService {
     const stale = summaries.slice(MAX_RECENT_RUNS);
     for (const run of stale) {
       const prefix = path.join(this.runsDir, run.id);
-      await fs.rm(this.runFilePath(run.id), { force: true }).catch(() => undefined);
-      await fs.rm(`${prefix}.report.json`, { force: true }).catch(() => undefined);
-      await fs.rm(`${prefix}.recipes.json`, { force: true }).catch(() => undefined);
+      await fs
+        .rm(this.runFilePath(run.id), { force: true })
+        .catch(() => undefined);
+      await fs
+        .rm(`${prefix}.report.json`, { force: true })
+        .catch(() => undefined);
+      await fs
+        .rm(`${prefix}.recipes.json`, { force: true })
+        .catch(() => undefined);
     }
   }
 
@@ -997,7 +1189,10 @@ export class DiscoveryLabService {
   }
 }
 
-async function writeJsonFileAtomic(filePath: string, value: unknown): Promise<void> {
+async function writeJsonFileAtomic(
+  filePath: string,
+  value: unknown,
+): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   const tempPath = `${filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
   await fs.writeFile(tempPath, JSON.stringify(value, null, 2));
@@ -1024,7 +1219,10 @@ function toRunSummary(detail: DiscoveryLabRunDetail): DiscoveryLabRunSummary {
   };
 }
 
-function pushThresholdArgs(args: string[], overrides: DiscoveryLabThresholdOverrides): void {
+function pushThresholdArgs(
+  args: string[],
+  overrides: DiscoveryLabThresholdOverrides,
+): void {
   const flags: Array<[keyof DiscoveryLabThresholdOverrides, string]> = [
     ["minLiquidityUsd", "--min-liquidity-usd"],
     ["maxMarketCapUsd", "--max-market-cap-usd"],
@@ -1034,7 +1232,10 @@ function pushThresholdArgs(args: string[], overrides: DiscoveryLabThresholdOverr
     ["minBuySellRatio", "--min-buy-sell-ratio"],
     ["maxTop10HolderPercent", "--max-top10-holder-percent"],
     ["maxSingleHolderPercent", "--max-single-holder-percent"],
-    ["maxNegativePriceChange5mPercent", "--max-negative-price-change-5m-percent"],
+    [
+      "maxNegativePriceChange5mPercent",
+      "--max-negative-price-change-5m-percent",
+    ],
   ];
   for (const [key, flag] of flags) {
     const value = overrides[key];
@@ -1049,17 +1250,22 @@ function appendOutput(current: string, next: string): string {
 }
 
 function extractFailureMessage(stderr: string, stdout: string): string {
-  const stderrLines = stderr.split("\n").map((line) => line.trim()).filter(Boolean);
+  const stderrLines = stderr
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
   const meaningfulStderrLines = stderrLines.filter((line) => {
     return !(
-      line === "^"
-      || line.startsWith("npm notice")
-      || line.startsWith("Node.js v")
-      || line.startsWith("at ")
-      || line.startsWith("node:")
+      line === "^" ||
+      line.startsWith("npm notice") ||
+      line.startsWith("Node.js v") ||
+      line.startsWith("at ") ||
+      line.startsWith("node:")
     );
   });
-  const preferredErrorLine = meaningfulStderrLines.find((line) => /error|failed|cannot|not found|invalid|unauthorized/i.test(line));
+  const preferredErrorLine = meaningfulStderrLines.find((line) =>
+    /error|failed|cannot|not found|invalid|unauthorized/i.test(line),
+  );
   if (preferredErrorLine) {
     return preferredErrorLine;
   }
@@ -1069,7 +1275,10 @@ function extractFailureMessage(stderr: string, stdout: string): string {
   if (stderrLines.length > 0) {
     return stderrLines.at(0) ?? "discovery lab run failed";
   }
-  const stdoutLines = stdout.split("\n").map((line) => line.trim()).filter(Boolean);
+  const stdoutLines = stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
   if (stdoutLines.length > 0) {
     return stdoutLines.at(-1) ?? "discovery lab run failed";
   }
@@ -1079,7 +1288,9 @@ function extractFailureMessage(stderr: string, stdout: string): string {
   return "discovery lab run failed";
 }
 
-function mapPackKindForDb(pack: Pick<DiscoveryLabPack, "kind" | "id">): "CREATED" | "WORKSPACE" | "CUSTOM" {
+function mapPackKindForDb(
+  pack: Pick<DiscoveryLabPack, "kind" | "id">,
+): "CREATED" | "WORKSPACE" | "CUSTOM" {
   if (pack.kind === "created") {
     return "CREATED";
   }
