@@ -1,7 +1,7 @@
-import { DiscoveryLabSectionPage } from "@/components/discovery-lab-section-page";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
 export default async function DiscoveryLabRunLabPage() {
-  return <DiscoveryLabSectionPage requestedSection="run-lab" />;
+  redirect("/discovery-lab/results");
 }

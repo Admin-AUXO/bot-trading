@@ -99,9 +99,9 @@ Purpose: document the current UI contract for the Next.js operator desk so later
 - `/operational-desk/settings`: smaller runtime-control surface for desk-facing capital and cadence edits with direct apply
 - `/discovery-lab/overview`: dedicated landing surface for current run posture, pack inventory, and shared workflow language
 - `/discovery-lab/market-stats`: market-wide pulse check plus direct single-mint lookup backed by shared backend provider logic; default route loads stay cache-only and visually distinguish paid Birdeye inputs from free Rugcheck and DexScreener inputs
-- `/discovery-lab/studio`: builder-first discovery workspace for package editing, thresholds, and strategy ladders
-- `/discovery-lab/run-lab`: launch and process-state surface for lab runs
-- `/discovery-lab/results`: current-run review with market-regime guidance, full result board, live strategy staging, and manual trade ticket flow
+- `/discovery-lab/studio`: builder-first discovery workspace for package editing, thresholds, and strategy ladders; keep the page header minimal and avoid a second local hero above the editor
+- `/discovery-lab/run-lab`: compatibility redirect only; the route should forward straight to `/discovery-lab/results`
+- `/discovery-lab/results`: unified run-and-review surface for start, monitor, reopen, and completed-run triage, plus live strategy staging and manual trade ticket flow
 - `/discovery-lab/strategy-ideas`: backend-suggested pack ideas for the current regime; route loads stay read-only and cache-backed, while refresh controls expose the manual-refresh path for confidence, threshold ranges, and session fit
 - `/discovery-lab/config`: discovery-owned config surface for strategy, discovery filters, exits, and hot runtime parameters
 - compatibility routes:
@@ -138,7 +138,7 @@ Purpose: document the current UI contract for the Next.js operator desk so later
   apply subtle heatmap treatment on score-driven metric columns when it improves ranking legibility without turning the table into a chart
 - Discovery lab should feel like a compact research workbench:
   builder is the primary operator surface when there is no active review task
-  route order should read `Strategy studio` -> `Run lab` -> `Results`, with transitions owned by the route rather than an in-page tab rail
+  route order should read `Strategy studio` -> `Results`, with `run-lab` retained only as a compatibility redirect
   the page header should stay compact and contextual; do not bring back a large local hero or a duplicated score-strip ahead of the builder
   the sticky bar should focus on contextual actions for the active tab so operators do not see build, run, and staging controls all at once
   discovery should not repeat the same pack or run facts in the tab rail, page header, sticky bar, and local cards at the same time; one compact context row plus one active-action bar is enough
@@ -164,9 +164,8 @@ Purpose: document the current UI contract for the Next.js operator desk so later
   threshold editing should read as grouped dynamic gates, not as one flat wall of unrelated numeric cards
   regime guidance should show only the threshold and live-handoff stats that are relevant to the current strategy mix or completed-winner calibration, not the full metric wall every time
   active run progress must be visible while the CLI is still working
-  runs should avoid duplicating run center, run summary, and output inventory as three separate always-open blocks; secondary run structure belongs behind disclosure or in the support rail
-  the runs tab should state what a completed run actually returns so operators can tell whether the lab captured enough information for tuning and review
-  the results route should only surface completed runs; active or failed runs stay on the run-lab surface
+  results should avoid duplicating run center, run summary, and output inventory as three separate always-open blocks; secondary run structure belongs behind disclosure or in the support rail
+  results should own run start, live progress, run history reopen, and completed review in one page so the operator does not bounce between sibling routes
   the results header should carry the current run context once, ahead of the live strategy pack and token board, instead of repeating the same package and run facts in several stacked panels
   the token board should appear before live-strategy tuning so review remains the first action on the results tab
   result-side secondary synthesis such as cohort rollups and adaptive previews should default behind disclosure instead of sitting above the token board
@@ -191,9 +190,11 @@ Purpose: document the current UI contract for the Next.js operator desk so later
   a compact market-regime strip and refresh timestamp should remain visible above table controls so operators can interpret table scores in context
   the market-stats route should show the overall pulse and the single-token lookup in one scan path instead of burying the lookup inside results modals
   market-stats and strategy-ideas should surface freshness, stale-vs-empty state, and refresh controls in the header so operators can tell when a paid provider pull is about to happen
+  market-stats and strategy-ideas should present their primary boards as horizontal card carousels on desktop so the operator can scan rich cards without pushing the page into long vertical stacks
   market-stats should mark Birdeye-derived slices as paid and Rugcheck/DexScreener-derived slices as free in both the source legend and the primary board scan path
   strategy-ideas should present confidence, session fit, threshold ranges, and pack shape without forcing the operator through raw JSON first
   strategy-ideas should keep raw threshold override values behind disclosure; threshold bars and pack-shape summary own the first scan path
+  discovery-owned config should keep the hot parameters dense and directly editable; two-column rows beat one long vertical wall when the page is in discovery mode
   market-regime suggestions belong in `Builder` with one-click apply to local threshold overrides; they must never silently rewrite runtime settings
   source, strategy, and winner rollups should stay compact and secondary so the page does not drown the operator in helper tables
   raw per-strategy hits can stay available, but they should live behind a quieter secondary surface instead of dominating the page

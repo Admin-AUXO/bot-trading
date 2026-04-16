@@ -2305,42 +2305,6 @@ function TokenDetailsModal(props: {
             </div>
 
             <div className="flex-1 overflow-auto px-5 py-5">
-              <div className="sticky top-0 z-10 -mx-5 mb-5 border-b border-bg-border bg-[rgba(8,9,9,0.96)] px-5 py-3 backdrop-blur-sm">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <OutcomePill outcome={props.row.outcome} />
-                    <Badge variant="default">
-                      {formatInteger(props.row.overlapCount)} strategies
-                    </Badge>
-                    <Badge variant="default">
-                      Best play {formatNumber(props.row.bestPlayScore)}
-                    </Badge>
-                    <Badge variant="default">
-                      Setup{" "}
-                      {props.tradeSetup
-                        ? humanizeProfile(props.tradeSetup.profile)
-                        : "Pending"}
-                    </Badge>
-                    {props.trackedPosition ? (
-                      <Badge variant="default">Position live</Badge>
-                    ) : null}
-                  </div>
-                  <Button
-                    type="button"
-                    onClick={props.onStartManualTrade}
-                    disabled={
-                      Boolean(props.manualTradeDisabledReason) ||
-                      props.manualTradePending
-                    }
-                    title={props.manualTradeDisabledReason ?? undefined}
-                    variant="ghost"
-                    size="sm"
-                  >
-                    Open trade ticket
-                  </Button>
-                </div>
-              </div>
-
               <div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(18rem,0.42fr)]">
                 <div className="space-y-5">
                   <section className="space-y-4 rounded-[16px] border border-[rgba(163,230,53,0.18)] bg-[#0f130f] p-4">
@@ -2418,62 +2382,6 @@ function TokenDetailsModal(props: {
                         Live token insight unavailable: {props.insightError}
                       </div>
                     ) : null}
-                  </section>
-
-                  <section className="space-y-3 rounded-[16px] border border-bg-border bg-[#101112] p-4">
-                    <div>
-                      <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">
-                        Context links
-                      </div>
-                      <div className="mt-1 text-xs leading-5 text-text-secondary">
-                        Use socials and tool links for fast external validation.
-                        Provider metadata is secondary to structure, flow, and
-                        security.
-                      </div>
-                    </div>
-                    <div className="rounded-[12px] border border-bg-border bg-[#0d0f10] px-3 py-3">
-                      <div className="flex flex-wrap gap-2">
-                        {socialEntries.length > 0 ? (
-                          socialEntries.map((entry) => (
-                            <ExternalChipLink
-                              key={entry.label}
-                              href={entry.href}
-                              label={entry.label}
-                            />
-                          ))
-                        ) : (
-                          <span className="text-xs text-text-muted">
-                            No social links returned for this token.
-                          </span>
-                        )}
-                        {toolEntries.map((entry) => (
-                          <ExternalChipLink
-                            key={entry.label}
-                            href={entry.href}
-                            label={entry.label}
-                          />
-                        ))}
-                      </div>
-                      <div className="mt-3 text-sm leading-6 text-text-secondary">
-                        {props.insight?.description ??
-                          "No project description was returned by the provider for this mint."}
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-text-muted">
-                        <span>Creator {truncateMiddle(creator)}</span>
-                        <span>•</span>
-                        <span>
-                          {props.insight?.source
-                            ? humanizeLabel(props.insight.source)
-                            : "Run insight"}
-                        </span>
-                        {props.insight?.platformId ? (
-                          <>
-                            <span>•</span>
-                            <span>{props.insight.platformId}</span>
-                          </>
-                        ) : null}
-                      </div>
-                    </div>
                   </section>
 
                   <section className="space-y-3 rounded-[16px] border border-bg-border bg-[#101112] p-4">
@@ -2615,72 +2523,6 @@ function TokenDetailsModal(props: {
 
                   <section className="space-y-3 rounded-[16px] border border-bg-border bg-[#101112] p-4">
                     <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">
-                      Consensus and path
-                    </div>
-                    <div className="grid gap-3 lg:grid-cols-2">
-                      <div className="rounded-[12px] border border-bg-border bg-[#0d0f10] px-3 py-3">
-                        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">
-                          Consensus
-                        </div>
-                        <div className="mt-2 text-sm font-semibold text-text-primary">
-                          {formatInteger(props.row.overlapCount)} strategy hits
-                          across {formatInteger(props.row.sources.length)}{" "}
-                          source{props.row.sources.length === 1 ? "" : "s"}.
-                        </div>
-                        <div className="mt-2 text-xs leading-5 text-text-secondary">
-                          Pass rate{" "}
-                          {props.row.evaluationCount > 0
-                            ? formatPercent(
-                                (props.row.passedRecipes.length /
-                                  props.row.evaluationCount) *
-                                  100,
-                                0,
-                              )
-                            : "—"}{" "}
-                          across recorded evaluations.
-                        </div>
-                      </div>
-                      <div className="rounded-[12px] border border-bg-border bg-[#0d0f10] px-3 py-3">
-                        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">
-                          Winning path
-                        </div>
-                        <div className="mt-2 text-sm font-semibold text-text-primary">
-                          {props.row.winnerScore !== null
-                            ? `Winner score ${formatNumber(props.row.winnerScore)}`
-                            : `Best entry ${formatNumber(props.row.bestEntryScore)}`}
-                        </div>
-                        <div className="mt-2 text-xs leading-5 text-text-secondary">
-                          Best play {formatNumber(props.row.bestPlayScore)} from{" "}
-                          {props.row.modes.map(humanizeLabel).join(", ") ||
-                            "no mode"}{" "}
-                          signals.
-                        </div>
-                      </div>
-                    </div>
-                    <div className="grid gap-3 lg:grid-cols-3">
-                      <TagBucket
-                        title="Top recipes"
-                        labels={primaryRecipes}
-                        total={props.row.recipes.length}
-                      />
-                      <TagBucket
-                        title="Pass path"
-                        labels={passedRecipes}
-                        total={props.row.passedRecipes.length}
-                        tone="success"
-                      />
-                      <TagBucket
-                        title="Failed path"
-                        labels={failedRecipes}
-                        total={props.row.failedRecipes.length}
-                        tone="danger"
-                        emptyLabel="No failed recipes."
-                      />
-                    </div>
-                  </section>
-
-                  <section className="space-y-3 rounded-[16px] border border-bg-border bg-[#101112] p-4">
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">
                       Market structure
                     </div>
                     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -2815,6 +2657,72 @@ function TokenDetailsModal(props: {
                             ? humanizeProfile(props.tradeSetup.profile)
                             : "—"
                         }
+                      />
+                    </div>
+                  </section>
+
+                  <section className="space-y-3 rounded-[16px] border border-bg-border bg-[#101112] p-4">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">
+                      Consensus and path
+                    </div>
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      <div className="rounded-[12px] border border-bg-border bg-[#0d0f10] px-3 py-3">
+                        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">
+                          Consensus
+                        </div>
+                        <div className="mt-2 text-sm font-semibold text-text-primary">
+                          {formatInteger(props.row.overlapCount)} strategy hits
+                          across {formatInteger(props.row.sources.length)}{" "}
+                          source{props.row.sources.length === 1 ? "" : "s"}.
+                        </div>
+                        <div className="mt-2 text-xs leading-5 text-text-secondary">
+                          Pass rate{" "}
+                          {props.row.evaluationCount > 0
+                            ? formatPercent(
+                                (props.row.passedRecipes.length /
+                                  props.row.evaluationCount) *
+                                  100,
+                                0,
+                              )
+                            : "—"}{" "}
+                          across recorded evaluations.
+                        </div>
+                      </div>
+                      <div className="rounded-[12px] border border-bg-border bg-[#0d0f10] px-3 py-3">
+                        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">
+                          Winning path
+                        </div>
+                        <div className="mt-2 text-sm font-semibold text-text-primary">
+                          {props.row.winnerScore !== null
+                            ? `Winner score ${formatNumber(props.row.winnerScore)}`
+                            : `Best entry ${formatNumber(props.row.bestEntryScore)}`}
+                        </div>
+                        <div className="mt-2 text-xs leading-5 text-text-secondary">
+                          Best play {formatNumber(props.row.bestPlayScore)} from{" "}
+                          {props.row.modes.map(humanizeLabel).join(", ") ||
+                            "no mode"}{" "}
+                          signals.
+                        </div>
+                      </div>
+                    </div>
+                    <div className="grid gap-3 lg:grid-cols-3">
+                      <TagBucket
+                        title="Top recipes"
+                        labels={primaryRecipes}
+                        total={props.row.recipes.length}
+                      />
+                      <TagBucket
+                        title="Pass path"
+                        labels={passedRecipes}
+                        total={props.row.passedRecipes.length}
+                        tone="success"
+                      />
+                      <TagBucket
+                        title="Failed path"
+                        labels={failedRecipes}
+                        total={props.row.failedRecipes.length}
+                        tone="danger"
+                        emptyLabel="No failed recipes."
                       />
                     </div>
                   </section>
@@ -3015,10 +2923,67 @@ function TokenDetailsModal(props: {
                         </a>
                       </div>
                     ) : null}
+                    <div className="mt-4 rounded-[14px] border border-bg-border bg-[#0d0f10] p-3">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">
+                        Fast links
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {socialEntries.length > 0 ? (
+                          socialEntries.map((entry) => (
+                            <ExternalChipLink
+                              key={entry.label}
+                              href={entry.href}
+                              label={entry.label}
+                            />
+                          ))
+                        ) : (
+                          <span className="text-xs text-text-muted">
+                            No socials returned.
+                          </span>
+                        )}
+                        {toolEntries.map((entry) => (
+                          <ExternalChipLink
+                            key={entry.label}
+                            href={entry.href}
+                            label={entry.label}
+                          />
+                        ))}
+                      </div>
+                      <div className="mt-3 text-xs leading-5 text-text-secondary">
+                        {props.insight?.description ??
+                          "No provider description was returned for this mint."}
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-text-muted">
+                        <span>Creator {truncateMiddle(creator)}</span>
+                        <span>•</span>
+                        <span>
+                          {props.insight?.source
+                            ? humanizeLabel(props.insight.source)
+                            : "Run insight"}
+                        </span>
+                        {props.insight?.platformId ? (
+                          <>
+                            <span>•</span>
+                            <span>{props.insight.platformId}</span>
+                          </>
+                        ) : null}
+                      </div>
+                    </div>
                     <div className="mt-4 text-xs leading-5 text-text-secondary">
                       Use the trade ticket only after structure, flow, and
                       security all hold up. This view is for review first.
                     </div>
+                    <Button
+                      type="button"
+                      onClick={props.onStartManualTrade}
+                      disabled={Boolean(props.manualTradeDisabledReason) || props.manualTradePending}
+                      title={props.manualTradeDisabledReason ?? undefined}
+                      variant="ghost"
+                      size="sm"
+                      className="mt-4 w-full"
+                    >
+                      Open trade ticket
+                    </Button>
                   </section>
                 </aside>
               </div>
@@ -3480,7 +3445,43 @@ function ManualTradeModal(props: {
                       <SlidersHorizontal className="h-3.5 w-3.5" />
                       Final check
                     </div>
+                    <div className="mt-4 grid gap-2">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">
+                        Desk snapshot
+                      </div>
+                      <MetricTile
+                        label="Outcome"
+                        value={humanizeLabel(props.row.outcome)}
+                      />
+                      <MetricTile
+                        label="Profile"
+                        value={
+                          props.tradeSetup
+                            ? humanizeProfile(props.tradeSetup.profile)
+                            : "Manual"
+                        }
+                      />
+                      <MetricTile
+                        label="Max hold"
+                        value={
+                          props.tradeSetup
+                            ? formatRelativeMinutes(props.tradeSetup.maxHoldMinutes)
+                            : formatDraftMinutes(draft.timeLimitMinutes)
+                        }
+                      />
+                      <MetricTile
+                        label="Slots left"
+                        value={
+                          openSlotsRemaining !== null
+                            ? formatInteger(openSlotsRemaining)
+                            : "—"
+                        }
+                      />
+                    </div>
                     <div className="mt-4 grid gap-3">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">
+                        Order shape
+                      </div>
                       <MetricTile
                         label="Size"
                         value={formatDraftCurrency(draft.positionSizeUsd)}
@@ -3500,14 +3501,6 @@ function ManualTradeModal(props: {
                       <MetricTile
                         label="Hold rules"
                         value={`${formatDraftMinutes(draft.timeStopMinutes)} / ${formatDraftMinutes(draft.timeLimitMinutes)}`}
-                      />
-                      <MetricTile
-                        label="Slots left"
-                        value={
-                          openSlotsRemaining !== null
-                            ? formatInteger(openSlotsRemaining)
-                            : "—"
-                        }
                       />
                     </div>
                     {draftIssues.length > 0 ? (
@@ -3529,6 +3522,23 @@ function ManualTradeModal(props: {
                             {issue.message}
                           </div>
                         ))}
+                      </div>
+                    ) : null}
+                    {props.insight ? (
+                      <div className="mt-4 rounded-[14px] border border-bg-border bg-[#0d0f10] p-3">
+                        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">
+                          External checks
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <ExternalChipLink
+                            href={props.insight.toolLinks.axiom}
+                            label={props.insight.pairAddress ? "Axiom pair" : "Axiom"}
+                          />
+                          <ExternalChipLink
+                            href={props.insight.toolLinks.dexscreener}
+                            label="Dex"
+                          />
+                        </div>
                       </div>
                     ) : null}
                     {props.insight ? (

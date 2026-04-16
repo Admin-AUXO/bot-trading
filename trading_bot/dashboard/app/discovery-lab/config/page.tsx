@@ -17,8 +17,8 @@ export default async function DiscoveryLabConfigPage() {
       sectionIds={["strategy", "entry", "exit", "advanced"]}
       header={{
         eyebrow: "Discovery lab",
-        title: "Live setup",
-        description: "Lean direct-edit surface for pump-first discovery, fast evaluations, and short live sessions.",
+        title: "Discovery config",
+        description: "Compact direct-edit surface for short sessions, fresh grads, and discovery-owned live guardrails.",
       }}
       contextLink={{
         href: operationalDeskRoutes.settings,

@@ -168,7 +168,7 @@ const LOOKBACK_SUGGESTIONS = [10, 20, 30, 60, 240];
 const LAST_TRADE_SUGGESTIONS = [2, 3, 5, 10];
 const PROVIDER_FILTER_LIMIT = 5;
 
-type DiscoveryView = "results" | "builder" | "runs";
+type DiscoveryView = "results" | "builder";
 type PackageTab = "basics" | "thresholds";
 export type DiscoveryLabRequestedSection = "overview" | "studio" | "run-lab" | "results" | "config";
 type MarketRegimeLoadState = "loading" | "ready" | "unavailable";
@@ -493,7 +493,7 @@ function mapRequestedSectionToView(
   hasCompletedSelection: boolean,
 ): DiscoveryView {
   if (requestedSection === "run-lab") {
-    return "runs";
+    return "results";
   }
   if (requestedSection === "results") {
     return "results";
@@ -521,7 +521,7 @@ function routeForRequestedSection(section: DiscoveryLabRequestedSection) {
     case "studio":
       return discoveryLabRoutes.studio;
     case "run-lab":
-      return discoveryLabRoutes.runLab;
+      return discoveryLabRoutes.results;
     case "results":
       return discoveryLabRoutes.results;
     case "config":
@@ -536,9 +536,6 @@ function inferRequestedSectionFromState(
   activeView: DiscoveryView,
   packageTab: PackageTab,
 ): DiscoveryLabRequestedSection {
-  if (activeView === "runs") {
-    return "run-lab";
-  }
   if (activeView === "results") {
     return "results";
   }
@@ -788,6 +785,10 @@ export function DiscoveryLabClient(props: {
   const stdoutLines = collectLogLines(runDetail?.stdout);
   const stderrLines = collectLogLines(runDetail?.stderr);
   const report = runDetail?.report ?? null;
+  const showRunOutputPanel = Boolean(activeRun || report || completedRunDetail);
+  const showLogPanel = Boolean(
+    activeRun || stdoutLines.length > 0 || stderrLines.length > 0,
+  );
   const commandPreview = buildRunCommandPreview(draft, allowOverfiltered);
   const canApplyRunCalibration = Boolean(
     completedRunDetail
@@ -836,46 +837,36 @@ export function DiscoveryLabClient(props: {
     : 0;
   const activeViewSummary = activeView === "builder"
       ? `${draft.recipes.length} strategy${draft.recipes.length === 1 ? "" : "ies"} · ${dirty ? "unsaved changes" : "draft synced"}`
-    : activeView === "runs"
-      ? activeRun
-        ? `${activeRun.status.toLowerCase()} · ${activeRun.packName}`
-        : "No active run"
-      : completedRunDetail
+    : completedRunDetail
         ? `${formatInteger(completedRunDetail.winnerCount ?? completedRunDetail.report?.winners.length ?? 0)} winners · ${formatInteger(completedRunDetail.evaluationCount ?? completedRunDetail.report?.deepEvaluations.length ?? 0)} evaluations`
         : "No completed run selected";
   const currentSection = requestedSection ?? inferRequestedSectionFromState(activeView, packageTab);
   const sectionTitle = currentSection === "studio"
-    ? "Strategy studio"
-    : currentSection === "run-lab"
-      ? "Run lab"
-      : currentSection === "results"
-        ? "Results"
-        : currentSection === "config"
-          ? "Configuration"
-          : "Discovery overview";
+    ? ""
+    : currentSection === "results"
+      ? "Results"
+      : currentSection === "config"
+        ? "Configuration"
+        : "Discovery overview";
   const sectionDescription = currentSection === "studio"
-    ? "Build and refine packs without repeating route-level navigation."
-    : currentSection === "run-lab"
-      ? "Launch the lab and monitor the execution path."
-      : currentSection === "results"
-        ? "Review the current run with a cleaner results-first surface."
-        : currentSection === "config"
-          ? "Tune threshold posture and discovery-owned runtime settings."
-          : "Choose the next lab step from the overview.";
+    ? ""
+    : currentSection === "results"
+      ? "Run, monitor, and review the current lab from one compact surface."
+      : currentSection === "config"
+        ? "Tune threshold posture and discovery-owned runtime settings."
+        : "Choose the next lab step from the overview.";
   const sectionContextChips = currentSection === "studio"
     ? [loadedPackageName, `${draft.recipes.length} strategies`]
     : currentSection === "config"
       ? [`${selectedRecipeProviderFilterCount}/${PROVIDER_FILTER_LIMIT} filters on selected strategy`, draft.defaultProfile ?? "runtime"]
-      : currentSection === "run-lab"
-        ? [activeRun?.packName ?? loadedPackageName, activeRun?.status ?? "Idle"]
-        : currentSection === "results"
-          ? [
-            completedRunDetail?.packName ?? "No completed run",
-            completedRunDetail
-              ? `${formatInteger(completedRunDetail.winnerCount ?? completedRunDetail.report?.winners.length ?? 0)} winners`
-              : "Awaiting a completed run",
-          ]
-          : [];
+      : currentSection === "results"
+        ? [
+          activeRun?.packName ?? completedRunDetail?.packName ?? "No selected run",
+          activeRun?.status ?? (completedRunDetail
+            ? `${formatInteger(completedRunDetail.winnerCount ?? completedRunDetail.report?.winners.length ?? 0)} winners`
+            : "Awaiting a completed run"),
+        ]
+        : [];
   const strategyFocusAreas = useMemo(() => deriveStrategyFocusAreas(normalizedRecipes), [normalizedRecipes]);
   const selectedOptimizationSuggestion = useMemo(() => {
     if (!marketRegimeSuggestion) {
@@ -1285,7 +1276,7 @@ export function DiscoveryLabClient(props: {
         await reloadCatalog(next.id);
         setMessage("Discovery lab run started.");
         setError(null);
-        activateSection("run-lab");
+        activateSection("results");
       } catch (issue) {
         setError(formatDiscoveryWriteError(issue, "start the discovery run"));
         setMessage(null);
@@ -1405,7 +1396,7 @@ export function DiscoveryLabClient(props: {
 
   function openRun(run: DiscoveryLabRunSummary) {
     setSelectedRunId(run.id);
-    activateSection(run.status === "COMPLETED" ? "results" : "run-lab");
+    activateSection("results");
   }
 
   const messageBanner = message || error ? (
@@ -1424,7 +1415,7 @@ export function DiscoveryLabClient(props: {
     </div>
   ) : null;
 
-  const workbenchPanel = (
+  const workbenchPanel = currentSection === "studio" ? null : (
     <CompactPageHeader
       eyebrow="Discovery lab"
       title={sectionTitle}
@@ -1457,9 +1448,7 @@ export function DiscoveryLabClient(props: {
             ? "Studio actions"
             : currentSection === "config"
               ? "Config actions"
-              : currentSection === "run-lab"
-                ? "Run actions"
-                : "Results actions"}
+              : "Results actions"}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -1487,21 +1476,21 @@ export function DiscoveryLabClient(props: {
               </button>
               <button onClick={startRun} className="btn-primary inline-flex items-center gap-2" disabled={runBusy || editorBlocked}>
                 <Play className="h-4 w-4" />
-                Run lab
+                Run
               </button>
             </>
           ) : null}
 
-          {activeView === "runs" ? (
+          {activeView === "results" ? (
             <>
               <button onClick={startRun} className="btn-primary inline-flex items-center gap-2" disabled={runBusy || editorBlocked}>
                 <Play className="h-4 w-4" />
                 {runBusy ? "Run in progress" : "Run"}
               </button>
-              {runDetail ? (
+              {completedRunDetail ? (
                 <button onClick={loadRunPackSnapshot} className="btn-ghost inline-flex items-center gap-2" disabled={isPending}>
                   <ArrowUpRight className="h-4 w-4" />
-                  Edit this run
+                  Tune in studio
                 </button>
               ) : null}
               <button
@@ -1510,19 +1499,8 @@ export function DiscoveryLabClient(props: {
                 className="btn-ghost hidden items-center gap-2 xl:inline-flex"
               >
                 {showSupportRail ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
-                {showSupportRail ? "Hide rail" : "Show rail"}
+                {showSupportRail ? "Hide run rail" : "Show run rail"}
               </button>
-            </>
-          ) : null}
-
-          {activeView === "results" ? (
-            <>
-              {completedRunDetail ? (
-                <button onClick={loadRunPackSnapshot} className="btn-ghost inline-flex items-center gap-2" disabled={isPending}>
-                  <ArrowUpRight className="h-4 w-4" />
-                  Tune in studio
-                </button>
-              ) : null}
               {canApplyRunCalibration ? (
                 <>
                   <button
@@ -1552,9 +1530,9 @@ export function DiscoveryLabClient(props: {
 
   const packageEditorPanel = (
     <Panel
-      title={draftTitle}
-      eyebrow="Pack"
-      description="One compact pack frame for defaults, thresholds, and the strategy set below."
+      title="Pack setup"
+      eyebrow={draftTitle}
+      description="Choose the pack, set defaults, and keep the working draft grounded before editing strategies."
       action={<StatusPill value={draft.defaultProfile ?? "high-value"} />}
     >
       <div className="rounded-[16px] border border-bg-border bg-[#0d0f10] p-4">
@@ -2026,8 +2004,9 @@ export function DiscoveryLabClient(props: {
 
   const strategyStudioPanel = (
     <Panel
-      title="Strategy studio"
-      description="Shape each filter set with operator-friendly controls first, then drop to advanced JSON only when needed."
+      title="Strategies"
+      eyebrow="Editor"
+      description="Keep one strategy selected, shape its query plan and filters, and use JSON only for exceptions."
       action={(
         <div className="flex flex-wrap gap-2">
           <button onClick={addStrategy} className="btn-ghost inline-flex items-center gap-2" disabled={isPending || readOnly}>
@@ -2521,14 +2500,8 @@ export function DiscoveryLabClient(props: {
     <Panel
       title="Run center"
       eyebrow="Live progress"
-      description="Starts the local script and polls every 3s."
+      description="Start, monitor, and reopen discovery runs from one compact surface."
       tone={activeRun?.status === "FAILED" ? "critical" : activeRun ? "warning" : "passive"}
-      action={completedRunDetail ? (
-        <button onClick={() => activateSection("results")} className="btn-ghost inline-flex items-center gap-2">
-          <FlaskConical className="h-4 w-4" />
-          Open results
-        </button>
-      ) : null}
     >
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_15rem]">
         <div className="space-y-4">
@@ -2537,7 +2510,7 @@ export function DiscoveryLabClient(props: {
               <div>
                 <div className="text-sm font-semibold text-text-primary">{activeRun?.packName ?? "No active run"}</div>
                 <div className="mt-1 text-xs text-text-secondary">
-                  {activeRun ? `${activeRun.sources.join(", ")} · ${activeRun.profile}` : "Run lab to start the local discovery script."}
+                  {activeRun ? `${activeRun.sources.join(", ")} · ${activeRun.profile}` : "Start a run from this page to launch the local discovery script."}
                 </div>
               </div>
               <StatusPill value={activeRun?.status ?? "idle"} />
@@ -2570,15 +2543,22 @@ export function DiscoveryLabClient(props: {
             </div>
           </div>
 
-          <div className="rounded-[16px] border border-bg-border bg-[#0d0d0f] p-4">
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-text-muted">
-              <SquareTerminal className="h-4 w-4" />
-              CLI launch
+          <details className="rounded-[16px] border border-bg-border bg-[#0d0d0f]">
+            <summary className="cursor-pointer list-none px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-text-muted">
+                  <SquareTerminal className="h-4 w-4" />
+                  CLI launch
+                </div>
+                <span className="meta-chip">Open command</span>
+              </div>
+            </summary>
+            <div className="border-t border-bg-border px-4 py-4">
+              <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-xs leading-6 text-text-secondary">
+                {commandPreview}
+              </pre>
             </div>
-            <pre className="mt-3 overflow-x-auto whitespace-pre-wrap font-mono text-xs leading-6 text-text-secondary">
-              {commandPreview}
-            </pre>
-          </div>
+          </details>
         </div>
 
         <div className="grid gap-3">
@@ -2609,12 +2589,12 @@ export function DiscoveryLabClient(props: {
           </div>
         </Tabs.Content>
 
-        <Tabs.Content value="runs" className="space-y-4 outline-none">
+        <Tabs.Content value="results" className="space-y-4 outline-none">
           <div className={clsx("grid gap-4", showSupportRail ? "xl:grid-cols-[minmax(0,1fr)_18rem]" : "xl:grid-cols-1")}>
             <div className="space-y-4">
               {runCockpitPanel}
-              {runOutputPanel}
-              {logPanel}
+              {showRunOutputPanel ? runOutputPanel : null}
+              {showLogPanel ? logPanel : null}
             </div>
             {showSupportRail ? (
               <div className="space-y-4">
@@ -2622,11 +2602,9 @@ export function DiscoveryLabClient(props: {
               </div>
             ) : null}
           </div>
-        </Tabs.Content>
 
-        <Tabs.Content value="results" className="space-y-4 outline-none">
           {!completedRunDetail ? (
-            <EmptyState title="No completed run selected" detail="Open a completed run from history to load the results board." />
+            <EmptyState title="No completed run selected" detail="Use the run rail above to reopen any completed run, or start a new one from this page." />
           ) : null}
 
           {completedRunDetail ? (

@@ -131,13 +131,6 @@ const navGroups: NavGroup[] = [
         matchPrefixes: [discoveryLabRoutes.studio],
       },
       {
-        id: "lab-run",
-        href: discoveryLabRoutes.runLab,
-        label: "Run",
-        icon: PlayCircle,
-        matchPrefixes: [discoveryLabRoutes.runLab],
-      },
-      {
         id: "lab-results",
         href: discoveryLabRoutes.results,
         label: "Results",

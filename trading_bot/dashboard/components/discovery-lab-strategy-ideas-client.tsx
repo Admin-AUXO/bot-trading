@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition } from "react";
-import { ArrowUpRight, RefreshCcw } from "lucide-react";
+import { useRef, useState, useTransition } from "react";
+import { ArrowUpRight, ChevronLeft, ChevronRight, RefreshCcw } from "lucide-react";
 import {
   CompactPageHeader,
   CompactStatGrid,
@@ -229,11 +229,14 @@ export function DiscoveryLabStrategyIdeasClient(props: {
         }
       >
         {payload.suggestions.length > 0 ? (
-          <div className="grid gap-4 xl:grid-cols-2">
+          <CardCarousel
+            itemCount={payload.suggestions.length}
+            itemLabel="idea cards"
+          >
             {payload.suggestions.map((suggestion) => (
               <SuggestionCard key={suggestion.id} suggestion={suggestion} />
             ))}
-          </div>
+          </CardCarousel>
         ) : (
           <EmptyState
             title="No strategy ideas cached yet"
@@ -241,6 +244,60 @@ export function DiscoveryLabStrategyIdeasClient(props: {
           />
         )}
       </Panel>
+    </div>
+  );
+}
+
+function CardCarousel(props: {
+  itemCount: number;
+  itemLabel: string;
+  children: React.ReactNode;
+}) {
+  const railRef = useRef<HTMLDivElement | null>(null);
+
+  function scrollByPage(direction: -1 | 1) {
+    const node = railRef.current;
+    if (!node) {
+      return;
+    }
+    node.scrollBy({
+      left: direction * Math.max(node.clientWidth * 0.85, 300),
+      behavior: "smooth",
+    });
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-xs text-text-secondary">
+          Swipe or use the arrows to move through {props.itemCount} {props.itemLabel}.
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => scrollByPage(-1)}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-bg-border bg-bg-hover/35 text-text-secondary transition hover:text-text-primary"
+            aria-label="Scroll left"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => scrollByPage(1)}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-bg-border bg-bg-hover/35 text-text-secondary transition hover:text-text-primary"
+            aria-label="Scroll right"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+
+      <div
+        ref={railRef}
+        className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {props.children}
+      </div>
     </div>
   );
 }
@@ -262,7 +319,7 @@ function SuggestionCard(props: {
   );
 
   return (
-    <div className={`rounded-[18px] border p-4 ${tone}`}>
+    <div className={`min-w-[20rem] max-w-[24rem] snap-start rounded-[18px] border p-4 ${tone}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">

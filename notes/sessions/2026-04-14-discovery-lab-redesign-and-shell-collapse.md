@@ -6,8 +6,14 @@ date: 2026-04-14
 source_files:
   - trading_bot/dashboard/components/app-shell.tsx
   - trading_bot/dashboard/components/discovery-lab-client.tsx
+  - trading_bot/dashboard/components/discovery-lab-market-stats-client.tsx
   - trading_bot/dashboard/components/discovery-lab-results-board.tsx
+  - trading_bot/dashboard/components/discovery-lab-strategy-ideas-client.tsx
+  - trading_bot/dashboard/components/settings-client.tsx
   - trading_bot/dashboard/app/discovery-lab/page.tsx
+  - trading_bot/dashboard/app/discovery-lab/config/page.tsx
+  - trading_bot/dashboard/app/discovery-lab/overview/page.tsx
+  - trading_bot/dashboard/app/discovery-lab/run-lab/page.tsx
   - trading_bot/dashboard/lib/types.ts
   - trading_bot/backend/src/services/discovery-lab-service.ts
   - trading_bot/backend/src/services/discovery-lab-token-insight-service.ts
@@ -43,6 +49,8 @@ next_action: Run one real provider-backed discovery-lab session against the five
   max hold time from the current exit profile
   a `2x confidence` score meaning confidence in a full `1x` gain from entry
 - Discovery-lab reports now persist token price and structural metrics on each evaluated row, so the UI can compute those guidance values from the actual report instead of inventing placeholders client-side.
+- Discovery-lab no longer needs a separate run page in the operator flow. Results now owns start, monitor, reopen, and review, while `/discovery-lab/run-lab` survives only as a compatibility redirect.
+- Market stats and strategy ideas both read better as rich horizontal card carousels than as another stacked grid of medium-detail panels.
 
 ## What Changed
 
@@ -55,17 +63,22 @@ next_action: Run one real provider-backed discovery-lab session against the five
 - The results grid is now trimmed to decision-first columns: token, flow, structure, timing, and setup. `View details` stays review-focused, while `Trade ticket` is the separate execution surface.
 - The full-details modal now emphasizes `Read first`, market structure, timing or flow, security, and consensus. The trade-ticket CTA is demoted so the review modal no longer duplicates the manual-entry workflow.
 - `discovery-lab-market-stats-client.tsx` and `discovery-lab-strategy-ideas-client.tsx` now trim repeated cost narration and secondary chips so the first screen stays on posture, signal, risk, and action instead of repeating the paid or free source story in multiple panels.
+- `discovery-lab-market-stats-client.tsx` and `discovery-lab-strategy-ideas-client.tsx` now render the primary boards as horizontal card carousels with explicit arrow controls so rich cards stay dense without becoming a tall page stack.
 - `discovery-lab-client.tsx` now uses top-level `Overview`, `Package`, `Strategies`, `Runs`, and `Results` tabs instead of the old fixed pane stack.
 - Package editing is split into `Basics` and `Thresholds`, and package actions are explicit: use, clone, load the active run package, and delete.
 - Strategy management moved into a dedicated studio with search, add, duplicate, remove, reorder, autosizing editors, and direct param JSON editing.
+- `dashboard/app/discovery-lab/run-lab/page.tsx` now redirects to `/discovery-lab/results`, and the shell plus overview no longer present Run as a separate discovery-lab destination.
+- `discovery-lab-client.tsx` now suppresses the extra studio page header, keeps the results route responsible for run start or monitor or reopen, and collapses secondary run diagnostics behind disclosure so the page stays compact.
 - `discovery-lab-results-board.tsx` now supports a full-screen results dialog and stacked mobile result cards instead of relying on a wide scroll-only table.
 - Discovery result rows now expose both Axiom Pulse and DexScreener links from the deduplicated board and the raw-hit surface.
 - The results board now includes a setup column with suggested capital, 2x confidence, max hold, and a `View details` action with an icon on both desktop rows and mobile cards.
 - The new token-details drawer surfaces current price, liquidity, market cap, buy/sell ratio, holder structure, stop loss, TP1, TP2, max hold, and the derived exit profile for the selected mint.
+- The token-details modal now keeps the main column on review flow and moves social/tool pivots into a compact summary-rail `Fast links` block, while the trade-ticket modal groups `Desk snapshot`, `Order shape`, validation, and external checks into a clearer right-rail checklist.
 - `trading_bot/backend/scripts/discovery-lab.ts`, `trading_bot/backend/src/services/discovery-lab-service.ts`, and `trading_bot/dashboard/lib/types.ts` now carry the extra price and structure fields needed by that drawer.
 - `discovery-lab-market-stats-service.ts` now degrades provider failures and rate limits from Birdeye, Rugcheck, DexScreener, and focus-token enrichment into partial market-stats responses instead of 500ing the whole request.
 - Replaced starter JSON packs and pre-seeded local scalp pack files with five repo-created packs that all ship four graduated strategies and pack-specific threshold overrides.
 - Added small headless UI packages for tabs, dialog, tooltips, and autosizing textareas.
+- `settings-client.tsx` now renders discovery hot parameters in a denser two-column layout so the config page stays compact.
 
 ## What I Verified
 
@@ -80,6 +93,9 @@ next_action: Run one real provider-backed discovery-lab session against the five
 - Live `GET /api/operator/discovery-lab/market-stats?limit=18` stayed `meta.cacheState="empty"` after restart, then moved to `meta.cacheState="ready"` only after `refresh=true`, confirming cache-only default reads.
 - Live `GET /api/operator/discovery-lab/strategy-suggestions` stayed `meta.cacheState="empty"` before any market refresh, then returned five suggestions from the cached market stats without a separate refresh.
 - Live `/discovery-lab/market-stats` and `/discovery-lab/strategy-ideas` returned `200` after deploy.
+- `cd trading_bot && ./scripts/update-compose-stack.sh --service bot --service dashboard`
+- Live `/discovery-lab/overview`, `/discovery-lab/studio`, `/discovery-lab/results`, `/discovery-lab/market-stats`, `/discovery-lab/strategy-ideas`, and `/discovery-lab/config` returned `200` after the latest dashboard refresh.
+- Live `/discovery-lab/run-lab` returned `307` with `location: /discovery-lab/results`, confirming the compatibility redirect.
 - `cd trading_bot/dashboard && npm install @radix-ui/react-dialog @radix-ui/react-tabs @radix-ui/react-tooltip react-textarea-autosize`
 - `cd trading_bot/dashboard && npm run build`
 - `cd trading_bot/backend && npm run build`

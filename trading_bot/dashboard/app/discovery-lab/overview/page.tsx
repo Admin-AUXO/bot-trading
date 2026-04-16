@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Route } from "next";
-import { ArrowUpRight, FlaskConical, PlayCircle, Settings2, Sparkles } from "lucide-react";
+import { ArrowUpRight, FlaskConical, Settings2, Sparkles } from "lucide-react";
 import { CompactPageHeader, CompactStatGrid, Panel, ScanStat, StatusPill } from "@/components/dashboard-primitives";
 import { buttonVariants } from "@/components/ui/button";
 import { serverFetch } from "@/lib/api";
@@ -66,24 +66,17 @@ export default async function DiscoveryLabOverviewPage() {
               status={`${formatInteger(catalog.packs.length)} packs available`}
             />
             <WorkflowCard
-              href={discoveryLabRoutes.runLab}
-              icon={PlayCircle}
-              title="Run lab"
-              detail="Launch and monitor the local discovery workflow."
-              status={catalog.activeRun ? catalog.activeRun.status : "Idle"}
-            />
-            <WorkflowCard
               href={discoveryLabRoutes.results}
               icon={FlaskConical}
               title="Results"
-              detail="Review winners, token boards, and manual-entry candidates."
-              status={latestRun?.winnerCount != null ? `${formatInteger(latestRun.winnerCount)} winners in latest run` : "Awaiting a completed run"}
+              detail="Run, monitor, and review the current lab from one compact surface."
+              status={catalog.activeRun ? catalog.activeRun.status : latestRun?.winnerCount != null ? `${formatInteger(latestRun.winnerCount)} winners in latest run` : "Awaiting a completed run"}
             />
             <WorkflowCard
               href={discoveryLabRoutes.config}
               icon={Settings2}
               title="Config"
-              detail="Promote discovery-owned strategy and research settings."
+              detail="Edit discovery-owned strategy, filters, and session controls."
               status={runtimeSnapshot.settings.strategy.liveStrategy.enabled ? "Adaptive live staged" : "Baseline strategy"}
             />
           </div>
@@ -92,7 +85,7 @@ export default async function DiscoveryLabOverviewPage() {
         <Panel
           title="Current lab state"
           eyebrow="Run and runtime"
-          description="Keep the current research posture visible before diving deeper."
+          description="Keep the current discovery posture visible before diving deeper."
           tone={catalog.activeRun?.status === "FAILED" ? "critical" : catalog.activeRun ? "warning" : "passive"}
         >
           <div className="grid gap-3">
@@ -105,7 +98,7 @@ export default async function DiscoveryLabOverviewPage() {
             <ScanStat
               label="Active pack"
               value={catalog.activeRun?.packName ?? "No active run"}
-              detail={catalog.activeRun?.sources.join(", ") ?? "Launch from Run lab"}
+              detail={catalog.activeRun?.sources.join(", ") ?? "Launch from Results"}
               tone={catalog.activeRun ? "accent" : "default"}
             />
             <ScanStat

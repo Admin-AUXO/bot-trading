@@ -415,7 +415,7 @@ export function SettingsClient({
             <div className="mb-4 rounded-[14px] border border-[rgba(163,230,53,0.18)] bg-[rgba(163,230,53,0.08)] px-4 py-3 text-sm text-text-primary">
               Optimize for pump.fun and recent graduates here. These edits apply directly to active runtime settings, so keep the desk paused if you are changing live-sensitive values mid-session.
             </div>
-            <div className="space-y-2">
+            <div className="grid gap-2 xl:grid-cols-2">
               {hotDiscoveryFields.map((field) => (
                 <HotParameterRow
                   key={field.path}

@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition } from "react";
-import { ArrowUpRight, RefreshCcw, Search } from "lucide-react";
+import { useRef, useState, useTransition } from "react";
+import { ArrowUpRight, ChevronLeft, ChevronRight, RefreshCcw, Search } from "lucide-react";
 import {
   CompactPageHeader,
   CompactStatGrid,
@@ -288,11 +288,14 @@ export function DiscoveryLabMarketStatsClient(props: {
         }
       >
         {hasBoardData ? (
-          <div className="grid gap-3 xl:grid-cols-2">
+          <CardCarousel
+            itemCount={payload.tokens.length}
+            itemLabel="market cards"
+          >
             {payload.tokens.map((token) => (
               <MarketTokenCard key={token.mint} token={token} />
             ))}
-          </div>
+          </CardCarousel>
         ) : (
           <EmptyState
             title="No market board cached yet"
@@ -435,13 +438,67 @@ export function DiscoveryLabMarketStatsClient(props: {
   );
 }
 
+function CardCarousel(props: {
+  itemCount: number;
+  itemLabel: string;
+  children: React.ReactNode;
+}) {
+  const railRef = useRef<HTMLDivElement | null>(null);
+
+  function scrollByPage(direction: -1 | 1) {
+    const node = railRef.current;
+    if (!node) {
+      return;
+    }
+    node.scrollBy({
+      left: direction * Math.max(node.clientWidth * 0.85, 280),
+      behavior: "smooth",
+    });
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-xs text-text-secondary">
+          Swipe or use the arrows to move through {props.itemCount} {props.itemLabel}.
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => scrollByPage(-1)}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-bg-border bg-bg-hover/35 text-text-secondary transition hover:text-text-primary"
+            aria-label="Scroll left"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => scrollByPage(1)}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-bg-border bg-bg-hover/35 text-text-secondary transition hover:text-text-primary"
+            aria-label="Scroll right"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+
+      <div
+        ref={railRef}
+        className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {props.children}
+      </div>
+    </div>
+  );
+}
+
 function MarketTokenCard(props: { token: DiscoveryLabMarketTokenRow }) {
   const { token } = props;
   const positiveMove = (token.priceChange5mPercent ?? 0) >= 0;
   const socialCount = token.socials.count;
 
   return (
-    <div className="rounded-[18px] border border-bg-border bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))] p-4">
+    <div className="min-w-[19rem] max-w-[22rem] snap-start rounded-[18px] border border-bg-border bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))] p-4 md:min-w-[20rem]">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
