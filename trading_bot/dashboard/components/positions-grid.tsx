@@ -4,19 +4,14 @@ import Link from "next/link";
 import type { Route } from "next";
 import { type ColDef, type GetRowIdParams, type ICellRendererParams, type RowClassRules } from "ag-grid-community";
 import { AgGridReact } from "ag-grid-react";
-import { ArrowUpRight, Eye } from "lucide-react";
+import { ArrowUpRight } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  GridStatusBadge,
-  RowDetailsDialog,
-  type GridRecord,
-} from "@/components/ag-grid-shared";
 import { WorkbenchRowActions } from "@/components/workbench-row-actions";
-import { formatCurrency, formatNumber, formatTimestamp } from "@/lib/format";
+import { formatCompactCurrency, formatPercent, formatTimestamp } from "@/lib/format";
 import { buildGrafanaDashboardLink } from "@/lib/grafana";
 import type { PositionBookPayload } from "@/lib/types";
 
-type PositionSort = "priority" | "opened" | "current" | "remaining";
+type PositionSort = "priority" | "opened" | "pnl" | "latency";
 type PositionRow = PositionBookPayload["rows"][number];
 
 export function PositionsGrid(props: {
@@ -26,7 +21,6 @@ export function PositionsGrid(props: {
   query: string;
 }) {
   const gridRef = useRef<AgGridReact<PositionRow>>(null);
-  const [selectedRow, setSelectedRow] = useState<PositionRow | null>(null);
   const [focusedRowId, setFocusedRowId] = useState<string | null>(null);
 
   const rowIdSet = useMemo(() => new Set(props.rows.map((row) => row.id)), [props.rows]);
@@ -73,6 +67,12 @@ export function PositionsGrid(props: {
     [focusedRowId, props.book],
   );
 
+  const metricScales = useMemo(() => ({
+    unrealizedPnlUsd: buildMetricScale(props.rows.map((row) => row.unrealizedPnlUsd), true),
+    returnPct: buildMetricScale(props.rows.map((row) => row.returnPct), true),
+    latestExecutionLatencyMs: buildMetricScale(props.rows.map((row) => row.latestExecutionLatencyMs), false, true),
+  }), [props.rows]);
+
   const columnDefs = useMemo<ColDef<PositionRow>[]>(() => [
     {
       colId: "position",
@@ -80,6 +80,9 @@ export function PositionsGrid(props: {
       minWidth: 230,
       flex: 1.1,
       sortable: true,
+      wrapText: true,
+      autoHeight: true,
+      cellClass: "ag-grid-cell-wrap",
       valueGetter: (params) => params.data?.symbol ?? "",
       cellRenderer: (params: ICellRendererParams<PositionRow>) => {
         if (!params.data) {
@@ -112,6 +115,9 @@ export function PositionsGrid(props: {
       minWidth: 190,
       flex: 1,
       hide: props.book === "closed",
+      wrapText: true,
+      autoHeight: true,
+      cellClass: "ag-grid-cell-wrap",
       cellRenderer: (params: ICellRendererParams<PositionRow>) => {
         if (!params.data) {
           return null;
@@ -125,41 +131,42 @@ export function PositionsGrid(props: {
       },
     },
     {
-      field: "status",
-      headerName: "Status",
-      minWidth: 120,
-      maxWidth: 150,
-      cellRenderer: (params: ICellRendererParams<PositionRow>) => <GridStatusBadge value={params.value as string | null | undefined} />,
+      field: "unrealizedPnlUsd",
+      headerName: "PnL",
+      minWidth: 130,
+      maxWidth: 160,
+      headerClass: "ag-grid-header-center",
+      cellClass: "ag-grid-cell-metric",
+      cellStyle: (params) => buildHeatCellStyle(params.value, metricScales.unrealizedPnlUsd),
+      valueFormatter: (params) => formatCompactCurrency(params.value),
     },
     {
-      field: "entryPriceUsd",
-      headerName: "Entry",
-      minWidth: 120,
-      maxWidth: 150,
-      cellClass: "ag-grid-cell-number",
-      valueFormatter: (params) => formatCurrency(params.value, 6),
+      field: "returnPct",
+      headerName: "Return",
+      minWidth: 110,
+      maxWidth: 130,
+      headerClass: "ag-grid-header-center",
+      cellClass: "ag-grid-cell-metric",
+      cellStyle: (params) => buildHeatCellStyle(params.value, metricScales.returnPct),
+      valueFormatter: (params) => formatPercent(params.value),
     },
     {
-      field: "currentPriceUsd",
-      headerName: "Current",
-      minWidth: 120,
-      maxWidth: 150,
-      cellClass: "ag-grid-cell-number",
-      valueFormatter: (params) => formatCurrency(params.value, 6),
-    },
-    {
-      field: "remainingToken",
-      headerName: "Remaining",
-      minWidth: 120,
-      maxWidth: 145,
-      cellClass: "ag-grid-cell-number",
-      valueFormatter: (params) => formatNumber(params.value),
+      field: "latestExecutionLatencyMs",
+      headerName: "Exec",
+      minWidth: 110,
+      maxWidth: 130,
+      headerClass: "ag-grid-header-center",
+      cellClass: "ag-grid-cell-metric",
+      cellStyle: (params) => buildHeatCellStyle(params.value, metricScales.latestExecutionLatencyMs),
+      valueFormatter: (params) => params.value == null ? "—" : `${Math.round(Number(params.value))} ms`,
     },
     {
       field: "openedAt",
       headerName: "Opened",
       minWidth: 170,
       maxWidth: 210,
+      headerClass: "ag-grid-header-center",
+      cellClass: "ag-grid-cell-center",
       valueFormatter: (params) => formatTimestamp(params.value),
     },
     {
@@ -168,17 +175,20 @@ export function PositionsGrid(props: {
       minWidth: 170,
       maxWidth: 210,
       hide: props.book === "open",
+      headerClass: "ag-grid-header-center",
+      cellClass: "ag-grid-cell-center",
       valueFormatter: (params) => params.value ? formatTimestamp(params.value) : "—",
     },
     {
       colId: "__actions",
       headerName: "Actions",
-      minWidth: 300,
-      maxWidth: 380,
+      minWidth: 240,
+      maxWidth: 320,
       sortable: false,
       filter: false,
       resizable: false,
       pinned: "right",
+      headerClass: "ag-grid-header-center",
       cellClass: "ag-grid-cell-action",
       cellRenderer: (params: ICellRendererParams<PositionRow>) => {
         if (!params.data) {
@@ -196,15 +206,7 @@ export function PositionsGrid(props: {
           },
         });
         return (
-          <div className="flex min-w-[18rem] flex-wrap items-center gap-2 py-1">
-            <button
-              type="button"
-              onClick={() => setSelectedRow(row)}
-              className="ag-grid-view-button"
-            >
-              <Eye className="h-3.5 w-3.5" />
-              Full
-            </button>
+          <div className="flex min-w-[14rem] flex-wrap items-center gap-2 py-1">
             <WorkbenchRowActions
               openHref={detailHref}
               openLabel={row.symbol}
@@ -224,7 +226,7 @@ export function PositionsGrid(props: {
         );
       },
     },
-  ], [focusFromHash, props.book, props.query, props.sort]);
+  ], [focusFromHash, metricScales.latestExecutionLatencyMs, metricScales.returnPct, metricScales.unrealizedPnlUsd, props.book, props.query, props.sort]);
 
   const defaultColDef = useMemo<ColDef<PositionRow>>(
     () => ({
@@ -236,8 +238,6 @@ export function PositionsGrid(props: {
     [],
   );
 
-  const selectedRowDetails = selectedRow ? toDetailRecord(selectedRow) : null;
-
   if (props.rows.length === 0) {
     return (
       <div className="rounded-[14px] border border-bg-border bg-bg-hover/40 px-4 py-4 text-sm text-text-secondary">
@@ -247,40 +247,66 @@ export function PositionsGrid(props: {
   }
 
   return (
-    <>
-      <div className="ag-theme-quartz-dark ag-grid-desk h-[min(62vh,43rem)] w-full rounded-[14px] border border-bg-border bg-bg-card/45">
-        <AgGridReact<PositionRow>
-          ref={gridRef}
-          rowData={props.rows}
-          columnDefs={columnDefs}
-          defaultColDef={defaultColDef}
-          rowClassRules={rowClassRules}
-          getRowId={(params: GetRowIdParams<PositionRow>) => params.data.id}
-          animateRows={false}
-          rowHeight={72}
-          headerHeight={34}
-          suppressCellFocus
-          pagination={props.rows.length > 15}
-          paginationPageSize={15}
-          onFirstDataRendered={() => focusFromHash()}
-        />
-      </div>
-
-      <RowDetailsDialog
-        row={selectedRowDetails}
-        title={selectedRow ? `${selectedRow.symbol} · Position` : "Position details"}
-        subtitle="Full book row"
-        preferredKeys={["symbol", "mint", "status", "interventionLabel", "interventionPriority", "entryPriceUsd", "currentPriceUsd", "remainingToken", "exitReason", "openedAt", "closedAt"]}
-        onClose={() => setSelectedRow(null)}
+    <div className="ag-theme-quartz-dark ag-grid-desk h-[min(62vh,43rem)] w-full rounded-[14px] border border-bg-border bg-bg-card/45">
+      <AgGridReact<PositionRow>
+        ref={gridRef}
+        theme="legacy"
+        rowData={props.rows}
+        columnDefs={columnDefs}
+        defaultColDef={defaultColDef}
+        rowClassRules={rowClassRules}
+        getRowId={(params: GetRowIdParams<PositionRow>) => params.data.id}
+        animateRows={false}
+        rowHeight={52}
+        headerHeight={36}
+        suppressCellFocus
+        pagination={props.rows.length > 15}
+        paginationPageSize={15}
+        onFirstDataRendered={() => focusFromHash()}
       />
-    </>
+    </div>
   );
 }
 
-function toDetailRecord(row: PositionRow): GridRecord {
+function buildMetricScale(values: Array<number | null | undefined>, diverging = false, inverse = false) {
+  const numeric = values
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value));
+  if (numeric.length === 0) {
+    return null;
+  }
+  if (diverging) {
+    const bound = Math.max(Math.abs(Math.min(...numeric)), Math.abs(Math.max(...numeric)));
+    return bound === 0 ? null : { min: -bound, max: bound, inverse: false };
+  }
+  const min = Math.min(...numeric);
+  const max = Math.max(...numeric);
+  return min === max ? null : { min, max, inverse };
+}
+
+function buildHeatCellStyle(value: unknown, scale: { min: number; max: number; inverse?: boolean } | null): Record<string, string> | undefined {
+  const numeric = Number(value);
+  if (!scale || !Number.isFinite(numeric)) {
+    return undefined;
+  }
+  const rawRatio = Math.max(0, Math.min(1, (numeric - scale.min) / (scale.max - scale.min)));
+  const ratio = scale.inverse ? 1 - rawRatio : rawRatio;
+  const warmRatio = scale.inverse ? rawRatio : Math.max(0, Math.min(1, (0 - scale.min) / (scale.max - scale.min)));
+  const greenAlpha = 0.06 + ratio * 0.15;
+  const redAlpha = scale.inverse ? 0 : numeric < 0 ? 0.08 + (1 - ratio) * 0.14 : 0;
+  if (redAlpha > 0) {
+    return {
+      background: `linear-gradient(180deg, rgba(251, 113, 133, ${redAlpha}) 0%, rgba(251, 113, 133, ${redAlpha * 0.42}) 100%)`,
+    };
+  }
+  if (scale.inverse && warmRatio > 0.55) {
+    return {
+      background: `linear-gradient(180deg, rgba(163, 230, 53, ${greenAlpha}) 0%, rgba(163, 230, 53, ${greenAlpha * 0.42}) 100%)`,
+      boxShadow: "inset 0 0 0 1px rgba(250, 204, 21, 0.18)",
+    };
+  }
   return {
-    ...row,
-    exitReason: row.exitReason ?? "—",
+    background: `linear-gradient(180deg, rgba(163, 230, 53, ${greenAlpha}) 0%, rgba(163, 230, 53, ${greenAlpha * 0.42}) 100%)`,
   };
 }
 

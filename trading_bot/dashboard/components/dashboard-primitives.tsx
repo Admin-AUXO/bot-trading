@@ -15,13 +15,13 @@ export function PageHero(props: {
 }) {
   return (
     <section className="panel-strong rounded-[14px] px-3 py-2.5 md:px-3.5 md:py-3">
-      <div className="relative z-10 grid gap-2.5 xl:grid-cols-[minmax(0,1.2fr)_minmax(13rem,15rem)] xl:items-start">
+      <div className="relative z-10 grid gap-2 xl:grid-cols-[minmax(0,1.2fr)_minmax(13rem,15rem)] xl:items-start">
         <div className="max-w-3xl">
           <div className="flex flex-wrap items-center gap-2">
             <p className="section-kicker text-accent">{props.eyebrow}</p>
             {props.meta}
           </div>
-          <h1 className="mt-1 font-display text-[1.08rem] font-semibold tracking-[-0.02em] text-balance text-text-primary md:text-[1.26rem]">
+          <h1 className="mt-1 font-display text-[1rem] font-semibold tracking-[-0.02em] text-balance text-text-primary md:text-[1.16rem]">
             {props.title}
           </h1>
           {props.description ? (
@@ -32,6 +32,59 @@ export function PageHero(props: {
         {props.aside ? <div className="relative z-10">{props.aside}</div> : null}
       </div>
     </section>
+  );
+}
+
+export function CompactPageHeader(props: {
+  eyebrow: string;
+  title: string;
+  description?: string;
+  badges?: React.ReactNode;
+  actions?: React.ReactNode;
+  children?: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <section className={clsx("panel-strong rounded-[14px] px-3 py-2.5", props.className)}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="section-kicker text-accent">{props.eyebrow}</div>
+            {props.badges}
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <h1 className="font-display text-[1rem] font-semibold tracking-[-0.02em] text-text-primary">{props.title}</h1>
+            {props.description ? <span className="text-[12px] text-text-secondary">{props.description}</span> : null}
+          </div>
+        </div>
+        {props.actions ? <div className="flex flex-wrap items-center gap-2">{props.actions}</div> : null}
+      </div>
+      {props.children ? <div className="mt-2.5">{props.children}</div> : null}
+    </section>
+  );
+}
+
+export function CompactStatGrid(props: {
+  items: Array<{
+    label: string;
+    value: string;
+    detail?: string;
+    tone?: "default" | "accent" | "warning" | "danger";
+  }>;
+  className?: string;
+}) {
+  return (
+    <div className={clsx("grid gap-2 md:grid-cols-2 xl:grid-cols-4", props.className)}>
+      {props.items.map((item) => (
+        <ScanStat
+          key={`${item.label}-${item.value}-${item.detail ?? ""}`}
+          label={item.label}
+          value={item.value}
+          detail={item.detail}
+          tone={item.tone}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -90,13 +143,15 @@ export function StatCard(props: {
   const Icon = props.icon;
 
   return (
-    <div className={clsx("rounded-[12px] border px-3 py-2.5", tones[props.tone ?? "default"])}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">{props.label}</div>
-        {Icon ? <Icon className="h-4 w-4 text-text-secondary" /> : null}
+    <div className={clsx("rounded-[12px] border px-3 py-[0.6rem]", tones[props.tone ?? "default"])}>
+      <div className="scorecard-grid">
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <div className="scorecard-label wrap-anywhere">{props.label}</div>
+          {Icon ? <Icon className="h-4 w-4 text-text-secondary" /> : null}
+        </div>
+        <div className="scorecard-value wrap-anywhere text-[1.16rem] font-semibold tracking-tight">{props.value}</div>
+        <div className="scorecard-detail text-[12px]">{props.detail}</div>
       </div>
-      <div className="mt-1.5 text-[1.18rem] font-semibold tabular-nums tracking-tight text-text-primary">{props.value}</div>
-      <div className="mt-1 text-[12px] leading-5 text-text-secondary">{props.detail}</div>
     </div>
   );
 }
@@ -115,18 +170,20 @@ export function ScanStat(props: {
   }[props.tone ?? "default"];
 
   return (
-    <div className={clsx("rounded-[14px] border px-3 py-3", toneClass)}>
-      <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted">{props.label}</div>
-      <div className="mt-2 text-[1.05rem] font-semibold tracking-tight text-text-primary">{props.value}</div>
-      {props.detail ? <div className="mt-1 text-xs leading-5 text-text-secondary">{props.detail}</div> : null}
+    <div className={clsx("rounded-[14px] border px-3 py-2.5", toneClass)}>
+      <div className="scorecard-grid">
+        <div className="scorecard-label wrap-anywhere">{props.label}</div>
+        <div className="scorecard-value wrap-anywhere text-[0.98rem] font-semibold tracking-tight">{props.value}</div>
+        {props.detail ? <div className="scorecard-detail text-xs">{props.detail}</div> : <div />}
+      </div>
     </div>
   );
 }
 
 export function EmptyState(props: { title: string; detail: string }) {
   return (
-    <div className="flex flex-col items-center justify-center px-4 py-16 text-center">
-      <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-bg-border bg-bg-hover text-text-muted">
+    <div className="flex flex-col items-center justify-center px-4 py-8 text-center">
+      <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-bg-border bg-bg-hover text-text-muted">
         <AlertCircle className="h-4 w-4" />
       </div>
       <div className="text-sm font-medium text-text-secondary">{props.title}</div>

@@ -58,21 +58,22 @@ Use this when you want the app processes on the host but do not want to install 
 
 1. Copy [`../../trading_bot/backend/.env.example`](../../trading_bot/backend/.env.example) to `trading_bot/backend/.env`.
 2. Fill `HELIUS_RPC_URL`, `BIRDEYE_API_KEY`, and `CONTROL_API_SECRET`.
-3. If you intend to trade live, also fill `TRADING_WALLET_PRIVATE_KEY_B58` and review the `LIVE_*` routing values. The wallet must hold enough SOL for fees and tips and enough quote-token balance for entries.
-4. Pick the active preset defaults with:
+3. If you want the recurring discovery-lab Telegram alert runner, also fill `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`.
+4. If you intend to trade live, also fill `TRADING_WALLET_PRIVATE_KEY_B58` and review the `LIVE_*` routing values. The wallet must hold enough SOL for fees and tips and enough quote-token balance for entries.
+5. Pick the active preset defaults with:
    `LIVE_STRATEGY_PRESET_ID`
    `DRY_RUN_STRATEGY_PRESET_ID`
-5. If you want continuation-mode migration nudges, set `HELIUS_MIGRATION_WATCHER_ENABLED=true` and populate `HELIUS_MIGRATION_WATCH_PROGRAM_IDS` with the program ids you actually trust.
-6. Review `DISCOVERY_SOURCES`, `TRADABLE_SOURCES`, `DAILY_LOSS_LIMIT_USD`, `MAX_CONSECUTIVE_LOSSES`, and the cadence and budget envs (`DISCOVERY_INTERVAL_MS`, `OFF_HOURS_DISCOVERY_INTERVAL_MS`, `IDLE_EVALUATION_INTERVAL_MS`, `BIRDEYE_*_BUDGET_SHARE`) so the venue mix, dayparting, and quota pacing match your desk.
-7. Change `DATABASE_URL` from the compose hostname `postgres` to `127.0.0.1` or `localhost`. The checked-in example is compose-oriented and will not work for a host-run backend as written.
-6. Start only Postgres:
+6. If you want continuation-mode migration nudges, set `HELIUS_MIGRATION_WATCHER_ENABLED=true` and populate `HELIUS_MIGRATION_WATCH_PROGRAM_IDS` with the program ids you actually trust.
+7. Review `DISCOVERY_SOURCES`, `TRADABLE_SOURCES`, `DAILY_LOSS_LIMIT_USD`, `MAX_CONSECUTIVE_LOSSES`, and the cadence and budget envs (`DISCOVERY_INTERVAL_MS`, `OFF_HOURS_DISCOVERY_INTERVAL_MS`, `IDLE_EVALUATION_INTERVAL_MS`, `BIRDEYE_*_BUDGET_SHARE`) so the venue mix, dayparting, and quota pacing match your desk.
+8. Change `DATABASE_URL` from the compose hostname `postgres` to `127.0.0.1` or `localhost`. The checked-in example is compose-oriented and will not work for a host-run backend as written.
+9. Start only Postgres:
 
 ```bash
 cd trading_bot
 docker compose up -d postgres
 ```
 
-8. Generate Prisma client, apply schema and views, and run the backend:
+10. Generate Prisma client, apply schema and views, and run the backend:
 
 ```bash
 cd trading_bot/backend
@@ -82,7 +83,7 @@ npm run db:setup
 npm run dev
 ```
 
-9. Run the dashboard separately:
+11. Run the dashboard separately:
 
 ```bash
 cd trading_bot/dashboard
@@ -93,6 +94,7 @@ npm run dev
 Notes:
 
 - Host-run dashboard reads the backend from `http://127.0.0.1:3101` unless you override `API_URL`.
+- The recurring discovery-lab Telegram alert runner uses `backend/.env` plus the local backend API. By default it targets `http://127.0.0.1:${BOT_PORT}` and sends alerts only when `npm run lab:telegram-alert` sees winner-positive runs for `Scalp tape + structure`.
 - Optional Grafana pivots use `GRAFANA_BASE_URL` plus the dashboard UID envs defined in [`../../trading_bot/backend/.env.example`](../../trading_bot/backend/.env.example). The current repo-owned Grafana estate expects:
   `GRAFANA_EXECUTIVE_DASHBOARD_UID`
   `GRAFANA_ANALYST_DASHBOARD_UID`

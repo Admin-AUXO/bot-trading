@@ -24,7 +24,7 @@ Use this for repeatable Birdeye discovery experiments.
 
 ```bash
 cd trading_bot/backend
-npm run lab:discovery -- --profile high-value --sources pump_dot_fun
+npm run lab:discovery -- --pack created-fresh-burst-ladder --profile high-value --sources pump_dot_fun
 ```
 
 ## Use Cases
@@ -34,20 +34,21 @@ npm run lab:discovery -- --profile high-value --sources pump_dot_fun
 - write machine-readable output with `--out ../../.codex/tmp/discovery-lab.json`
   the script now also writes `../../.codex/tmp/discovery-lab-winners.csv` unless you override it with `--out-csv`
 - tune one or two recipes with `--recipe-names ...`
-- test the quality or fast-turn packs from `scripts/discovery-lab.recipes.quality.json` or `scripts/discovery-lab.recipes.fast-turn.json`
-- re-check the current pump controls first:
-  `grad_4h_volume1h`
-  `grad_4h_holder_liquidity`
-  `grad_60m_trade5m`
-- if you need new variants, test the `30m` follow-ups before reviving brittle pregrad or `1m` impulse shapes:
-  `grad_75m_price30m_strength`
-  `grad_45m_volume30m_persistence`
+- run the repo-created packs directly with `--pack <id>`
+- start with these current created pack ids:
+  `created-fresh-burst-ladder`
+  `created-early-flow-balance`
+  `created-holder-supported-continuation`
+  `created-reclaim-strength-stack`
+  `created-late-expansion-quality`
+- use the early two packs for fresh continuation windows and the later three when you want stronger holder, liquidity, or 1h participation bias
 
 ## Rules
 
 - Use the script, not one-off curl spam.
 - Keep Birdeye API-side filters at five or fewer.
 - Keep `pump_dot_fun` as the default and do not spend default lab passes on `moonshot`, `raydium_launchlab`, or `meteora_dynamic_bonding_curve`.
+- The repo no longer uses starter JSON packs. Use repo-created packs or saved workspace packs instead.
 - Deep eval now fetches Helius mint authorities and Helius largest-account concentration once per unique uncached mint across the whole run, then reuses those facts across recipe winners.
 - Treat this as research. Do not mutate runtime defaults just because one run looked exciting.
 - Inspect reject reasons before touching thresholds.

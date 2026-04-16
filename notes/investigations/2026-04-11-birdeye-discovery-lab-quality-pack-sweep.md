@@ -9,8 +9,10 @@ source_files:
   - trading_bot/backend/scripts/discovery-lab.recipes.quality.json
   - trading_bot/backend/scripts/discovery-lab.recipes.fast-turn.json
   - trading_bot/backend/src/services/runtime-config.ts
+  - trading_bot/backend/src/services/discovery-lab-workspace-packs.ts
+  - trading_bot/backend/src/services/discovery-lab-created-packs.ts
 graph_checked: 2026-04-12
-next_action: Use the balanced small-ticket proxy thresholds (`8k` liquidity, `2m` market-cap ceiling, `35` holders, `1.5k` 5m volume, `12` unique buyers, `1.05` buy/sell ratio, `45/25` concentration caps) as the first scalp-profile candidate, then re-run the sub-10m pack in a hotter pump window before hard-coding a new default.
+next_action: Treat the reladdered discovery-lab packs and their refreshed per-pack strategy ladders as the current baseline, and only retune the bands if a later live window collapses the spread or the source mix shifts materially.
 ---
 
 # Investigation - Birdeye Discovery Lab Quality Pack Sweep
@@ -18,6 +20,24 @@ next_action: Use the balanced small-ticket proxy thresholds (`8k` liquidity, `2m
 ## Trigger
 
 The desk wanted a faster way to test Birdeye `meme/list` filter combinations and find which source-plus-filter shapes produce the best quality graduation-play candidates, not just the biggest raw list.
+
+## Current Pack Baseline
+
+- The non-control discovery-lab packs are now owned as full ladders, not just threshold shells.
+- The created-pack catalog is now scalp-only and early-graduated, with five focused strategies:
+  `created-early-grad-scalp-tape-surge`
+  `created-early-grad-scalp-buyer-stack`
+  `created-early-grad-scalp-liquidity-ramp`
+  `created-early-grad-scalp-momentum-retest`
+  `created-early-grad-scalp-quality-guard`
+- These five created scalp packs are now explicitly lower-cap biased in both places:
+  pack-level `maxMarketCapUsd` ceilings tightened to `900k -> 1.8m`
+  recipe-level `max_market_cap` ladders staged from `220k` through `1.2m`
+- `scalp-tape-structure` remains the retained control pack and is intentionally unchanged.
+- Recent-run evidence favored early scalp packs:
+  `scalp-tape-structure` had winners
+  the recent non-scalp inline tests (`Created - Grad <5k Cap Moonshot`, `Created - Grad 10k-25k Structured`, `Created - Grad 25k-50k Quality`) returned `0` winners
+- All active created scalp recipes remain within the Birdeye 5-filter provider ceiling.
 
 ## What Changed
 
@@ -562,6 +582,15 @@ Interpretation:
 - keep `grad_75m_price30m_strength` in the repo packs as the first experimental follow-up
 - leave pregrad scouts and brittle ultra-short shapes out of the default repo packs until they earn a real pass-grade window
 - if the `0-10m` graduate band is empty, do not blindly weaken structure controls; use the `30m/45m/60m` proxy trio to calibrate the next threshold move
+- keep the non-control packs laddered across micro-scalp, fresh burst, structured trend, late quality, and late migration bands so they continue to probe varied PnL ranges instead of collapsing into one middle profile
+
+## Current Pack Ladder
+
+- `Scalp tape + structure` stays unchanged as the retained control.
+- `Workspace - Micro Burst Probe` tracks the validated balanced proxy scalp lens and owns the micro-scalp band.
+- `Created - Fresh Burst Ladder` and `Workspace - Structured Trend Ramp` cover the middle continuation bands with tighter spacing between their threshold overrides.
+- `Created - Late Expansion Quality` and `Workspace - Late Migration Pressure` own the higher-band end of the ladder with stricter structure and concentration gates so they do not overlap as much.
+- `created-late-expansion-quality` now defaults to `high-value`.
 
 ## Linked Notes
 

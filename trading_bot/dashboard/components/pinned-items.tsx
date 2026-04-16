@@ -129,8 +129,12 @@ export function PinToggleButton(props: {
   );
 }
 
-export function PinnedItemsSidebar() {
+export function PinnedItemsSidebar(props: { hideWhenEmpty?: boolean }) {
   const { items, remove } = usePinnedItems();
+
+  if (props.hideWhenEmpty && items.length === 0) {
+    return null;
+  }
 
   return (
     <div className="mt-4 rounded-[18px] border border-bg-border bg-[#121214] p-4">

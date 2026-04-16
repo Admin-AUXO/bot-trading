@@ -12,6 +12,8 @@ import { SharedTokenFactsService } from "../services/shared-token-facts.js";
 import { DiscoveryLabService } from "../services/discovery-lab-service.js";
 import { DiscoveryLabMarketRegimeService } from "../services/discovery-lab-market-regime-service.js";
 import { DiscoveryLabManualEntryService } from "../services/discovery-lab-manual-entry.js";
+import { DiscoveryLabTokenInsightService } from "../services/discovery-lab-token-insight-service.js";
+import { buildAdaptiveModelState } from "../services/adaptive-model.js";
 import { getStrategyPreset } from "../services/strategy-presets.js";
 import { RiskEngine } from "./risk-engine.js";
 import { ExecutionEngine } from "./execution-engine.js";
@@ -34,6 +36,7 @@ export class BotRuntime {
   private readonly discoveryLabMarketRegime = new DiscoveryLabMarketRegimeService({
     getRun: (runId) => this.discoveryLab.getRun(runId),
   });
+  private readonly discoveryLabTokenInsight = new DiscoveryLabTokenInsightService(this.birdeye);
   private readonly execution = new ExecutionEngine(this.risk, this.config);
   private readonly discoveryLabManualEntry = new DiscoveryLabManualEntryService(this.discoveryLab, this.execution);
   private readonly exits = new ExitEngine(this.birdeye, this.execution, this.config, this.risk);
@@ -87,6 +90,7 @@ export class BotRuntime {
       listDiscoveryLabRuns: () => this.discoveryLab.listRunSummaries(),
       getDiscoveryLabRun: (runId) => this.discoveryLab.getRun(runId),
       getDiscoveryLabMarketRegime: (runId) => this.discoveryLabMarketRegime.getMarketRegime(runId),
+      getDiscoveryLabTokenInsight: (input) => this.getDiscoveryLabTokenInsight(input),
       enterDiscoveryLabManualTrade: (input) => this.enterDiscoveryLabManualTrade(input),
       applyDiscoveryLabLiveStrategy: (input) => this.applyDiscoveryLabLiveStrategy(input),
     });
@@ -188,6 +192,7 @@ export class BotRuntime {
       latestFills,
       providerSummary,
       providerBudget,
+      adaptiveModel: buildAdaptiveModelState(settings),
     };
   }
 
@@ -325,11 +330,15 @@ export class BotRuntime {
     input: {
       runId?: string;
       mint?: string;
+      positionSizeUsd?: number;
+      exitOverrides?: Record<string, number>;
     },
   ) {
     const result = await this.discoveryLabManualEntry.enterFromRun({
       runId: input.runId ?? "",
       mint: input.mint ?? "",
+      positionSizeUsd: input.positionSizeUsd,
+      exitOverrides: input.exitOverrides,
     });
     await this.ensureExitMonitoringArmed();
     await this.exits.run();
@@ -353,6 +362,10 @@ export class BotRuntime {
     return result;
   }
 
+  private async getDiscoveryLabTokenInsight(input: { mint?: string }) {
+    return this.discoveryLabTokenInsight.getInsight(input.mint ?? "");
+  }
+
   private async applyDiscoveryLabLiveStrategy(input: { runId?: string }) {
     const runId = typeof input.runId === "string" ? input.runId.trim() : "";
     if (!runId) {
@@ -371,8 +384,11 @@ export class BotRuntime {
       throw new Error("cannot apply a live strategy from a run with no winners");
     }
 
+    const currentSettings = await this.config.getSettings();
     await this.config.patchDraft({
       strategy: {
+        dryRunPresetId: currentSettings.strategy.dryRunPresetId,
+        heliusWatcherEnabled: currentSettings.strategy.heliusWatcherEnabled,
         livePresetId: calibration.dominantPresetId ?? "FIRST_MINUTE_POSTGRAD_CONTINUATION",
         liveStrategy: calibration,
       },

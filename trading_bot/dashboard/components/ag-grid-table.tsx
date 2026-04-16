@@ -49,13 +49,18 @@ export function AgGridTable(props: {
     const dataColumns: ColDef<GridTableRow>[] = keys.map((key): ColDef<GridTableRow> => ({
       field: key,
       headerName: humanizeKey(key),
-      minWidth: isLikelyIdentifierKey(key) ? 170 : 130,
+      minWidth: isLikelyIdentifierKey(key) ? 170 : isLikelyNumericKey(key) ? 116 : 130,
       flex: key.includes("reason") ? 1.45 : 1,
+      wrapText: key.includes("reason"),
+      autoHeight: key.includes("reason"),
+      headerClass: clsx(isLikelyNumericKey(key) && "ag-grid-header-center"),
       cellClass: clsx(
         "ag-grid-cell-base",
-        isLikelyNumericKey(key) && "ag-grid-cell-number",
+        isLikelyNumericKey(key) && "ag-grid-cell-metric",
+        !isLikelyIdentifierKey(key) && !isLikelyNumericKey(key) && "ag-grid-cell-center",
         isLikelyIdentifierKey(key) && "ag-grid-cell-identifier",
         key.includes("reason") && "ag-grid-cell-reason",
+        key.includes("reason") && "ag-grid-cell-wrap",
       ),
       cellRenderer: (params: ICellRendererParams<GridTableRow>) => {
         const value = params.data?.[key];
@@ -130,6 +135,7 @@ export function AgGridTable(props: {
     <>
       <div className={clsx("ag-theme-quartz-dark ag-grid-desk w-full rounded-[14px] border border-bg-border/80 bg-bg-card/45", props.heightClassName ?? "h-[21rem]")}>
         <AgGridReact<GridTableRow>
+          theme="legacy"
           rowData={rowData}
           columnDefs={columnDefs}
           defaultColDef={defaultColDef}

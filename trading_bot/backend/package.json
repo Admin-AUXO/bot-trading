@@ -9,6 +9,8 @@
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
     "lab:discovery": "tsx scripts/discovery-lab.ts",
+    "lab:pack-bench": "tsx scripts/discovery-lab-pack-bench.ts",
+    "lab:telegram-alert": "tsx scripts/discovery-lab-telegram-alert.ts",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:views": "prisma db execute --file prisma/views/create_views.sql",

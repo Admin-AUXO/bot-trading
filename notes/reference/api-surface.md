@@ -2,7 +2,7 @@
 type: reference
 status: active
 area: api
-date: 2026-04-12
+date: 2026-04-15
 source_files:
   - trading_bot/backend/src/api/server.ts
   - trading_bot/backend/src/services/discovery-lab-service.ts
@@ -12,6 +12,7 @@ source_files:
   - trading_bot/backend/src/services/runtime-config.ts
   - trading_bot/backend/src/engine/runtime.ts
   - trading_bot/dashboard/components/dashboard-client.tsx
+  - trading_bot/dashboard/app/trading/page.tsx
   - trading_bot/dashboard/components/discovery-lab-client.tsx
   - trading_bot/dashboard/components/discovery-lab-results-board.tsx
   - trading_bot/dashboard/app/api/[...path]/route.ts
@@ -40,18 +41,20 @@ Transport model:
 
 - `GET /health`: backend health plus current `tradeMode`
 - `GET /api/status`: runtime snapshot, current entry-gate state, settings, latest candidates, latest fills, provider daily summary, and Birdeye monthly budget pacing
+- `GET /api/status`: runtime snapshot, current entry-gate state, settings, latest candidates, latest fills, provider daily summary, Birdeye monthly budget pacing, and backend-owned `adaptiveModel` status
 - `GET /api/desk/shell`: compact shell contract for mode, health, primary blocker, last sync, available global actions, and headline counts
-- `GET /api/desk/home`: dedicated control-desk body contract for readiness, guardrails, exposure, queue buckets, provider pace, diagnostics strip, and recent event slices. The diagnostics strip must include fresh payload-failure pressure, not just stale-loop warnings.
+- `GET /api/desk/home`: dedicated control-desk body contract for readiness, guardrails, exposure, compact KPI groups (`performance`, `latency`, `runtime`), queue buckets, provider pace, diagnostics strip, backend-owned `adaptiveModel`, and recent event slices. The diagnostics strip must include fresh payload-failure pressure, not just stale-loop warnings.
 - `GET /api/desk/events?limit=`: unified operator and system event feed for runtime, provider, control, and settings activity
 - `GET /api/operator/candidates?bucket=ready|risk|provider|data`: backend-assigned candidate workbench buckets
-- `GET /api/operator/candidates/:id`: candidate detail, snapshot history, and persisted provider payloads
-- `GET /api/operator/positions?book=open|closed`: position workbench book, with open positions sorted by backend-computed intervention priority
-- `GET /api/operator/positions/:id`: position detail, fill trail, snapshot history, and linked candidate context
+- `GET /api/operator/candidates/:id`: candidate detail, backend-built adaptive explanation, snapshot history, and persisted provider payloads
+- `GET /api/operator/positions?book=open|closed`: position workbench book, with open positions sorted by backend-computed intervention priority and desk-facing row metrics (`unrealizedPnlUsd`, `returnPct`, `lastFillAt`, `latestExecutionLatencyMs`)
+- `GET /api/operator/positions/:id`: position detail, backend-built adaptive explanation, compact `executionSummary`, fill trail, snapshot history, and linked candidate context
 - `GET /api/operator/diagnostics`: current-fault diagnostics summary, endpoint burn, and stale-component issues
-- `GET /api/operator/discovery-lab/catalog`: discovery-lab pack catalog, active run summary, recent run summaries, available profiles, and known sources
+- `GET /api/operator/discovery-lab/catalog`: discovery-lab pack catalog, active run summary, recent run summaries, available profiles, and known sources; the catalog now includes the retained `Scalp tape + structure` workspace pack plus the three repo-seeded workspace packs, while pack favorites stay browser-local
 - `GET /api/operator/discovery-lab/market-regime?runId=`: per-run market-regime snapshot for discovery-lab results and builder guidance, including regime, confidence, factor breakdown, stale flag, and suggested threshold overrides
+- `GET /api/operator/discovery-lab/token-insight?mint=`: live provider-backed token enrichment for one result-row mint, including socials, creator/tool links, market pulse, and Birdeye security-derived flags for the full-review modal and trade ticket
 - `GET /api/operator/discovery-lab/runs`: recent discovery-lab run summaries, newest first
-- `GET /api/operator/discovery-lab/runs/:id`: full persisted discovery-lab run detail, including pack snapshot, thresholds, calibrated live-strategy payload (`strategyCalibration`), report, and captured stdout or stderr
+- `GET /api/operator/discovery-lab/runs/:id`: full persisted discovery-lab run detail, including pack snapshot, thresholds, calibrated live-strategy payload (`strategyCalibration`), backend-owned adaptive winner cohorts and decision bands, report, and captured stdout or stderr
 - `GET /api/candidates?limit=`: candidates ordered by `discoveredAt DESC`, max `200`
 - `GET /api/positions?limit=`: positions with fills included, ordered by `openedAt DESC`, max `200`
 - `GET /api/fills?limit=`: fills ordered by `createdAt DESC`, max `500`
@@ -83,7 +86,7 @@ Transport model:
 - `POST /api/operator/discovery-lab/packs/save`: saves or updates a custom local discovery-lab pack
 - `POST /api/operator/discovery-lab/packs/delete`: deletes a custom local discovery-lab pack by `packId`
 - `POST /api/operator/discovery-lab/run`: starts a discovery-lab run from a saved pack or inline draft; returns `409` if another run is already active
-- `POST /api/operator/discovery-lab/manual-entry`: operator entry that promotes one pass-grade result row into a linked candidate and tracked open position, then refreshes managed exit monitoring immediately; execution path follows runtime mode (`LIVE` onchain, `DRY_RUN` simulated fills)
+- `POST /api/operator/discovery-lab/manual-entry`: operator entry that promotes one pass-grade result row into a linked candidate and tracked open position, then refreshes managed exit monitoring immediately; execution path follows runtime mode (`LIVE` onchain, `DRY_RUN` simulated fills), and the request can now include an operator-selected `positionSizeUsd` plus per-trade exit overrides from the discovery-lab trade ticket
 - `POST /api/operator/discovery-lab/apply-live-strategy`: stages the selected completed run’s calibrated strategy pack into settings draft (`strategy.liveStrategy` + `strategy.livePresetId`)
 
 Settings mutation rules:
@@ -103,22 +106,27 @@ Control-route mode rules:
 
 Dashboard navigation conventions:
 
-- Candidate workbench state lives in dashboard query params: `/candidates?bucket=<bucket>&sort=<sort>&q=<optional-filter>`
-- Position workbench state lives in dashboard query params: `/positions?book=<book>&sort=<sort>&q=<optional-filter>`
-- Discovery-lab state is primarily page-local, but recent-run reload stays on `/discovery-lab` and swaps the loaded result set without leaving the page
+- Primary operational workbench state lives in `/operational-desk/trading` query params:
+  `bucket=<bucket>&sort=<candidate-sort>&q=<candidate-filter>&book=<book>&psort=<position-sort>&pq=<position-filter>`
+- `/trading`, `/candidates`, and `/positions` remain compatibility redirects that translate legacy query params into `/operational-desk/trading` params
+- `/settings` redirects to `/operational-desk/settings`
+- `/telemetry` redirects to `/operational-desk/overview`
+- Discovery lab now owns nested routes:
+  `/discovery-lab/overview`, `/discovery-lab/studio`, `/discovery-lab/run-lab`, `/discovery-lab/results`, and `/discovery-lab/config`
+- `/discovery-lab` remains a compatibility redirect to `/discovery-lab/overview`
+- Discovery-lab route selection now sets the client’s initial workbench section, while recent-run reload still swaps the loaded result set without leaving the selected route
+- Discovery-lab should default to `Runs` when no completed run is loaded and fall back to `Results` only when a completed run is selected
 - Discovery-lab now consumes market-regime data through `/api/operator/discovery-lab/market-regime?runId=<selected-run-id>`; clients should always pass `runId`
 - Discovery-lab results can now open a manual trade directly from a selected token row in either runtime mode. The browser should call the proxy write route, not the backend directly, so control-secret auth still applies.
-- Discovery-lab results now also stage and edit live strategy packs; keep this flow on `/discovery-lab` and use settings page primarily for promotion, dry-run checks, and non-strategy controls.
-- Routed detail pages carry `focus=<row-id>` and return to `#candidate-<id>` or `#position-<id>` anchors so bucket or book, sort, text filter, and scroll target survive the round trip
+- Discovery-lab results manual-entry flow now opens a full-screen trade ticket client-side, then posts the selected size and exit settings through the same proxy write route.
+- Discovery-lab results now fetch per-mint token insight through `/api/operator/discovery-lab/token-insight?mint=<mint>` for the full-review modal and trade ticket instead of relying only on the static run snapshot.
+- Discovery-lab results now also stage and edit live strategy packs; use `/discovery-lab/results` for staging and `/discovery-lab/config` for discovery-owned promotion review.
+- Routed detail pages carry `focus=<row-id>` and return into `/operational-desk/trading` with preserved bucket/book, sort, search, and scroll-target context
 
 ## Auth Boundary
 
-- `/api/control/*` requires `x-control-secret` when `CONTROL_API_SECRET` is configured
-- `POST /api/settings` also requires `x-control-secret` when `CONTROL_API_SECRET` is configured
-- `POST /api/operator/discovery-lab/*` requires `x-control-secret` when `CONTROL_API_SECRET` is configured
-- `GET /api/operator/discovery-lab/*` routes stay readable without control-secret auth even when `CONTROL_API_SECRET` is configured
-- `GET /api/settings` and the read routes stay unauthenticated
-- The dashboard proxy injects `x-control-secret` on non-`GET` and non-`HEAD` requests using `CONTROL_SECRET` or `CONTROL_API_SECRET`
+- Control, settings, and discovery-lab routes are currently unauthenticated at the app layer.
+- The dashboard proxy forwards reads and writes without injecting any control-secret header.
 
 ## SQL View Allowlist
 

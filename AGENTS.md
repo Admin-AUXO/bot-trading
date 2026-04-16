@@ -59,11 +59,13 @@ Do not jump straight into source files before completing that read order.
 1. Read the startup path with the minimum useful scope.
 2. For ambiguous, planning-heavy, or high-risk work, prefer Plan mode before broad file reads. Frame the task with goal, context, constraints, and done-when so scope and verification stay explicit.
 3. Open one task-specific reference note and one task-specific durable note.
-4. Open code only after the note surface tells you where truth should live.
-5. Make the smallest correct change.
-6. Run the relevant checks, then review the diff for regressions, missing tests, and contract drift.
-7. Update the owning note in the same pass, and update the nearest index if you added, archived, or renamed durable notes or skills.
-8. If the same workflow is likely to recur, create or update a skill and trim the note down to a pointer.
+4. On non-trivial sessions, delegate a compact startup brief to a `gpt-5.4-mini` repo agent such as `session_briefer` before broad code reads so the main agent gets a concise summary of repo rules, recent handoff context, likely file ownership, and obvious risks.
+5. Open code only after the note surface tells you where truth should live.
+6. Make the smallest correct change.
+7. Run the relevant checks, then review the diff for regressions, missing tests, and contract drift.
+8. Before the final response on substantive tasks, delegate note cleanup and handoff prep to a `gpt-5.4-mini` repo agent such as `notes_curator`, then review the resulting doc diff before finishing.
+9. Update the owning note in the same pass, and update the nearest index if you added, archived, or renamed durable notes or skills.
+10. If the same workflow is likely to recur, create or update a skill and trim the note down to a pointer.
 
 ## Token Discipline
 
@@ -78,10 +80,14 @@ Do not jump straight into source files before completing that read order.
 
 - Treat the repo `.codex/config.toml` as the shared project default and the source of truth for `node ./.codex/scripts/install-mcp-config.cjs`. If a session is missing the expected MCP surface, refresh the user-scoped config block and restart Codex.
 - Default MCP profile should stay compact. Enable broader MCP surfaces only when the task clearly needs browser automation, external docs, Grafana, Helius, or database reads.
-- Prefer primary tools over helper duplicates. In practice: `desktop_commander` before `filesystem`, `chrome_devtools` before `browsermcp`, and local notes/code before external research.
+- Prefer primary tools over helper duplicates. In practice: use `desktop_commander` as the repo file surface, `chrome_devtools` as the repo browser surface, and local notes/code before external research.
 - Prefer repo-local skills under `.agents/skills/`. Do not rely on global skills for repo-specific workflows unless the skill is genuinely cross-repo.
 - Keep the shared repo baseline at `approval_policy = "on-request"` and `sandbox_mode = "workspace-write"`. Use the `fast`, `deep`, `review`, or `full_access` profiles only when the task actually needs different reasoning or permissions.
 - For ambiguous or planning-heavy work, prefer Plan mode before broad file reads. Use a structured prompt shape with goal, context, constraints, and done-when so scope and verification are explicit.
+- Prefer `gpt-5.4-mini` agents for bounded read-heavy, note-curation, repo-contract, startup-brief, and other basic sidecar tasks.
+- Prefer `gpt-5.3-codex` agents for implementation-focused write work inside an already-understood surface.
+- Keep `gpt-5.4` for high-risk review or judgment-heavy work.
+- Treat startup delegation as hook-assisted and shutdown delegation as a pre-final checklist item. Do not assume a real session-end hook exists unless the platform proves it.
 - Keep one thread per coherent task. Fork only when the work truly branches.
 - For longer tasks, use task queues and background terminals so the active thread is not flooded with shell output.
 - Use compaction before the thread becomes bloated, and use lightweight git checkpoints like `git status` and `git diff --stat` before and after substantive work.

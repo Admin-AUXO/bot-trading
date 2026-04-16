@@ -243,6 +243,7 @@ export interface RuntimeSnapshot {
   latestFills: unknown[];
   providerSummary?: unknown[];
   providerBudget?: unknown;
+  adaptiveModel?: AdaptiveModelState;
   research?: {
     activeRun: ResearchRunSummary | null;
     latestCompletedRun: ResearchRunSummary | null;
@@ -362,6 +363,65 @@ export interface LiveStrategyCalibrationSummary {
   derivedProfile: "scalp" | "balanced" | "runner" | null;
 }
 
+export interface AdaptiveWinnerCohort {
+  id: string;
+  key: string;
+  label: string;
+  tokenCount: number;
+  winnerCount: number;
+  avgWinnerScore: number | null;
+  avgWinnerVolume5mUsd: number | null;
+  avgWinnerAgeMin: number | null;
+}
+
+export interface AdaptiveDecisionBand {
+  id: string;
+  cohortKey: string;
+  label: string;
+  eligibility: string;
+  entryPosture: string;
+  sizePosture: string;
+  exitPosture: string;
+  confidence: string;
+  support: string;
+}
+
+export interface AdaptiveModelState {
+  status: "inactive" | "active" | "stale" | "degraded";
+  automationUsesAdaptive: boolean;
+  enabled: boolean;
+  sourceRunId: string | null;
+  packId: string | null;
+  packName: string | null;
+  dominantMode: StrategyRecipeMode | null;
+  dominantPresetId: StrategyPresetId | null;
+  winnerCount: number;
+  bandCount: number;
+  calibrationConfidence: number | null;
+  staleWarning: string | null;
+  degradedWarning: string | null;
+  warnings: string[];
+  updatedAt: string | null;
+}
+
+export interface AdaptiveTokenExplanation {
+  enabled: boolean;
+  status: "inactive" | "matched" | "partial" | "unmatched";
+  matchedBandId: string | null;
+  matchedBandLabel: string | null;
+  entryPosture: string | null;
+  sizePosture: string | null;
+  exitPosture: string | null;
+  capitalModifierPercent: number | null;
+  dominantMode: StrategyRecipeMode | null;
+  entryScore: number | null;
+  volume5mUsd: number | null;
+  liquidityUsd: number | null;
+  buySellRatio: number | null;
+  graduationAgeMin: number | null;
+  reasons: string[];
+}
+
 export interface LiveStrategySettings {
   enabled: boolean;
   sourceRunId: string | null;
@@ -375,6 +435,8 @@ export interface LiveStrategySettings {
   dominantMode: StrategyRecipeMode | null;
   dominantPresetId: StrategyPresetId | null;
   calibrationSummary: LiveStrategyCalibrationSummary | null;
+  winnerCohorts: AdaptiveWinnerCohort[];
+  decisionBands: AdaptiveDecisionBand[];
   updatedAt: string | null;
 }
 

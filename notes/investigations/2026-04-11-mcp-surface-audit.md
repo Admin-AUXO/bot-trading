@@ -11,7 +11,9 @@ source_files:
   - notes/reference/obsidian.md
   - .codex/config.toml
   - .codex/hooks.json
+  - .codex/scripts/session-start-hook.cjs
   - .codex/agents/
+  - .codex/scripts/install-mcp-config.cjs
   - .codex/scripts/start-birdeye-mcp.cjs
   - trading_bot/AGENTS.md
   - .codex/log/codex-tui.log
@@ -37,6 +39,7 @@ Configured MCP server surface in this environment:
 - `helius`
 - `memory`
 - `postgres`
+- `shadcn`
 - `time`
 
 Resource discovery today is thin:
@@ -58,6 +61,7 @@ Use this default stack unless the task gives a better reason:
 - browser automation: prefer `chrome_devtools`
 - Grafana state and dashboards: `grafana`
 - Helius and Solana-specific reads: `helius`
+- dashboard component registry search and install flows: `shadcn`
 - simple time conversion/current time: `time`
 
 ## Audit By Server
@@ -130,6 +134,25 @@ Risks:
 Best practice:
 
 - use for known URLs, changelogs, raw docs, and single-page confirmation
+
+### `shadcn`
+
+Verdict: keep installed but off the compact path; enable for dashboard UI work.
+
+Strengths:
+
+- gives agents a registry-aware path to browse, search, and install shadcn-compatible components instead of hand-rolling common UI scaffolding
+- matches the dashboard stack well enough to be useful because the app already uses Next.js, React, Tailwind, and Radix primitives
+
+Risks:
+
+- it is not a substitute for the repo's own UI contract, typography choices, or existing dashboard primitives
+- install flows depend on a valid `components.json`, which this repo does not currently ship under `trading_bot/dashboard/`
+
+Best practice:
+
+- keep it disabled in `compact` and `db` profiles
+- enable it in `full` only, and reach for it after reading `notes/reference/dashboard-operator-ui.md` plus the existing dashboard component surface
 
 ### `github`
 
@@ -237,6 +260,28 @@ Fix applied:
 - changed the repo `.codex/config.toml` template to a compact-by-default policy
 - updated `./.codex/scripts/install-mcp-config.cjs` to support `compact`, `db`, and `full` profiles
 - made `compact` the installer default so fresh sessions only enable the primary local file MCP surface
+
+## 2026-04-15 Hook And Model-Routing Findings
+
+Observed behavior from repo evidence plus local CLI inspection:
+
+- the checked-in repo hook surface still only defines `SessionStart`
+- the hook payload is just additional context text; the hook is not itself a verified autonomous subagent runner
+- local `codex --help` and `codex debug --help` exposed normal config and debug controls but no obvious session-end hook surface on this host
+- official OpenAI help content found during research confirmed that Codex model availability depends on product surface and configuration, but did not surface a hook lifecycle document for session-end behavior
+
+Fix applied:
+
+- replaced the brittle inline shell JSON in `.codex/hooks.json` with a dedicated `./.codex/scripts/session-start-hook.cjs`
+- kept the repo contract explicit that startup is hook-assisted while shutdown remains a pre-final procedure
+- added repo profiles for `mini` and `write` so the main agent can be switched intentionally to `gpt-5.4-mini` or `gpt-5.3-codex`
+- added a general `implementation_worker` so `gpt-5.3-codex` is available outside dashboard-only or Docker-only tasks
+
+Current repo contract:
+
+- startup hooks may inject context, but they are not trusted as a replacement for explicit main-agent orchestration
+- do not claim a real session-end hook exists unless the platform documents or proves it
+- use `gpt-5.4-mini` for bounded read-heavy and note tasks, `gpt-5.3-codex` for bounded implementation execution, and `gpt-5.4` for high-risk judgment-heavy work
 - documented structured prompts, ask mode, task queues, background terminals, compaction, and lightweight git checkpoints in the canonical startup docs
 - documented the repo-local skill policy explicitly: prefer `.agents/skills/` and avoid global skill drift for repo-specific procedures
 
@@ -244,8 +289,32 @@ Current repo contract:
 
 - run `node ./.codex/scripts/install-mcp-config.cjs` for the compact default
 - run `node ./.codex/scripts/install-mcp-config.cjs --profile db` when `postgres` should be live at startup
-- run `node ./.codex/scripts/install-mcp-config.cjs --profile full` only when the task truly needs the broader research and browser stack
-- keep helper MCPs defined but disabled by default instead of paying their cost on every session
+- use the targeted installer profiles before reaching for `full`
+- run `node ./.codex/scripts/install-mcp-config.cjs --profile full` only when the task truly needs several specialized MCP surfaces at once
+
+## 2026-04-15 Token-Optimization Pass
+
+Observed problems:
+
+- the managed repo MCP block still carried several overlapping or discouraged surfaces even though repo guidance already preferred a smaller set
+- `compact`, `db`, and `full` left a large gap between too little and too much for common agent families like dashboard work, provider research, and web-doc research
+- `session_closer` overlapped heavily with the already-existing `notes_curator`
+
+Fix applied:
+
+- removed `browsermcp`, `filesystem`, `memory`, and `sequential_thinking` from the shared repo-managed MCP block
+- kept `chrome_devtools` as the only repo-managed browser MCP surface
+- removed the repo-managed GitHub MCP block and treated GitHub as a local opt-in or `gh`/plugin concern instead of shared startup surface
+- added targeted installer profiles: `research`, `dashboard`, and `provider`
+- kept `compact` as the default and left `full` as the deliberate wide-net option
+- removed the redundant `session_closer` agent and routed closeout guidance to `notes_curator`
+- trimmed `session_briefer` to only the one repo skill it actually needs
+
+Current repo contract:
+
+- repo-managed MCP should favor one primary surface per job and avoid helper duplicates
+- use targeted installer profiles before reaching for `full`
+- keep note closeout on `notes_curator`; do not preserve near-duplicate repo agents unless they materially change behavior
 
 ## 2026-04-13 Birdeye MCP Local Opt-In Follow-Up
 

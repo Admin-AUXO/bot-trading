@@ -83,7 +83,7 @@ npm run dev
 Important:
 
 - change `DATABASE_URL` in `trading_bot/backend/.env` from `postgres` to `127.0.0.1` or `localhost`
-- fill `HELIUS_RPC_URL`, `BIRDEYE_API_KEY`, and `CONTROL_API_SECRET`
+- fill `HELIUS_RPC_URL` and `BIRDEYE_API_KEY`
 
 ### 2. Full Compose Stack
 

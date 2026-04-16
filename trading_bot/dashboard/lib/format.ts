@@ -42,6 +42,18 @@ export function formatRelativeMinutes(value: unknown): string {
   return `${numberFormatter.format(numeric)} min`;
 }
 
+export function formatMinutesAgo(value: unknown): string {
+  if (!value) return "awaiting";
+  if (!(typeof value === "string" || typeof value === "number" || value instanceof Date)) {
+    return "awaiting";
+  }
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "awaiting";
+  const diffMinutes = Math.max(0, Math.round((Date.now() - date.getTime()) / 60_000));
+  if (diffMinutes <= 0) return "now";
+  return `${integerFormatter.format(diffMinutes)}m ago`;
+}
+
 export function formatCurrency(value: unknown, digits = 2): string {
   if (value === null || value === undefined || value === "") return "—";
   const numeric = Number(value);

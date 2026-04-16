@@ -2,12 +2,16 @@
 type: reference
 status: active
 area: obsidian
-date: 2026-04-11
+date: 2026-04-15
 source_files:
   - trading_bot/docker-compose.yml
   - notes/reference/bootstrap-and-docker.md
   - .agents/skills/obsidian/SKILL.md
+  - .agents/skills/screenshot-analysis/SKILL.md
+  - .agents/skills/session-bookends/SKILL.md
+  - notes/runbooks/2026-04-15-screenshot-review-workflow.md
   - .codex/hooks.json
+  - .codex/agents/notes_curator.toml
   - AGENTS.md
   - trading_bot/AGENTS.md
   - notes/reference/agent-workflow.md
@@ -47,6 +51,8 @@ Purpose: keep repo docs and durable memory in one searchable vault so later agen
 - Keep `source_files` current and link code instead of copying it.
 - Keep Graphify code-only. Notes belong in the vault, not the graph.
 - If a note describes a repeatable agent workflow, convert that procedure into a skill and leave the note as a pointer plus durable constraints.
+- For screenshot-driven UI work, keep images as local artifacts and store only the route, capture command, image path, and conclusion in the vault. Do not bloat notes with embedded screenshots or long visual transcripts.
+- For substantive sessions, prefer a `gpt-5.4-mini` closeout agent such as `notes_curator` to update the smallest correct note surface before the final response.
 
 ## Standard Procedure
 
@@ -65,6 +71,7 @@ Purpose: keep repo docs and durable memory in one searchable vault so later agen
 - Prefer concise note updates over preserving full session transcripts.
 - Keep procedure in skills, memory in notes, and structure in Graphify.
 - Keep repo facts in Obsidian, not `memory`; use [`tool-routing.md`](tool-routing.md) when tool overlap could waste context.
+- When the same visual review procedure repeats, promote it into a repo skill and keep the runbook as a thin pointer.
 
 ## Docker Sidecar
 

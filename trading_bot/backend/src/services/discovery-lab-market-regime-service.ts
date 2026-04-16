@@ -16,6 +16,25 @@ export type DiscoveryLabMarketRegimeResponse = {
   stale: boolean;
   regime: DiscoveryLabMarketRegime;
   confidencePercent: number;
+  fetchDiagnostics: {
+    queryCount: number;
+    returnedCount: number;
+    selectedCount: number;
+    goodCount: number;
+    rejectCount: number;
+    selectionRatePercent: number | null;
+    passRatePercent: number | null;
+    winnerHitRatePercent: number | null;
+    strongestQueries: Array<{
+      key: string;
+      source: string;
+      recipeName: string;
+      returnedCount: number;
+      goodCount: number;
+      rejectCount: number;
+      winnerHitRatePercent: number | null;
+    }>;
+  };
   factors: {
     cohort: {
       source: "winners" | "pass" | "query-good" | "selected" | "fallback";
@@ -54,6 +73,13 @@ export type DiscoveryLabMarketRegimeResponse = {
     };
   };
   suggestedThresholdOverrides: DiscoveryLabThresholdOverrides;
+  optimizationSuggestions: Array<{
+    id: string;
+    label: string;
+    objective: "expand" | "balance" | "tighten";
+    summary: string;
+    thresholdOverrides: DiscoveryLabThresholdOverrides;
+  }>;
 };
 
 type DiscoveryLabMarketRegimeServiceDeps = {
@@ -80,6 +106,7 @@ type RunSignalMetrics = {
   passBuySellRatio: number | null;
   passVolume5mUsd: number | null;
   passUniqueWallets5m: number | null;
+  fetchDiagnostics: DiscoveryLabMarketRegimeResponse["fetchDiagnostics"];
 };
 
 type DexTokenSignal = {
@@ -335,6 +362,7 @@ function buildMarketRegimeResponse(input: {
     stale,
     regime,
     confidencePercent,
+    fetchDiagnostics: runSignals.fetchDiagnostics,
     factors: {
       cohort: {
         source: cohort.source,
@@ -373,6 +401,11 @@ function buildMarketRegimeResponse(input: {
       },
     },
     suggestedThresholdOverrides: deriveSuggestedOverrides(run.thresholdOverrides ?? {}, regime),
+    optimizationSuggestions: deriveOptimizationSuggestions({
+      existing: run.thresholdOverrides ?? {},
+      regime,
+      diagnostics: runSignals.fetchDiagnostics,
+    }),
   };
 }
 
@@ -396,6 +429,34 @@ function extractRunSignals(run: DiscoveryLabRunDetail): RunSignalMetrics {
 
   const passRatePercent = evaluationCount > 0 ? (passCount / evaluationCount) * 100 : null;
   const winnerRatePercent = evaluationCount > 0 ? (winnerCount / evaluationCount) * 100 : null;
+  const querySummaries = asArray(report?.querySummaries).map(asRecord).filter((value): value is Record<string, unknown> => Boolean(value));
+  const returnedCount = querySummaries.reduce((sum, row) => sum + (asNumber(row.returnedCount) ?? 0), 0);
+  const selectedCount = querySummaries.reduce((sum, row) => sum + (asNumber(row.selectedCount) ?? 0), 0);
+  const goodCount = querySummaries.reduce((sum, row) => sum + (asNumber(row.goodCount) ?? 0), 0);
+  const rejectCount = querySummaries.reduce((sum, row) => {
+    const selected = asNumber(row.selectedCount) ?? 0;
+    const good = asNumber(row.goodCount) ?? 0;
+    const reportedReject = asNumber(row.rejectCount);
+    return sum + (reportedReject ?? Math.max(selected - good, 0));
+  }, 0);
+  const strongestQueries = [...querySummaries]
+    .sort((left, right) => {
+      const rightWinRate = asNumber(right.winnerHitRatePercent) ?? 0;
+      const leftWinRate = asNumber(left.winnerHitRatePercent) ?? 0;
+      return rightWinRate - leftWinRate
+        || (asNumber(right.goodCount) ?? 0) - (asNumber(left.goodCount) ?? 0)
+        || (asNumber(right.returnedCount) ?? 0) - (asNumber(left.returnedCount) ?? 0);
+    })
+    .slice(0, 4)
+    .map((row) => ({
+      key: asString(row.key) ?? "",
+      source: asString(row.source) ?? "unknown",
+      recipeName: asString(row.recipeName) ?? "unknown",
+      returnedCount: asNumber(row.returnedCount) ?? 0,
+      goodCount: asNumber(row.goodCount) ?? 0,
+      rejectCount: asNumber(row.rejectCount) ?? Math.max((asNumber(row.selectedCount) ?? 0) - (asNumber(row.goodCount) ?? 0), 0),
+      winnerHitRatePercent: asNumber(row.winnerHitRatePercent),
+    }));
 
   return {
     winnerCount,
@@ -407,6 +468,17 @@ function extractRunSignals(run: DiscoveryLabRunDetail): RunSignalMetrics {
     passBuySellRatio: median(passRows.map((row) => asNumber(row.buySellRatio)).filter((value): value is number => value !== null)),
     passVolume5mUsd: median(passRows.map((row) => asNumber(row.volume5mUsd)).filter((value): value is number => value !== null)),
     passUniqueWallets5m: median(passRows.map((row) => asNumber(row.uniqueWallets5m)).filter((value): value is number => value !== null)),
+    fetchDiagnostics: {
+      queryCount: querySummaries.length,
+      returnedCount,
+      selectedCount,
+      goodCount,
+      rejectCount,
+      selectionRatePercent: returnedCount > 0 ? round((selectedCount / returnedCount) * 100, 1) : null,
+      passRatePercent: selectedCount > 0 ? round((goodCount / selectedCount) * 100, 1) : null,
+      winnerHitRatePercent: returnedCount > 0 ? round((goodCount / returnedCount) * 100, 1) : null,
+      strongestQueries,
+    },
   };
 }
 
@@ -463,17 +535,7 @@ function deriveSuggestedOverrides(
   existing: DiscoveryLabThresholdOverrides,
   regime: DiscoveryLabMarketRegime,
 ): DiscoveryLabThresholdOverrides {
-  const baseline = {
-    minLiquidityUsd: existing.minLiquidityUsd ?? 8_000,
-    maxMarketCapUsd: existing.maxMarketCapUsd ?? 2_000_000,
-    minHolders: existing.minHolders ?? 35,
-    minVolume5mUsd: existing.minVolume5mUsd ?? 1_500,
-    minUniqueBuyers5m: existing.minUniqueBuyers5m ?? 12,
-    minBuySellRatio: existing.minBuySellRatio ?? 1.05,
-    maxTop10HolderPercent: existing.maxTop10HolderPercent ?? 45,
-    maxSingleHolderPercent: existing.maxSingleHolderPercent ?? 25,
-    maxNegativePriceChange5mPercent: existing.maxNegativePriceChange5mPercent ?? 18,
-  };
+  const baseline = buildThresholdBaseline(existing);
 
   if (regime === "RISK_ON") {
     return {
@@ -516,6 +578,93 @@ function deriveSuggestedOverrides(
   };
 }
 
+function deriveOptimizationSuggestions(input: {
+  existing: DiscoveryLabThresholdOverrides;
+  regime: DiscoveryLabMarketRegime;
+  diagnostics: DiscoveryLabMarketRegimeResponse["fetchDiagnostics"];
+}): DiscoveryLabMarketRegimeResponse["optimizationSuggestions"] {
+  const baseline = buildThresholdBaseline(input.existing);
+  const { diagnostics, regime } = input;
+  const veryThinFetch = diagnostics.returnedCount < 40;
+  const weakHitRate = (diagnostics.winnerHitRatePercent ?? 0) < 8;
+  const noisySelection = (diagnostics.passRatePercent ?? 100) < 28;
+  const strongHitRate = (diagnostics.winnerHitRatePercent ?? 0) >= 18;
+
+  const expand = {
+    minLiquidityUsd: Math.max(4_000, Math.round(baseline.minLiquidityUsd * (veryThinFetch ? 0.82 : 0.9))),
+    maxMarketCapUsd: Math.round(baseline.maxMarketCapUsd * (regime === "RISK_ON" ? 1.2 : 1.1)),
+    minHolders: Math.max(24, Math.round(baseline.minHolders * 0.88)),
+    minVolume5mUsd: Math.max(750, Math.round(baseline.minVolume5mUsd * (veryThinFetch ? 0.78 : 0.88))),
+    minUniqueBuyers5m: Math.max(8, Math.round(baseline.minUniqueBuyers5m * 0.9)),
+    minBuySellRatio: round(Math.max(1, baseline.minBuySellRatio - 0.04), 2),
+    maxTop10HolderPercent: Math.min(60, Math.round(baseline.maxTop10HolderPercent + 3)),
+    maxSingleHolderPercent: Math.min(35, Math.round(baseline.maxSingleHolderPercent + 2)),
+    maxNegativePriceChange5mPercent: Math.min(30, Math.round(baseline.maxNegativePriceChange5mPercent * 1.12)),
+  };
+  const balance = weakHitRate || noisySelection
+    ? {
+      minLiquidityUsd: Math.round(baseline.minLiquidityUsd * 1.08),
+      maxMarketCapUsd: Math.round(baseline.maxMarketCapUsd * 0.96),
+      minHolders: Math.round(baseline.minHolders * 1.08),
+      minVolume5mUsd: Math.round(baseline.minVolume5mUsd * 1.12),
+      minUniqueBuyers5m: Math.round(baseline.minUniqueBuyers5m * 1.1),
+      minBuySellRatio: round(baseline.minBuySellRatio + 0.04, 2),
+      maxTop10HolderPercent: Math.max(24, Math.round(baseline.maxTop10HolderPercent - 2)),
+      maxSingleHolderPercent: Math.max(12, Math.round(baseline.maxSingleHolderPercent - 1)),
+      maxNegativePriceChange5mPercent: Math.max(7, Math.round(baseline.maxNegativePriceChange5mPercent * 0.92)),
+    }
+    : deriveSuggestedOverrides(input.existing, regime);
+  const tighten = {
+    minLiquidityUsd: Math.round(baseline.minLiquidityUsd * (strongHitRate ? 1.18 : 1.25)),
+    maxMarketCapUsd: Math.max(600_000, Math.round(baseline.maxMarketCapUsd * 0.84)),
+    minHolders: Math.round(baseline.minHolders * 1.2),
+    minVolume5mUsd: Math.round(baseline.minVolume5mUsd * 1.3),
+    minUniqueBuyers5m: Math.round(baseline.minUniqueBuyers5m * 1.22),
+    minBuySellRatio: round(baseline.minBuySellRatio + 0.08, 2),
+    maxTop10HolderPercent: Math.max(20, Math.round(baseline.maxTop10HolderPercent - 5)),
+    maxSingleHolderPercent: Math.max(10, Math.round(baseline.maxSingleHolderPercent - 3)),
+    maxNegativePriceChange5mPercent: Math.max(5, Math.round(baseline.maxNegativePriceChange5mPercent * 0.75)),
+  };
+
+  return [
+    {
+      id: "expand-recall",
+      label: "More tokens",
+      objective: "expand",
+      summary: `Use when fetch volume is thin and you want to widen the initial discovery net. Targets more returned rows while keeping the pack viable for 50% to 100% setups.`,
+      thresholdOverrides: expand,
+    },
+    {
+      id: "balanced-winners",
+      label: "Balanced winners",
+      objective: "balance",
+      summary: `Use when you want a middle path between row count and quality. It reacts to winner-hit rate and reject pressure instead of only the broad market regime.`,
+      thresholdOverrides: balance,
+    },
+    {
+      id: "tighten-quality",
+      label: "Better quality",
+      objective: "tighten",
+      summary: `Use when the run returned enough names but too many were rejects. It raises participation and holder quality to push toward cleaner higher-conviction continuations.`,
+      thresholdOverrides: tighten,
+    },
+  ];
+}
+
+function buildThresholdBaseline(existing: DiscoveryLabThresholdOverrides) {
+  return {
+    minLiquidityUsd: existing.minLiquidityUsd ?? 8_000,
+    maxMarketCapUsd: existing.maxMarketCapUsd ?? 2_000_000,
+    minHolders: existing.minHolders ?? 35,
+    minVolume5mUsd: existing.minVolume5mUsd ?? 1_500,
+    minUniqueBuyers5m: existing.minUniqueBuyers5m ?? 12,
+    minBuySellRatio: existing.minBuySellRatio ?? 1.05,
+    maxTop10HolderPercent: existing.maxTop10HolderPercent ?? 45,
+    maxSingleHolderPercent: existing.maxSingleHolderPercent ?? 25,
+    maxNegativePriceChange5mPercent: existing.maxNegativePriceChange5mPercent ?? 18,
+  };
+}
+
 function parseDexSignals(payload: unknown, requestedTokens: string[]): Map<string, DexTokenSignalWithRank> {
   const requested = new Set(dedupeAddresses(requestedTokens));
   const pairs = asArray(asRecord(payload)?.pairs).map(asRecord).filter((value): value is Record<string, unknown> => Boolean(value));
@@ -525,7 +674,7 @@ function parseDexSignals(payload: unknown, requestedTokens: string[]): Map<strin
     const baseAddress = normalizeAddress(asString(asRecord(pair.baseToken)?.address));
     const quoteAddress = normalizeAddress(asString(asRecord(pair.quoteToken)?.address));
     const matchedTokens = [baseAddress, quoteAddress]
-      .filter((token): token is string => Boolean(token) && requested.has(token));
+      .filter((token): token is string => typeof token === "string" && requested.has(token));
     if (matchedTokens.length === 0) {
       continue;
     }

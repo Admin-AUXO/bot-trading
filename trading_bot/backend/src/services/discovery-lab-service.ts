@@ -2,68 +2,39 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { z } from "zod";
 import type { LiveStrategySettings } from "../types/domain.js";
 import { RuntimeConfigService } from "./runtime-config.js";
 import { logger } from "../utils/logger.js";
 import { buildDiscoveryLabLiveStrategy } from "./discovery-lab-strategy-calibration.js";
+import { listCreatedDiscoveryLabPacks } from "./discovery-lab-created-packs.js";
+import { listWorkspaceDiscoveryLabPackSeeds } from "./discovery-lab-workspace-packs.js";
+import {
+  KNOWN_SOURCES,
+  DEFAULT_PROFILE,
+  DEFAULT_SOURCES,
+  countRecipeFilters,
+  customPackFileSchema,
+  draftSchema,
+  normalizePackDraft,
+  normalizeSources,
+  cleanThresholdOverrides,
+  packToDraft,
+  slugify,
+  withAutoPackName,
+} from "./discovery-lab-pack-types.js";
+export type {
+  RecipeMode,
+  DiscoveryLabProfile,
+  DiscoveryLabPackKind,
+  DiscoveryLabRecipe,
+  DiscoveryLabThresholdOverrides,
+  DiscoveryLabPack,
+  DiscoveryLabValidationIssue,
+  DiscoveryLabPackDraft,
+} from "./discovery-lab-pack-types.js";
 
 type Scalar = string | number | boolean;
-type QueryValue = Scalar | null;
-
-export type RecipeMode = "graduated" | "pregrad";
-export type DiscoveryLabProfile = "runtime" | "high-value" | "scalp";
-export type DiscoveryLabPackKind = "builtin" | "custom";
 export type DiscoveryLabRunStatus = "RUNNING" | "COMPLETED" | "FAILED" | "INTERRUPTED";
-
-export type DiscoveryLabRecipe = {
-  name: string;
-  mode: RecipeMode;
-  description?: string;
-  deepEvalLimit?: number;
-  params: Record<string, QueryValue>;
-};
-
-export type DiscoveryLabThresholdOverrides = Partial<{
-  minLiquidityUsd: number;
-  maxMarketCapUsd: number;
-  minHolders: number;
-  minVolume5mUsd: number;
-  minUniqueBuyers5m: number;
-  minBuySellRatio: number;
-  maxTop10HolderPercent: number;
-  maxSingleHolderPercent: number;
-  maxNegativePriceChange5mPercent: number;
-}>;
-
-export type DiscoveryLabPack = {
-  id: string;
-  kind: DiscoveryLabPackKind;
-  name: string;
-  description: string;
-  defaultSources: string[];
-  defaultProfile: DiscoveryLabProfile;
-  thresholdOverrides: DiscoveryLabThresholdOverrides;
-  recipes: DiscoveryLabRecipe[];
-  updatedAt: string;
-  sourcePath: string;
-};
-
-export type DiscoveryLabValidationIssue = {
-  path: string;
-  message: string;
-  level: "error" | "warning";
-};
-
-export type DiscoveryLabPackDraft = {
-  id?: string;
-  name: string;
-  description?: string;
-  defaultSources?: string[];
-  defaultProfile?: DiscoveryLabProfile;
-  thresholdOverrides?: DiscoveryLabThresholdOverrides;
-  recipes: DiscoveryLabRecipe[];
-};
 
 export type DiscoveryLabRunRequest = {
   packId?: string;
@@ -95,6 +66,10 @@ type QuerySummary = {
   returnedCount: number;
   selectedCount: number;
   goodCount: number;
+  rejectCount: number;
+  selectionRatePercent: number;
+  passRatePercent: number;
+  winnerHitRatePercent: number;
   avgGoodPlayScore: number;
   avgGoodEntryScore: number;
   avgSelectedPlayScore: number;
@@ -220,121 +195,7 @@ export type DiscoveryLabCatalog = {
   knownSources: string[];
 };
 
-const DEFAULT_PROFILE: DiscoveryLabProfile = "high-value";
-const DEFAULT_SOURCES = ["pump_dot_fun"];
-const KNOWN_SOURCES = [
-  "pump_dot_fun",
-  "moonshot",
-  "raydium_launchlab",
-  "meteora_dynamic_bonding_curve",
-];
 const MAX_RECENT_RUNS = 20;
-const FILTER_KEYS = new Set([
-  "source",
-  "creator",
-  "platform_id",
-  "graduated",
-  "min_progress_percent",
-  "max_progress_percent",
-  "min_graduated_time",
-  "max_graduated_time",
-  "min_creation_time",
-  "max_creation_time",
-  "min_recent_listing_time",
-  "max_recent_listing_time",
-  "min_last_trade_unix_time",
-  "max_last_trade_unix_time",
-  "min_liquidity",
-  "max_liquidity",
-  "min_market_cap",
-  "max_market_cap",
-  "min_fdv",
-  "max_fdv",
-  "min_holder",
-  "min_volume_1m_usd",
-  "min_volume_5m_usd",
-  "min_volume_30m_usd",
-  "min_volume_1h_usd",
-  "min_volume_2h_usd",
-  "min_volume_4h_usd",
-  "min_volume_8h_usd",
-  "min_volume_24h_usd",
-  "min_volume_7d_usd",
-  "min_volume_30d_usd",
-  "min_volume_1m_change_percent",
-  "min_volume_5m_change_percent",
-  "min_volume_30m_change_percent",
-  "min_volume_1h_change_percent",
-  "min_volume_2h_change_percent",
-  "min_volume_4h_change_percent",
-  "min_volume_8h_change_percent",
-  "min_volume_24h_change_percent",
-  "min_volume_7d_change_percent",
-  "min_volume_30d_change_percent",
-  "min_price_change_1m_percent",
-  "min_price_change_5m_percent",
-  "min_price_change_30m_percent",
-  "min_price_change_1h_percent",
-  "min_price_change_2h_percent",
-  "min_price_change_4h_percent",
-  "min_price_change_8h_percent",
-  "min_price_change_24h_percent",
-  "min_price_change_7d_percent",
-  "min_price_change_30d_percent",
-  "min_trade_1m_count",
-  "min_trade_5m_count",
-  "min_trade_30m_count",
-  "min_trade_1h_count",
-  "min_trade_2h_count",
-  "min_trade_4h_count",
-  "min_trade_8h_count",
-  "min_trade_24h_count",
-  "min_trade_7d_count",
-  "min_trade_30d_count",
-]);
-
-const queryValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
-const recipeSchema = z.object({
-  name: z.string().trim().min(1),
-  mode: z.enum(["graduated", "pregrad"]),
-  description: z.string().optional(),
-  deepEvalLimit: z.number().int().positive().max(25).optional(),
-  params: z.record(z.string(), queryValueSchema),
-});
-const legacyRecipeFileSchema = z.object({
-  description: z.string().optional(),
-  recipes: z.array(recipeSchema).min(1),
-});
-const thresholdOverridesSchema = z.object({
-  minLiquidityUsd: z.number().nonnegative().optional(),
-  maxMarketCapUsd: z.number().nonnegative().optional(),
-  minHolders: z.number().nonnegative().optional(),
-  minVolume5mUsd: z.number().nonnegative().optional(),
-  minUniqueBuyers5m: z.number().nonnegative().optional(),
-  minBuySellRatio: z.number().nonnegative().optional(),
-  maxTop10HolderPercent: z.number().nonnegative().optional(),
-  maxSingleHolderPercent: z.number().nonnegative().optional(),
-  maxNegativePriceChange5mPercent: z.number().nonnegative().optional(),
-});
-const customPackFileSchema = z.object({
-  id: z.string().trim().min(1),
-  name: z.string().trim().min(1),
-  description: z.string().optional(),
-  defaultSources: z.array(z.string().trim().min(1)).optional(),
-  defaultProfile: z.enum(["runtime", "high-value", "scalp"]).optional(),
-  thresholdOverrides: thresholdOverridesSchema.optional(),
-  recipes: z.array(recipeSchema).min(1),
-  updatedAt: z.string().optional(),
-});
-const draftSchema = z.object({
-  id: z.string().trim().min(1).optional(),
-  name: z.string().trim().min(1),
-  description: z.string().optional(),
-  defaultSources: z.array(z.string().trim().min(1)).optional(),
-  defaultProfile: z.enum(["runtime", "high-value", "scalp"]).optional(),
-  thresholdOverrides: thresholdOverridesSchema.optional(),
-  recipes: z.array(recipeSchema).min(1),
-});
 
 type RunningProcess = {
   runId: string;
@@ -361,6 +222,7 @@ export class DiscoveryLabService {
   async ensure(): Promise<void> {
     await fs.mkdir(this.packsDir, { recursive: true });
     await fs.mkdir(this.runsDir, { recursive: true });
+    await this.seedWorkspacePacks();
     await this.reconcileInterruptedRuns();
   }
 
@@ -617,45 +479,16 @@ export class DiscoveryLabService {
   }
 
   private async listPacks(): Promise<DiscoveryLabPack[]> {
-    const [builtin, custom] = await Promise.all([
-      this.listBuiltinPacks(),
+    const [created, custom] = await Promise.all([
+      Promise.resolve(listCreatedDiscoveryLabPacks()),
       this.listCustomPacks(),
     ]);
-    return [...builtin, ...custom].sort((left, right) => {
+    return [...created, ...custom].sort((left, right) => {
       if (left.kind !== right.kind) {
-        return left.kind === "builtin" ? -1 : 1;
+        return left.kind === "created" ? -1 : 1;
       }
       return left.name.localeCompare(right.name);
     });
-  }
-
-  private async listBuiltinPacks(): Promise<DiscoveryLabPack[]> {
-    const entries = await fs.readdir(this.scriptsDir);
-    const files = entries
-      .filter((entry) => /^discovery-lab(\.recipes.*)?\.json$/.test(entry))
-      .sort();
-    const packs: DiscoveryLabPack[] = [];
-
-    for (const file of files) {
-      const filePath = path.join(this.scriptsDir, file);
-      const raw = await fs.readFile(filePath, "utf8");
-      const parsed = legacyRecipeFileSchema.parse(JSON.parse(raw));
-      const id = path.basename(file, ".json");
-      packs.push({
-        id,
-        kind: "builtin",
-        name: humanizePackName(id),
-        description: parsed.description ?? "",
-        defaultSources: DEFAULT_SOURCES,
-        defaultProfile: inferProfileFromFileName(file),
-        thresholdOverrides: {},
-        recipes: parsed.recipes,
-        updatedAt: (await fs.stat(filePath)).mtime.toISOString(),
-        sourcePath: filePath,
-      });
-    }
-
-    return packs;
   }
 
   private async listCustomPacks(): Promise<DiscoveryLabPack[]> {
@@ -670,6 +503,8 @@ export class DiscoveryLabService {
       kind: "custom",
       name: parsed.name,
       description: parsed.description ?? "",
+      thesis: parsed.thesis,
+      targetPnlBand: parsed.targetPnlBand,
       defaultSources: parsed.defaultSources?.length ? parsed.defaultSources : DEFAULT_SOURCES,
       defaultProfile: parsed.defaultProfile ?? DEFAULT_PROFILE,
       thresholdOverrides: parsed.thresholdOverrides ?? {},
@@ -677,6 +512,18 @@ export class DiscoveryLabService {
       updatedAt: parsed.updatedAt ?? (await fs.stat(filePath)).mtime.toISOString(),
       sourcePath: filePath,
     };
+  }
+
+  private async seedWorkspacePacks(): Promise<void> {
+    const seeds = listWorkspaceDiscoveryLabPackSeeds();
+    for (const seed of seeds) {
+      const filePath = this.packFilePath(seed.id);
+      try {
+        await fs.access(filePath);
+      } catch {
+        await writeJsonFileAtomic(filePath, seed);
+      }
+    }
   }
 
   private async allocatePackId(name: string): Promise<string> {
@@ -821,176 +668,11 @@ export class DiscoveryLabService {
   }
 }
 
-function countRecipeFilters(params: Record<string, QueryValue>): number {
-  return Object.entries(params)
-    .filter(([key]) => FILTER_KEYS.has(key))
-    .filter(([, value]) => value !== undefined && value !== null && value !== "")
-    .length;
-}
-
-function withAutoPackName(input: DiscoveryLabPackDraft): DiscoveryLabPackDraft {
-  const nextName = shouldAutoGeneratePackName(input.name)
-    ? derivePackNameFromFilters(input)
-    : input.name.trim();
-  return {
-    ...input,
-    name: nextName,
-  };
-}
-
-function shouldAutoGeneratePackName(value: string | undefined): boolean {
-  const normalized = (value ?? "").trim().toLowerCase();
-  return normalized.length === 0
-    || normalized === "new custom package"
-    || normalized === "new package"
-    || normalized === "custom package";
-}
-
-function derivePackNameFromFilters(input: DiscoveryLabPackDraft): string {
-  const profile = (input.defaultProfile ?? DEFAULT_PROFILE).toUpperCase();
-  const modes = new Set(input.recipes.map((recipe) => recipe.mode));
-  const modeTag = modes.size === 0
-    ? "PACK"
-    : modes.size > 1
-      ? "MIX"
-      : modes.has("pregrad")
-        ? "PRE"
-        : "GRAD";
-  const sourceTag = summarizeSources(input.defaultSources);
-  const thresholds = cleanThresholdOverrides(input.thresholdOverrides);
-  const chips: string[] = [];
-
-  if (thresholds.minLiquidityUsd !== undefined) {
-    chips.push(`L${formatUsdCompact(thresholds.minLiquidityUsd)}`);
-  }
-  if (thresholds.minVolume5mUsd !== undefined) {
-    chips.push(`V5${formatUsdCompact(thresholds.minVolume5mUsd)}`);
-  }
-  if (thresholds.maxMarketCapUsd !== undefined) {
-    chips.push(`MC${formatUsdCompact(thresholds.maxMarketCapUsd)}`);
-  }
-  if (thresholds.minBuySellRatio !== undefined) {
-    chips.push(`R${roundCompact(thresholds.minBuySellRatio)}`);
-  }
-  if (thresholds.minUniqueBuyers5m !== undefined) {
-    chips.push(`UB${Math.round(thresholds.minUniqueBuyers5m)}`);
-  }
-
-  const providerFilterCount = input.recipes.reduce((total, recipe) => total + countRecipeFilters(recipe.params), 0);
-  if (providerFilterCount > 0) {
-    chips.push(`F${providerFilterCount}`);
-  }
-
-  const suffix = chips.length > 0 ? ` ${chips.join(" ")}` : "";
-  return `${modeTag} ${profile} ${sourceTag}${suffix}`.trim().slice(0, 96);
-}
-
-function summarizeSources(input?: string[]): string {
-  const sources = normalizeSources(input).slice(0, 2).map((source) => source.replace(/_dot_/g, ".").replace(/_/g, ""));
-  if (sources.length === 0) {
-    return "pump";
-  }
-  return sources.join("+");
-}
-
-function formatUsdCompact(value: number): string {
-  if (!Number.isFinite(value)) {
-    return "0";
-  }
-  if (value >= 1_000_000) {
-    return `${roundCompact(value / 1_000_000)}M`;
-  }
-  if (value >= 1_000) {
-    return `${roundCompact(value / 1_000)}K`;
-  }
-  return `${Math.round(value)}`;
-}
-
-function roundCompact(value: number): string {
-  if (value >= 100) {
-    return `${Math.round(value)}`;
-  }
-  if (value >= 10) {
-    return value.toFixed(1).replace(/\.0$/, "");
-  }
-  return value.toFixed(2).replace(/\.?0+$/, "");
-}
-
-function slugify(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64);
-}
-
-function humanizePackName(id: string): string {
-  const label = id
-    .replace(/^discovery-lab\.recipes\.?/, "")
-    .replace(/^discovery-lab/, "default")
-    .replace(/[._-]+/g, " ")
-    .trim()
-    .replace(/\b\w/g, (match) => match.toUpperCase());
-  return label || "Default";
-}
-
-function inferProfileFromFileName(fileName: string): DiscoveryLabProfile {
-  if (fileName.includes("fast-turn")) return "scalp";
-  if (fileName.includes("quality")) return "high-value";
-  return DEFAULT_PROFILE;
-}
-
 async function writeJsonFileAtomic(filePath: string, value: unknown): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   const tempPath = `${filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
   await fs.writeFile(tempPath, JSON.stringify(value, null, 2));
   await fs.rename(tempPath, filePath);
-}
-
-function normalizeSources(input?: string[]): string[] {
-  const values = (input ?? DEFAULT_SOURCES)
-    .map((value) => value.trim())
-    .filter(Boolean);
-  return values.length > 0 ? values : DEFAULT_SOURCES;
-}
-
-function cleanThresholdOverrides(input?: DiscoveryLabThresholdOverrides): DiscoveryLabThresholdOverrides {
-  const parsed = thresholdOverridesSchema.parse(input ?? {});
-  return Object.fromEntries(
-    Object.entries(parsed).filter(([, value]) => value !== undefined),
-  ) as DiscoveryLabThresholdOverrides;
-}
-
-function packToDraft(pack: DiscoveryLabPack): DiscoveryLabPackDraft {
-  return {
-    id: pack.kind === "custom" ? pack.id : undefined,
-    name: pack.name,
-    description: pack.description,
-    defaultSources: pack.defaultSources,
-    defaultProfile: pack.defaultProfile,
-    thresholdOverrides: pack.thresholdOverrides,
-    recipes: pack.recipes,
-  };
-}
-
-function normalizePackDraft(
-  draft: DiscoveryLabPackDraft,
-  kind: DiscoveryLabPackKind,
-  sourcePath: string,
-  fallbackId: string,
-): DiscoveryLabPack {
-  return {
-    id: draft.id ?? fallbackId,
-    kind,
-    name: draft.name,
-    description: draft.description ?? "",
-    defaultSources: normalizeSources(draft.defaultSources),
-    defaultProfile: draft.defaultProfile ?? DEFAULT_PROFILE,
-    thresholdOverrides: cleanThresholdOverrides(draft.thresholdOverrides),
-    recipes: draft.recipes,
-    updatedAt: new Date().toISOString(),
-    sourcePath,
-  };
 }
 
 function toRunSummary(detail: DiscoveryLabRunDetail): DiscoveryLabRunSummary {

@@ -1,12 +1,20 @@
 "use client";
 
+import * as Tooltip from "@radix-ui/react-tooltip";
 import clsx from "clsx";
 import { useMemo, useState, useTransition } from "react";
-import { ArrowUpRight, FilePenLine, FlaskConical, Rocket, ShieldCheck } from "lucide-react";
+import { ArrowUpRight, CircleHelp, FilePenLine, FlaskConical, Rocket, ShieldCheck } from "lucide-react";
 import { fetchJson } from "@/lib/api";
+import { discoveryLabRoutes } from "@/lib/dashboard-routes";
 import { formatInteger, formatTimestamp, smartFormatValue } from "@/lib/format";
 import type { BotSettings, SettingsControlState } from "@/lib/types";
-import { PageHero, Panel, StatusPill } from "@/components/dashboard-primitives";
+import { useHydrated } from "@/lib/use-hydrated";
+import { CompactPageHeader, CompactStatGrid, EmptyState, Panel, StatusPill } from "@/components/dashboard-primitives";
+import { Badge } from "@/components/ui/badge";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { ReviewSection, WorkflowSection } from "@/components/workflow-ui";
 
 type SectionId = SettingsControlState["sections"][number]["id"];
 
@@ -129,13 +137,44 @@ const fieldHelp: Partial<Record<string, string>> = {
   "research.heliusUnitCap": "Research provider caps need a dry-run pass before promotion.",
 };
 
-export function SettingsClient({ initial, grafanaHref }: { initial: SettingsControlState; grafanaHref: string | null }) {
+type SettingsClientProps = {
+  initial: SettingsControlState;
+  grafanaHref: string | null;
+  sectionIds?: SectionId[];
+  header?: {
+    eyebrow: string;
+    title: string;
+    description: string;
+  };
+  contextLink?: {
+    href: string;
+    label: string;
+  };
+  strategyLinkHref?: string;
+  saveBarLabel?: string;
+  emptySectionTitle?: string;
+  emptySectionDetail?: string;
+};
+
+export function SettingsClient({
+  initial,
+  grafanaHref,
+  sectionIds,
+  header,
+  contextLink,
+  strategyLinkHref,
+  saveBarLabel,
+  emptySectionTitle,
+  emptySectionDetail,
+}: SettingsClientProps) {
+  const allowedSectionIds = sectionIds ?? fieldGroups.map((group) => group.section);
   const [serverState, setServerState] = useState(initial);
   const [draftValues, setDraftValues] = useState<BotSettings>(initial.draft ?? initial.active);
-  const [activeSection, setActiveSection] = useState<SectionId>("capital");
+  const [activeSection, setActiveSection] = useState<SectionId>(() => preferredSection(initial, allowedSectionIds));
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const hydrated = useHydrated();
 
   const baseline = serverState.draft ?? serverState.active;
   const localDirty = useMemo(
@@ -228,46 +267,81 @@ export function SettingsClient({ initial, grafanaHref }: { initial: SettingsCont
     && (!serverState.liveAffectingPaths.length || serverState.dryRun?.safeToPromote),
   );
 
-  const selectedGroup = fieldGroups.find((group) => group.section === activeSection) ?? fieldGroups[0];
+  const availableSections = serverState.sections.filter((section) => allowedSectionIds.includes(section.id));
+  const availableFieldGroups = fieldGroups.filter((group) => allowedSectionIds.includes(group.section));
+  const selectedGroup = availableFieldGroups.find((group) => group.section === activeSection) ?? availableFieldGroups[0];
   const draftBehindActive = Boolean(
     serverState.draft
     && serverState.basedOnUpdatedAt
     && serverState.basedOnUpdatedAt !== serverState.activeUpdatedAt,
   );
+  const activeLiveStrategy = serverState.active.strategy.liveStrategy;
+  const draftLiveStrategy = draftValues.strategy.liveStrategy;
+  const liveStrategyChanged = !isSameValue(
+    JSON.stringify(activeLiveStrategy),
+    JSON.stringify(draftLiveStrategy),
+  );
+  const liveStrategyChangedPaths = serverState.changedPaths.filter((path) => path.startsWith("strategy.liveStrategy"));
+  const nonLiveChangedPaths = serverState.changedPaths.filter((path) => !serverState.liveAffectingPaths.includes(path));
+  const showLiveStrategyGovernance = allowedSectionIds.includes("strategy") && (activeSection === "strategy" || liveStrategyChanged);
+  const showValidationSummary = serverState.validation.issues.length > 0;
+  const showDryRunReview = Boolean(serverState.liveAffectingPaths.length || serverState.dryRun);
+  const pageHeader = header ?? {
+    eyebrow: "Settings",
+    title: "Review and promote",
+    description: "Compact review rail for draft state, validation, dry run, and promotion.",
+  };
+  const pageContextLink = contextLink ?? {
+    href: discoveryLabRoutes.results,
+    label: "Discovery lab",
+  };
+  const resolvedStrategyLinkHref = strategyLinkHref ?? discoveryLabRoutes.results;
 
   return (
     <div className="space-y-5">
-      <PageHero
-        eyebrow="Settings"
-        title="Settings"
-        description={undefined}
-        meta={<StatusPill value={serverState.validation.ok ? "pass" : "fail"} />}
-        actions={grafanaHref ? (
-          <a
-            href={grafanaHref}
-            target="_blank"
-            rel="noreferrer"
-            className="btn-primary inline-flex items-center gap-2"
-            title="Open configuration analytics in Grafana"
-          >
-            Open Grafana
-            <ArrowUpRight className="h-4 w-4" />
-          </a>
-        ) : null}
-        aside={(
-          <div className="panel-muted rounded-[16px] p-4">
-            <div className="section-kicker">Active</div>
-            <div className="mt-4 grid gap-3">
-              <SummaryRow label="Updated" value={formatTimestamp(serverState.activeUpdatedAt)} />
-              <SummaryRow label="Draft" value={serverState.draft ? "Open" : "None"} />
-              <SummaryRow label="Changed paths" value={formatInteger(serverState.changedPaths.length)} />
-            </div>
-          </div>
+      <CompactPageHeader
+        eyebrow={pageHeader.eyebrow}
+        title={pageHeader.title}
+        description={pageHeader.description}
+        badges={(
+          <>
+            <StatusPill value={serverState.validation.ok ? "pass" : "fail"} />
+            <Badge variant={serverState.draft ? "warning" : "default"}>{serverState.draft ? "Draft open" : "No draft"}</Badge>
+          </>
         )}
-      />
+        actions={(
+          <>
+            <a href={pageContextLink.href} className={buttonVariants({ variant: "secondary", size: "sm" })}>
+              {pageContextLink.label}
+            </a>
+            {grafanaHref ? (
+              <a
+                href={grafanaHref}
+                target="_blank"
+                rel="noreferrer"
+                className={buttonVariants({ variant: "default", size: "sm" })}
+                title="Open configuration analytics in Grafana"
+              >
+                Open Grafana
+                <ArrowUpRight className="h-4 w-4" />
+              </a>
+            ) : null}
+          </>
+        )}
+      >
+        <CompactStatGrid
+          className="xl:grid-cols-4"
+          items={[
+            { label: "Draft", value: serverState.draft ? "Open" : "None", detail: localDirty ? "Unsaved local edits" : `${formatInteger(serverState.changedPaths.length)} changed paths`, tone: serverState.draft ? "accent" : "default" },
+            { label: "Validation", value: serverState.validation.ok ? "Pass" : `${serverState.validation.issues.length} issues`, detail: "Structural checks", tone: serverState.validation.ok ? "accent" : "danger" },
+            { label: "Dry run", value: serverState.dryRun ? safeClientTimestamp(serverState.dryRun.ranAt, hydrated, "None") : "None", detail: serverState.dryRun?.safeToPromote ? "Promotion-ready" : "Review gate", tone: serverState.dryRun?.safeToPromote ? "accent" : "default" },
+            { label: "Live paths", value: formatInteger(serverState.liveAffectingPaths.length), detail: `Active ${safeClientTimestamp(serverState.activeUpdatedAt, hydrated)}`, tone: serverState.liveAffectingPaths.length > 0 ? "warning" : "default" },
+          ]}
+        />
+      </CompactPageHeader>
 
-      <section className="grid gap-6 2xl:grid-cols-[1.18fr_0.82fr]">
-        <Panel title="Promotion rail" eyebrow="Draft -> Review -> Promote">
+      <section className="grid gap-4">
+        <Panel title="Review rail" eyebrow="Draft -> Review -> Promote" className="xl:sticky xl:top-[calc(var(--shell-header-height)+0.75rem)] xl:z-10">
           <div className="grid gap-2 lg:grid-cols-4">
             <WorkflowStepCard
               title="Draft"
@@ -287,7 +361,7 @@ export function SettingsClient({ initial, grafanaHref }: { initial: SettingsCont
                 serverState.liveAffectingPaths.length === 0
                   ? "No live path changed."
                   : serverState.dryRun
-                    ? `${serverState.dryRun.safeToPromote ? "Pass" : "Blocked"} ${formatTimestamp(serverState.dryRun.ranAt)}`
+                    ? `${serverState.dryRun.safeToPromote ? "Pass" : "Blocked"} ${safeClientTimestamp(serverState.dryRun.ranAt, hydrated)}`
                     : "Dry run needed."
               }
               status={
@@ -306,21 +380,85 @@ export function SettingsClient({ initial, grafanaHref }: { initial: SettingsCont
               icon={Rocket}
             />
           </div>
-        </Panel>
-
-        <Panel title="Summary" eyebrow="Current" tone={draftBehindActive ? "warning" : "passive"}>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <SummaryRow label="Draft" value={serverState.draft ? "Open" : "None"} />
-            <SummaryRow label="Local edits" value={localDirty ? "Unsaved" : "Synced"} />
-            <SummaryRow label="Live paths" value={formatInteger(serverState.liveAffectingPaths.length)} />
-            <SummaryRow label="Dry run" value={serverState.dryRun ? formatTimestamp(serverState.dryRun.ranAt) : "None"} />
-          </div>
           {draftBehindActive ? (
             <div className="mt-3 rounded-[14px] border border-[rgba(250,204,21,0.18)] bg-[rgba(250,204,21,0.08)] px-4 py-3 text-sm text-text-primary">
               Active settings changed after this draft. Re-check before promote.
             </div>
           ) : null}
         </Panel>
+      </section>
+
+      <section className={clsx("grid gap-4", showLiveStrategyGovernance ? "xl:grid-cols-[1.05fr_0.95fr]" : "xl:grid-cols-1")}>
+        {showLiveStrategyGovernance ? (
+          <WorkflowSection
+            title="Live strategy governance"
+            eyebrow="Discovery-owned"
+            description="Review active versus draft live models before promotion."
+          >
+            <div className="grid gap-4 lg:grid-cols-2">
+              <LiveStrategyCard
+                title="Active live model"
+                strategy={activeLiveStrategy}
+                paths={[]}
+                tone="passive"
+                hydrated={hydrated}
+              />
+              <LiveStrategyCard
+                title="Draft live model"
+                strategy={draftLiveStrategy}
+                paths={liveStrategyChangedPaths}
+                tone={liveStrategyChanged ? "warning" : "default"}
+                hydrated={hydrated}
+              />
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Badge variant={liveStrategyChanged ? "warning" : "default"}>
+                {liveStrategyChanged ? "Live strategy changed in draft" : "Live strategy matches active"}
+              </Badge>
+              <Badge variant={draftLiveStrategy.enabled ? "accent" : "default"}>
+                {draftLiveStrategy.enabled ? "Adaptive live enabled" : "Adaptive live disabled"}
+              </Badge>
+              {draftLiveStrategy.calibrationSummary?.calibrationConfidence != null ? (
+                <Badge variant="default">
+                  Confidence {Math.round(draftLiveStrategy.calibrationSummary.calibrationConfidence * 100)}%
+                </Badge>
+              ) : null}
+            </div>
+          </WorkflowSection>
+        ) : null}
+
+        <WorkflowSection
+          title="Promotion review"
+          eyebrow="Gate summary"
+          description="Promote only when the gate reads clean."
+        >
+          <div className="grid gap-4">
+            <ReviewSection
+              step="01"
+              title="What changed"
+              description="Live-affecting paths should be deliberate. Everything else is secondary."
+            >
+              <div className="grid gap-3 sm:grid-cols-2">
+                <ReviewMetric label="Changed paths" value={String(serverState.changedPaths.length)} />
+                <ReviewMetric label="Live-affecting" value={String(serverState.liveAffectingPaths.length)} />
+                <ReviewMetric label="Live strategy paths" value={String(liveStrategyChangedPaths.length)} />
+                <ReviewMetric label="Non-live paths" value={String(nonLiveChangedPaths.length)} />
+              </div>
+            </ReviewSection>
+            <ReviewSection
+              step="02"
+              title="Promotion blockers"
+              description="These checks should all read clean before the draft becomes active."
+            >
+              <div className="space-y-2">
+                <PromotionCheck label="Validation" ok={serverState.validation.ok} detail={serverState.validation.ok ? "No structural issues." : `${serverState.validation.issues.length} issue(s) remain.`} />
+                <PromotionCheck label="Dry run freshness" ok={!serverState.liveAffectingPaths.length || Boolean(serverState.dryRun)} detail={!serverState.liveAffectingPaths.length ? "No live-affecting change." : serverState.dryRun ? `Ran ${safeClientTimestamp(serverState.dryRun.ranAt, hydrated)}` : "Dry run required."} />
+                <PromotionCheck label="Safe to promote" ok={canPromote} detail={canPromote ? "Promotion gate is clear." : "A live-affecting or validation blocker remains."} />
+                <PromotionCheck label="Draft lineage" ok={!draftBehindActive} detail={draftBehindActive ? "Active settings changed after the draft was based." : "Draft is based on the current active snapshot."} />
+              </div>
+            </ReviewSection>
+          </div>
+        </WorkflowSection>
       </section>
 
       {error ? (
@@ -335,39 +473,38 @@ export function SettingsClient({ initial, grafanaHref }: { initial: SettingsCont
         </div>
       ) : null}
 
-      <section className="grid gap-5 xl:grid-cols-[minmax(15rem,0.22fr)_minmax(0,0.78fr)]">
-        <Panel title="Sections" eyebrow="Edit surface">
+      <section className="grid gap-4 xl:grid-cols-[15rem_minmax(0,1fr)]">
+        <Panel title="Sections" eyebrow="Edit surface" className="xl:sticky xl:top-[calc(var(--shell-header-height)+1rem)] xl:self-start">
           <div className="md:hidden">
             <select
               value={activeSection}
               onChange={(event) => setActiveSection(event.target.value as SectionId)}
               className="w-full rounded-[12px] border border-bg-border bg-bg-primary/65 px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent"
             >
-              {serverState.sections.map((section) => (
+              {availableSections.map((section) => (
                 <option key={section.id} value={section.id}>
                   {section.label}
                 </option>
               ))}
             </select>
           </div>
-          <div className="hidden space-y-2 md:block">
-            {serverState.sections.map((section) => (
+          <div className="hidden space-y-1.5 md:block">
+            {availableSections.map((section) => (
               <button
                 key={section.id}
                 onClick={() => setActiveSection(section.id)}
                 title={`Open ${section.label}`}
-                className={`w-full rounded-[14px] border px-4 py-3 text-left transition ${
+                className={`w-full rounded-[12px] border px-3 py-2.5 text-left transition ${
                   activeSection === section.id
                     ? "border-[rgba(163,230,53,0.28)] bg-[#121511] text-text-primary"
                     : "border-bg-border bg-bg-hover/30 text-text-secondary hover:bg-bg-hover/50"
                 }`}
               >
                 <div className="flex items-center justify-between gap-3">
-                  <span className="font-medium">{section.label}</span>
-                  <StatusPill value={section.editable ? "editable" : "read-only"} />
+                  <span className="text-sm font-medium">{section.label}</span>
+                  <span className="text-[10px] uppercase tracking-[0.18em] text-text-muted">{section.editable ? "Edit" : "View"}</span>
                 </div>
-                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-text-muted">
-                  <span>{formatInteger(section.paths.length)} paths</span>
+                <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-text-muted">
                   <span>{formatInteger(serverState.changedPaths.filter((path) => section.paths.includes(path)).length)} changed</span>
                   {serverState.liveAffectingPaths.some((path) => section.paths.includes(path)) ? <span className="meta-chip !px-2 !py-1 text-[10px]">Live</span> : null}
                 </div>
@@ -376,192 +513,236 @@ export function SettingsClient({ initial, grafanaHref }: { initial: SettingsCont
           </div>
         </Panel>
 
-        <Panel title={selectedGroup.title} eyebrow={selectedGroup.description} tone={selectedGroup.section === "advanced" ? "passive" : "default"}>
-          {selectedGroup.section === "strategy" ? (
-            <div className="mb-4 rounded-[14px] border border-[rgba(163,230,53,0.2)] bg-[rgba(163,230,53,0.08)] px-4 py-3 text-sm text-text-primary">
-              Live strategy packs, calibrated exits, and capital modifiers are now managed from discovery lab results.
-              <a href="/discovery-lab" className="ml-2 font-semibold text-accent underline underline-offset-2">Open discovery lab</a>
+        {selectedGroup ? (
+          <WorkflowSection
+            title={selectedGroup.title}
+            eyebrow="Draft editor"
+            description={selectedGroup.description}
+            className={selectedGroup.section === "advanced" ? "bg-bg-card/55" : undefined}
+          >
+            {selectedGroup.section === "strategy" ? (
+              <div className="mb-4 rounded-[14px] border border-[rgba(163,230,53,0.2)] bg-[rgba(163,230,53,0.08)] px-4 py-3 text-sm text-text-primary">
+                Live strategy packs, calibrated exits, and capital modifiers are now managed from discovery lab results.
+                <a href={resolvedStrategyLinkHref} className="ml-2 font-semibold text-accent underline underline-offset-2">Open discovery workflow</a>
+              </div>
+            ) : null}
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <Badge variant="default">{selectedGroup.title}</Badge>
+              <Badge variant={serverState.sections.find((section) => section.id === selectedGroup.section)?.editable ? "accent" : "default"}>
+                {serverState.sections.find((section) => section.id === selectedGroup.section)?.editable ? "Editable" : "Read-only"}
+              </Badge>
+              {serverState.liveAffectingPaths.some((path) => selectedGroup.fields.some((field) => path === field.path || path.startsWith(`${field.path}.`))) ? (
+                <Badge variant="warning">Live-affecting</Badge>
+              ) : null}
             </div>
-          ) : null}
-          <div className="grid gap-4 md:grid-cols-2">
-            {selectedGroup.fields.map((field) => {
-              const value = readValue(draftValues, field.path);
-              const activeValue = readValue(serverState.active, field.path);
-              const baselineValue = readValue(baseline, field.path);
-              const isChangedFromActive = !isSameValue(value, activeValue);
-              const isUnsaved = !isSameValue(value, baselineValue);
-              const isLiveAffecting = serverState.liveAffectingPaths.includes(field.path);
-              const issues = serverState.validation.issues.filter((issue) => matchesField(issue.path, field.path));
-              const help = fieldHelp[field.path];
+            <div className="grid gap-3 md:grid-cols-2">
+              {selectedGroup.fields.map((field) => {
+                const value = readValue(draftValues, field.path);
+                const activeValue = readValue(serverState.active, field.path);
+                const baselineValue = readValue(baseline, field.path);
+                const isChangedFromActive = !isSameValue(value, activeValue);
+                const isUnsaved = !isSameValue(value, baselineValue);
+                const isLiveAffecting = serverState.liveAffectingPaths.includes(field.path);
+                const issues = serverState.validation.issues.filter((issue) => matchesField(issue.path, field.path));
+                const help = fieldHelp[field.path];
 
-              if (field.path === "tradeMode" || field.kind === "select") {
-                return (
-                  <label
-                    key={field.path}
-                    className={clsx(
-                      "block rounded-[16px] border px-4 py-4 transition",
-                      isChangedFromActive ? "border-[rgba(163,230,53,0.2)] bg-[rgba(163,230,53,0.06)]" : "border-bg-border bg-bg-hover/30",
-                    )}
-                    title={help}
-                  >
-                    <FieldLabel
-                      label={field.label}
-                      isChangedFromActive={isChangedFromActive}
-                      isUnsaved={isUnsaved}
-                      isLiveAffecting={isLiveAffecting}
-                    />
-                    <select
-                      value={String(value)}
-                      onChange={(event) => updatePath(field.path, event.target.value)}
-                      className="mt-3 w-full rounded-[12px] border border-bg-border bg-bg-primary/65 px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent"
-                    >
-                      {field.path === "tradeMode" ? (
-                        <>
-                          <option value="DRY_RUN">DRY_RUN</option>
-                          <option value="LIVE">LIVE</option>
-                        </>
-                      ) : (
-                        field.options?.map((option) => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
-                        ))
+                if (field.path === "tradeMode" || field.kind === "select") {
+                  return (
+                    <label
+                      key={field.path}
+                      className={clsx(
+                        "block rounded-[14px] border px-3 py-3 transition",
+                        isChangedFromActive ? "border-[rgba(163,230,53,0.2)] bg-[rgba(163,230,53,0.06)]" : "border-bg-border bg-bg-hover/30",
                       )}
-                    </select>
-                    <FieldDiff path={field.path} activeValue={activeValue} value={value} issues={issues} />
-                  </label>
-                );
-              }
+                    >
+                      <FieldLabel
+                        label={field.label}
+                        isChangedFromActive={isChangedFromActive}
+                        isUnsaved={isUnsaved}
+                        isLiveAffecting={isLiveAffecting}
+                        help={help}
+                      />
+                      <select
+                        value={String(value)}
+                        onChange={(event) => updatePath(field.path, event.target.value)}
+                        className="mt-2.5 h-10 w-full rounded-[12px] border border-bg-border bg-[#0f0f10] px-3 py-2 text-sm text-text-primary outline-none transition focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--accent)_65%,transparent)]"
+                      >
+                        {field.path === "tradeMode" ? (
+                          <>
+                            <option value="DRY_RUN">DRY_RUN</option>
+                            <option value="LIVE">LIVE</option>
+                          </>
+                        ) : (
+                          field.options?.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))
+                        )}
+                      </select>
+                      <FieldDiff path={field.path} activeValue={activeValue} value={value} issues={issues} />
+                    </label>
+                  );
+                }
 
-              if (field.kind === "checkbox") {
+                if (field.kind === "checkbox") {
+                  return (
+                    <label
+                      key={field.path}
+                      className={clsx(
+                        "block rounded-[14px] border px-3 py-3 transition",
+                        isChangedFromActive ? "border-[rgba(163,230,53,0.2)] bg-[rgba(163,230,53,0.06)]" : "border-bg-border bg-bg-hover/30",
+                      )}
+                    >
+                      <FieldLabel
+                        label={field.label}
+                        isChangedFromActive={isChangedFromActive}
+                        isUnsaved={isUnsaved}
+                        isLiveAffecting={isLiveAffecting}
+                        help={help}
+                      />
+                      <div className="mt-2.5 flex items-center gap-3 rounded-[12px] border border-bg-border bg-bg-primary/65 px-4 py-3">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(value)}
+                          onChange={(event) => updatePath(field.path, event.target.checked)}
+                          className="h-4 w-4 rounded border-bg-border bg-bg-primary"
+                        />
+                        <span className="text-sm text-text-primary">{Boolean(value) ? "Enabled" : "Disabled"}</span>
+                      </div>
+                      <FieldDiff path={field.path} activeValue={activeValue} value={value} issues={issues} />
+                    </label>
+                  );
+                }
+
+                if (field.readOnly) {
+                  return (
+                    <div key={field.path} className="rounded-[14px] border border-bg-border bg-bg-primary/45 px-3.5 py-3 opacity-80">
+                      <div className="micro-stat-label">{field.label}</div>
+                      <div className="mt-1.5 text-sm font-medium text-text-primary">{smartFormatValue(field.path, value)}</div>
+                    </div>
+                  );
+                }
+
                 return (
                   <label
                     key={field.path}
                     className={clsx(
-                      "block rounded-[16px] border px-4 py-4 transition",
+                      "block rounded-[14px] border px-3 py-3 transition",
                       isChangedFromActive ? "border-[rgba(163,230,53,0.2)] bg-[rgba(163,230,53,0.06)]" : "border-bg-border bg-bg-hover/30",
+                      issues.length > 0 && "border-[rgba(251,113,133,0.2)] bg-[rgba(251,113,133,0.06)]",
                     )}
-                    title={help}
                   >
                     <FieldLabel
                       label={field.label}
                       isChangedFromActive={isChangedFromActive}
                       isUnsaved={isUnsaved}
                       isLiveAffecting={isLiveAffecting}
+                      help={help}
                     />
-                    <div className="mt-3 flex items-center gap-3 rounded-[12px] border border-bg-border bg-bg-primary/65 px-4 py-3">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(value)}
-                        onChange={(event) => updatePath(field.path, event.target.checked)}
-                        className="h-4 w-4 rounded border-bg-border bg-bg-primary"
+                    <div className="mt-2.5 flex items-center gap-2">
+                      <Input
+                        type="number"
+                        step={field.step ?? "any"}
+                        value={String(value)}
+                        onChange={(event) => updatePath(field.path, event.target.value)}
+                        className="bg-bg-primary/65"
                       />
-                      <span className="text-sm text-text-primary">{Boolean(value) ? "Enabled" : "Disabled"}</span>
+                      <span className="min-w-[3rem] text-right text-xs text-text-muted">{fieldUnit(field.path)}</span>
                     </div>
                     <FieldDiff path={field.path} activeValue={activeValue} value={value} issues={issues} />
                   </label>
                 );
-              }
-
-              if (field.readOnly) {
-                return (
-                  <div key={field.path} className="rounded-[14px] border border-bg-border bg-bg-primary/45 px-4 py-3 opacity-80">
-                    <div className="micro-stat-label">{field.label}</div>
-                    <div className="mt-2 text-sm font-medium text-text-primary">{smartFormatValue(field.path, value)}</div>
-                  </div>
-                );
-              }
-
-              return (
-                <label
-                  key={field.path}
-                  className={clsx(
-                    "block rounded-[16px] border px-4 py-4 transition",
-                    isChangedFromActive ? "border-[rgba(163,230,53,0.2)] bg-[rgba(163,230,53,0.06)]" : "border-bg-border bg-bg-hover/30",
-                    issues.length > 0 && "border-[rgba(251,113,133,0.2)] bg-[rgba(251,113,133,0.06)]",
-                  )}
-                  title={help}
-                >
-                  <FieldLabel
-                    label={field.label}
-                    isChangedFromActive={isChangedFromActive}
-                    isUnsaved={isUnsaved}
-                    isLiveAffecting={isLiveAffecting}
-                  />
-                  <input
-                    type="number"
-                    step={field.step ?? "any"}
-                    value={String(value)}
-                    onChange={(event) => updatePath(field.path, event.target.value)}
-                    className="mt-3 w-full rounded-[12px] border border-bg-border bg-bg-primary/65 px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent"
-                  />
-                  <FieldDiff path={field.path} activeValue={activeValue} value={value} issues={issues} />
-                </label>
-              );
-            })}
-          </div>
-        </Panel>
+              })}
+            </div>
+          </WorkflowSection>
+        ) : (
+          <Panel title="Draft editor" eyebrow="Scoped view">
+            <EmptyState
+              title={emptySectionTitle ?? "No sections available"}
+              detail={emptySectionDetail ?? "This settings view does not expose any editable sections."}
+            />
+          </Panel>
+        )}
       </section>
 
-      <section className="grid gap-6 2xl:grid-cols-[0.9fr_1.1fr]">
-        <Panel title="Validation summary" eyebrow="Structural issues" tone={serverState.validation.issues.length > 0 ? "critical" : "passive"}>
-          {serverState.validation.issues.length === 0 ? (
-            <div className="rounded-[14px] border border-bg-border bg-bg-hover/40 px-4 py-4 text-sm text-text-secondary">
-              No blocking issue.
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {serverState.validation.issues.map((issue) => (
-                <div key={`${issue.path}-${issue.message}`} className="rounded-[14px] border border-bg-border bg-bg-hover/40 px-4 py-3">
-                  <div className="text-xs uppercase tracking-[0.24em] text-text-muted">{issue.path || "settings"}</div>
-                  <div className="mt-2 text-sm text-text-primary">{issue.message}</div>
+      {showValidationSummary || showDryRunReview ? (
+        <section className={clsx("grid gap-4", showValidationSummary && showDryRunReview ? "xl:grid-cols-[0.9fr_1.1fr]" : "xl:grid-cols-1")}>
+          {showValidationSummary ? (
+            <WorkflowSection title="Validation summary" eyebrow="Structural issues" description="Open only when you need issue-by-issue detail.">
+              <details className="group" open={serverState.validation.issues.length <= 2}>
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-[14px] border border-bg-border bg-bg-hover/35 px-4 py-3 text-sm font-medium text-text-primary">
+                  <span>{formatInteger(serverState.validation.issues.length)} validation issue(s)</span>
+                  <span className="text-xs text-text-secondary group-open:hidden">Open</span>
+                  <span className="hidden text-xs text-text-secondary group-open:inline">Close</span>
+                </summary>
+                <div className="mt-4 space-y-3">
+                  {serverState.validation.issues.map((issue) => (
+                    <div key={`${issue.path}-${issue.message}`} className="rounded-[14px] border border-bg-border bg-bg-hover/40 px-4 py-3">
+                      <div className="text-xs uppercase tracking-[0.16em] text-text-muted">{issue.path || "settings"}</div>
+                      <div className="mt-2 text-sm text-text-primary">{issue.message}</div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
-        </Panel>
+              </details>
+            </WorkflowSection>
+          ) : null}
 
-        <Panel title="Dry-run review" eyebrow="Promotion gate" tone={serverState.dryRun?.safeToPromote ? "passive" : "warning"}>
-          {serverState.dryRun ? (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <StatusPill value={serverState.dryRun.safeToPromote ? "ready" : "blocked"} />
-                <span className="text-sm text-text-secondary">Ran {formatTimestamp(serverState.dryRun.ranAt)}</span>
-              </div>
-              <ReviewMetric label="Current gate" value={serverState.dryRun.currentGate.allowed ? "Allowed" : serverState.dryRun.currentGate.reason ?? "Blocked"} />
-              <ReviewMetric label="Draft gate" value={serverState.dryRun.draftGate.allowed ? "Allowed" : serverState.dryRun.draftGate.reason ?? "Blocked"} />
-              <ReviewMetric label="No new blocker" value={serverState.dryRun.noNewBlocker ? "Yes" : "No"} />
-              <ReviewMetric label="Queued candidates" value={String(serverState.dryRun.queuedCandidates)} />
-              <ReviewMetric label="Open positions" value={String(serverState.dryRun.openPositions)} />
-            </div>
-          ) : (
-            <div className="rounded-[14px] border border-bg-border bg-bg-hover/40 px-4 py-4 text-sm text-text-secondary">
-              No dry run yet.
-            </div>
-          )}
-        </Panel>
-      </section>
+          {showDryRunReview ? (
+            <WorkflowSection title="Dry-run review" eyebrow="Promotion gate" description="Open only when the live gate changed.">
+              <details className="group" open={Boolean(serverState.dryRun && !serverState.dryRun.safeToPromote)}>
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-[14px] border border-bg-border bg-bg-hover/35 px-4 py-3 text-sm font-medium text-text-primary">
+                  <span>{serverState.dryRun ? `Dry run ${serverState.dryRun.safeToPromote ? "ready" : "blocked"}` : "No dry run yet"}</span>
+                  <span className="text-xs text-text-secondary group-open:hidden">Open</span>
+                  <span className="hidden text-xs text-text-secondary group-open:inline">Close</span>
+                </summary>
+                <div className="mt-4">
+                  {serverState.dryRun ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        <StatusPill value={serverState.dryRun.safeToPromote ? "ready" : "blocked"} />
+                        <span className="text-sm text-text-secondary">Ran {safeClientTimestamp(serverState.dryRun.ranAt, hydrated)}</span>
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <ReviewMetric label="Current gate" value={serverState.dryRun.currentGate.allowed ? "Allowed" : serverState.dryRun.currentGate.reason ?? "Blocked"} />
+                        <ReviewMetric label="Draft gate" value={serverState.dryRun.draftGate.allowed ? "Allowed" : serverState.dryRun.draftGate.reason ?? "Blocked"} />
+                        <ReviewMetric label="No new blocker" value={serverState.dryRun.noNewBlocker ? "Yes" : "No"} />
+                        <ReviewMetric label="Queued candidates" value={String(serverState.dryRun.queuedCandidates)} />
+                        <ReviewMetric label="Open positions" value={String(serverState.dryRun.openPositions)} />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-[14px] border border-bg-border bg-bg-hover/40 px-4 py-4 text-sm text-text-secondary">
+                      Run a dry run after live-affecting changes.
+                    </div>
+                  )}
+                </div>
+              </details>
+            </WorkflowSection>
+          ) : null}
+        </section>
+      ) : null}
 
-      <div className="sticky bottom-4 z-20 rounded-[16px] border border-bg-border bg-bg-secondary p-4 shadow-[0_18px_50px_rgba(0,0,0,0.22)]">
+      <div className="sticky bottom-4 z-20 rounded-[16px] border border-bg-border bg-bg-secondary p-3.5 shadow-[0_18px_50px_rgba(0,0,0,0.22)]">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div>
-            <div className="text-sm font-medium text-text-primary">Save, dry run, promote.</div>
+            <div className="text-sm font-medium text-text-primary">{saveBarLabel ?? "Save, dry run, promote."}</div>
             <div className="mt-1 text-xs text-text-secondary">
-              Active {formatTimestamp(serverState.activeUpdatedAt)}
-              {serverState.basedOnUpdatedAt ? ` · Draft base ${formatTimestamp(serverState.basedOnUpdatedAt)}` : ""}
+              Active {safeClientTimestamp(serverState.activeUpdatedAt, hydrated)}
+              {serverState.basedOnUpdatedAt ? ` · Draft base ${safeClientTimestamp(serverState.basedOnUpdatedAt, hydrated)}` : ""}
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button onClick={discardDraft} disabled={isPending || (!serverState.draft && !localDirty)} className="btn-ghost border border-bg-border disabled:cursor-not-allowed disabled:opacity-50" title="Throw away the current draft">
-              Discard draft
-            </button>
-            <button onClick={saveDraft} disabled={isPending || !localDirty} className="btn-ghost border border-bg-border disabled:cursor-not-allowed disabled:opacity-50" title="Persist the current draft">
+            <Button onClick={discardDraft} disabled={isPending || (!serverState.draft && !localDirty)} variant="ghost" title="Throw away the current draft">
+              Discard
+            </Button>
+            <Button onClick={saveDraft} disabled={isPending || !localDirty} variant="secondary" title="Persist the current draft">
               Save draft
-            </button>
-            <button onClick={runDryRun} disabled={isPending || !serverState.draft || !serverState.validation.ok} className="btn-ghost border border-bg-border disabled:cursor-not-allowed disabled:opacity-50" title="Run the dry-run promotion gate">
-              Run dry run
-            </button>
-            <button onClick={promote} disabled={isPending || !canPromote} className="btn-primary disabled:cursor-not-allowed disabled:opacity-50" title="Promote the reviewed draft to active">
-              Promote active
-            </button>
+            </Button>
+            <Button onClick={runDryRun} disabled={isPending || !serverState.draft || !serverState.validation.ok} variant="ghost" title="Run the dry-run promotion gate">
+              Dry run
+            </Button>
+            <Button onClick={promote} disabled={isPending || !canPromote} variant="default" title="Promote the reviewed draft to active">
+              Promote
+            </Button>
           </div>
         </div>
       </div>
@@ -597,11 +778,82 @@ function WorkflowStepCard(props: {
   );
 }
 
+function LiveStrategyCard(props: {
+  title: string;
+  strategy: BotSettings["strategy"]["liveStrategy"];
+  paths: string[];
+  tone: "default" | "warning" | "passive";
+  hydrated: boolean;
+}) {
+  const toneClass = {
+    default: "border-bg-border bg-bg-hover/30",
+    warning: "border-[rgba(250,204,21,0.18)] bg-[rgba(250,204,21,0.08)]",
+    passive: "border-bg-border bg-bg-primary/45",
+  }[props.tone];
+
+  return (
+    <Card className={toneClass}>
+      <CardHeader className="pb-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <CardTitle className="text-[0.95rem]">{props.title}</CardTitle>
+          <div className="flex flex-wrap gap-2">
+            <Badge variant={props.strategy.enabled ? "accent" : "default"}>
+              {props.strategy.enabled ? "Enabled" : "Disabled"}
+            </Badge>
+            {props.strategy.dominantPresetId ? (
+              <Badge variant="default">{props.strategy.dominantPresetId.replace(/_/g, " ")}</Badge>
+            ) : null}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <SummaryRow label="Pack" value={props.strategy.packName ?? "None staged"} />
+          <SummaryRow label="Source run" value={props.strategy.sourceRunId ?? "None"} />
+          <SummaryRow label="Capital modifier" value={`${props.strategy.capitalModifierPercent}%`} />
+          <SummaryRow label="Recipes" value={String(props.strategy.recipes.length)} />
+          <SummaryRow label="Dominant mode" value={props.strategy.dominantMode ?? "Unknown"} />
+          <SummaryRow label="Updated" value={props.strategy.updatedAt ? safeClientTimestamp(props.strategy.updatedAt, props.hydrated, "Never") : "Never"} />
+        </div>
+        {props.strategy.calibrationSummary ? (
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            <ReviewMetric label="Winners" value={String(props.strategy.calibrationSummary.winnerCount)} />
+            <ReviewMetric label="Confidence" value={props.strategy.calibrationSummary.calibrationConfidence == null ? "—" : `${Math.round(props.strategy.calibrationSummary.calibrationConfidence * 100)}%`} />
+            <ReviewMetric label="Derived profile" value={props.strategy.calibrationSummary.derivedProfile ?? "—"} />
+          </div>
+        ) : null}
+        {props.paths.length > 0 ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {props.paths.slice(0, 6).map((path) => (
+              <Badge key={path} variant="warning">{path.replace("strategy.liveStrategy.", "")}</Badge>
+            ))}
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function PromotionCheck(props: { label: string; ok: boolean; detail: string }) {
+  return (
+    <div className="rounded-[14px] border border-bg-border bg-bg-hover/30 px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-sm font-medium text-text-primary">{props.label}</div>
+        <Badge variant={props.ok ? "accent" : "warning"}>{props.ok ? "OK" : "Review"}</Badge>
+      </div>
+      <div className="mt-2 text-xs leading-5 text-text-secondary">{props.detail}</div>
+    </div>
+  );
+}
+
 function SummaryRow(props: { label: string; value: string }) {
   return (
     <div className="rounded-[12px] border border-bg-border bg-bg-primary/55 px-3 py-3">
-      <div className="text-xs uppercase tracking-[0.18em] text-text-muted">{props.label}</div>
-      <div className="mt-2 text-sm font-semibold text-text-primary">{props.value}</div>
+      <div className="scorecard-grid">
+        <div className="scorecard-label wrap-anywhere">{props.label}</div>
+        <div className="scorecard-value wrap-anywhere text-sm font-semibold">{props.value}</div>
+        <div />
+      </div>
     </div>
   );
 }
@@ -609,8 +861,11 @@ function SummaryRow(props: { label: string; value: string }) {
 function ReviewMetric(props: { label: string; value: string }) {
   return (
     <div className="micro-stat">
-      <div className="micro-stat-label">{props.label}</div>
-      <div className="mt-2 text-sm font-medium text-text-primary">{props.value}</div>
+      <div className="scorecard-grid">
+        <div className="scorecard-label wrap-anywhere">{props.label}</div>
+        <div className="scorecard-value wrap-anywhere text-sm font-medium">{props.value}</div>
+        <div />
+      </div>
     </div>
   );
 }
@@ -620,15 +875,17 @@ function FieldLabel(props: {
   isChangedFromActive: boolean;
   isUnsaved: boolean;
   isLiveAffecting: boolean;
+  help?: string;
 }) {
+  const status = props.isLiveAffecting ? "live gate" : props.isUnsaved ? "unsaved" : props.isChangedFromActive ? "changed" : null;
+
   return (
     <div className="flex items-start justify-between gap-3">
-      <div>
-        <span className="block text-xs uppercase tracking-[0.3em] text-text-muted">{props.label}</span>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {props.isChangedFromActive ? <StatusPill value="changed" /> : <span className="meta-chip !px-2 !py-1 text-[10px]">Active match</span>}
-          {props.isUnsaved ? <span className="meta-chip !px-2 !py-1 text-[10px]">Unsaved</span> : null}
-          {props.isLiveAffecting ? <span className="meta-chip !px-2 !py-1 text-[10px]">Live gate</span> : null}
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="block text-xs uppercase tracking-[0.18em] text-text-muted">{props.label}</span>
+          {props.help ? <HelpTooltip text={props.help} /> : null}
+          {status ? <StatusPill value={status} /> : null}
         </div>
       </div>
     </div>
@@ -650,8 +907,12 @@ function FieldDiff(props: {
       <div className="flex flex-wrap items-center gap-2 text-xs text-text-muted">
         <span>Active</span>
         <span className="font-mono text-text-primary">{smartFormatValue(props.path, props.activeValue)}</span>
-        <span>→</span>
-        <span className="font-mono text-text-primary">{smartFormatValue(props.path, props.value)}</span>
+        {!isSameValue(props.activeValue, props.value) ? (
+          <>
+            <span>→</span>
+            <span className="font-mono text-text-primary">{smartFormatValue(props.path, props.value)}</span>
+          </>
+        ) : null}
       </div>
       {props.issues.length > 0 ? (
         <div className="space-y-1">
@@ -676,4 +937,57 @@ function isSameValue(left: string | number | boolean, right: string | number | b
 
 function matchesField(issuePath: string, fieldPath: string) {
   return issuePath === fieldPath || issuePath.startsWith(`${fieldPath}.`) || fieldPath.startsWith(`${issuePath}.`);
+}
+
+function HelpTooltip(props: { text: string }) {
+  return (
+    <Tooltip.Provider delayDuration={120}>
+      <Tooltip.Root>
+        <Tooltip.Trigger asChild>
+          <button type="button" className="inline-flex h-4 w-4 items-center justify-center text-text-muted transition hover:text-text-primary" aria-label="Field help">
+            <CircleHelp className="h-3.5 w-3.5" />
+          </button>
+        </Tooltip.Trigger>
+        <Tooltip.Portal>
+          <Tooltip.Content
+            side="top"
+            sideOffset={8}
+            className="max-w-xs rounded-[12px] border border-bg-border bg-[#111214] px-3 py-2 text-xs leading-5 text-text-primary shadow-2xl"
+          >
+            {props.text}
+            <Tooltip.Arrow className="fill-[#111214]" />
+          </Tooltip.Content>
+        </Tooltip.Portal>
+      </Tooltip.Root>
+    </Tooltip.Provider>
+  );
+}
+
+function fieldUnit(path: string) {
+  if (/Usd$/.test(path) || path.includes("capitalUsd") || path.includes("positionSizeUsd")) return "USD";
+  if (/Percent$/.test(path) || path.includes("Fraction")) return "%";
+  if (/Minutes$/.test(path)) return "min";
+  if (/Seconds$/.test(path)) return "sec";
+  if (/IntervalMs$/.test(path) || /DurationMs$/.test(path) || /pollIntervalMs$/.test(path)) return "ms";
+  return "";
+}
+
+function safeClientTimestamp(value: string | null | undefined, hydrated: boolean, fallback = "—") {
+  if (!value) {
+    return fallback;
+  }
+  return hydrated ? formatTimestamp(value) : "Syncing...";
+}
+
+function preferredSection(state: SettingsControlState, allowedSectionIds: SectionId[]): SectionId {
+  const ordered = state.sections.filter((section) => allowedSectionIds.includes(section.id));
+  const liveFirst = ordered.find((section) => state.liveAffectingPaths.some((path) => section.paths.includes(path)));
+  if (state.draft && liveFirst) {
+    return liveFirst.id;
+  }
+  const changedFirst = ordered.find((section) => state.changedPaths.some((path) => section.paths.includes(path)));
+  if (state.draft && changedFirst) {
+    return changedFirst.id;
+  }
+  return ordered[0]?.id ?? "capital";
 }

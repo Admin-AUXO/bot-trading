@@ -8,33 +8,44 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useEffectEvent, useRef, useState, useTransition } from "react";
 import {
   Activity,
-  BarChart3,
-  CandlestickChart,
   Command,
-  CornerDownLeft,
   FlaskConical,
+  GitPullRequestArrow,
   PanelLeftClose,
   PanelLeftOpen,
   PauseCircle,
   PlayCircle,
   Radar,
-  RadioTower,
   RefreshCcw,
   Search,
   Settings2,
 } from "lucide-react";
 import { fetchJson } from "@/lib/api";
-import { formatInteger, formatTimestamp } from "@/lib/format";
+import { formatInteger, formatMinutesAgo } from "@/lib/format";
 import type { ActionResponse, DeskShellPayload } from "@/lib/types";
 import { StatusPill } from "@/components/dashboard-primitives";
 import { PinnedItemsProvider, PinnedItemsSidebar } from "@/components/pinned-items";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 
 const SIDEBAR_STORAGE_KEY = "graduation-control-sidebar-collapsed";
 
 type NavItem = {
+  id: string;
   href: Route;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
+  matchPrefixes: string[];
+  countKey?: "trading";
+};
+
+type NavGroup = {
+  id: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  items: NavItem[];
 };
 
 type SidebarContext = {
@@ -45,14 +56,90 @@ type SidebarContext = {
   notes?: string[];
 };
 
-const nav: NavItem[] = [
-  { href: "/", label: "Desk", icon: Activity },
-  { href: "/candidates", label: "Candidates", icon: CandlestickChart },
-  { href: "/positions", label: "Positions", icon: BarChart3 },
-  { href: "/discovery-lab", label: "Discovery Lab", icon: FlaskConical },
-  { href: "/telemetry", label: "Telemetry", icon: RadioTower },
-  { href: "/settings", label: "Settings", icon: Settings2 },
+type CommandItem = {
+  id: string;
+  label: string;
+  hint: string;
+  icon: React.ComponentType<{ className?: string }>;
+  type: "Route" | "Action";
+  run: () => void;
+};
+
+const navGroups: NavGroup[] = [
+  {
+    id: "operational-desk",
+    label: "Operational desk",
+    icon: Activity,
+    items: [
+      {
+        id: "operational-overview",
+        href: "/operational-desk/overview" as Route,
+        label: "Overview",
+        icon: Activity,
+        matchPrefixes: ["/operational-desk/overview", "/"],
+      },
+      {
+        id: "operational-trading",
+        href: "/operational-desk/trading" as Route,
+        label: "Trading",
+        icon: GitPullRequestArrow,
+        matchPrefixes: ["/operational-desk/trading", "/trading", "/candidates", "/positions"],
+        countKey: "trading",
+      },
+      {
+        id: "operational-settings",
+        href: "/operational-desk/settings" as Route,
+        label: "Settings",
+        icon: Settings2,
+        matchPrefixes: ["/operational-desk/settings", "/settings"],
+      },
+    ],
+  },
+  {
+    id: "discovery-lab",
+    label: "Discovery lab",
+    icon: FlaskConical,
+    items: [
+      {
+        id: "discovery-overview",
+        href: "/discovery-lab/overview" as Route,
+        label: "Overview",
+        icon: Radar,
+        matchPrefixes: ["/discovery-lab/overview"],
+      },
+      {
+        id: "discovery-studio",
+        href: "/discovery-lab/studio" as Route,
+        label: "Studio",
+        icon: FlaskConical,
+        matchPrefixes: ["/discovery-lab/studio"],
+      },
+      {
+        id: "discovery-run-lab",
+        href: "/discovery-lab/run-lab" as Route,
+        label: "Run lab",
+        icon: PlayCircle,
+        matchPrefixes: ["/discovery-lab/run-lab"],
+      },
+      {
+        id: "discovery-results",
+        href: "/discovery-lab/results" as Route,
+        label: "Results",
+        icon: Search,
+        matchPrefixes: ["/discovery-lab/results", "/discovery-lab"],
+      },
+      {
+        id: "discovery-config",
+        href: "/discovery-lab/config" as Route,
+        label: "Config",
+        icon: Settings2,
+        matchPrefixes: ["/discovery-lab/config"],
+      },
+    ],
+  },
 ];
+
+const navItems = navGroups.flatMap((group) => group.items);
 
 const actionEndpoint: Record<DeskShellPayload["availableActions"][number]["id"], string> = {
   pause: "/control/pause",
@@ -75,10 +162,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarReady, setSidebarReady] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const [isPending, startTransition] = useTransition();
   const currentPath = pathname ?? "/";
-  const activeNav = getActiveNav(currentPath);
-  const ActiveNavIcon = activeNav.icon;
   const sidebarContext = buildSidebarContext(currentPath, shell);
   const liveArmAction = (shell?.availableActions ?? []).find((action) => isLiveArmAction(action)) ?? null;
 
@@ -97,6 +183,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     const timer = window.setInterval(() => void refreshShell(), 15_000);
     return () => window.clearInterval(timer);
   }, [refreshShell]);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     const saved = window.localStorage.getItem(SIDEBAR_STORAGE_KEY);
@@ -153,15 +243,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     });
   };
 
-  const commandItems = [
-    ...nav.map((item) => ({
-      id: item.href,
-      label: item.label,
-      hint: `Open ${item.label.toLowerCase()}`,
-      icon: item.icon,
-      type: "Route",
-      run: () => router.push(item.href),
-    })),
+  const commandItems: CommandItem[] = [
+    ...navItems.map((item) => {
+      const groupLabel = navGroups.find((group) => group.items.some((candidate) => candidate.id === item.id))?.label;
+      return {
+        id: item.href,
+        label: groupLabel ? `${groupLabel} / ${item.label}` : item.label,
+        hint: `Open ${item.href}`,
+        icon: item.icon,
+        type: "Route" as const,
+        run: () => router.push(item.href),
+      };
+    }),
     ...(shell?.availableActions ?? [])
       .filter((action) => action.enabled)
       .map((action) => ({
@@ -173,7 +266,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             ? "Runtime control"
             : "Operator action",
         icon: action.id === "pause" ? PauseCircle : action.id === "resume" ? PlayCircle : RefreshCcw,
-        type: "Action",
+        type: "Action" as const,
         run: () => runAction(action.id, action.confirmation),
       })),
   ].filter((item) => {
@@ -181,6 +274,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (!query) return true;
     return `${item.label} ${item.hint}`.toLowerCase().includes(query);
   });
+  const routeCommandItems = commandItems.filter((item) => item.type === "Route");
+  const actionCommandItems = commandItems.filter((item) => item.type === "Action");
 
   useEffect(() => {
     if (!commandOpen) {
@@ -237,6 +332,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [commandItems, commandOpen, selectedCommandIndex]);
 
+  if (!mounted) {
+    return (
+      <PinnedItemsProvider>
+        <div className="min-h-screen overflow-x-hidden bg-bg-primary">
+          <main className="overflow-x-hidden px-4 py-3 lg:px-6 lg:py-4">
+            <div className="mx-auto w-full max-w-[1680px]">{children}</div>
+          </main>
+        </div>
+      </PinnedItemsProvider>
+    );
+  }
+
   return (
     <Tooltip.Provider delayDuration={120}>
       <PinnedItemsProvider>
@@ -244,10 +351,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <aside
             className={clsx(
               "fixed inset-y-0 left-0 hidden border-r border-bg-border/80 bg-bg-secondary transition-[width] duration-200 lg:flex lg:flex-col",
-              sidebarCollapsed ? "w-[5.5rem]" : "w-72",
+              sidebarCollapsed ? "w-[6.75rem]" : "w-[19.5rem]",
             )}
           >
-            <div className="border-b border-bg-border px-4 py-5">
+            <div className="border-b border-bg-border px-3 py-3">
               <div className={clsx("flex items-center gap-3", sidebarCollapsed ? "justify-center" : "justify-between")}>
                 <div className="flex min-w-0 items-center gap-3">
                   <div className="rounded-xl border border-[rgba(163,230,53,0.2)] bg-[var(--panel-raised)] p-2 text-accent">
@@ -261,173 +368,138 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   ) : null}
                 </div>
 
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="icon"
                   onClick={() => setSidebarCollapsed((current) => !current)}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-[12px] border border-bg-border bg-[#101012] text-text-secondary transition hover:text-text-primary"
+                  className="h-10 w-10 bg-[#101012]"
                   title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
                   aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
                 >
                   {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-                </button>
+                </Button>
               </div>
 
               {sidebarCollapsed ? (
-                <div className="mt-5 space-y-3">
+                <div className="mt-3 space-y-2">
                   <div className="flex justify-center">
                     <StatusPill value={shell?.health ?? "waiting"} />
                   </div>
                   <div className="grid gap-2">
                     <CompactShellMetric label="Mode" value={shortMode(shell?.mode)} />
                     <CompactShellMetric
-                      label="Queued"
-                      value={shell ? formatInteger(shell.statusSummary.queuedCandidates) : "—"}
-                    />
-                    <CompactShellMetric
                       label="Open"
                       value={shell ? formatInteger(shell.statusSummary.openPositions) : "—"}
                     />
-                    <CompactShellMetric
-                      label="Alerts"
-                      value={shell ? formatInteger(shell.unreadCriticalAlerts) : "—"}
-                    />
+                    <CompactShellMetric label="Sync" value={shell ? formatMinutesAgo(shell.lastSyncAt) : "—"} />
                   </div>
                 </div>
               ) : (
-                <div className="mt-5 space-y-4 rounded-[18px] border border-bg-border bg-[var(--panel-raised)] p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
+                <div className="mt-3 space-y-2.5 rounded-[16px] border border-bg-border bg-[var(--panel-raised)] p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
                       <div className="section-kicker">Shell</div>
-                      <div className="mt-2 text-sm font-semibold text-text-primary">
+                      <div className="mt-1.5 text-sm font-semibold text-text-primary">
                         {shell?.primaryBlocker?.label ?? "Desk clear"}
                       </div>
                     </div>
                     <StatusPill value={shell?.health ?? "waiting"} />
                   </div>
-                  <div className="grid grid-cols-2 gap-2 text-xs text-text-secondary">
-                    <ShellMetric label="Mode" value={shell?.mode ?? "Waiting"} />
-                    <ShellMetric label="Queued" value={shell ? formatInteger(shell.statusSummary.queuedCandidates) : "—"} />
+                  <div className="grid grid-cols-4 gap-1.5 text-xs text-text-secondary">
+                    <ShellMetric label="Mode" value={shortMode(shell?.mode)} />
                     <ShellMetric
                       label="Open"
                       value={shell ? `${formatInteger(shell.statusSummary.openPositions)}/${formatInteger(shell.statusSummary.maxOpenPositions)}` : "—"}
                     />
-                    <ShellMetric label="Alerts" value={shell ? formatInteger(shell.unreadCriticalAlerts) : "—"} />
+                    <ShellMetric label="Queued" value={shell ? formatInteger(shell.statusSummary.queuedCandidates) : "—"} />
+                    <ShellMetric label="Sync" value={shell ? formatMinutesAgo(shell.lastSyncAt) : "—"} />
                   </div>
                 </div>
               )}
             </div>
 
-            <nav className={clsx("space-y-2 py-5", sidebarCollapsed ? "px-3" : "px-4")}>
-              {nav.map((item) => {
-                const Icon = item.icon;
-                const active = matchesRoute(currentPath, item.href);
-                const count = routeCount(shell, item.href);
-                const link = (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    title={`Open ${item.label}`}
-                    className={clsx(
-                      "relative flex items-center rounded-[14px] border transition",
-                      sidebarCollapsed ? "justify-center px-0 py-3" : "justify-between px-4 py-3",
-                      active
-                        ? "border-[rgba(163,230,53,0.3)] bg-[#121511] text-text-primary"
-                        : "border-transparent text-text-secondary hover:border-bg-border hover:bg-[#141417] hover:text-text-primary",
-                    )}
-                  >
-                    <div className={clsx("flex items-center", sidebarCollapsed ? "justify-center" : "gap-3")}>
-                      <Icon className="h-4 w-4" />
-                      {!sidebarCollapsed ? <span className="text-sm font-medium">{item.label}</span> : null}
+            <nav className={clsx("space-y-4 py-3", sidebarCollapsed ? "px-2.5" : "px-3")}>
+              {navGroups.map((group) => (
+                <div key={group.id} className="space-y-1.5">
+                  {!sidebarCollapsed ? (
+                    <div className="flex items-center gap-2 px-1 pt-1">
+                      <group.icon className="h-3.5 w-3.5 text-text-muted" />
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">{group.label}</div>
                     </div>
-
-                    {sidebarCollapsed ? (
-                      <>
-                        {count ? (
-                          <span className="absolute -right-1 -top-1 min-w-[1.1rem] rounded-full border border-bg-border bg-[#151517] px-1 text-center text-[9px] font-semibold text-text-primary">
-                            {count}
-                          </span>
-                        ) : null}
-                      </>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        {count ? <span className="meta-chip !px-2.5 !py-1 text-[10px]">{count}</span> : null}
-                        {active ? <div className="h-2.5 w-2.5 rounded-full bg-accent" /> : null}
-                      </div>
-                    )}
-                  </Link>
-                );
-
-                if (!sidebarCollapsed) {
-                  return link;
-                }
-
-                return (
-                  <Tooltip.Root key={item.href}>
-                    <Tooltip.Trigger asChild>{link}</Tooltip.Trigger>
-                    <Tooltip.Portal>
-                      <Tooltip.Content
-                        side="right"
-                        sideOffset={12}
-                        className="rounded-[12px] border border-bg-border bg-[#111214] px-3 py-2 text-xs font-medium text-text-primary shadow-2xl"
+                  ) : null}
+                  {group.items.map((item) => {
+                    const Icon = item.icon;
+                    const active = matchesRoute(currentPath, item);
+                    const count = routeCount(shell, item);
+                    const link = (
+                      <Link
+                        key={item.id}
+                        href={item.href}
+                        title={`Open ${group.label} ${item.label}`}
+                        className={clsx(
+                          "relative flex items-center rounded-[14px] border transition",
+                          sidebarCollapsed ? "justify-center px-0 py-3" : "justify-between px-3 py-2.5",
+                          active
+                            ? "border-[rgba(163,230,53,0.3)] bg-[#121511] text-text-primary"
+                            : "border-bg-border/30 text-text-secondary hover:border-bg-border hover:bg-[#141417] hover:text-text-primary",
+                        )}
                       >
-                        {item.label}
-                        <Tooltip.Arrow className="fill-[#111214]" />
-                      </Tooltip.Content>
-                    </Tooltip.Portal>
-                  </Tooltip.Root>
-                );
-              })}
+                        <div className={clsx("flex items-center", sidebarCollapsed ? "justify-center" : "gap-3")}>
+                          <Icon className="h-4 w-4" />
+                          {!sidebarCollapsed ? <span className="text-sm font-medium">{item.label}</span> : null}
+                        </div>
+
+                        {sidebarCollapsed ? (
+                          <>
+                            {count ? (
+                              <span className="absolute -right-1 -top-1 min-w-[1.1rem] rounded-full border border-bg-border bg-[#151517] px-1 text-center text-[9px] font-semibold text-text-primary">
+                                {count}
+                              </span>
+                            ) : null}
+                          </>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            {count ? <Badge className="px-2.5 py-1 normal-case">{count}</Badge> : null}
+                            {active ? <div className="h-2.5 w-2.5 rounded-full bg-accent" /> : null}
+                          </div>
+                        )}
+                      </Link>
+                    );
+
+                    if (!sidebarCollapsed) {
+                      return link;
+                    }
+
+                    return (
+                      <Tooltip.Root key={item.id}>
+                        <Tooltip.Trigger asChild>{link}</Tooltip.Trigger>
+                        <Tooltip.Portal>
+                          <Tooltip.Content
+                            side="right"
+                            sideOffset={12}
+                            className="rounded-[12px] border border-bg-border bg-[#111214] px-3 py-2 text-xs font-medium text-text-primary shadow-2xl"
+                          >
+                            {group.label} / {item.label}
+                            <Tooltip.Arrow className="fill-[#111214]" />
+                          </Tooltip.Content>
+                        </Tooltip.Portal>
+                      </Tooltip.Root>
+                    );
+                  })}
+                </div>
+              ))}
             </nav>
 
-            <div className={clsx("min-h-0 flex-1 overflow-y-auto pb-5", sidebarCollapsed ? "px-3" : "px-4")}>
-              {!sidebarCollapsed ? (
-                <div className="mb-4 rounded-[18px] border border-[rgba(163,230,53,0.16)] bg-[var(--panel-raised)] p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="section-kicker text-accent">{sidebarContext.eyebrow}</div>
-                      <div className="mt-2 text-sm font-semibold text-text-primary">{sidebarContext.title}</div>
-                    </div>
-                    <div className="rounded-[12px] border border-[rgba(163,230,53,0.18)] bg-[var(--panel-accent)] p-2 text-accent">
-                      <ActiveNavIcon className="h-4 w-4" />
-                    </div>
-                  </div>
-                  <div className="mt-2 text-xs leading-5 text-text-secondary">{sidebarContext.detail}</div>
-                  {sidebarContext.links?.length ? (
-                    <div className="mt-3 grid gap-2">
-                      {sidebarContext.links.map((link) => (
-                        <Link
-                          key={`${sidebarContext.title}-${link.href}-${link.label}`}
-                          href={link.href as Route}
-                          className="flex items-center justify-between gap-3 rounded-[12px] border border-bg-border bg-[#0f1010] px-3 py-2 text-sm text-text-secondary transition hover:border-[rgba(163,230,53,0.18)] hover:text-text-primary"
-                        >
-                          <span>{link.label}</span>
-                          {link.badge ? <span className="meta-chip !px-2.5 !py-1 text-[10px]">{link.badge}</span> : null}
-                        </Link>
-                      ))}
-                    </div>
-                  ) : null}
-                  {sidebarContext.notes?.length ? (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {sidebarContext.notes.map((note) => (
-                        <span
-                          key={`${sidebarContext.title}-${note}`}
-                          className="rounded-full border border-bg-border bg-[#0f1010] px-3 py-1.5 text-[11px] font-medium text-text-secondary"
-                        >
-                          {note}
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-              {!sidebarCollapsed ? <PinnedItemsSidebar /> : null}
+            <div className={clsx("min-h-0 flex-1 overflow-y-auto pb-4", sidebarCollapsed ? "px-3" : "px-3.5")}>
+              {!sidebarCollapsed ? <PinnedItemsSidebar hideWhenEmpty /> : null}
             </div>
           </aside>
 
           <div
             className={clsx(
               "min-h-screen transition-[padding] duration-200",
-              sidebarCollapsed ? "lg:pl-[5.5rem]" : "lg:pl-72",
+              sidebarCollapsed ? "lg:pl-[6.75rem]" : "lg:pl-[19.5rem]",
             )}
           >
             <header ref={headerRef} className="sticky top-0 z-30 border-b border-bg-border/80 bg-bg-secondary/95 backdrop-blur-sm">
@@ -437,67 +509,57 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <span className="section-kicker text-accent">{sidebarContext.eyebrow}</span>
                     <StatusPill value={shell?.mode ?? "waiting"} />
                     <StatusPill value={shell?.health ?? "waiting"} />
-                    {shell?.primaryBlocker ? <StatusPill value={shell.primaryBlocker.level} /> : null}
-                    {shell?.primaryBlocker?.label ? <span className="meta-chip">{shell.primaryBlocker.label}</span> : null}
-                    <span className="meta-chip">Sync {shell ? formatTimestamp(shell.lastSyncAt) : "awaiting"}</span>
+                    <Badge className="normal-case">Sync {shell ? formatMinutesAgo(shell.lastSyncAt) : "—"}</Badge>
+                    {shell?.primaryBlocker?.label ? <Badge className="normal-case">{shell.primaryBlocker.label}</Badge> : null}
                   </div>
                   <div className="mt-1.5 flex flex-wrap items-center gap-2">
                     <span className="text-sm font-semibold text-text-primary">{sidebarContext.title}</span>
-                    <span className="text-[11px] text-text-secondary">{sidebarContext.detail}</span>
-                    {shellError ? <span className="meta-chip text-accent-red">{shellError}</span> : null}
-                    {actionError ? <span className="meta-chip text-accent-red">{actionError}</span> : null}
+                    {shellError ? <Badge variant="danger" className="normal-case tracking-normal">{shellError}</Badge> : null}
+                    {actionError ? <Badge variant="danger" className="normal-case tracking-normal">{actionError}</Badge> : null}
                   </div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  <button
+                  <Button
                     onClick={() => setCommandOpen(true)}
-                    className="btn-ghost inline-flex items-center gap-2 border border-bg-border !px-3 !py-2"
+                    variant="ghost"
+                    size="default"
                     title="Open command launcher"
                   >
                     <Command className="h-4 w-4" />
                     Command
-                    <span className="meta-chip !px-2 !py-1 text-[10px]">⌘K</span>
-                  </button>
-                  <button
+                    <Badge className="px-2 py-1 tracking-normal">⌘K</Badge>
+                  </Button>
+                  <Button
                     onClick={() => refreshShell()}
-                    className="btn-ghost inline-flex items-center gap-2 border border-bg-border !px-3 !py-2"
+                    variant="ghost"
                     title="Refresh shell status"
                   >
                     <RefreshCcw className="h-4 w-4" />
                     Refresh
-                  </button>
+                  </Button>
                   {liveArmAction ? (
-                    <button
+                    <Button
                       onClick={() => runAction(liveArmAction.id, liveArmAction.confirmation)}
                       disabled={!liveArmAction.enabled || isPending}
                       title={liveArmAction.label}
-                      className={clsx(
-                        "btn-primary inline-flex items-center gap-2 !px-3 !py-2",
-                        (!liveArmAction.enabled || isPending) && "cursor-not-allowed opacity-50",
-                      )}
+                      variant="default"
                     >
                       <PlayCircle className="h-4 w-4" />
                       {liveArmAction.label}
-                    </button>
+                    </Button>
                   ) : null}
                   {(shell?.availableActions ?? []).filter((action) => !isLiveArmAction(action)).map((action) => (
-                    <button
+                    <Button
                       key={action.id}
                       onClick={() => runAction(action.id, action.confirmation)}
                       disabled={!action.enabled || isPending}
                       title={action.label}
-                      className={clsx(
-                        "inline-flex items-center gap-2 rounded-[12px] border px-3 py-2 text-sm font-semibold transition",
-                        action.id === "pause" || action.id === "resume"
-                          ? "border-[rgba(250,204,21,0.22)] bg-[#14130f] text-text-primary"
-                          : "border-bg-border bg-[#121214] text-text-primary hover:border-[rgba(255,255,255,0.12)] hover:bg-[#151517]",
-                        (!action.enabled || isPending) && "cursor-not-allowed opacity-50",
-                      )}
+                      variant={action.id === "pause" || action.id === "resume" ? "warning" : "secondary"}
                     >
                       <ActionIcon actionId={action.id} />
                       {action.label}
-                    </button>
+                    </Button>
                   ))}
                 </div>
               </div>
@@ -506,28 +568,33 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <main className="overflow-x-hidden px-4 py-3 lg:px-6 lg:py-4">
               <div className="mx-auto mb-3 overflow-auto pb-1 lg:hidden">
                 <div className="flex min-w-max gap-2">
-                  {nav.map((item) => {
-                    const Icon = item.icon;
-                    const active = matchesRoute(currentPath, item.href);
-                    const count = routeCount(shell, item.href);
-                    return (
-                      <Link
-                        key={item.href}
-                        href={item.href}
-                        title={`Open ${item.label}`}
-                        className={clsx(
-                          "flex min-w-[10rem] items-center gap-3 rounded-[14px] border px-4 py-3 text-sm transition",
-                          active
-                            ? "border-[rgba(163,230,53,0.3)] bg-[#121511] text-text-primary"
-                            : "border-bg-border bg-bg-card text-text-secondary hover:bg-[#151517] hover:text-text-primary",
-                        )}
-                      >
-                        <Icon className="h-4 w-4" />
-                        <div>{item.label}</div>
-                        {count ? <span className="meta-chip ml-auto !px-2.5 !py-1 text-[10px]">{count}</span> : null}
-                      </Link>
-                    );
-                  })}
+                  {navGroups.map((group) =>
+                    group.items.map((item) => {
+                      const Icon = item.icon;
+                      const active = matchesRoute(currentPath, item);
+                      const count = routeCount(shell, item);
+                      return (
+                        <Link
+                          key={item.id}
+                          href={item.href}
+                          title={`Open ${group.label} ${item.label}`}
+                          className={clsx(
+                            "flex min-w-[10rem] items-center gap-3 rounded-[14px] border px-4 py-3 text-sm transition",
+                            active
+                              ? "border-[rgba(163,230,53,0.3)] bg-[#121511] text-text-primary"
+                              : "border-bg-border bg-bg-card text-text-secondary hover:bg-[#151517] hover:text-text-primary",
+                          )}
+                        >
+                          <Icon className="h-4 w-4" />
+                          <div className="min-w-0">
+                            <div>{item.label}</div>
+                            <div className="text-[10px] uppercase tracking-[0.12em] text-text-muted">{group.label}</div>
+                          </div>
+                          {count ? <Badge className="ml-auto px-2.5 py-1 normal-case">{count}</Badge> : null}
+                        </Link>
+                      );
+                    }),
+                  )}
                 </div>
               </div>
 
@@ -537,13 +604,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
           {commandOpen ? (
             <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 px-4 py-16" onClick={() => setCommandOpen(false)}>
-              <div
-                className="panel-strong w-full max-w-2xl rounded-[18px] p-4 shadow-2xl"
-                onClick={(event) => event.stopPropagation()}
-              >
+              <Card className="w-full max-w-2xl rounded-[18px] bg-[var(--surface-modal-strong)]" onClick={(event) => event.stopPropagation()}>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm">Command Launcher</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
                 <div className="flex items-center gap-3 rounded-[14px] border border-bg-border bg-[#0f0f10] px-4 py-3">
                   <Search className="h-4 w-4 text-text-muted" />
-                  <input
+                  <Input
                     ref={commandInputRef}
                     value={commandQuery}
                     onChange={(event) => {
@@ -551,54 +619,45 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       setSelectedCommandIndex(0);
                     }}
                     placeholder="Jump to a page or run an action"
-                    className="w-full bg-transparent text-sm text-text-primary outline-none placeholder:text-text-muted"
+                    className="h-auto border-0 bg-transparent px-0 py-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
                   />
-                  <span className="meta-chip !px-2 !py-1 text-[10px]">Esc</span>
+                  <Badge className="px-2 py-1 tracking-normal">Esc</Badge>
                 </div>
-
-                <div className="mt-3 max-h-[26rem] space-y-2 overflow-auto pr-1">
-                  {commandItems.length > 0 ? (
-                    commandItems.map((item, index) => {
-                      const Icon = item.icon;
-                      const active = index === selectedCommandIndex;
-                      return (
-                        <button
-                          key={item.id}
-                          onMouseEnter={() => setSelectedCommandIndex(index)}
-                          onClick={() => {
-                            item.run();
-                            setCommandOpen(false);
-                          }}
-                          className={clsx(
-                            "flex w-full items-center justify-between rounded-[14px] border px-4 py-3 text-left transition",
-                            active
-                              ? "border-[rgba(163,230,53,0.32)] bg-[#11130f]"
-                              : "border-bg-border bg-[#101012] hover:border-[rgba(255,255,255,0.12)] hover:bg-[#151517]",
-                          )}
-                        >
-                          <div className="flex items-center gap-3">
-                            <div className={clsx("rounded-[10px] border p-2", active ? "border-[rgba(163,230,53,0.28)] text-accent" : "border-bg-border text-text-secondary")}>
-                              <Icon className="h-4 w-4" />
-                            </div>
-                            <div>
-                              <div className="text-sm font-semibold text-text-primary">{item.label}</div>
-                              <div className="text-xs text-text-muted">{item.hint}</div>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2 text-xs text-text-muted">
-                            <span>{item.type}</span>
-                            {active ? <CornerDownLeft className="h-3.5 w-3.5" /> : null}
-                          </div>
-                        </button>
-                      );
-                    })
-                  ) : (
-                    <div className="rounded-[14px] border border-bg-border bg-[#101012] px-4 py-6 text-sm text-text-secondary">
-                      Nothing matches that query.
-                    </div>
-                  )}
-                </div>
-              </div>
+                {commandItems.length > 0 ? (
+                  <div className="max-h-[26rem] space-y-3 overflow-auto pr-1">
+                    {routeCommandItems.length > 0 ? (
+                      <CommandSection
+                        title="Routes"
+                        items={routeCommandItems}
+                        selectedId={commandItems[selectedCommandIndex]?.id ?? null}
+                        onSelectId={(id) => {
+                          const nextIndex = commandItems.findIndex((item) => item.id === id);
+                          if (nextIndex >= 0) setSelectedCommandIndex(nextIndex);
+                        }}
+                        onSelectItem={() => setCommandOpen(false)}
+                      />
+                    ) : null}
+                    {routeCommandItems.length > 0 && actionCommandItems.length > 0 ? <div className="h-px bg-bg-border" /> : null}
+                    {actionCommandItems.length > 0 ? (
+                      <CommandSection
+                        title="Actions"
+                        items={actionCommandItems}
+                        selectedId={commandItems[selectedCommandIndex]?.id ?? null}
+                        onSelectId={(id) => {
+                          const nextIndex = commandItems.findIndex((item) => item.id === id);
+                          if (nextIndex >= 0) setSelectedCommandIndex(nextIndex);
+                        }}
+                        onSelectItem={() => setCommandOpen(false)}
+                      />
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="rounded-[14px] border border-bg-border bg-[#101012] px-4 py-6 text-sm text-text-secondary">
+                    Nothing matches that query.
+                  </div>
+                )}
+                </CardContent>
+              </Card>
             </div>
           ) : null}
         </div>
@@ -609,9 +668,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
 function ShellMetric(props: { label: string; value: string }) {
   return (
-    <div className="rounded-[12px] border border-bg-border bg-bg-primary/65 px-3 py-2.5">
-      <div className="micro-stat-label">{props.label}</div>
-      <div className="mt-1 text-sm font-semibold text-text-primary">{props.value}</div>
+    <div className="rounded-[12px] border border-bg-border bg-bg-primary/65 px-2.5 py-2">
+      <div className="text-center text-[9px] font-semibold uppercase tracking-[0.12em] text-text-muted">{props.label}</div>
+      <div className="mt-1 text-center text-[13px] font-semibold tracking-tight text-text-primary">{props.value}</div>
     </div>
   );
 }
@@ -620,47 +679,105 @@ function CompactShellMetric(props: { label: string; value: string }) {
   return (
     <div className="rounded-[12px] border border-bg-border bg-[#101012] px-2 py-2 text-center">
       <div className="text-[9px] font-semibold uppercase tracking-[0.18em] text-text-muted">{props.label}</div>
-      <div className="mt-1 text-xs font-semibold text-text-primary">{props.value}</div>
+      <div className="mt-1 text-xs font-semibold tracking-tight text-text-primary">{props.value}</div>
     </div>
   );
 }
 
-function routeCount(shell: DeskShellPayload | null, href: Route) {
+function CommandSection(props: {
+  title: string;
+  items: CommandItem[];
+  selectedId: string | null;
+  onSelectId: (id: string) => void;
+  onSelectItem: () => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">{props.title}</div>
+      <div className="space-y-1">
+        {props.items.map((item) => {
+          const Icon = item.icon;
+          const isSelected = props.selectedId === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onMouseEnter={() => props.onSelectId(item.id)}
+              onClick={() => {
+                item.run();
+                props.onSelectItem();
+              }}
+              className={clsx(
+                "flex w-full items-center justify-between gap-3 rounded-[12px] border px-3 py-2 text-left transition",
+                isSelected
+                  ? "border-[rgba(163,230,53,0.25)] bg-[#11140f]"
+                  : "border-bg-border bg-[#101012] hover:border-[rgba(255,255,255,0.12)] hover:bg-[#141417]",
+              )}
+            >
+              <div className="min-w-0 flex items-center gap-2">
+                <Icon className={clsx("h-4 w-4 shrink-0", isSelected ? "text-accent" : "text-text-secondary")} />
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium text-text-primary">{item.label}</div>
+                  <div className="truncate text-xs text-text-secondary">{item.hint}</div>
+                </div>
+              </div>
+              <Badge className="normal-case tracking-normal">{item.type}</Badge>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function routeCount(shell: DeskShellPayload | null, item: NavItem) {
   if (!shell) return null;
 
-  switch (href) {
-    case "/candidates":
-      return shell.statusSummary.queuedCandidates > 0 ? formatInteger(shell.statusSummary.queuedCandidates) : null;
-    case "/positions":
-      return shell.statusSummary.openPositions > 0 ? formatInteger(shell.statusSummary.openPositions) : null;
-    case "/telemetry":
-      return shell.unreadCriticalAlerts > 0 ? formatInteger(shell.unreadCriticalAlerts) : null;
+  switch (item.countKey) {
+    case "trading":
+      return shell.statusSummary.queuedCandidates > 0 || shell.statusSummary.openPositions > 0
+        ? `${formatInteger(shell.statusSummary.queuedCandidates)}/${formatInteger(shell.statusSummary.openPositions)}`
+        : null;
     default:
       return null;
   }
 }
 
-function getActiveNav(pathname: string): NavItem {
-  return nav.find((item) => matchesRoute(pathname, item.href)) ?? nav[0];
-}
-
-function matchesRoute(pathname: string, href: Route) {
-  if (href === "/") {
-    return pathname === "/";
-  }
-  return pathname === href || pathname.startsWith(`${href}/`);
+function matchesRoute(pathname: string, item: NavItem) {
+  return item.matchPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
 function buildSidebarContext(pathname: string, shell: DeskShellPayload | null): SidebarContext {
-  if (matchesRoute(pathname, "/candidates")) {
+  const tradingNavItem = navItems.find((item) => item.id === "operational-trading");
+  const tradingCount = tradingNavItem ? routeCount(shell, tradingNavItem) : null;
+
+  if (
+    pathname === "/operational-desk/trading" ||
+    pathname.startsWith("/operational-desk/trading/") ||
+    pathname === "/trading" ||
+    pathname.startsWith("/trading/")
+  ) {
+    return {
+      eyebrow: "Current page",
+      title: "Trading lifecycle",
+      detail: "Unified operating surface from intake through open risk and recent outcomes.",
+      links: [
+        { href: "/operational-desk/trading", label: "Lifecycle board", badge: tradingCount },
+        { href: "/operational-desk/trading?bucket=ready", label: "Ready intake" },
+        { href: "/operational-desk/trading?book=open", label: "Open positions" },
+      ],
+    };
+  }
+
+  if (pathname === "/candidates" || pathname.startsWith("/candidates/")) {
     if (pathname !== "/candidates") {
       return {
         eyebrow: "Current page",
         title: "Candidate detail",
         detail: "Why it matters, gate state, and stored evidence.",
         links: [
-          { href: "/candidates", label: "Back to queue", badge: routeCount(shell, "/candidates") },
-          { href: "/telemetry", label: "Live faults", badge: routeCount(shell, "/telemetry") },
+          { href: "/operational-desk/trading", label: "Back to lifecycle", badge: tradingCount },
+          { href: "/operational-desk/overview", label: "Desk" },
         ],
       };
     }
@@ -669,23 +786,23 @@ function buildSidebarContext(pathname: string, shell: DeskShellPayload | null): 
       title: "Candidate queue",
       detail: "Triage by blocker bucket with URL-backed sort and filter state.",
       links: [
-        { href: "/candidates?bucket=ready", label: "Ready" },
-        { href: "/candidates?bucket=risk", label: "Risk" },
-        { href: "/candidates?bucket=provider", label: "Provider" },
-        { href: "/candidates?bucket=data", label: "Data" },
+        { href: "/operational-desk/trading?bucket=ready", label: "Ready" },
+        { href: "/operational-desk/trading?bucket=risk", label: "Risk" },
+        { href: "/operational-desk/trading?bucket=provider", label: "Provider" },
+        { href: "/operational-desk/trading?bucket=data", label: "Data" },
       ],
     };
   }
 
-  if (matchesRoute(pathname, "/positions")) {
+  if (pathname === "/positions" || pathname.startsWith("/positions/")) {
     if (pathname !== "/positions") {
       return {
         eyebrow: "Current page",
         title: "Position detail",
         detail: "Intervention state, execution trace, fills, and snapshots.",
         links: [
-          { href: "/positions", label: "Back to book", badge: routeCount(shell, "/positions") },
-          { href: "/settings", label: "Runtime settings" },
+          { href: "/operational-desk/trading", label: "Back to lifecycle", badge: tradingCount },
+          { href: "/operational-desk/settings", label: "Runtime settings" },
         ],
       };
     }
@@ -694,14 +811,14 @@ function buildSidebarContext(pathname: string, shell: DeskShellPayload | null): 
       title: "Position book",
       detail: "Scan open risk first, then review the closed book.",
       links: [
-        { href: "/positions?book=open", label: "Open book", badge: routeCount(shell, "/positions") },
-        { href: "/positions?book=closed", label: "Closed book" },
-        { href: "/settings", label: "Settings" },
+        { href: "/operational-desk/trading?book=open", label: "Open book", badge: tradingCount },
+        { href: "/operational-desk/trading?book=closed", label: "Closed book" },
+        { href: "/operational-desk/settings", label: "Settings" },
       ],
     };
   }
 
-  if (matchesRoute(pathname, "/discovery-lab")) {
+  if (pathname === "/discovery-lab" || pathname.startsWith("/discovery-lab/")) {
     return {
       eyebrow: "Current page",
       title: "Discovery lab",
@@ -710,16 +827,12 @@ function buildSidebarContext(pathname: string, shell: DeskShellPayload | null): 
     };
   }
 
-  if (matchesRoute(pathname, "/telemetry")) {
-    return {
-      eyebrow: "Current page",
-      title: "Telemetry",
-      detail: "Faults first, then provider burn and hot endpoints.",
-      notes: ["Active issues", "Provider pressure", "Endpoint faults"],
-    };
-  }
-
-  if (matchesRoute(pathname, "/settings")) {
+  if (
+    pathname === "/operational-desk/settings" ||
+    pathname.startsWith("/operational-desk/settings/") ||
+    pathname === "/settings" ||
+    pathname.startsWith("/settings/")
+  ) {
     return {
       eyebrow: "Current page",
       title: "Settings",
@@ -728,14 +841,24 @@ function buildSidebarContext(pathname: string, shell: DeskShellPayload | null): 
     };
   }
 
+  const activeNav = navItems.find((item) => matchesRoute(pathname, item)) ?? null;
+  if (activeNav) {
+    const activeGroup = navGroups.find((group) => group.items.some((item) => item.id === activeNav.id));
+    return {
+      eyebrow: activeGroup?.label ?? "Current page",
+      title: activeNav.label,
+      detail: "Primary operator workspace.",
+    };
+  }
+
   return {
     eyebrow: "Current page",
     title: "Control desk",
     detail: "Exposure, queue pressure, and live faults at a glance.",
     links: [
-      { href: "/candidates", label: "Candidate queue", badge: routeCount(shell, "/candidates") },
-      { href: "/positions", label: "Open positions", badge: routeCount(shell, "/positions") },
-      { href: "/telemetry", label: "Telemetry", badge: routeCount(shell, "/telemetry") },
+      { href: "/operational-desk/trading", label: "Trading lifecycle", badge: tradingCount },
+      { href: "/discovery-lab/results", label: "Discovery lab" },
+      { href: "/operational-desk/settings", label: "Settings" },
     ],
   };
 }
@@ -744,7 +867,12 @@ function shortMode(value?: string | null) {
   if (!value) {
     return "—";
   }
-  return value.replace(/_/g, "").slice(0, 4).toUpperCase();
+  const normalized = value.toUpperCase();
+  if (normalized.includes("DRY")) return "DRY";
+  if (normalized.includes("LIVE")) return "LIVE";
+  if (normalized.includes("PAPER")) return "PAPR";
+  if (normalized.includes("WAIT")) return "WAIT";
+  return normalized.replace(/_/g, "").slice(0, 4);
 }
 
 function ActionIcon(props: { actionId: DeskShellPayload["availableActions"][number]["id"] }) {

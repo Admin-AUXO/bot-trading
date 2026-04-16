@@ -4,19 +4,14 @@ import Link from "next/link";
 import type { Route } from "next";
 import { type ColDef, type GetRowIdParams, type ICellRendererParams, type RowClassRules } from "ag-grid-community";
 import { AgGridReact } from "ag-grid-react";
-import { ArrowUpRight, Eye } from "lucide-react";
+import { ArrowUpRight } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  GridStatusBadge,
-  RowDetailsDialog,
-  type GridRecord,
-} from "@/components/ag-grid-shared";
 import { WorkbenchRowActions } from "@/components/workbench-row-actions";
-import { formatCompactCurrency, formatNumber, formatPercent, formatTimestamp } from "@/lib/format";
+import { formatCompactCurrency, formatNumber, formatTimestamp } from "@/lib/format";
 import { buildGrafanaDashboardLink } from "@/lib/grafana";
 import type { CandidateBucket, CandidateQueuePayload } from "@/lib/types";
 
-type CandidateSort = "recent" | "liquidity" | "volume" | "buySell";
+type CandidateSort = "recent" | "entry" | "liquidity" | "volume" | "buySell";
 type CandidateRow = CandidateQueuePayload["rows"][number];
 
 export function CandidatesGrid(props: {
@@ -26,7 +21,6 @@ export function CandidatesGrid(props: {
   query: string;
 }) {
   const gridRef = useRef<AgGridReact<CandidateRow>>(null);
-  const [selectedRow, setSelectedRow] = useState<CandidateRow | null>(null);
   const [focusedRowId, setFocusedRowId] = useState<string | null>(null);
 
   const rowIdSet = useMemo(() => new Set(props.rows.map((row) => row.id)), [props.rows]);
@@ -73,6 +67,13 @@ export function CandidatesGrid(props: {
     [focusedRowId, props.bucket],
   );
 
+  const metricScales = useMemo(() => ({
+    entryScore: buildMetricScale(props.rows.map((row) => row.adaptive.entryScore)),
+    liquidityUsd: buildMetricScale(props.rows.map((row) => row.liquidityUsd)),
+    volume5mUsd: buildMetricScale(props.rows.map((row) => row.volume5mUsd)),
+    buySellRatio: buildMetricScale(props.rows.map((row) => row.buySellRatio)),
+  }), [props.rows]);
+
   const columnDefs = useMemo<ColDef<CandidateRow>[]>(() => [
     {
       colId: "token",
@@ -80,6 +81,9 @@ export function CandidatesGrid(props: {
       minWidth: 270,
       flex: 1.2,
       sortable: true,
+      wrapText: true,
+      autoHeight: true,
+      cellClass: "ag-grid-cell-wrap",
       valueGetter: (params) => params.data?.symbol ?? params.data?.mint ?? "",
       cellRenderer: (params: ICellRendererParams<CandidateRow>) => {
         if (!params.data) {
@@ -112,6 +116,9 @@ export function CandidatesGrid(props: {
       headerName: "Blocker",
       minWidth: 240,
       flex: 1.2,
+      wrapText: true,
+      autoHeight: true,
+      cellClass: "ag-grid-cell-wrap",
       cellRenderer: (params: ICellRendererParams<CandidateRow>) => {
         if (!params.data) {
           return null;
@@ -127,18 +134,32 @@ export function CandidatesGrid(props: {
       },
     },
     {
-      field: "status",
-      headerName: "Status",
-      minWidth: 120,
-      maxWidth: 150,
-      cellRenderer: (params: ICellRendererParams<CandidateRow>) => <GridStatusBadge value={params.value as string | null | undefined} />,
+      colId: "entryScore",
+      headerName: "Entry",
+      minWidth: 110,
+      maxWidth: 130,
+      headerClass: "ag-grid-header-center",
+      cellClass: "ag-grid-cell-metric",
+      cellStyle: (params) => buildHeatCellStyle(params.data?.adaptive.entryScore, metricScales.entryScore),
+      valueGetter: (params) => params.data?.adaptive.entryScore ?? Number.NEGATIVE_INFINITY,
+      cellRenderer: (params: ICellRendererParams<CandidateRow>) => {
+        const value = params.data?.adaptive.entryScore;
+        return (
+          <div className="min-w-[5rem] text-center">
+            <div className="text-sm font-semibold text-text-primary">{value == null ? "—" : formatNumber(value)}</div>
+            <div className="mt-1 text-[11px] text-text-muted">{params.data ? params.data.status.replace(/_/g, " ") : ""}</div>
+          </div>
+        );
+      },
     },
     {
       field: "liquidityUsd",
       headerName: "Liquidity",
       minWidth: 130,
       maxWidth: 170,
-      cellClass: "ag-grid-cell-number",
+      headerClass: "ag-grid-header-center",
+      cellClass: "ag-grid-cell-metric",
+      cellStyle: (params) => buildHeatCellStyle(params.value, metricScales.liquidityUsd),
       valueFormatter: (params) => formatCompactCurrency(params.value),
     },
     {
@@ -146,7 +167,9 @@ export function CandidatesGrid(props: {
       headerName: "Volume 5m",
       minWidth: 130,
       maxWidth: 170,
-      cellClass: "ag-grid-cell-number",
+      headerClass: "ag-grid-header-center",
+      cellClass: "ag-grid-cell-metric",
+      cellStyle: (params) => buildHeatCellStyle(params.value, metricScales.volume5mUsd),
       valueFormatter: (params) => formatCompactCurrency(params.value),
     },
     {
@@ -154,34 +177,31 @@ export function CandidatesGrid(props: {
       headerName: "Buy/sell",
       minWidth: 120,
       maxWidth: 150,
-      cellClass: "ag-grid-cell-number",
+      headerClass: "ag-grid-header-center",
+      cellClass: "ag-grid-cell-metric",
+      cellStyle: (params) => buildHeatCellStyle(params.value, metricScales.buySellRatio),
       valueFormatter: (params) => formatNumber(params.value),
-    },
-    {
-      field: "top10HolderPercent",
-      headerName: "Top 10",
-      minWidth: 110,
-      maxWidth: 140,
-      cellClass: "ag-grid-cell-number",
-      valueFormatter: (params) => params.value == null ? "—" : formatPercent(params.value),
     },
     {
       colId: "lastTouch",
       headerName: "Last touch",
       minWidth: 170,
       maxWidth: 210,
+      headerClass: "ag-grid-header-center",
+      cellClass: "ag-grid-cell-center",
       valueGetter: (params) => params.data?.lastEvaluatedAt ?? params.data?.discoveredAt ?? "",
       valueFormatter: (params) => formatTimestamp(params.value),
     },
     {
       colId: "__actions",
       headerName: "Actions",
-      minWidth: 300,
-      maxWidth: 380,
+      minWidth: 240,
+      maxWidth: 320,
       sortable: false,
       filter: false,
       resizable: false,
       pinned: "right",
+      headerClass: "ag-grid-header-center",
       cellClass: "ag-grid-cell-action",
       cellRenderer: (params: ICellRendererParams<CandidateRow>) => {
         if (!params.data) {
@@ -198,15 +218,7 @@ export function CandidatesGrid(props: {
           },
         });
         return (
-          <div className="flex min-w-[18rem] flex-wrap items-center gap-2 py-1">
-            <button
-              type="button"
-              onClick={() => setSelectedRow(row)}
-              className="ag-grid-view-button"
-            >
-              <Eye className="h-3.5 w-3.5" />
-              Full
-            </button>
+          <div className="flex min-w-[14rem] flex-wrap items-center gap-2 py-1">
             <WorkbenchRowActions
               openHref={detailHref}
               openLabel={row.symbol || shortMint(row.mint)}
@@ -226,7 +238,7 @@ export function CandidatesGrid(props: {
         );
       },
     },
-  ], [focusFromHash, props.bucket, props.query, props.sort]);
+  ], [focusFromHash, metricScales.buySellRatio, metricScales.entryScore, metricScales.liquidityUsd, metricScales.volume5mUsd, props.bucket, props.query, props.sort]);
 
   const defaultColDef = useMemo<ColDef<CandidateRow>>(
     () => ({
@@ -238,8 +250,6 @@ export function CandidatesGrid(props: {
     [],
   );
 
-  const selectedRowDetails = selectedRow ? toDetailRecord(selectedRow) : null;
-
   if (props.rows.length === 0) {
     return (
       <div className="rounded-[14px] border border-bg-border bg-bg-hover/40 px-4 py-4 text-sm text-text-secondary">
@@ -249,40 +259,48 @@ export function CandidatesGrid(props: {
   }
 
   return (
-    <>
-      <div className="ag-theme-quartz-dark ag-grid-desk h-[min(62vh,43rem)] w-full rounded-[14px] border border-bg-border bg-bg-card/45">
-        <AgGridReact<CandidateRow>
-          ref={gridRef}
-          rowData={props.rows}
-          columnDefs={columnDefs}
-          defaultColDef={defaultColDef}
-          rowClassRules={rowClassRules}
-          getRowId={(params: GetRowIdParams<CandidateRow>) => params.data.id}
-          animateRows={false}
-          rowHeight={74}
-          headerHeight={34}
-          suppressCellFocus
-          pagination={props.rows.length > 15}
-          paginationPageSize={15}
-          onFirstDataRendered={() => focusFromHash()}
-        />
-      </div>
-
-      <RowDetailsDialog
-        row={selectedRowDetails}
-        title={selectedRow ? `${selectedRow.symbol || shortMint(selectedRow.mint)} · Candidate` : "Candidate details"}
-        subtitle="Full queue row"
-        preferredKeys={["symbol", "mint", "source", "status", "primaryBlocker", "secondaryReasons", "liquidityUsd", "volume5mUsd", "buySellRatio", "top10HolderPercent", "discoveredAt", "lastEvaluatedAt"]}
-        onClose={() => setSelectedRow(null)}
+    <div className="ag-theme-quartz-dark ag-grid-desk h-[min(62vh,43rem)] w-full rounded-[14px] border border-bg-border bg-bg-card/45">
+      <AgGridReact<CandidateRow>
+        ref={gridRef}
+        theme="legacy"
+        rowData={props.rows}
+        columnDefs={columnDefs}
+        defaultColDef={defaultColDef}
+        rowClassRules={rowClassRules}
+        getRowId={(params: GetRowIdParams<CandidateRow>) => params.data.id}
+        animateRows={false}
+        rowHeight={54}
+        headerHeight={36}
+        suppressCellFocus
+        pagination={props.rows.length > 15}
+        paginationPageSize={15}
+        onFirstDataRendered={() => focusFromHash()}
       />
-    </>
+    </div>
   );
 }
 
-function toDetailRecord(row: CandidateRow): GridRecord {
+function buildMetricScale(values: Array<number | null | undefined>) {
+  const numeric = values
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value));
+  if (numeric.length === 0) {
+    return null;
+  }
+  const min = Math.min(...numeric);
+  const max = Math.max(...numeric);
+  return min === max ? null : { min, max };
+}
+
+function buildHeatCellStyle(value: unknown, scale: { min: number; max: number } | null) {
+  const numeric = Number(value);
+  if (!scale || !Number.isFinite(numeric)) {
+    return undefined;
+  }
+  const ratio = Math.max(0, Math.min(1, (numeric - scale.min) / (scale.max - scale.min)));
+  const alpha = 0.08 + ratio * 0.16;
   return {
-    ...row,
-    secondaryReasons: row.secondaryReasons.join(" · "),
+    background: `linear-gradient(180deg, rgba(163, 230, 53, ${alpha}) 0%, rgba(163, 230, 53, ${alpha * 0.42}) 100%)`,
   };
 }
 

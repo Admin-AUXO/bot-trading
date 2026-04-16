@@ -12,7 +12,6 @@ const envSchema = z.object({
   HELIUS_RPC_URL: z.string().url(),
   BIRDEYE_API_KEY: z.string().min(1),
   JUPITER_API_KEY: optionalNonEmptyString,
-  CONTROL_API_SECRET: optionalNonEmptyString,
   BOT_PORT: z.coerce.number().default(3101),
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   LOG_LEVEL: z.enum(["trace", "debug", "info", "warn", "error", "fatal"]).default("info"),

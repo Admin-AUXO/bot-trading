@@ -1,6 +1,7 @@
 import { db } from "../db/client.js";
 import type { ExecutionEngine } from "../engine/execution-engine.js";
 import type { DiscoveryLabRunDetail } from "./discovery-lab-service.js";
+import type { ExitPlan } from "./strategy-exit.js";
 import { toJsonValue } from "../utils/json.js";
 
 type DiscoveryLabEvaluation = NonNullable<DiscoveryLabRunDetail["report"]>["deepEvaluations"][number];
@@ -8,6 +9,19 @@ type DiscoveryLabEvaluation = NonNullable<DiscoveryLabRunDetail["report"]>["deep
 export type DiscoveryLabManualEntryRequest = {
   runId: string;
   mint: string;
+  positionSizeUsd?: number;
+  exitOverrides?: Partial<{
+    stopLossPercent: number;
+    tp1Percent: number;
+    tp2Percent: number;
+    tp1SellFractionPercent: number;
+    tp2SellFractionPercent: number;
+    postTp1RetracePercent: number;
+    trailingStopPercent: number;
+    timeStopMinutes: number;
+    timeStopMinReturnPercent: number;
+    timeLimitMinutes: number;
+  }>;
 };
 
 export type DiscoveryLabManualEntryResult = {
@@ -68,6 +82,7 @@ function pickBestEvaluation(
 function buildCandidateMetrics(
   run: DiscoveryLabRunDetail,
   evaluation: DiscoveryLabEvaluation,
+  request: DiscoveryLabManualEntryRequest,
 ) {
   const strategyPresetId = readStrategyPresetId(evaluation.mode);
   const entryScore = Math.max(0, Math.min(1, evaluation.entryScore));
@@ -114,10 +129,66 @@ function buildCandidateMetrics(
     notes: evaluation.notes,
     winnerScore: winner?.score ?? null,
     winnerRecipes: winner?.whichRecipes ?? [],
+    manualTradeSettings: {
+      positionSizeUsd: toPositiveNumber(request.positionSizeUsd),
+      exitOverrides: request.exitOverrides ?? null,
+    },
     discoveryLabRunAgeMsAtEntry: runAgeMsAtEntry,
     discoveryLabCompletionLagMsAtEntry: completionLagMsAtEntry,
     discoveryLabReportAgeMsAtEntry: reportAgeMsAtEntry,
   } satisfies Record<string, unknown>;
+}
+
+function buildManualExitPlanOverride(
+  exitOverrides: DiscoveryLabManualEntryRequest["exitOverrides"],
+): Partial<ExitPlan> | undefined {
+  if (!exitOverrides) {
+    return undefined;
+  }
+  const next: Partial<ExitPlan> = {};
+
+  const stopLossPercent = toPositiveNumber(exitOverrides.stopLossPercent);
+  if (stopLossPercent !== null) {
+    next.stopLossPercent = stopLossPercent;
+  }
+  const tp1Percent = toPositiveNumber(exitOverrides.tp1Percent);
+  if (tp1Percent !== null) {
+    next.tp1Multiplier = 1 + (tp1Percent / 100);
+  }
+  const tp2Percent = toPositiveNumber(exitOverrides.tp2Percent);
+  if (tp2Percent !== null) {
+    next.tp2Multiplier = 1 + (tp2Percent / 100);
+  }
+  const tp1SellFractionPercent = toPositiveNumber(exitOverrides.tp1SellFractionPercent);
+  if (tp1SellFractionPercent !== null) {
+    next.tp1SellFraction = tp1SellFractionPercent / 100;
+  }
+  const tp2SellFractionPercent = toPositiveNumber(exitOverrides.tp2SellFractionPercent);
+  if (tp2SellFractionPercent !== null) {
+    next.tp2SellFraction = tp2SellFractionPercent / 100;
+  }
+  const postTp1RetracePercent = toPositiveNumber(exitOverrides.postTp1RetracePercent);
+  if (postTp1RetracePercent !== null) {
+    next.postTp1RetracePercent = postTp1RetracePercent;
+  }
+  const trailingStopPercent = toPositiveNumber(exitOverrides.trailingStopPercent);
+  if (trailingStopPercent !== null) {
+    next.trailingStopPercent = trailingStopPercent;
+  }
+  const timeStopMinutes = toPositiveNumber(exitOverrides.timeStopMinutes);
+  if (timeStopMinutes !== null) {
+    next.timeStopMinutes = timeStopMinutes;
+  }
+  const timeStopMinReturnPercent = toPositiveNumber(exitOverrides.timeStopMinReturnPercent);
+  if (timeStopMinReturnPercent !== null) {
+    next.timeStopMinReturnPercent = timeStopMinReturnPercent;
+  }
+  const timeLimitMinutes = toPositiveNumber(exitOverrides.timeLimitMinutes);
+  if (timeLimitMinutes !== null) {
+    next.timeLimitMinutes = timeLimitMinutes;
+  }
+
+  return Object.keys(next).length > 0 ? next : undefined;
 }
 
 export class DiscoveryLabManualEntryService {
@@ -176,7 +247,8 @@ export class DiscoveryLabManualEntryService {
     const symbol = toTrimmedString(evaluation.symbol)
       ?? toTrimmedString(run.report.winners.find((row) => row.address === mint)?.tokenName)
       ?? mint;
-    const metrics = buildCandidateMetrics(run, evaluation);
+    const metrics = buildCandidateMetrics(run, evaluation, input);
+    const manualExitPlanOverride = buildManualExitPlanOverride(input.exitOverrides);
     const now = new Date();
 
     const candidate = await db.candidate.create({
@@ -228,6 +300,10 @@ export class DiscoveryLabManualEntryService {
             softIssues: evaluation.softIssues,
             notes: evaluation.notes,
           },
+          requestedTradeSettings: {
+            positionSizeUsd: toPositiveNumber(input.positionSizeUsd),
+            exitOverrides: input.exitOverrides ?? null,
+          },
         }),
         metrics: toJsonValue(metrics),
       },
@@ -240,6 +316,8 @@ export class DiscoveryLabManualEntryService {
         symbol,
         entryPriceUsd,
         metrics,
+        positionSizeUsd: toPositiveNumber(input.positionSizeUsd) ?? undefined,
+        exitPlanOverride: manualExitPlanOverride,
       });
 
       return {

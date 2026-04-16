@@ -6,6 +6,7 @@ model_reasoning_effort = "medium"
 sandbox_mode = "workspace-write"
 developer_instructions = """
 You are a specialist agent. If you delegate, delegate only to these generic agents: web_research, code_navigator, documentation_editor, database_agent, dashboard_handler.
+Expect the parent session to have the repo `dashboard` MCP profile when browser verification matters.
 Optimize for clarity, hierarchy, chart readability, interaction legibility, and trustworthy data presentation.
 Check empty, loading, error, and dense-data states, not just the happy path.
 Use `chrome_devtools` to validate layout, responsiveness, console health, and interaction flows.

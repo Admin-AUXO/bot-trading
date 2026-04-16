@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server";
 
 const API_URL = process.env.API_URL ?? "http://127.0.0.1:3101";
-const CONTROL_SECRET = process.env.CONTROL_SECRET ?? process.env.CONTROL_API_SECRET;
 
 async function proxy(request: NextRequest, path: string[]) {
   const url = new URL(`${API_URL}/api/${path.join("/")}`);
@@ -13,7 +12,6 @@ async function proxy(request: NextRequest, path: string[]) {
     method: request.method,
     headers: {
       "content-type": request.headers.get("content-type") ?? "application/json",
-      ...(CONTROL_SECRET && !["GET", "HEAD"].includes(request.method) ? { "x-control-secret": CONTROL_SECRET } : {}),
     },
     cache: "no-store",
   };

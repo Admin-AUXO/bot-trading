@@ -40,6 +40,7 @@ const LANE_SHARES: Record<BirdeyeBudgetLane, number> = {
 const ENDPOINT_LANE: Record<string, BirdeyeBudgetLane> = {
   "/defi/v3/token/meme/list": "discovery",
   "/defi/v3/token/meme/detail/single": "evaluation",
+  "/defi/token_overview": "evaluation",
   "/defi/v3/token/trade-data/single": "evaluation",
   "/defi/price": "evaluation",
   "/defi/token_security": "security",

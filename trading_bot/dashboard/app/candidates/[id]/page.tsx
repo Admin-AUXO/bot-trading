@@ -4,6 +4,7 @@ import type { Route } from "next";
 import { CopyButton } from "@/components/copy-button";
 import { DataTable, PageHero, Panel, StatusPill } from "@/components/dashboard-primitives";
 import { serverFetch } from "@/lib/api";
+import { operationalDeskRoutes } from "@/lib/dashboard-routes";
 import { formatCompactCurrency, formatNumber, formatPercent, formatTimestamp, humanizeKey, smartFormatValue } from "@/lib/format";
 import { buildGrafanaDashboardLink } from "@/lib/grafana";
 import type { CandidateDetailPayload } from "@/lib/types";
@@ -44,7 +45,7 @@ export default async function CandidateDetailPage(props: {
           <>
             <Link href={backHref as Route} className="btn-ghost inline-flex items-center gap-2 border border-bg-border">
               <ArrowLeft className="h-4 w-4" />
-              Back to candidates
+              Back to trading
             </Link>
             <CopyButton value={detail.summary.mint} label="Copy mint" />
             {grafanaHref ? (
@@ -183,17 +184,22 @@ function buildCandidateBackHref(props: { bucket?: string; sort?: string; focus?:
   const params = new URLSearchParams();
   if (props.bucket) params.set("bucket", props.bucket);
   if (props.sort) params.set("sort", props.sort);
+  params.set("book", "open");
+  params.set("psort", "priority");
   if (props.q && props.q.trim().length > 0) params.set("q", props.q.trim());
   const query = params.toString();
   const hash = props.focus ? `#candidate-${props.focus}` : "";
-  return `/candidates${query ? `?${query}` : ""}${hash}`;
+  return `${operationalDeskRoutes.trading}${query ? `?${query}` : ""}${hash}`;
 }
 
 function SummaryRow(props: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="rounded-[12px] border border-bg-border bg-bg-primary/55 px-3 py-3">
-      <div className="text-xs uppercase tracking-[0.18em] text-text-muted">{props.label}</div>
-      <div className={`mt-2 text-sm font-semibold text-text-primary ${props.mono ? "font-mono" : ""}`}>{props.value}</div>
+      <div className="scorecard-grid">
+        <div className="scorecard-label wrap-anywhere">{props.label}</div>
+        <div className={`scorecard-value wrap-anywhere text-sm font-semibold ${props.mono ? "font-mono" : ""}`}>{props.value}</div>
+        <div />
+      </div>
     </div>
   );
 }
@@ -201,8 +207,11 @@ function SummaryRow(props: { label: string; value: string; mono?: boolean }) {
 function Metric(props: { label: string; value: string }) {
   return (
     <div className="micro-stat">
-      <div className="micro-stat-label">{props.label}</div>
-      <div className="mt-2 text-sm font-medium text-text-primary">{props.value}</div>
+      <div className="scorecard-grid">
+        <div className="scorecard-label wrap-anywhere">{props.label}</div>
+        <div className="scorecard-value wrap-anywhere text-sm font-medium">{props.value}</div>
+        <div />
+      </div>
     </div>
   );
 }

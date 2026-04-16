@@ -52,13 +52,17 @@ Purpose: orient an agent to the live app shape and the ownership boundaries that
 
 ## Dashboard Surface
 
-- `/`: control desk only. It now uses a dedicated home contract for readiness, guardrails, exposure, queue buckets, diagnostics, and recent events
-- `/` degrades instead of blanking if the initial home contract fetch fails, and can emit an external Grafana diagnostics pivot when env-backed dashboard UIDs are configured
+- `/operational-desk/overview`: control desk only. It uses a dedicated home contract for readiness, guardrails, exposure, queue buckets, diagnostics, and recent events
+- `/operational-desk/overview` degrades instead of blanking if the initial home contract fetch fails, and can emit an external Grafana diagnostics pivot when env-backed dashboard UIDs are configured
 - Global shell includes a keyboard-driven command launcher on `⌘K` for route jumps and live shell actions
-- `/candidates`: operator workbench grouped by backend-assigned blocker buckets, with routed candidate detail pages and URL-preserved `bucket`, `sort`, and row-focus state
-- `/positions`: open-risk-first book, with backend-computed intervention priority, explicit exit reasoning, and URL-preserved `book`, `sort`, and row-focus state
-- `/telemetry`: current diagnostics only. Trend-heavy history is intentionally pushed out of the app surface, with optional provider-aware Grafana pivots when configured
-- `/settings`: draft-vs-active runtime control with validation, dry-run review, and explicit promotion; live cadence stays visible but read-only
+- `/operational-desk/trading`: operator workbench grouped by backend-assigned blocker buckets plus open-risk-first position management, with routed detail pages and URL-preserved `bucket`, `sort`, `book`, and row-focus state
+- `/operational-desk/settings`: desk-facing runtime control with validation, dry-run review, and explicit promotion for capital and cadence changes
+- `/discovery-lab/overview`: workflow landing for current run posture and quick entry points
+- `/discovery-lab/studio`: package and strategy editing
+- `/discovery-lab/run-lab`: active run control and process monitoring
+- `/discovery-lab/results`: current-run token board, manual trade ticket, and live strategy staging
+- `/discovery-lab/config`: discovery-owned settings review and promotion surface
+- `/`, `/trading`, `/settings`, `/telemetry`, and `/discovery-lab` are compatibility redirects into those grouped routes
 - There is no repo-supported in-app `/research` surface anymore; dry-run discovery experiments live in `trading_bot/backend/scripts/discovery-lab.ts`
 - The intended visual language is dark, restrained, and tool-like:
   black-led surfaces

@@ -395,6 +395,26 @@ export class BirdeyeClient {
     return row ? parseDiscoveryToken(row) : null;
   }
 
+  async getTokenMetadata(mint: string): Promise<Record<string, unknown> | null> {
+    const response = await this.request<{ data?: Record<string, unknown> }>(
+      "/defi/v3/token/meta-data/single",
+      15,
+      { address: mint },
+    );
+
+    return asRecord(response.data);
+  }
+
+  async getTokenOverview(mint: string): Promise<Record<string, unknown> | null> {
+    const response = await this.request<{ data?: Record<string, unknown> }>(
+      "/defi/token_overview",
+      30,
+      { address: mint },
+    );
+
+    return asRecord(response.data);
+  }
+
   async getTradeData(mint: string): Promise<TradeDataSnapshot | null> {
     const response = await this.request<{ data?: Record<string, unknown> }>(
       "/defi/v3/token/trade-data/single",

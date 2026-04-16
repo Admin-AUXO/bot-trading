@@ -10,20 +10,38 @@ const targetConfigPath = path.join(codexHome, "config.toml");
 const launcherPath = path.join(repoRoot, ".codex", "scripts", "start-stdio-command.cjs");
 const birdeyeLauncherPath = path.join(repoRoot, ".codex", "scripts", "start-birdeye-mcp.cjs");
 const desktopCommanderLauncherPath = path.join(repoRoot, ".codex", "scripts", "start-desktop-commander.cjs");
-const filesystemLauncherPath = path.join(repoRoot, ".codex", "scripts", "start-filesystem-mcp.cjs");
 const backendEnvPath = path.join(repoRoot, "trading_bot", "backend", ".env");
 
 const blockStart = "# >>> bot-trading managed MCP begin >>>";
 const blockEnd = "# <<< bot-trading managed MCP end <<<";
 const profileArgIndex = process.argv.indexOf("--profile");
 const profile = profileArgIndex >= 0 ? process.argv[profileArgIndex + 1] : "compact";
-const validProfiles = new Set(["compact", "db", "full"]);
+const validProfiles = new Set(["compact", "db", "research", "dashboard", "provider", "full"]);
 
 if (!validProfiles.has(profile)) {
   console.error(`[mcp-install] invalid profile: ${profile}`);
-  console.error("[mcp-install] valid profiles: compact, db, full");
+  console.error("[mcp-install] valid profiles: compact, db, research, dashboard, provider, full");
   process.exit(1);
 }
+
+const profileServers = {
+  compact: ["desktop_commander"],
+  db: ["desktop_commander", "postgres"],
+  research: ["desktop_commander", "context7", "fetch", "time"],
+  dashboard: ["desktop_commander", "chrome_devtools", "context7", "fetch", "shadcn"],
+  provider: ["desktop_commander", "birdeye-mcp", "fetch", "helius", "time"],
+  full: [
+    "desktop_commander",
+    "birdeye-mcp",
+    "chrome_devtools",
+    "context7",
+    "fetch",
+    "postgres",
+    "shadcn",
+    "helius",
+    "time",
+  ],
+};
 
 function tomlString(value) {
   return JSON.stringify(value);
@@ -81,58 +99,16 @@ function renderCommandServer(name, args, extra = []) {
 function isEnabled(serverName, backendEnv) {
   const birdeyeEnabled = hasRealValue(backendEnv.BIRDEYE_API_KEY);
   const heliusEnabled = hasRealValue(backendEnv.HELIUS_API_KEY) || hasRealValue(backendEnv.HELIUS_RPC_URL);
-
-  if (profile === "full") {
-    return {
-      browsermcp: false,
-      "birdeye-mcp": birdeyeEnabled,
-      chrome_devtools: true,
-      context7: true,
-      desktop_commander: true,
-      fetch: true,
-      github: false,
-      filesystem: false,
-      memory: false,
-      postgres: true,
-      helius: heliusEnabled,
-      sequential_thinking: true,
-      time: true,
-    }[serverName] ?? false;
+  if (!profileServers[profile]?.includes(serverName)) {
+    return false;
   }
-
-  if (profile === "db") {
-    return {
-      browsermcp: false,
-      "birdeye-mcp": false,
-      chrome_devtools: false,
-      context7: false,
-      desktop_commander: true,
-      fetch: false,
-      github: false,
-      filesystem: false,
-      memory: false,
-      postgres: true,
-      helius: false,
-      sequential_thinking: false,
-      time: false,
-    }[serverName] ?? false;
+  if (serverName === "birdeye-mcp") {
+    return birdeyeEnabled;
   }
-
-  return {
-    browsermcp: false,
-    "birdeye-mcp": false,
-    chrome_devtools: false,
-    context7: false,
-    desktop_commander: true,
-    fetch: false,
-    github: false,
-    filesystem: false,
-    memory: false,
-    postgres: false,
-    helius: false,
-    sequential_thinking: false,
-    time: false,
-  }[serverName] ?? false;
+  if (serverName === "helius") {
+    return heliusEnabled;
+  }
+  return true;
 }
 
 function renderManagedBlock() {
@@ -147,15 +123,9 @@ function renderManagedBlock() {
     blockStart,
     "# Install source: repo-local bot-trading MCP profile",
     "# Refresh this block by rerunning:",
-    "#   node ./.codex/scripts/install-mcp-config.cjs [--profile compact|db|full]",
+    "#   node ./.codex/scripts/install-mcp-config.cjs [--profile compact|db|research|dashboard|provider|full]",
     `# Current profile: ${profile}`,
     "",
-    renderCommandServer("browsermcp", [...launcherArgs, "npx", "-y", "@browsermcp/mcp"], [
-      `enabled = ${isEnabled("browsermcp", backendEnv) ? "true" : "false"}`,
-      "required = false",
-      "startup_timeout_ms = 20000",
-      "tool_timeout_sec = 90",
-    ]),
     renderCommandServer("birdeye-mcp", [birdeyeLauncherPath], [
       `enabled = ${isEnabled("birdeye-mcp", backendEnv) ? "true" : "false"}`,
       "required = false",
@@ -185,33 +155,20 @@ url = "https://mcp.context7.com/mcp"
       "required = false",
       "startup_timeout_ms = 20000",
     ]),
-    renderCommandServer("github", [...launcherArgs, "docker", "run", "-i", "--rm", "-e", "GITHUB_PERSONAL_ACCESS_TOKEN", "ghcr.io/github/github-mcp-server", "stdio", "--toolsets", "repos,issues,pull_requests,actions"], [
-      `enabled = ${isEnabled("github", backendEnv) ? "true" : "false"}`,
-      "required = false",
-    ]),
-    renderCommandServer("filesystem", [filesystemLauncherPath], [
-      `enabled = ${isEnabled("filesystem", backendEnv) ? "true" : "false"}`,
-      "required = false",
-    ]),
-    renderCommandServer("memory", [...launcherArgs, "npx", "-y", "@modelcontextprotocol/server-memory"], [
-      `enabled = ${isEnabled("memory", backendEnv) ? "true" : "false"}`,
-      "required = false",
-      "startup_timeout_ms = 20000",
-    ]),
     renderCommandServer("postgres", [...launcherArgs, "npx", "-y", "@modelcontextprotocol/server-postgres", postgresDsn], [
       `enabled = ${isEnabled("postgres", backendEnv) ? "true" : "false"}`,
       "required = false",
       "startup_timeout_ms = 20000",
     ]),
+    renderCommandServer("shadcn", [...launcherArgs, "npx", "-y", "shadcn@latest", "mcp"], [
+      `enabled = ${isEnabled("shadcn", backendEnv) ? "true" : "false"}`,
+      "required = false",
+      "startup_timeout_ms = 30000",
+    ]),
     renderCommandServer("helius", [...launcherArgs, "npx", "-y", "helius-mcp@latest"], [
       `enabled = ${isEnabled("helius", backendEnv) ? "true" : "false"}`,
       "required = false",
       "startup_timeout_ms = 30000",
-    ]),
-    renderCommandServer("sequential_thinking", [...launcherArgs, "npx", "-y", "@modelcontextprotocol/server-sequential-thinking"], [
-      `enabled = ${isEnabled("sequential_thinking", backendEnv) ? "true" : "false"}`,
-      "required = false",
-      "startup_timeout_ms = 20000",
     ]),
     renderCommandServer("time", [...launcherArgs, "uvx", "mcp-server-time"], [
       `enabled = ${isEnabled("time", backendEnv) ? "true" : "false"}`,

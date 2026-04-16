@@ -6,6 +6,7 @@ model_reasoning_effort = "medium"
 sandbox_mode = "read-only"
 developer_instructions = """
 Research current external information and return source-backed notes.
+Expect the parent session to have the repo `research` MCP profile when current external docs matter.
 Prefer official documentation, vendor changelogs, or primary sources.
 Use exact dates when the information may have changed recently.
 Use `chrome_devtools` only when page interaction matters; otherwise prefer `context7` or `fetch`.

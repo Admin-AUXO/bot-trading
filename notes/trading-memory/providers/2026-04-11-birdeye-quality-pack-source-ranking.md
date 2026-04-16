@@ -5,10 +5,10 @@ area: trading/providers
 date: 2026-04-12
 source_files:
   - trading_bot/backend/scripts/discovery-lab.ts
-  - trading_bot/backend/scripts/discovery-lab.recipes.quality.json
-  - trading_bot/backend/scripts/discovery-lab.recipes.fast-turn.json
+  - trading_bot/backend/scripts/discovery-lab/runner.ts
+  - trading_bot/backend/src/services/discovery-lab-created-packs.ts
 graph_checked: 2026-04-12
-next_action: Re-run the pump controls in another live window to see whether `grad_4h_volume1h`, `grad_4h_holder_liquidity`, and `grad_75m_price30m_strength` keep repeating after the current hot pump window cools off.
+next_action: Compare the five created packs across another live pump window and check whether the late-expansion quality stack still earns pass-grade names once the fresh-burst window cools.
 ---
 
 # Trading Memory - Birdeye Quality Pack Source Ranking
@@ -19,20 +19,20 @@ next_action: Re-run the pump controls in another live window to see whether `gra
 - `moonshot` and `raydium_launchlab` were dead zones in the sampled window.
 - `meteora_dynamic_bonding_curve` can surface attention, but not reliable pass-grade execution quality yet.
 - If a name looks strong in the query summary and still fails deep grading, read the reject reason before touching the recipe. Concentration remains the usual liar.
+- The discovery lab now uses repo-created packs instead of starter JSON files. Each created pack carries four graduated strategies with mixed volume and graduation-recency windows plus pack-level threshold overrides.
 
-## Best Current Pump Shapes
+## Current Created Pack Set
 
-- `grad_4h_holder_liquidity`
-  best fast-turn winner and best efficiency per CU in the refreshed 2026-04-12 run
-- `grad_4h_volume1h`
-  best broad quality mix in the refreshed 2026-04-12 run
-- `grad_75m_price30m_strength`
-  best experimental follow-up after trimming the filter count back under Birdeye's ceiling
-
-## Viable Secondary Shape
-
-- `grad_45m_volume30m_persistence`
-  workable secondary `30m` flow variant, but still noisier than the three main pump shapes
+- `created-fresh-burst-ladder`
+  earliest post-grad burst pack; best for testing the first 12 to 45 minutes
+- `created-early-flow-balance`
+  blends fast 5m flow with wider 30m and 1h participation
+- `created-holder-supported-continuation`
+  raises holder and liquidity support while staying inside continuation windows
+- `created-reclaim-strength-stack`
+  leans on 30m and 1h reclaim strength instead of pure tape urgency
+- `created-late-expansion-quality`
+  latest-window quality pack for deeper liquidity, broader holders, and 1h expansion
 
 ## Shapes To Avoid By Default
 
@@ -62,10 +62,10 @@ Use this as a research lens, not as permission to weaken live concentration cont
 ## Reuse Rules
 
 - Keep `pump_dot_fun` as the default live and research source until another venue proves it can produce pass-grade names repeatedly.
-- Use `grad_4h_holder_liquidity` first when the desk wants efficient fast-turn rechecks.
-- Use `grad_4h_volume1h` first when the desk wants a wider quality-biased pump sweep.
-- Treat `grad_75m_price30m_strength` as the first experimental follow-up to pair with the controls.
-- Keep `grad_45m_volume30m_persistence` as a secondary experiment only, not a control.
+- Use `created-fresh-burst-ladder` or `created-early-flow-balance` first when the desk wants very fresh continuation windows.
+- Use `created-holder-supported-continuation` when you want more structural support without jumping all the way to the late pack.
+- Use `created-reclaim-strength-stack` when the desk wants momentum and reclaim bias instead of raw recency.
+- Use `created-late-expansion-quality` when the desk wants the strongest holder and liquidity bias.
 - Do not loosen concentration controls just because raw score or volume looks attractive.
 - Do not spend another default pass on pregrad scouts, `grad_15m_trade5m`, or `grad_20m_trade1m_impulse` unless the desk is explicitly testing a weird churn window.
 

@@ -1,8 +1,10 @@
 import type { BotState, Candidate, Fill, Position, TokenSnapshot } from "@prisma/client";
 import { db } from "../db/client.js";
+import type { AdaptiveModelState, AdaptiveTokenExplanation, LiveStrategySettings } from "../types/domain.js";
 import type { RiskEngine } from "../engine/risk-engine.js";
 import type { RuntimeConfigService, SettingsControlState } from "./runtime-config.js";
 import type { ProviderBudgetService } from "./provider-budget-service.js";
+import { buildAdaptiveModelState, buildAdaptiveTokenExplanation } from "./adaptive-model.js";
 import { listOperatorEvents } from "./operator-events.js";
 
 const QUEUED_CANDIDATE_STATUSES = ["DISCOVERED", "SKIPPED", "ERROR"] as const;
@@ -53,6 +55,25 @@ export type DeskHomePayload = {
     openPositions: number;
     maxOpenPositions: number;
   };
+  performance: {
+    realizedPnlTodayUsd: number;
+    realizedPnl7dUsd: number;
+    winRate7d: number;
+    avgReturnPct7d: number;
+    avgHoldMinutes7d: number;
+  };
+  latency: {
+    providerAvgLatencyMsToday: number;
+    hotEndpointAvgLatencyMsToday: number;
+    avgExecutionLatencyMs24h: number;
+    p95ExecutionLatencyMs24h: number;
+    avgExecutionSlippageBps24h: number;
+  };
+  runtime: {
+    lastDiscoveryAt: string | null;
+    lastEvaluationAt: string | null;
+    lastExitCheckAt: string | null;
+  };
   queue: {
     queuedCandidates: number;
     buckets: Array<{ bucket: CandidateDeskBucket; count: number; label: string }>;
@@ -69,6 +90,7 @@ export type DeskHomePayload = {
     staleComponents: string[];
     issues: Array<{ id: string; label: string; detail: string; level: "warning" | "danger" }>;
   };
+  adaptiveModel: AdaptiveModelState;
   recentFailures: OperatorEventPayload[];
   recentActions: OperatorEventPayload[];
 };
@@ -106,6 +128,7 @@ export type CandidateQueueRow = {
   top10HolderPercent: number | null;
   discoveredAt: string;
   lastEvaluatedAt: string | null;
+  adaptive: AdaptiveTokenExplanation;
 };
 
 export type CandidateDetailPayload = {
@@ -131,6 +154,7 @@ export type PositionBookPayload = {
 
 export type PositionBookRow = {
   id: string;
+  mint: string;
   symbol: string;
   status: string;
   interventionPriority: number;
@@ -138,9 +162,14 @@ export type PositionBookRow = {
   entryPriceUsd: number;
   currentPriceUsd: number;
   remainingToken: number;
+  unrealizedPnlUsd: number;
+  returnPct: number;
   exitReason: string | null;
   openedAt: string;
   closedAt: string | null;
+  lastFillAt: string | null;
+  latestExecutionLatencyMs: number | null;
+  adaptive: AdaptiveTokenExplanation;
 };
 
 export type PositionDetailPayload = {
@@ -154,6 +183,13 @@ export type PositionDetailPayload = {
     metadata: Record<string, unknown>;
   };
   fills: Array<Record<string, unknown>>;
+  executionSummary: {
+    fillCount: number;
+    avgExecutionLatencyMs: number | null;
+    p95ExecutionLatencyMs: number | null;
+    avgExecutionSlippageBps: number | null;
+    lastExecutionLatencyMs: number | null;
+  };
   snapshots: Array<Record<string, unknown>>;
   linkedCandidate: Record<string, unknown> | null;
 };
@@ -236,7 +272,7 @@ export class OperatorDeskService {
   }
 
   async getHome(): Promise<DeskHomePayload> {
-    const [settings, botState, gate, openPositions, candidates, budget, events, latestPayloadFailures] = await Promise.all([
+    const [settings, botState, gate, openPositions, candidates, budget, events, latestPayloadFailures, kpis] = await Promise.all([
       this.config.getSettings(),
       this.risk.getSnapshot(),
       this.risk.canOpenPosition(),
@@ -253,6 +289,7 @@ export class OperatorDeskService {
           capturedAt: { gte: new Date(Date.now() - 6 * 60 * 60 * 1000) },
         },
       }),
+      this.getDeskKpis(),
     ]);
 
     const buckets = this.buildCandidateBucketCounts(candidates);
@@ -296,6 +333,13 @@ export class OperatorDeskService {
         openPositions,
         maxOpenPositions: settings.capital.maxOpenPositions,
       },
+      performance: kpis.performance,
+      latency: kpis.latency,
+      runtime: {
+        lastDiscoveryAt: botState.lastDiscoveryAt?.toISOString() ?? null,
+        lastEvaluationAt: botState.lastEvaluationAt?.toISOString() ?? null,
+        lastExitCheckAt: botState.lastExitCheckAt?.toISOString() ?? null,
+      },
       queue: {
         queuedCandidates: candidates.filter((candidate) => QUEUED_CANDIDATE_STATUSES.includes(candidate.status as typeof QUEUED_CANDIDATE_STATUSES[number])).length,
         buckets,
@@ -317,6 +361,7 @@ export class OperatorDeskService {
         })),
       },
       diagnostics,
+      adaptiveModel: buildAdaptiveModelState(settings),
       recentFailures: events.filter((event) => event.level !== "info").slice(0, 6).map((event) => this.toEventPayload(event)),
       recentActions: events.filter((event) => event.level === "info").slice(0, 6).map((event) => this.toEventPayload(event)),
     };
@@ -328,12 +373,15 @@ export class OperatorDeskService {
   }
 
   async getCandidateQueue(bucket: CandidateDeskBucket): Promise<CandidateQueuePayload> {
-    const rows = await db.candidate.findMany({
-      take: 150,
-      orderBy: { discoveredAt: "desc" },
-    });
+    const [settings, rows] = await Promise.all([
+      this.config.getSettings(),
+      db.candidate.findMany({
+        take: 150,
+        orderBy: { discoveredAt: "desc" },
+      }),
+    ]);
 
-    const mapped = rows.map((row) => this.toCandidateQueueRow(row));
+    const mapped = rows.map((row) => this.toCandidateQueueRow(row, settings.strategy.liveStrategy));
 
     return {
       bucket,
@@ -343,7 +391,10 @@ export class OperatorDeskService {
   }
 
   async getCandidateDetail(candidateId: string): Promise<CandidateDetailPayload | null> {
-    const candidate = await db.candidate.findUnique({ where: { id: candidateId } });
+    const [settings, candidate] = await Promise.all([
+      this.config.getSettings(),
+      db.candidate.findUnique({ where: { id: candidateId } }),
+    ]);
     if (!candidate) return null;
 
     const [snapshots, payloads] = await Promise.all([
@@ -359,7 +410,7 @@ export class OperatorDeskService {
       }),
     ]);
 
-    const summary = this.toCandidateQueueRow(candidate);
+    const summary = this.toCandidateQueueRow(candidate, settings.strategy.liveStrategy);
     return {
       summary: {
         ...summary,
@@ -385,13 +436,16 @@ export class OperatorDeskService {
 
   async getPositionBook(book: "open" | "closed"): Promise<PositionBookPayload> {
     const where = { status: book === "open" ? "OPEN" : "CLOSED" } as const;
-    const rows = await db.position.findMany({
-      where,
-      take: 120,
-      orderBy: book === "open" ? { openedAt: "desc" } : { closedAt: "desc" },
-    });
+    const [settings, rows] = await Promise.all([
+      this.config.getSettings(),
+      db.position.findMany({
+        where,
+        take: 120,
+        orderBy: book === "open" ? { openedAt: "desc" } : { closedAt: "desc" },
+      }),
+    ]);
 
-    const mapped = await Promise.all(rows.map((row) => this.toPositionBookRow(row)));
+    const mapped = await Promise.all(rows.map((row) => this.toPositionBookRow(row, settings.strategy.liveStrategy)));
     mapped.sort((left, right) => book === "open"
       ? right.interventionPriority - left.interventionPriority
       : Date.parse(right.closedAt ?? right.openedAt) - Date.parse(left.closedAt ?? left.openedAt));
@@ -417,13 +471,16 @@ export class OperatorDeskService {
   }
 
   async getPositionDetail(positionId: string): Promise<PositionDetailPayload | null> {
-    const position = await db.position.findUnique({
-      where: { id: positionId },
-      include: {
-        fills: { orderBy: { createdAt: "asc" } },
-        candidates: { orderBy: { discoveredAt: "desc" }, take: 1 },
-      },
-    });
+    const [settings, position] = await Promise.all([
+      this.config.getSettings(),
+      db.position.findUnique({
+        where: { id: positionId },
+        include: {
+          fills: { orderBy: { createdAt: "asc" } },
+          candidates: { orderBy: { discoveredAt: "desc" }, take: 1 },
+        },
+      }),
+    ]);
     if (!position) return null;
 
     const [snapshots, row] = await Promise.all([
@@ -432,8 +489,10 @@ export class OperatorDeskService {
         orderBy: { capturedAt: "desc" },
         take: 40,
       }),
-      this.toPositionBookRow(position),
+      this.toPositionBookRow(position, settings.strategy.liveStrategy),
     ]);
+
+    const fillRecords = position.fills.map((fill) => this.fillRecord(fill));
 
     return {
       summary: {
@@ -446,7 +505,8 @@ export class OperatorDeskService {
         tp2Done: position.tp2Done,
         metadata: asRecord(position.metadata),
       },
-      fills: position.fills.map((fill) => this.fillRecord(fill)),
+      fills: fillRecords,
+      executionSummary: this.buildExecutionSummary(fillRecords),
       snapshots: snapshots.map((snapshot) => this.snapshotRecord(snapshot)),
       linkedCandidate: position.candidates[0] ? this.snapshotRecord(position.candidates[0]) : null,
     };
@@ -608,8 +668,9 @@ export class OperatorDeskService {
     }));
   }
 
-  private toCandidateQueueRow(row: Candidate) {
+  private toCandidateQueueRow(row: Candidate, liveStrategy: LiveStrategySettings) {
     const secondaryReasons = this.getCandidateSecondaryReasons(row);
+    const filterState = this.snapshotRecord(row);
     return {
       id: row.id,
       mint: row.mint,
@@ -625,6 +686,11 @@ export class OperatorDeskService {
       top10HolderPercent: maybeNumber(row.top10HolderPercent),
       discoveredAt: row.discoveredAt.toISOString(),
       lastEvaluatedAt: row.lastEvaluatedAt?.toISOString() ?? null,
+      adaptive: buildAdaptiveTokenExplanation({
+        liveStrategy,
+        filterState,
+        metrics: asRecord(row.metrics),
+      }),
     };
   }
 
@@ -666,13 +732,34 @@ export class OperatorDeskService {
     }
   }
 
-  private async toPositionBookRow(row: Position) {
-    const latestSnapshot = await db.tokenSnapshot.findFirst({
-      where: { OR: [{ positionId: row.id }, { mint: row.mint }] },
-      orderBy: { capturedAt: "desc" },
-      select: { capturedAt: true },
-    });
+  private async toPositionBookRow(row: Position, liveStrategy: LiveStrategySettings) {
+    const [latestSnapshot, latestFill] = await Promise.all([
+      db.tokenSnapshot.findFirst({
+        where: { OR: [{ positionId: row.id }, { mint: row.mint }] },
+        orderBy: { capturedAt: "desc" },
+        select: { capturedAt: true },
+      }),
+      db.fill.findFirst({
+        where: { positionId: row.id },
+        orderBy: { createdAt: "desc" },
+        select: { createdAt: true, metadata: true },
+      }),
+    ]);
     const priority = this.getInterventionPriority(row, latestSnapshot?.capturedAt ?? null);
+    const metadata = asRecord(row.metadata);
+    const metrics = asRecord(metadata.metrics);
+    const entryPriceUsd = Number(row.entryPriceUsd);
+    const currentPriceUsd = Number(row.currentPriceUsd);
+    const remainingToken = Number(row.remainingToken);
+    const unrealizedPnlUsd = row.status === "OPEN"
+      ? (currentPriceUsd - entryPriceUsd) * remainingToken
+      : 0;
+    const returnPct = entryPriceUsd > 0
+      ? ((currentPriceUsd - entryPriceUsd) / entryPriceUsd) * 100
+      : 0;
+    const latestFillMetadata = latestFill ? asRecord(latestFill.metadata) : {};
+    const latestFillLive = asRecord(latestFillMetadata.live);
+    const latestFillTiming = asRecord(latestFillLive.timing);
 
     return {
       id: row.id,
@@ -681,12 +768,24 @@ export class OperatorDeskService {
       status: row.status,
       interventionPriority: priority.score,
       interventionLabel: priority.label,
-      entryPriceUsd: Number(row.entryPriceUsd),
-      currentPriceUsd: Number(row.currentPriceUsd),
-      remainingToken: Number(row.remainingToken),
+      entryPriceUsd,
+      currentPriceUsd,
+      remainingToken,
+      unrealizedPnlUsd,
+      returnPct,
       exitReason: row.exitReason,
       openedAt: row.openedAt.toISOString(),
       closedAt: row.closedAt?.toISOString() ?? null,
+      lastFillAt: latestFill?.createdAt.toISOString() ?? null,
+      latestExecutionLatencyMs: maybeNumber(latestFillTiming.totalMs),
+      adaptive: buildAdaptiveTokenExplanation({
+        liveStrategy,
+        filterState: asRecord(metadata.filterState),
+        metrics: {
+          ...metrics,
+          entryScore: maybeNumber(metadata.entryScore) ?? maybeNumber(metrics.entryScore),
+        },
+      }),
     };
   }
 
@@ -785,6 +884,109 @@ export class OperatorDeskService {
       createdAt: fill.createdAt.toISOString(),
     };
   }
+
+  private async getDeskKpis() {
+    const [performanceRows, providerLatencyRows, hotEndpointRows, executionLatencyRows] = await Promise.all([
+      db.$queryRawUnsafe<Array<Record<string, unknown>>>(`
+        SELECT
+          COALESCE(SUM(CASE WHEN session_date = CURRENT_DATE THEN realized_pnl_usd ELSE 0 END), 0)::numeric AS realized_pnl_today_usd,
+          COALESCE(SUM(realized_pnl_usd), 0)::numeric AS realized_pnl_7d_usd,
+          CASE
+            WHEN SUM(closed_count) > 0 THEN SUM(win_rate * closed_count)::numeric / SUM(closed_count)::numeric
+            ELSE 0
+          END::numeric(12, 4) AS win_rate_7d,
+          CASE
+            WHEN SUM(closed_count) > 0 THEN SUM(avg_return_pct * closed_count)::numeric / SUM(closed_count)::numeric
+            ELSE 0
+          END::numeric(12, 4) AS avg_return_pct_7d,
+          CASE
+            WHEN SUM(closed_count) > 0 THEN SUM(avg_hold_minutes * closed_count)::numeric / SUM(closed_count)::numeric
+            ELSE 0
+          END::numeric(12, 2) AS avg_hold_minutes_7d
+        FROM v_position_pnl_daily
+        WHERE session_date >= CURRENT_DATE - INTERVAL '6 days'
+      `),
+      db.$queryRawUnsafe<Array<Record<string, unknown>>>(`
+        SELECT
+          CASE
+            WHEN SUM(total_calls) > 0 THEN SUM(avg_latency_ms * total_calls)::numeric / SUM(total_calls)::numeric
+            ELSE 0
+          END::numeric(12, 2) AS provider_avg_latency_ms_today
+        FROM v_api_provider_daily
+        WHERE session_date = CURRENT_DATE
+      `),
+      db.$queryRawUnsafe<Array<Record<string, unknown>>>(`
+        SELECT COALESCE(avg_latency_ms, 0)::numeric(12, 2) AS hot_endpoint_avg_latency_ms_today
+        FROM v_api_endpoint_efficiency
+        WHERE last_called_at >= CURRENT_DATE
+        ORDER BY total_calls DESC, total_units DESC, avg_latency_ms DESC
+        LIMIT 1
+      `),
+      db.$queryRawUnsafe<Array<Record<string, unknown>>>(`
+        WITH execution_fills AS (
+          SELECT
+            (metadata -> 'live' -> 'timing' ->> 'totalMs')::numeric AS total_latency_ms,
+            CASE
+              WHEN COALESCE(metadata -> 'live' ->> 'executionSlippageBps', '') ~ '^-?[0-9]+(\\.[0-9]+)?$'
+                THEN (metadata -> 'live' ->> 'executionSlippageBps')::numeric
+              ELSE NULL
+            END AS execution_slippage_bps
+          FROM "Fill"
+          WHERE "createdAt" >= NOW() - INTERVAL '24 hours'
+            AND COALESCE(metadata -> 'live' -> 'timing' ->> 'totalMs', '') ~ '^-?[0-9]+(\\.[0-9]+)?$'
+        )
+        SELECT
+          COALESCE(AVG(total_latency_ms), 0)::numeric(12, 2) AS avg_execution_latency_ms_24h,
+          COALESCE(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY total_latency_ms), 0)::numeric(12, 2) AS p95_execution_latency_ms_24h,
+          COALESCE(AVG(execution_slippage_bps), 0)::numeric(12, 4) AS avg_execution_slippage_bps_24h
+        FROM execution_fills
+      `),
+    ]);
+
+    const performance = performanceRows[0] ?? {};
+    const providerLatency = providerLatencyRows[0] ?? {};
+    const hotEndpoint = hotEndpointRows[0] ?? {};
+    const executionLatency = executionLatencyRows[0] ?? {};
+
+    return {
+      performance: {
+        realizedPnlTodayUsd: maybeNumber(performance.realized_pnl_today_usd) ?? 0,
+        realizedPnl7dUsd: maybeNumber(performance.realized_pnl_7d_usd) ?? 0,
+        winRate7d: maybeNumber(performance.win_rate_7d) ?? 0,
+        avgReturnPct7d: maybeNumber(performance.avg_return_pct_7d) ?? 0,
+        avgHoldMinutes7d: maybeNumber(performance.avg_hold_minutes_7d) ?? 0,
+      },
+      latency: {
+        providerAvgLatencyMsToday: maybeNumber(providerLatency.provider_avg_latency_ms_today) ?? 0,
+        hotEndpointAvgLatencyMsToday: maybeNumber(hotEndpoint.hot_endpoint_avg_latency_ms_today) ?? 0,
+        avgExecutionLatencyMs24h: maybeNumber(executionLatency.avg_execution_latency_ms_24h) ?? 0,
+        p95ExecutionLatencyMs24h: maybeNumber(executionLatency.p95_execution_latency_ms_24h) ?? 0,
+        avgExecutionSlippageBps24h: maybeNumber(executionLatency.avg_execution_slippage_bps_24h) ?? 0,
+      },
+    };
+  }
+
+  private buildExecutionSummary(fills: Array<Record<string, unknown>>) {
+    const latencyValues = fills
+      .map((fill) => maybeNumber(fill.totalLatencyMs))
+      .filter((value): value is number => value != null)
+      .sort((left, right) => left - right);
+    const slippageValues = fills
+      .map((fill) => maybeNumber(fill.executionSlippageBps))
+      .filter((value): value is number => value != null);
+
+    return {
+      fillCount: fills.length,
+      avgExecutionLatencyMs: latencyValues.length > 0
+        ? latencyValues.reduce((sum, value) => sum + value, 0) / latencyValues.length
+        : null,
+      p95ExecutionLatencyMs: percentile(latencyValues, 0.95),
+      avgExecutionSlippageBps: slippageValues.length > 0
+        ? slippageValues.reduce((sum, value) => sum + value, 0) / slippageValues.length
+        : null,
+      lastExecutionLatencyMs: fills.length > 0 ? maybeNumber(fills[fills.length - 1]?.totalLatencyMs) : null,
+    };
+  }
 }
 
 function normalizeEventLevel(level: string): "info" | "warning" | "danger" {
@@ -808,4 +1010,17 @@ function asRecord(value: unknown): Record<string, unknown> {
     return {};
   }
   return value as Record<string, unknown>;
+}
+
+function percentile(sortedValues: number[], quantile: number): number | null {
+  if (sortedValues.length === 0) return null;
+  if (sortedValues.length === 1) return sortedValues[0];
+  const index = (sortedValues.length - 1) * quantile;
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+  if (lower === upper) return sortedValues[lower] ?? null;
+  const lowerValue = sortedValues[lower] ?? sortedValues[0];
+  const upperValue = sortedValues[upper] ?? sortedValues[sortedValues.length - 1];
+  const weight = index - lower;
+  return lowerValue + (upperValue - lowerValue) * weight;
 }

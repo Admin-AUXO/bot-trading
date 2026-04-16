@@ -69,6 +69,27 @@ next_action: Browser-verify discovery-lab full-screen token details modal, cross
   the sticky discovery action bar now separates build/edit actions from run/review actions
   the token board summary was reduced to scan-critical counts, and filters/search/timestamps now live in one darker control rail
   the full-screen token review modal now uses a sticky summary rail and a more ordered scan path: setup summary, EV/risk, market structure, timing/liquidity, recipe consensus, then watchouts
+- Final sidebar/grid polish pass:
+  the sidebar current-page block was reduced into a smaller focus aid so it no longer competes with navigation
+  discovery top tabs were trimmed to label-first triggers to reduce sticky-bar height and visual chatter
+  shared scorecards now use a denser internal rhythm with better word wrapping
+  AG Grid text-heavy columns keep auto-height and centered utility classes where scan flow benefits from centered values
+- Follow-up operator-density pass:
+  removed the sidebar focus block entirely so the shell reads as navigation plus one compact shell status row
+  widened both sidebar states and kept shell summary cards in a single row
+  switched shell sync wording to relative recency (`Xm ago`) instead of full timestamps
+  centered scorecard content across shared stat patterns
+  increased AG Grid internal padding slightly, centered metric/small-dimension columns, and added subtle heatmap styling to candidate and position metrics
+  discovery-lab heatmap metric cells now center-align to match the denser desk table style
+- Discovery results scan tweak:
+  winner and reject outcomes on the results board now surface token market cap directly in the desktop quality cell, mobile token cards, and compact best-token summary cards so operators do not need to open the full review modal just to read sizing context
+  follow-up layout pass moved the desktop market-cap readout into its own `Mcap` column directly beside `Consensus`, keeping `Quality` score-only
+- Builder-first discovery-lab workflow pass:
+  discovery-lab tab order now reads `Strategy studio` -> `Run lab` -> `Results`, with the studio as the default when there is no active review task
+  created packs load into editable drafts so operators can tune them and optionally save a workspace copy without reviving starter-template language
+  builder action flow now centers on validate/save/run directly from the studio instead of forcing a separate runs-first mindset
+  pack basics and thresholds gained suggested values and stronger layout grouping
+  strategy editing moved from a raw JSON-primary surface to structured query-plan, timing, and filter controls, with raw JSON preserved as an advanced escape hatch
 
 ## What I Verified
 
@@ -77,6 +98,8 @@ next_action: Browser-verify discovery-lab full-screen token details modal, cross
 - `cd trading_bot && ./scripts/update-compose-stack.sh`
 - `cd trading_bot && docker compose ps bot dashboard`
 - `node ./.codex/scripts/graphify-rebuild.mjs`
+- `npx playwright screenshot --device="Desktop Chrome" http://localhost:3100/discovery-lab /tmp/discovery-sidebar-grid-final.png`
+- `npx playwright screenshot --device="Desktop Chrome" http://localhost:3100/trading /tmp/trading-sidebar-grid-final.png`
 
 ## Remaining Risks
 

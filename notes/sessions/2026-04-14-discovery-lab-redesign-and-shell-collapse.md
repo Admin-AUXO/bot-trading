@@ -10,16 +10,12 @@ source_files:
   - trading_bot/dashboard/app/discovery-lab/page.tsx
   - trading_bot/dashboard/lib/types.ts
   - trading_bot/backend/scripts/discovery-lab.ts
-  - trading_bot/backend/.local/discovery-lab/packs/scalp-tape-structure-v2.json
-  - trading_bot/backend/.local/discovery-lab/packs/scalp-tape-structure.json
-  - trading_bot/backend/.local/discovery-lab/packs/scalp-tape-volume-breadth.json
-  - trading_bot/backend/.local/discovery-lab/packs/scalp-30m-strength-reclaim.json
-  - trading_bot/backend/.local/discovery-lab/packs/scalp-structure-persistence.json
-  - trading_bot/backend/.local/discovery-lab/packs/scalp-tight-cap-live-tape.json
+  - trading_bot/backend/scripts/discovery-lab/runner.ts
+  - trading_bot/backend/src/services/discovery-lab-created-packs.ts
   - trading_bot/dashboard/package.json
   - notes/reference/dashboard-operator-ui.md
 graph_checked: 2026-04-14
-next_action: Run one real provider-backed discovery-lab session against the refreshed local scalp pack set so the desk can compare which of the five new custom packs holds up outside the current hot window and whether the tighter-cap variants improve the 20 to 30 percent scalp target.
+next_action: Run one real provider-backed discovery-lab session against the five repo-created packs so the desk can compare which mix still holds up outside the current hot window and whether the late-expansion quality pack is worth keeping in the default set.
 ---
 
 # Session - Discovery Lab Redesign And Shell Collapse
@@ -29,13 +25,12 @@ next_action: Run one real provider-backed discovery-lab session against the refr
 - The old discovery page tried to combine a large hero, a nested-scroll workbench, and same-page results. That broke the fixed-workbench claim on laptop heights and buried the main editing flow on mobile.
 - The main app shell now needs a persistent collapsed desktop mode so the operator can reclaim width without losing primary navigation.
 - Discovery is now organized around tabs and explicit editing surfaces instead of one long stacked pane.
-- Six repo-local custom discovery-lab packs are now pre-seeded under `trading_bot/backend/.local/discovery-lab/packs/` so they appear in the dashboard catalog without manual cloning:
-  `Scalp Tape + Structure`
-  `Scalp Tape + Structure v2`
-  `Scalp Tape + Volume Breadth`
-  `Scalp 30m Strength Reclaim`
-  `Scalp Structure Persistence`
-  `Scalp Tight Cap Live Tape`
+- The discovery lab now exposes five repo-created packs directly from code instead of relying on starter JSON files or pre-seeded `.local` pack copies:
+  `Created - Fresh Burst Ladder`
+  `Created - Early Flow Balance`
+  `Created - Holder Supported Continuation`
+  `Created - Reclaim Strength Stack`
+  `Created - Late Expansion Quality`
 - The result board now treats per-token review as a two-step workflow: the table stays dense, and a `View details` action opens a side drawer with current desk-derived capital and exit guidance instead of forcing everything into the row.
 - The token-details drawer now derives:
   suggested capital from the current runtime cash and slot pressure
@@ -55,7 +50,7 @@ next_action: Run one real provider-backed discovery-lab session against the refr
 - The results board now includes a setup column with suggested capital, 2x confidence, max hold, and a `View details` action with an icon on both desktop rows and mobile cards.
 - The new token-details drawer surfaces current price, liquidity, market cap, buy/sell ratio, holder structure, stop loss, TP1, TP2, max hold, and the derived exit profile for the selected mint.
 - `trading_bot/backend/scripts/discovery-lab.ts`, `trading_bot/backend/src/services/discovery-lab-service.ts`, and `trading_bot/dashboard/lib/types.ts` now carry the extra price and structure fields needed by that drawer.
-- Restored the original `Scalp Tape + Structure` winner and kept five newer local scalp pack JSONs so the dashboard catalog exposes a broader but still pump-only scalp set immediately.
+- Replaced starter JSON packs and pre-seeded local scalp pack files with five repo-created packs that all ship four graduated strategies and pack-specific threshold overrides.
 - Added small headless UI packages for tabs, dialog, tooltips, and autosizing textareas.
 
 ## What I Verified

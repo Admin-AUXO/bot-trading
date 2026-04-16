@@ -2,12 +2,17 @@
 type: reference
 status: active
 area: workflow
-date: 2026-04-11
+date: 2026-04-15
 source_files:
   - AGENTS.md
   - trading_bot/AGENTS.md
   - notes/README.md
   - notes/reference/obsidian.md
+  - .codex/hooks.json
+  - .codex/scripts/session-start-hook.cjs
+  - .codex/agents/session_briefer.toml
+  - .codex/agents/implementation_worker.toml
+  - .codex/agents/notes_curator.toml
 graph_checked: 2026-04-10
 next_action: Read this early in planning-heavy sessions so question quality, assumptions, and vault updates are handled intentionally instead of ad hoc.
 ---
@@ -68,11 +73,30 @@ Put the knowledge in the narrowest correct place:
 1. Read the minimum note surface that can answer the task.
 2. For ambiguous, planning-heavy, or high-risk work, prefer Plan mode when it is available; otherwise start in ask mode.
 3. Use a structured prompt shape: goal, context, constraints, done-when.
-4. Ask questions only if they change the shape of the solution.
-5. Change the smallest correct file set.
-6. Verify the changed surface and review the resulting diff for regressions or missing tests.
-7. Update the owning note in the same pass.
-8. Promote repeated procedures into skills instead of preserving prompt-heavy notes.
+4. On non-trivial sessions, delegate a startup brief to a `gpt-5.4-mini` repo agent such as `session_briefer` after the required note reads and before broad code reads.
+5. Ask questions only if they change the shape of the solution.
+6. Change the smallest correct file set.
+7. Verify the changed surface and review the resulting diff for regressions or missing tests.
+8. Before the final response on substantive tasks, delegate note cleanup and handoff prep to a `gpt-5.4-mini` repo agent such as `notes_curator`, then review the note diff.
+9. Update the owning note in the same pass.
+10. Promote repeated procedures into skills instead of preserving prompt-heavy notes.
+
+## Mini-Agent Bookends
+
+Use a small repo-owned agent to compress the noisy parts of a session:
+
+- startup brief: read the repo bootstrap path plus one relevant active or durable note, then return a compact summary for the main agent
+- closeout pass: update the smallest correct Obsidian surface, trim or prepare the handoff note, and keep indexes honest
+- bounded sidecar work: prefer `gpt-5.4-mini` for read-heavy exploration, repo-contract checks, note work, and other basic tasks that do not need expensive judgment
+- bounded write work: prefer `gpt-5.3-codex` when the file surface is already understood and the task is mainly implementation execution rather than judgment
+
+Keep the delegation shallow:
+
+- do not hand the critical path to a subagent if the main agent is blocked on that answer right now
+- do not spawn multiple agents that read or edit the same note set unless the write ownership is explicit
+- reserve `gpt-5.4` for review, safety, and judgment-heavy work where wrong answers are expensive
+
+Current repo evidence only supports a `SessionStart` hook reminder. Treat shutdown delegation as a pre-final checklist item, not a guaranteed hook.
 
 ## Vault Rules
 

@@ -4,7 +4,12 @@
 # refresh the user-scoped block with:
 #   node ./.codex/scripts/install-mcp-config.cjs
 # Optional profiles:
+#   codex --profile mini
+#   codex --profile write
 #   node ./.codex/scripts/install-mcp-config.cjs --profile db
+#   node ./.codex/scripts/install-mcp-config.cjs --profile research
+#   node ./.codex/scripts/install-mcp-config.cjs --profile dashboard
+#   node ./.codex/scripts/install-mcp-config.cjs --profile provider
 #   node ./.codex/scripts/install-mcp-config.cjs --profile full
 # Then restart Codex so the refreshed MCP registry is loaded.
 #
@@ -32,14 +37,6 @@ sandbox = "elevated"
 [agents]
 max_depth = 1
 max_threads = 3
-
-[mcp_servers.browsermcp]
-args = [".codex/scripts/start-stdio-command.cjs", "npx", "-y", "@browsermcp/mcp"]
-command = "node"
-enabled = false
-required = false
-startup_timeout_ms = 20000
-tool_timeout_sec = 90
 
 [mcp_servers.birdeye-mcp]
 args = [".codex/scripts/start-birdeye-mcp.cjs"]
@@ -73,52 +70,13 @@ url = "https://mcp.context7.com/mcp"
 [mcp_servers.desktop_commander]
 args = [".codex/scripts/start-desktop-commander.cjs"]
 command = "node"
+enabled = true
 required = false
 startup_timeout_ms = 90000
 tool_timeout_sec = 120
 
 [mcp_servers.fetch]
 args = [".codex/scripts/start-stdio-command.cjs", "uvx", "mcp-server-fetch"]
-command = "node"
-enabled = false
-required = false
-startup_timeout_ms = 20000
-
-[mcp_servers.github]
-args = [
-    ".codex/scripts/start-stdio-command.cjs",
-    "docker",
-    "run",
-    "-i",
-    "--rm",
-    "-e",
-    "GITHUB_PERSONAL_ACCESS_TOKEN",
-    "ghcr.io/github/github-mcp-server",
-    "stdio",
-    "--toolsets",
-    "repos,issues,pull_requests,actions",
-]
-command = "node"
-# Disabled by default in shared repo config.
-# Verified broken on this Windows host because the current GitHub Docker stdio server
-# speaks newline-delimited JSON instead of framed MCP stdio. macOS users can opt in
-# locally by setting enabled = true after validating transport compatibility.
-enabled = false
-required = false
-
-[mcp_servers.filesystem]
-args = [".codex/scripts/start-filesystem-mcp.cjs"]
-command = "node"
-enabled = false
-required = false
-
-[mcp_servers.memory]
-args = [
-    ".codex/scripts/start-stdio-command.cjs",
-    "npx",
-    "-y",
-    "@modelcontextprotocol/server-memory",
-]
 command = "node"
 enabled = false
 required = false
@@ -137,6 +95,19 @@ enabled = false
 required = false
 startup_timeout_ms = 20000
 
+[mcp_servers.shadcn]
+args = [
+    ".codex/scripts/start-stdio-command.cjs",
+    "npx",
+    "-y",
+    "shadcn@latest",
+    "mcp",
+]
+command = "node"
+enabled = false
+required = false
+startup_timeout_ms = 30000
+
 [mcp_servers.helius]
 args = [
     ".codex/scripts/start-stdio-command.cjs",
@@ -149,18 +120,6 @@ enabled = false
 required = false
 startup_timeout_ms = 30000
 
-[mcp_servers.sequential_thinking]
-args = [
-    ".codex/scripts/start-stdio-command.cjs",
-    "npx",
-    "-y",
-    "@modelcontextprotocol/server-sequential-thinking",
-]
-command = "node"
-enabled = false
-required = false
-startup_timeout_ms = 20000
-
 [mcp_servers.time]
 args = [".codex/scripts/start-stdio-command.cjs", "uvx", "mcp-server-time"]
 command = "node"
@@ -170,6 +129,14 @@ startup_timeout_ms = 20000
 
 [profiles.fast]
 model_reasoning_effort = "low"
+
+[profiles.mini]
+model = "gpt-5.4-mini"
+model_reasoning_effort = "medium"
+
+[profiles.write]
+model = "gpt-5.3-codex"
+model_reasoning_effort = "medium"
 
 [profiles.deep]
 model_reasoning_effort = "high"

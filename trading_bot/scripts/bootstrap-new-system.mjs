@@ -61,9 +61,9 @@ function readCommand(command, args) {
 function warnPlaceholderEnv() {
   const envPath = path.join(rootDir, "backend", ".env");
   const envText = fs.readFileSync(envPath, "utf8");
-  if (/replace-me|postgres:5432|CONTROL_API_SECRET="replace-me"/.test(envText)) {
+  if (/replace-me|postgres:5432/.test(envText)) {
     console.log("\nbackend/.env still contains example values.");
-    console.log("Fill the provider keys and control secret before expecting the bot to work properly.");
+    console.log("Fill the provider keys and runtime env before expecting the bot to work properly.");
   }
 }
 

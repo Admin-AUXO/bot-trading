@@ -54,6 +54,25 @@ export type DeskHomePayload = {
     openPositions: number;
     maxOpenPositions: number;
   };
+  performance: {
+    realizedPnlTodayUsd: number;
+    realizedPnl7dUsd: number;
+    winRate7d: number;
+    avgReturnPct7d: number;
+    avgHoldMinutes7d: number;
+  };
+  latency: {
+    providerAvgLatencyMsToday: number;
+    hotEndpointAvgLatencyMsToday: number;
+    avgExecutionLatencyMs24h: number;
+    p95ExecutionLatencyMs24h: number;
+    avgExecutionSlippageBps24h: number;
+  };
+  runtime: {
+    lastDiscoveryAt: string | null;
+    lastEvaluationAt: string | null;
+    lastExitCheckAt: string | null;
+  };
   queue: {
     queuedCandidates: number;
     buckets: Array<{ bucket: CandidateBucket; count: number; label: string }>;
@@ -70,8 +89,45 @@ export type DeskHomePayload = {
     staleComponents: string[];
     issues: Array<{ id: string; label: string; detail: string; level: "warning" | "danger" }>;
   };
+  adaptiveModel: AdaptiveModelState;
   recentFailures: OperatorEvent[];
   recentActions: OperatorEvent[];
+};
+
+export type AdaptiveModelState = {
+  status: "inactive" | "active" | "stale" | "degraded";
+  automationUsesAdaptive: boolean;
+  enabled: boolean;
+  sourceRunId: string | null;
+  packId: string | null;
+  packName: string | null;
+  dominantMode: "graduated" | "pregrad" | null;
+  dominantPresetId: "FIRST_MINUTE_POSTGRAD_CONTINUATION" | "LATE_CURVE_MIGRATION_SNIPE" | null;
+  winnerCount: number;
+  bandCount: number;
+  calibrationConfidence: number | null;
+  staleWarning: string | null;
+  degradedWarning: string | null;
+  warnings: string[];
+  updatedAt: string | null;
+};
+
+export type AdaptiveTokenExplanation = {
+  enabled: boolean;
+  status: "inactive" | "matched" | "partial" | "unmatched";
+  matchedBandId: string | null;
+  matchedBandLabel: string | null;
+  entryPosture: string | null;
+  sizePosture: string | null;
+  exitPosture: string | null;
+  capitalModifierPercent: number | null;
+  dominantMode: "graduated" | "pregrad" | null;
+  entryScore: number | null;
+  volume5mUsd: number | null;
+  liquidityUsd: number | null;
+  buySellRatio: number | null;
+  graduationAgeMin: number | null;
+  reasons: string[];
 };
 
 export type CandidateBucket = "ready" | "risk" | "provider" | "data";
@@ -90,6 +146,7 @@ export type CandidateQueueRow = {
   top10HolderPercent: number | null;
   discoveredAt: string;
   lastEvaluatedAt: string | null;
+  adaptive: AdaptiveTokenExplanation;
 };
 
 export type CandidateQueuePayload = {
@@ -119,9 +176,14 @@ export type PositionBookRow = {
   entryPriceUsd: number;
   currentPriceUsd: number;
   remainingToken: number;
+  unrealizedPnlUsd: number;
+  returnPct: number;
   exitReason: string | null;
   openedAt: string;
   closedAt: string | null;
+  lastFillAt: string | null;
+  latestExecutionLatencyMs: number | null;
+  adaptive: AdaptiveTokenExplanation;
 };
 
 export type PositionBookPayload = {
@@ -145,6 +207,13 @@ export type PositionDetailPayload = {
     metadata: Record<string, unknown>;
   };
   fills: Array<Record<string, unknown>>;
+  executionSummary: {
+    fillCount: number;
+    avgExecutionLatencyMs: number | null;
+    p95ExecutionLatencyMs: number | null;
+    avgExecutionSlippageBps: number | null;
+    lastExecutionLatencyMs: number | null;
+  };
   snapshots: Array<Record<string, unknown>>;
   linkedCandidate: Record<string, unknown> | null;
 };
@@ -215,7 +284,7 @@ export type ActionResponse = {
 };
 
 export type DiscoveryLabProfile = "runtime" | "high-value" | "scalp";
-export type DiscoveryLabPackKind = "builtin" | "custom";
+export type DiscoveryLabPackKind = "created" | "custom";
 export type DiscoveryLabRunStatus = "RUNNING" | "COMPLETED" | "FAILED" | "INTERRUPTED";
 export type DiscoveryLabRecipeMode = "graduated" | "pregrad";
 
@@ -285,6 +354,29 @@ export type LiveStrategyCalibrationSummary = {
   derivedProfile: "scalp" | "balanced" | "runner" | null;
 };
 
+export type AdaptiveWinnerCohort = {
+  id: string;
+  key: string;
+  label: string;
+  tokenCount: number;
+  winnerCount: number;
+  avgWinnerScore: number | null;
+  avgWinnerVolume5mUsd: number | null;
+  avgWinnerAgeMin: number | null;
+};
+
+export type AdaptiveDecisionBand = {
+  id: string;
+  cohortKey: string;
+  label: string;
+  eligibility: string;
+  entryPosture: string;
+  sizePosture: string;
+  exitPosture: string;
+  confidence: string;
+  support: string;
+};
+
 export type LiveStrategySettings = {
   enabled: boolean;
   sourceRunId: string | null;
@@ -298,6 +390,8 @@ export type LiveStrategySettings = {
   dominantMode: StrategyRecipeMode | null;
   dominantPresetId: "FIRST_MINUTE_POSTGRAD_CONTINUATION" | "LATE_CURVE_MIGRATION_SNIPE" | null;
   calibrationSummary: LiveStrategyCalibrationSummary | null;
+  winnerCohorts: AdaptiveWinnerCohort[];
+  decisionBands: AdaptiveDecisionBand[];
   updatedAt: string | null;
 };
 
@@ -306,6 +400,11 @@ export type DiscoveryLabRecipe = {
   mode: DiscoveryLabRecipeMode;
   description?: string;
   deepEvalLimit?: number;
+  targetPnlBand?: {
+    label: string;
+    minPercent?: number;
+    maxPercent?: number;
+  };
   params: Record<string, string | number | boolean | null>;
 };
 
@@ -314,6 +413,12 @@ export type DiscoveryLabPack = {
   kind: DiscoveryLabPackKind;
   name: string;
   description: string;
+  thesis?: string;
+  targetPnlBand?: {
+    label: string;
+    minPercent?: number;
+    maxPercent?: number;
+  };
   defaultSources: string[];
   defaultProfile: DiscoveryLabProfile;
   thresholdOverrides: DiscoveryLabThresholdOverrides;
@@ -326,6 +431,12 @@ export type DiscoveryLabPackDraft = {
   id?: string;
   name: string;
   description?: string;
+  thesis?: string;
+  targetPnlBand?: {
+    label: string;
+    minPercent?: number;
+    maxPercent?: number;
+  };
   defaultSources?: string[];
   defaultProfile?: DiscoveryLabProfile;
   thresholdOverrides?: DiscoveryLabThresholdOverrides;
@@ -378,6 +489,10 @@ export type DiscoveryLabRunReport = {
     returnedCount: number;
     selectedCount: number;
     goodCount: number;
+    rejectCount: number;
+    selectionRatePercent: number;
+    passRatePercent: number;
+    winnerHitRatePercent: number;
     avgGoodPlayScore: number;
     avgGoodEntryScore: number;
     avgSelectedPlayScore: number;
@@ -543,6 +658,74 @@ export type DiscoveryLabRuntimeSnapshot = {
   };
   openPositions: number;
   settings: BotSettings;
+  adaptiveModel?: AdaptiveModelState;
+};
+
+export type DiscoveryLabTokenInsight = {
+  mint: string;
+  symbol: string | null;
+  name: string | null;
+  source: string | null;
+  creator: string | null;
+  platformId: string | null;
+  logoUri: string | null;
+  description: string | null;
+  socials: {
+    website: string | null;
+    twitter: string | null;
+    telegram: string | null;
+    discord: string | null;
+  };
+  toolLinks: {
+    axiom: string;
+    dexscreener: string;
+    rugcheck: string;
+    solscanToken: string;
+    solscanCreator: string | null;
+  };
+  market: {
+    priceUsd: number | null;
+    liquidityUsd: number | null;
+    marketCapUsd: number | null;
+    fdvUsd: number | null;
+    holders: number | null;
+    lastTradeAt: string | null;
+    uniqueWallet5m: number | null;
+    uniqueWallet1h: number | null;
+    uniqueWallet24h: number | null;
+    trade5m: number | null;
+    trade1h: number | null;
+    trade24h: number | null;
+    buy5m: number | null;
+    sell5m: number | null;
+    volume5mUsd: number | null;
+    volume1hUsd: number | null;
+    volume24hUsd: number | null;
+    priceChange5mPercent: number | null;
+    priceChange30mPercent: number | null;
+    priceChange1hPercent: number | null;
+    priceChange24hPercent: number | null;
+    volume5mChangePercent: number | null;
+    volume1hChangePercent: number | null;
+    volume24hChangePercent: number | null;
+  };
+  security: {
+    creatorBalancePercent: number | null;
+    ownerBalancePercent: number | null;
+    updateAuthorityBalancePercent: number | null;
+    top10HolderPercent: number | null;
+    top10UserPercent: number | null;
+    freezeable: boolean | null;
+    mintAuthorityEnabled: boolean | null;
+    mutableMetadata: boolean | null;
+    transferFeeEnabled: boolean | null;
+    transferFeePercent: number | null;
+    trueToken: boolean | null;
+    token2022: boolean | null;
+    nonTransferable: boolean | null;
+    honeypot: boolean | null;
+    fakeToken: boolean | null;
+  };
 };
 
 export type DiscoveryLabManualEntryResponse = {

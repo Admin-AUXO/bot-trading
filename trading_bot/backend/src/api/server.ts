@@ -82,7 +82,13 @@ export function createApiServer(deps: {
   listDiscoveryLabRuns: () => Promise<unknown>;
   getDiscoveryLabRun: (runId: string) => Promise<unknown | null>;
   getDiscoveryLabMarketRegime: (runId: string) => Promise<DiscoveryLabMarketRegimeResponse>;
-  enterDiscoveryLabManualTrade: (input: { runId?: string; mint?: string }) => Promise<unknown>;
+  getDiscoveryLabTokenInsight: (input: { mint?: string }) => Promise<unknown>;
+  enterDiscoveryLabManualTrade: (input: {
+    runId?: string;
+    mint?: string;
+    positionSizeUsd?: number;
+    exitOverrides?: Record<string, number>;
+  }) => Promise<unknown>;
   applyDiscoveryLabLiveStrategy: (input: { runId?: string }) => Promise<unknown>;
 }) {
   const app = express();
@@ -98,24 +104,6 @@ export function createApiServer(deps: {
     ]);
     res.json({ ok: true, action, shell, home });
   }
-
-  app.use("/api/control", (req, res, next) => {
-    if (!env.CONTROL_API_SECRET) return next();
-    if (req.headers["x-control-secret"] === env.CONTROL_API_SECRET) return next();
-    return res.status(401).json({ error: "unauthorized" });
-  });
-
-  app.use("/api/settings", (req, res, next) => {
-    if (req.method === "GET" || !env.CONTROL_API_SECRET) return next();
-    if (req.headers["x-control-secret"] === env.CONTROL_API_SECRET) return next();
-    return res.status(401).json({ error: "unauthorized" });
-  });
-
-  app.use("/api/operator/discovery-lab", (req, res, next) => {
-    if (req.method === "GET" || !env.CONTROL_API_SECRET) return next();
-    if (req.headers["x-control-secret"] === env.CONTROL_API_SECRET) return next();
-    return res.status(401).json({ error: "unauthorized" });
-  });
 
   app.get("/health", async (_req, res) => {
     const state = await db.botState.findUnique({ where: { id: "singleton" } });
@@ -184,6 +172,14 @@ export function createApiServer(deps: {
       return res.status(400).json({ error: "runId is required" });
     }
     return res.json(await deps.getDiscoveryLabMarketRegime(runId));
+  });
+
+  app.get("/api/operator/discovery-lab/token-insight", async (req, res) => {
+    const mint = typeof req.query.mint === "string" ? req.query.mint.trim() : "";
+    if (!mint) {
+      return res.status(400).json({ error: "mint is required" });
+    }
+    return res.json(await deps.getDiscoveryLabTokenInsight({ mint }));
   });
 
   app.post("/api/operator/discovery-lab/validate", async (req, res) => {

@@ -18,7 +18,12 @@ Use this folder for short active workstream summaries.
 
 ## Active Workstreams
 
+- [2026-04-15 Discovery Lab Telegram Alerts](2026-04-15-discovery-lab-telegram-alerts.md)
+- [2026-04-15 Discovery Lab Trade Ticket And Pack Favorites](2026-04-15-discovery-lab-trade-ticket-and-pack-favorites.md)
+- [2026-04-15 Dashboard Refactor Handoff](2026-04-15-dashboard-refactor-handoff.md)
+- [2026-04-15 Dashboard Compact Layout Handoff](2026-04-15-dashboard-compact-layout-handoff.md)
 - [2026-04-15 Dashboard Ag Grid And Compact Layout Pass](2026-04-15-dashboard-ag-grid-and-compact-layout-pass.md)
+- [2026-04-15 Discovery Builder Field-First Filters](2026-04-15-discovery-builder-field-first-filters.md)
 - [2026-04-14 Compose Refresh Script And Skill](2026-04-14-compose-refresh-script-and-skill.md)
 - [2026-04-14 Dashboard Shell Contextual Sidebar And Compact Headers](2026-04-14-dashboard-shell-contextual-sidebar-and-compact-headers.md)
 - [2026-04-14 Discovery Lab Redesign And Shell Collapse](2026-04-14-discovery-lab-redesign-and-shell-collapse.md)

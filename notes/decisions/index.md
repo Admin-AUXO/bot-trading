@@ -19,3 +19,4 @@ Use this folder for durable choices that later sessions should not rediscover fr
 ## Current
 
 - [2026-04-10 Grafana Dashboard Plan](2026-04-10-grafana-dashboard-plan.md)
+- [2026-04-15 Session Bookends With Mini Agents](2026-04-15-session-bookends-with-mini-agents.md)

@@ -3,7 +3,7 @@ import { db } from "../db/client.js";
 import { RuntimeConfigService } from "../services/runtime-config.js";
 import { LiveTradeExecutor, type LiveTradeExecution } from "../services/live-trade-executor.js";
 import { recordOperatorEvent } from "../services/operator-events.js";
-import { buildExitPlan } from "../services/strategy-exit.js";
+import { buildExitPlan, type ExitPlan } from "../services/strategy-exit.js";
 import { recordTokenSnapshot } from "../services/token-snapshot-recorder.js";
 import type { BotSettings } from "../types/domain.js";
 import { toJsonValue } from "../utils/json.js";
@@ -25,6 +25,17 @@ function toTrimmedString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
+function readBoundedNumber(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = toNumber(value);
+  if (parsed === null) {
+    return fallback;
+  }
+  if (parsed < min || parsed > max) {
+    throw new Error(`manual trade value must stay between ${min} and ${max}`);
+  }
+  return parsed;
+}
+
 function formatTokenAmount(amount: number, decimals: number): string {
   const scale = Math.min(Math.max(decimals, 0), 9);
   return amount.toFixed(scale).replace(/\.?0+$/, "");
@@ -36,6 +47,8 @@ type OpenPositionInput = {
   symbol: string;
   entryPriceUsd: number;
   metrics: Record<string, unknown>;
+  positionSizeUsd?: number;
+  exitPlanOverride?: Partial<ExitPlan>;
 };
 
 type ClosePositionInput = {
@@ -60,6 +73,7 @@ type PersistOpenInput = {
   amountUsd: number;
   amountToken: number;
   entryPriceUsd: number;
+  exitPlan: ExitPlan;
   txSignature?: string;
   liveContext?: LivePositionContext;
   fillMetadata?: Record<string, unknown>;
@@ -125,8 +139,10 @@ export class ExecutionEngine {
         throw new Error(capacity.reason ?? "risk blocked entry");
       }
 
-      const amountUsd = capacity.positionSizeUsd;
+      const amountUsd = this.resolvePositionSizeUsd(settings, capacity.positionSizeUsd, input.positionSizeUsd);
       const amountToken = amountUsd / input.entryPriceUsd;
+      const strategyPresetId = this.readStrategyPresetId(input.metrics, settings);
+      const exitPlan = this.resolveExitPlan(settings, entryScore, strategyPresetId, input.exitPlanOverride);
 
       return this.persistOpenedPosition(tx, {
         settings,
@@ -134,6 +150,7 @@ export class ExecutionEngine {
         amountUsd,
         amountToken,
         entryPriceUsd: input.entryPriceUsd,
+        exitPlan,
       });
     });
 
@@ -152,7 +169,7 @@ export class ExecutionEngine {
     try {
       executed = await this.live.executeBuy({
         mint: input.mint,
-        budgetUsd: capacity.positionSizeUsd,
+        budgetUsd: this.resolvePositionSizeUsd(settings, capacity.positionSizeUsd, input.positionSizeUsd),
         tokenDecimalsHint: this.extractTokenDecimals(input.metrics),
       });
     } catch (error) {
@@ -250,6 +267,9 @@ export class ExecutionEngine {
     amountUsd: number,
     amountToken: number,
   ): Promise<{ id: string }> {
+    const entryScore = this.readEntryScore(input.metrics);
+    const strategyPresetId = this.readStrategyPresetId(input.metrics, settings);
+    const exitPlan = this.resolveExitPlan(settings, entryScore, strategyPresetId, input.exitPlanOverride);
     try {
       return await db.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT 1 FROM "BotState" WHERE id = 'singleton' FOR UPDATE`;
@@ -260,6 +280,7 @@ export class ExecutionEngine {
           amountUsd,
           amountToken,
           entryPriceUsd: executed.entryPriceUsd,
+          exitPlan,
           txSignature: executed.signature,
           liveContext: {
             tokenDecimals: executed.tokenDecimals,
@@ -388,7 +409,7 @@ export class ExecutionEngine {
   ): Promise<{ id: string }> {
     const entryScore = this.readEntryScore(input.input.metrics);
     const strategyPresetId = this.readStrategyPresetId(input.input.metrics, input.settings);
-    const exitPlan = buildExitPlan(input.settings, entryScore, strategyPresetId);
+    const exitPlan = input.exitPlan;
     const source = toTrimmedString(input.input.metrics.source);
     const discoveryRecipeName = toTrimmedString(input.input.metrics.discoveryRecipeName);
     const entryOrigin = toTrimmedString(input.input.metrics.entryOrigin);
@@ -513,6 +534,80 @@ export class ExecutionEngine {
 
     const detail = asRecord(metrics.detail);
     return toNumber(detail?.decimals);
+  }
+
+  private resolvePositionSizeUsd(
+    settings: BotSettings,
+    allowedPositionSizeUsd: number,
+    requestedPositionSizeUsd: number | undefined,
+  ): number {
+    if (requestedPositionSizeUsd === undefined) {
+      return allowedPositionSizeUsd;
+    }
+    const requested = toNumber(requestedPositionSizeUsd);
+    if (requested === null || requested <= 0) {
+      throw new Error("manual trade size must be a positive USD value");
+    }
+    if (requested > allowedPositionSizeUsd) {
+      throw new Error(`manual trade size exceeds available capacity (${allowedPositionSizeUsd.toFixed(2)} USD max)`);
+    }
+    if (requested < 5 && requested < settings.capital.positionSizeUsd) {
+      throw new Error("manual trade size must be at least 5 USD");
+    }
+    return requested;
+  }
+
+  private resolveExitPlan(
+    settings: BotSettings,
+    entryScore: number,
+    strategyPresetId: BotSettings["strategy"]["livePresetId"],
+    override?: Partial<ExitPlan>,
+  ): ExitPlan {
+    const basePlan = buildExitPlan(settings, entryScore, strategyPresetId);
+    if (!override) {
+      return basePlan;
+    }
+
+    const next: ExitPlan = {
+      profile: basePlan.profile,
+      stopLossPercent: readBoundedNumber(override.stopLossPercent, basePlan.stopLossPercent, 5, 40),
+      tp1Multiplier: readBoundedNumber(override.tp1Multiplier, basePlan.tp1Multiplier, 1.05, 4),
+      tp2Multiplier: readBoundedNumber(override.tp2Multiplier, basePlan.tp2Multiplier, 1.1, 6),
+      tp1SellFraction: readBoundedNumber(override.tp1SellFraction, basePlan.tp1SellFraction, 0.05, 0.9),
+      tp2SellFraction: readBoundedNumber(override.tp2SellFraction, basePlan.tp2SellFraction, 0.05, 0.9),
+      postTp1RetracePercent: readBoundedNumber(override.postTp1RetracePercent, basePlan.postTp1RetracePercent, 5, 30),
+      trailingStopPercent: readBoundedNumber(override.trailingStopPercent, basePlan.trailingStopPercent, 5, 35),
+      timeStopMinutes: readBoundedNumber(override.timeStopMinutes, basePlan.timeStopMinutes, 1, 120),
+      timeStopMinReturnPercent: readBoundedNumber(override.timeStopMinReturnPercent, basePlan.timeStopMinReturnPercent, 0, 80),
+      timeLimitMinutes: readBoundedNumber(override.timeLimitMinutes, basePlan.timeLimitMinutes, 2, 240),
+    };
+
+    if (next.tp2Multiplier <= next.tp1Multiplier) {
+      throw new Error("manual TP2 must stay above TP1");
+    }
+    if (next.tp1SellFraction + next.tp2SellFraction > 0.95) {
+      throw new Error("manual TP sell fractions cannot exceed 95% combined");
+    }
+    if (next.timeLimitMinutes < next.timeStopMinutes) {
+      throw new Error("manual max hold must stay above the time stop");
+    }
+
+    if (
+      next.stopLossPercent === basePlan.stopLossPercent
+      && next.tp1Multiplier === basePlan.tp1Multiplier
+      && next.tp2Multiplier === basePlan.tp2Multiplier
+      && next.tp1SellFraction === basePlan.tp1SellFraction
+      && next.tp2SellFraction === basePlan.tp2SellFraction
+      && next.postTp1RetracePercent === basePlan.postTp1RetracePercent
+      && next.trailingStopPercent === basePlan.trailingStopPercent
+      && next.timeStopMinutes === basePlan.timeStopMinutes
+      && next.timeStopMinReturnPercent === basePlan.timeStopMinReturnPercent
+      && next.timeLimitMinutes === basePlan.timeLimitMinutes
+    ) {
+      return basePlan;
+    }
+
+    return next;
   }
 
   private async recordBuySnapshot(

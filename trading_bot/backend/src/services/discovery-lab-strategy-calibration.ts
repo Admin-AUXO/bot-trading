@@ -1,5 +1,6 @@
 import type { BotSettings, LiveStrategySettings, StrategyPresetId, StrategyRecipeMode } from "../types/domain.js";
 import type { DiscoveryLabRunDetail } from "./discovery-lab-service.js";
+import { buildAdaptiveDecisionBands, buildAdaptiveWinnerCohorts } from "./adaptive-model.js";
 import { buildExitPlan } from "./strategy-exit.js";
 import { derivePresetIdFromRecipeMode } from "./strategy-presets.js";
 
@@ -294,6 +295,8 @@ export function buildDiscoveryLabLiveStrategy(
     ? derivePresetIdFromRecipeMode(dominantMode)
     : null;
   const derivedProfile = deriveProfile(avgWinnerScore);
+  const winnerCohorts = buildAdaptiveWinnerCohorts(run);
+  const decisionBands = buildAdaptiveDecisionBands(winnerCohorts);
   const calibration = deriveCalibrationConfidence(
     avgWinnerScore,
     avgWinnerVolume5mUsd,
@@ -351,6 +354,8 @@ export function buildDiscoveryLabLiveStrategy(
       dominantMode,
       derivedProfile,
     },
+    winnerCohorts,
+    decisionBands,
     updatedAt: run.completedAt ?? run.startedAt,
   };
 }
