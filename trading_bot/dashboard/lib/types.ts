@@ -92,6 +92,8 @@ export type DeskHomePayload = {
   adaptiveModel: AdaptiveModelState;
   recentFailures: OperatorEvent[];
   recentActions: OperatorEvent[];
+  /** Lightweight open-position rows for the overview strip. */
+  positions?: PositionBookRow[];
 };
 
 export type AdaptiveModelState = {

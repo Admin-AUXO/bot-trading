@@ -29,9 +29,16 @@ export async function fetchJson<T>(path: string, init?: RequestInit): Promise<T>
   return response.json() as Promise<T>;
 }
 
+const API_URL = process.env.API_URL ?? "http://127.0.0.1:3101";
+const CONTROL_API_SECRET = process.env.CONTROL_API_SECRET ?? "";
+
 export async function serverFetch<T>(path: string): Promise<T> {
-  const apiUrl = process.env.API_URL ?? "http://127.0.0.1:3101";
-  const response = await fetch(`${apiUrl}${path}`, {
+  const headers = new Headers();
+  if (CONTROL_API_SECRET) {
+    headers.set("authorization", `Bearer ${CONTROL_API_SECRET}`);
+  }
+  const response = await fetch(`${API_URL}${path}`, {
+    headers,
     cache: "no-store",
   });
 

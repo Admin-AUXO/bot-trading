@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 
 const API_URL = process.env.API_URL ?? "http://127.0.0.1:3101";
+const CONTROL_API_SECRET = process.env.CONTROL_API_SECRET ?? "";
 
 async function proxy(request: NextRequest, path: string[]) {
   const url = new URL(`${API_URL}/api/${path.join("/")}`);
@@ -15,7 +16,12 @@ async function proxy(request: NextRequest, path: string[]) {
   const init: RequestInit = {
     method: request.method,
     headers: {
-      ...(authHeader ? { authorization: authHeader } : {}),
+      // Inject secret from env if browser hasn't supplied credentials
+      ...(authHeader
+        ? { authorization: authHeader }
+        : CONTROL_API_SECRET
+          ? { authorization: `Bearer ${CONTROL_API_SECRET}` }
+          : {}),
       ...(apiKeyHeader ? { "x-api-key": apiKeyHeader } : {}),
       ...(contentType ? { "content-type": contentType } : {}),
     },

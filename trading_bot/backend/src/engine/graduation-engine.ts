@@ -7,6 +7,7 @@ import { ProviderBudgetService } from "../services/provider-budget-service.js";
 import { RuntimeConfigService } from "../services/runtime-config.js";
 import { SharedTokenFactsService, type FreshTokenFacts } from "../services/shared-token-facts.js";
 import { buildSignalConfidence, deriveExitProfile, scoreEntrySignal } from "../services/entry-scoring.js";
+import { FAIR_VALUE_ENTRY_PREMIUM_CAP } from "../services/strategy-exit.js";
 import {
   applyStrategySettings,
   derivePresetIdFromRecipeMode,
@@ -867,10 +868,36 @@ export class GraduationEngine {
     if (!entryPriceUsd || entryPriceUsd <= 0) {
       return { passed: false, rejectReason: "entry price unavailable", metrics, filterState: baseFilterState };
     }
+
+    // ── FAIR VALUE GATE ─────────────────────────────────────────────────────
+    // Reject if evaluation price is more than 5% (or 7% for runner) above discovery.
+    const discoveryPrice = (baseline.priceUsd as number | null | undefined) ?? null;
+    let priceDeltaPercent: number | null = null;
+    if (discoveryPrice != null && discoveryPrice > 0) {
+      priceDeltaPercent = ((entryPriceUsd - discoveryPrice) / discoveryPrice) * 100;
+      metrics.priceDeltaSinceDiscoveryPercent = priceDeltaPercent;
+
+      // Hard reject: paying more than 5% above discovery price is a structural disadvantage
+      if (priceDeltaPercent > FAIR_VALUE_ENTRY_PREMIUM_CAP * 100) {
+        return {
+          passed: false,
+          rejectReason: `entry price +${priceDeltaPercent.toFixed(1)}% above discovery (cap ${(FAIR_VALUE_ENTRY_PREMIUM_CAP * 100).toFixed(0)}%)`,
+          metrics,
+          filterState: baseFilterState,
+        };
+      }
+
+      // Soft issue: evaluation price notably above discovery — flag it in metrics
+      if (priceDeltaPercent > 0) {
+        softIssues.push("paying above discovery price");
+      }
+    }
+
     baseFilterState.priceUsd = entryPriceUsd;
     const entryScore = this.scoreFilterState(baseFilterState, effectiveSettings, {
       graduatedAt: merged.graduatedAt,
       source: merged.source,
+      priceChangeSinceDiscoveryPercent: priceDeltaPercent,
     });
     const confidenceScore = buildSignalConfidence({ entryScore });
     metrics.entryOrigin = "runtime_auto_entry";
@@ -1010,6 +1037,8 @@ export class GraduationEngine {
       discoveredAtMs?: number | null;
       source?: string | null;
       status?: CandidateStatus;
+      /** Price change % between discovery snapshot and evaluation (negative = dump since discovery). */
+      priceChangeSinceDiscoveryPercent?: number | null;
     },
   ): number {
     const now = Date.now();
@@ -1036,6 +1065,7 @@ export class GraduationEngine {
         ageSeconds,
         source: input.source,
         statusAdjustment,
+        priceChangeSinceDiscoveryPercent: input.priceChangeSinceDiscoveryPercent ?? null,
       },
       settings.filters,
     );

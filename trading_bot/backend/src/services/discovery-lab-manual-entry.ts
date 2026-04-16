@@ -248,6 +248,11 @@ export class DiscoveryLabManualEntryService {
     const manualExitPlanOverride = buildManualExitPlanOverride(input.exitOverrides);
     const now = new Date();
 
+    const confidenceScore = buildSignalConfidence({
+      entryScore: evaluation.entryScore,
+      playScore: evaluation.playScore,
+      winnerScore: run.report.winners.find((row) => row.address === mint)?.score ?? null,
+    });
     const candidate = await db.candidate.create({
       data: {
         mint,
@@ -262,35 +267,12 @@ export class DiscoveryLabManualEntryService {
         scheduledEvaluationAt: now,
         lastEvaluatedAt: now,
         acceptedAt: now,
-        priceUsd: evaluation.priceUsd,
-        liquidityUsd: evaluation.liquidityUsd,
-        marketCapUsd: evaluation.marketCapUsd,
-        holders: evaluation.holders,
-        volume5mUsd: evaluation.volume5mUsd,
-        volume30mUsd: evaluation.volume30mUsd,
-        uniqueWallets5m: evaluation.uniqueWallets5m,
-        buySellRatio: evaluation.buySellRatio,
-        priceChange5mPercent: evaluation.priceChange5mPercent,
-        priceChange30mPercent: evaluation.priceChange30mPercent,
-        top10HolderPercent: evaluation.top10HolderPercent,
-        largestHolderPercent: evaluation.largestHolderPercent,
-        entryScore: evaluation.entryScore,
-        playScore: evaluation.playScore,
-        exitProfile: deriveExitProfile(buildSignalConfidence({
-          entryScore: evaluation.entryScore,
-          playScore: evaluation.playScore,
-          winnerScore: run.report.winners.find((row) => row.address === mint)?.score ?? null,
-        })),
-        confidenceScore: buildSignalConfidence({
-          entryScore: evaluation.entryScore,
-          playScore: evaluation.playScore,
-          winnerScore: run.report.winners.find((row) => row.address === mint)?.score ?? null,
-        }),
         discoveryLabRunId: run.id,
-        discoveryLabPackId: run.packId,
         metadata: toJsonValue({
           entryOrigin: "discovery_lab_manual_entry",
           manualEntry: true,
+          confidenceScore,
+          exitProfile: deriveExitProfile(confidenceScore),
           discoveryLab: {
             runId: run.id,
             packId: run.packId,

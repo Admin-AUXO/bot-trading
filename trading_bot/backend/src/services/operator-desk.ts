@@ -93,6 +93,8 @@ export type DeskHomePayload = {
   adaptiveModel: AdaptiveModelState;
   recentFailures: OperatorEventPayload[];
   recentActions: OperatorEventPayload[];
+  /** Lightweight open-position rows for the dashboard overview strip. */
+  positions?: PositionBookRow[];
 };
 
 export type OperatorEventPayload = {
@@ -272,11 +274,16 @@ export class OperatorDeskService {
   }
 
   async getHome(): Promise<DeskHomePayload> {
-    const [settings, botState, gate, openPositions, candidates, budget, events, latestPayloadFailures, kpis] = await Promise.all([
+    const [settings, botState, gate, openPositionsCount, openPositionRows, candidates, budget, events, latestPayloadFailures, kpis] = await Promise.all([
       this.config.getSettings(),
       this.risk.getSnapshot(),
       this.risk.canOpenPosition(),
       db.position.count({ where: { status: "OPEN" } }),
+      db.position.findMany({
+        where: { status: "OPEN" },
+        take: 6,
+        orderBy: { openedAt: "desc" },
+      }),
       db.candidate.findMany({
         take: 120,
         orderBy: { discoveredAt: "desc" },
@@ -319,9 +326,9 @@ export class OperatorDeskService {
         {
           id: "capacity",
           label: "Open-cap guard",
-          status: openPositions >= settings.capital.maxOpenPositions ? "danger" : "ok",
-          value: `${openPositions}/${settings.capital.maxOpenPositions}`,
-          detail: openPositions >= settings.capital.maxOpenPositions
+          status: openPositionsCount >= settings.capital.maxOpenPositions ? "danger" : "ok",
+          value: `${openPositionsCount}/${settings.capital.maxOpenPositions}`,
+          detail: openPositionsCount >= settings.capital.maxOpenPositions
             ? "No additional positions can open until exposure drops."
             : "Open-position cap still has room.",
         },
@@ -330,7 +337,7 @@ export class OperatorDeskService {
         capitalUsd: Number(botState.capitalUsd),
         cashUsd: Number(botState.cashUsd),
         realizedPnlUsd: Number(botState.realizedPnlUsd),
-        openPositions,
+        openPositions: openPositionsCount,
         maxOpenPositions: settings.capital.maxOpenPositions,
       },
       performance: kpis.performance,
@@ -364,6 +371,7 @@ export class OperatorDeskService {
       adaptiveModel: buildAdaptiveModelState(settings),
       recentFailures: events.filter((event) => event.level !== "info").slice(0, 6).map((event) => this.toEventPayload(event)),
       recentActions: events.filter((event) => event.level === "info").slice(0, 6).map((event) => this.toEventPayload(event)),
+      positions: await Promise.all(openPositionRows.map((row) => this.toPositionBookRow(row, settings.strategy.liveStrategy))),
     };
   }
 

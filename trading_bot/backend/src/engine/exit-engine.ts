@@ -1,22 +1,33 @@
 import { db } from "../db/client.js";
 import { BirdeyeClient } from "../services/birdeye-client.js";
 import { RuntimeConfigService } from "../services/runtime-config.js";
-import { getExitDecision } from "../services/strategy-exit.js";
+import {
+  getExitDecision,
+  computeAtrFromPrices,
+  ATR_PERIOD,
+  type LiveExitContext,
+} from "../services/strategy-exit.js";
 import { ExecutionEngine } from "./execution-engine.js";
 import { RiskEngine } from "./risk-engine.js";
 import { BOT_STATE_ID } from "./constants.js";
 import { logger } from "../utils/logger.js";
 import { recordOperatorEvent } from "../services/operator-events.js";
+import type { TradeDataSnapshot } from "../types/domain.js";
 
 const IN_FLIGHT_TIMEOUT_MS = 90_000; // 90-second hard timeout for hung close attempts
 
 /** Tracks when a given position was added to the in-flight set. */
 const inFlightAddedAt = new Map<string, number>();
 
-/** Guards against the same position being closed concurrently from multiple exit passes. */
+/**
+ * Rolling price history per mint.
+ * We store up to ATR_PERIOD + 1 prices (current + N history ticks).
+ * On each exit tick the new price is pushed; oldest is evicted.
+ */
+const priceHistory = new Map<string, number[]>();
+
 function markInFlight(positionId: string): boolean {
   const now = Date.now();
-  // Evict stale entries (hung trades)
   for (const [id, addedAt] of inFlightAddedAt) {
     if (now - addedAt > IN_FLIGHT_TIMEOUT_MS) {
       inFlightAddedAt.delete(id);
@@ -63,7 +74,16 @@ export class ExitEngine {
       },
     });
 
-    const prices = await this.birdeye.getMultiPrice(openPositions.map((position) => position.mint));
+    if (openPositions.length === 0) {
+      await this.risk.touchActivity("lastExitCheckAt");
+      return;
+    }
+
+    // Fetch prices + trade data in parallel
+    const [prices, tradeDataMap] = await Promise.all([
+      this.birdeye.getMultiPrice(openPositions.map((p) => p.mint)),
+      this.fetchTradeDataForMints(openPositions.map((p) => p.mint)),
+    ]);
 
     for (const position of openPositions) {
       if (!markInFlight(position.id)) {
@@ -91,34 +111,58 @@ export class ExitEngine {
         continue;
       }
 
-      // Reset skip counter on successful price fetch
       this.priceUnavailableCount.delete(position.id);
 
-      const exitDecision = getExitDecision({
-        openedAt: position.openedAt,
-        entryPriceUsd: Number(position.entryPriceUsd),
-        peakPriceUsd: Number(position.peakPriceUsd),
-        stopLossPriceUsd: Number(position.stopLossPriceUsd),
-        takeProfit1PriceUsd: Number(position.takeProfit1PriceUsd),
-        takeProfit2PriceUsd: Number(position.takeProfit2PriceUsd),
-        trailingStopPercent: Number(position.trailingStopPercent),
-        tp1Done: position.tp1Done,
-        tp2Done: position.tp2Done,
-        metadata: position.metadata,
-      }, priceUsd, {
-        tp1SellFraction: settings.exits.tp1SellFraction,
-        tp2SellFraction: settings.exits.tp2SellFraction,
-        postTp1RetracePercent: settings.exits.postTp1RetracePercent,
-        trailingStopPercent: Number(position.trailingStopPercent),
-        timeStopMinutes: settings.exits.timeStopMinutes,
-        timeStopMinReturnPercent: settings.exits.timeStopMinReturnPercent,
-        timeLimitMinutes: settings.exits.timeLimitMinutes,
-      });
+      // ── Update rolling price history ────────────────────────────────────
+      const history = priceHistory.get(position.mint) ?? [];
+      history.push(priceUsd);
+      if (history.length > ATR_PERIOD + 2) history.shift();
+      priceHistory.set(position.mint, history);
+      const atrUsd = computeAtrFromPrices(history);
+
+      // ── Build live context ─────────────────────────────────────────────
+      const tradeData = tradeDataMap.get(position.mint) ?? null;
+      const volume5mAtEntry = extractVolume5mAtEntry(position.metadata);
+      const liveContext: LiveExitContext = {
+        volume5mUsd: tradeData?.volume5mUsd ?? null,
+        buySellRatio: computeBuySellRatio(tradeData),
+        atrUsd,
+        volume5mAtEntry,
+      };
+
+      const exitDecision = getExitDecision(
+        {
+          openedAt: position.openedAt,
+          entryPriceUsd: Number(position.entryPriceUsd),
+          peakPriceUsd: Number(position.peakPriceUsd),
+          stopLossPriceUsd: Number(position.stopLossPriceUsd),
+          takeProfit1PriceUsd: Number(position.takeProfit1PriceUsd),
+          takeProfit2PriceUsd: Number(position.takeProfit2PriceUsd),
+          trailingStopPercent: Number(position.trailingStopPercent),
+          tp1Done: position.tp1Done,
+          tp2Done: position.tp2Done,
+          metadata: position.metadata,
+        },
+        priceUsd,
+        {
+          tp1SellFraction: settings.exits.tp1SellFraction,
+          tp2SellFraction: settings.exits.tp2SellFraction,
+          postTp1RetracePercent: settings.exits.postTp1RetracePercent,
+          trailingStopPercent: Number(position.trailingStopPercent),
+          timeStopMinutes: settings.exits.timeStopMinutes,
+          timeStopMinReturnPercent: settings.exits.timeStopMinReturnPercent,
+          timeLimitMinutes: settings.exits.timeLimitMinutes,
+          partialStopLossEnabled: true,
+          partialSlThresholdPercent: 10,
+          partialSlSellFraction: 0.5,
+          momentumTpExtensionEnabled: true,
+          recalibrateIntervalMinutes: 5,
+        },
+        liveContext,
+      );
 
       try {
         if (exitDecision) {
-          // Serialise closePosition calls through the execution engine's exclusive queue
-          // to prevent concurrent close attempts on the same position from multiple loops.
           await this.execution.runExclusive(() =>
             this.execution.closePosition({
               positionId: position.id,
@@ -129,6 +173,8 @@ export class ExitEngine {
             }),
           );
           clearInFlight(position.id);
+          // Prune history for closed positions to avoid unbounded memory growth
+          priceHistory.delete(position.mint);
           continue;
         }
 
@@ -146,4 +192,50 @@ export class ExitEngine {
 
     await this.risk.touchActivity("lastExitCheckAt");
   }
+
+  /**
+   * Batch-fetch trade data for all open mint positions.
+   * Uses Birdeye v3 token trade data endpoint per token.
+   */
+  private async fetchTradeDataForMints(
+    mints: string[],
+  ): Promise<Map<string, TradeDataSnapshot>> {
+    const result = new Map<string, TradeDataSnapshot>();
+    // Fetch in parallel batches of 10 to avoid overwhelming the API
+    const batchSize = 10;
+    for (let i = 0; i < mints.length; i += batchSize) {
+      const batch = mints.slice(i, i + batchSize);
+      const tradeResults = await Promise.allSettled(
+        batch.map(async (mint) => {
+          const data = await this.birdeye.getTradeData(mint);
+          return { mint, data };
+        }),
+      );
+      for (const r of tradeResults) {
+        if (r.status === "fulfilled" && r.value.data) {
+          result.set(r.value.mint, r.value.data as unknown as TradeDataSnapshot);
+        }
+      }
+    }
+    return result;
+  }
+}
+
+/** Compute buy/sell ratio from trade data snapshot. */
+function computeBuySellRatio(td: TradeDataSnapshot | null): number | null {
+  if (!td) return null;
+  const buy = td.volumeBuy5mUsd ?? 0;
+  const sell = td.volumeSell5mUsd ?? 0;
+  if (sell <= 0) return buy > 0 ? null : 1;
+  return buy / sell;
+}
+
+/** Pull the volume5mUsd that was captured when the position was opened. */
+function extractVolume5mAtEntry(metadata: unknown): number | null {
+  if (!metadata || typeof metadata !== "object") return null;
+  const record = metadata as Record<string, unknown>;
+  const metrics = record.metrics as Record<string, unknown> | undefined;
+  if (!metrics) return null;
+  const td = metrics.tradeData as Record<string, unknown> | undefined;
+  return typeof td?.volume5mUsd === "number" ? (td.volume5mUsd as number) : null;
 }

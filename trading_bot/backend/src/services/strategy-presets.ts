@@ -28,6 +28,61 @@ export type StrategyPreset = {
 };
 
 export const STRATEGY_PRESETS: Record<StrategyPresetId, StrategyPreset> = {
+  // ── 30-60% SCALP PRESET ──────────────────────────────────────────────
+  // Tuned for fast momentum scalp: TP1 at ~28%, TP2 at ~50%, tight SL, short
+  // time window. Momentum extension can push TP1 to ~34% on strong acceleration.
+  SCALP_30_60_FAST: {
+    id: "SCALP_30_60_FAST",
+    label: "Scalp 30-60% Fast Momentum",
+    summary: "Tight-freshness scalp preset: graduated <15 min, live 1m/5m tape, TP1 at 28%, TP2 at 50%. Momentum extension can push TP1 to 34% on strong acceleration.",
+    discovery: {
+      name: "scalp_30_60_grad_15m",
+      mode: "graduated",
+      description: "Graduated tokens within 15 minutes with strong live tape and momentum signals, tuned for 30-60% fast scalp exits.",
+      sortBy: "last_trade_unix_time",
+      sortType: "desc",
+      graduatedWithinSeconds: 900,
+      minLastTradeSeconds: 120,
+      minTrades1m: 15,
+      minLiquidityUsd: 15_000,
+      limit: 120,
+    },
+    requiresHeliusWatcher: false,
+    filterOverrides: {
+      minLiquidityUsd: 15_000,
+      maxMarketCapUsd: 1_200_000,
+      minHolders: 45,
+      minUniqueBuyers5m: 16,
+      minBuySellRatio: 1.12,
+      maxTop10HolderPercent: 40,
+      maxSingleHolderPercent: 20,
+      maxGraduationAgeSeconds: 900,
+      minVolume5mUsd: 2_500,
+      maxNegativePriceChange5mPercent: 10,
+      securityCheckMinLiquidityUsd: 12_000,
+      securityCheckVolumeMultiplier: 1,
+      maxTransferFeePercent: 5,
+    },
+    // Calibrated for 30-60% scalp target:
+    //   TP1 1.28 → 28% hit (momentum extension can push to ~34%)
+    //   TP2 1.50 → 50% hit
+    //   SL  10%  → tight stop for fast scalp
+    //   Partial SL at -6% loss threshold (sell 50% on shallow losses)
+    //   Time stop at 3 min / hard limit 6 min — scalp profile
+    exitOverrides: {
+      stopLossPercent: 10,
+      tp1Multiplier: 1.28,
+      tp2Multiplier: 1.50,
+      tp1SellFraction: 0.55,
+      tp2SellFraction: 0.30,
+      postTp1RetracePercent: 8,
+      trailingStopPercent: 10,
+      timeStopMinutes: 3,
+      timeStopMinReturnPercent: 5,
+      timeLimitMinutes: 6,
+    },
+  },
+
   FIRST_MINUTE_POSTGRAD_CONTINUATION: {
     id: "FIRST_MINUTE_POSTGRAD_CONTINUATION",
     label: "First-Minute Post-Grad Continuation",

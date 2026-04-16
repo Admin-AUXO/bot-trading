@@ -333,6 +333,130 @@ export const WORKSPACE_DISCOVERY_LAB_PACK_SEEDS: WorkspacePackSeed[] = [
       }),
     ],
   },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 30–60% SCALP PACKS  (Jack — 2026-04-17)
+  // Optimized for fast momentum captures: tight freshness window, strong
+  // volume/buy-pressure signals, liquidity guards for clean exits.
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    id: "workspace-scalp-30pct-recent-tape",
+    name: "Scalp 30-60% · Recent Tape",
+    description: "Graduated tokens within 15 minutes of graduation, sorted by trade recency. Targets fast 30-60% scalp bursts where tape is still live. Liquidity floor at $15k ensures clean in/out.",
+    thesis: "Use when you want the tightest-freshness lane: graduates that just came off the bond curve and are still printing live 1m/5m tape. Best used in RISK_ON or hot momentum conditions. Tight liquidity guard keeps exits clean.",
+    targetPnlBand: { label: "30-60% fast scalp", minPercent: 30, maxPercent: 60 },
+    defaultProfile: "scalp",
+    thresholdOverrides: {
+      minLiquidityUsd: 15_000,       // higher floor for cleaner exits at target
+      maxMarketCapUsd: 1_200_000,   // allow micro-to-mid cap range
+      minHolders: 45,
+      minVolume5mUsd: 2_500,        // strong 5m volume = momentum present
+      minUniqueBuyers5m: 16,
+      minBuySellRatio: 1.12,        // buy pressure must dominate
+      maxTop10HolderPercent: 40,
+      maxSingleHolderPercent: 20,
+      maxGraduationAgeSeconds: 900,  // 15-min freshness window (tight)
+      maxNegativePriceChange5mPercent: 10,
+    },
+    recipes: [
+      buildGraduatedRecipe({
+        name: "grad_5m_live_tape_fast",
+        description: "Fastest tape lane: graduates <5 min old, trade within 90s, strong 1m volume.",
+        sortBy: "last_trade_unix_time",
+        graduatedLookbackSeconds: 300,
+        targetPnlBand: { label: "30-42%", minPercent: 30, maxPercent: 42 },
+        params: {
+          min_last_trade_unix_time: "now-90",
+          min_trade_5m_count: 35,
+          min_volume_1m_usd: 1_500,
+        },
+      }),
+      buildGraduatedRecipe({
+        name: "grad_10m_tape_momentum",
+        description: "Momentum lane: graduates <10 min, sustained 5m tape, buy pressure confirming.",
+        sortBy: "last_trade_unix_time",
+        graduatedLookbackSeconds: 600,
+        targetPnlBand: { label: "38-52%", minPercent: 38, maxPercent: 52 },
+        params: {
+          min_last_trade_unix_time: "now-150",
+          min_trade_5m_count: 40,
+          min_volume_5m_usd: 2_000,
+        },
+      }),
+      buildGraduatedRecipe({
+        name: "grad_15m_tape_extension",
+        description: "Extension lane: graduates <15 min, still active 5m tape, pushing final scalp leg.",
+        sortBy: "volume_5m_usd",
+        graduatedLookbackSeconds: 900,
+        targetPnlBand: { label: "48-60%", minPercent: 48, maxPercent: 60 },
+        params: {
+          min_last_trade_unix_time: "now-180",
+          min_trade_5m_count: 38,
+          min_volume_5m_usd: 2_500,
+        },
+      }),
+    ],
+  },
+  {
+    id: "workspace-scalp-30pct-deep-liquidity",
+    name: "Scalp 30-60% · Deep Liquidity",
+    description: "Graduated tokens with deep liquidity ($20k+) and strong holder distribution. Slower tape but much cleaner exits at the 30-60% target. Suitable for slightly choppier conditions where liquidity matters more than raw recency.",
+    thesis: "Use when you want the safer of the two 30-60% lanes: higher liquidity floor means wider market cap range but more robust in/out quality. Best in CHOP or when the hot-recency lane is returning too many false breakouts.",
+    targetPnlBand: { label: "30-60% liquid scalp", minPercent: 30, maxPercent: 60 },
+    defaultProfile: "scalp",
+    thresholdOverrides: {
+      minLiquidityUsd: 20_000,       // deep liquidity — clean exits
+      maxMarketCapUsd: 1_800_000,
+      minHolders: 50,
+      minVolume5mUsd: 3_000,
+      minUniqueBuyers5m: 18,
+      minBuySellRatio: 1.14,
+      maxTop10HolderPercent: 38,
+      maxSingleHolderPercent: 18,
+      maxGraduationAgeSeconds: 1_200, // 20-min window (slightly wider for liquid names)
+      maxNegativePriceChange5mPercent: 9,
+    },
+    recipes: [
+      buildGraduatedRecipe({
+        name: "grad_8m_liquid_tape",
+        description: "Liquid tape lane: graduates <8 min, $20k+ liquidity, strong 1m/5m tape.",
+        sortBy: "last_trade_unix_time",
+        graduatedLookbackSeconds: 480,
+        targetPnlBand: { label: "30-42%", minPercent: 30, maxPercent: 42 },
+        params: {
+          min_last_trade_unix_time: "now-120",
+          min_liquidity: 20_000,
+          min_trade_5m_count: 32,
+          min_volume_1m_usd: 2_000,
+        },
+      }),
+      buildGraduatedRecipe({
+        name: "grad_14m_liquid_buyer_stack",
+        description: "Buyer-stack lane: graduates <14 min, deep liquidity, sustained buyer pressure.",
+        sortBy: "trade_5m_count",
+        graduatedLookbackSeconds: 840,
+        targetPnlBand: { label: "38-52%", minPercent: 38, maxPercent: 52 },
+        params: {
+          min_liquidity: 20_000,
+          min_trade_5m_count: 38,
+          min_holder: 50,
+          min_volume_5m_usd: 3_000,
+        },
+      }),
+      buildGraduatedRecipe({
+        name: "grad_20m_liquid_momentum_ext",
+        description: "Momentum extension: graduates <20 min, $20k+ liquidity, final scalp push.",
+        sortBy: "liquidity",
+        graduatedLookbackSeconds: 1_200,
+        targetPnlBand: { label: "48-60%", minPercent: 48, maxPercent: 60 },
+        params: {
+          min_liquidity: 22_000,
+          min_holder: 55,
+          min_trade_5m_count: 36,
+          min_volume_change_1m_percent: 8,
+        },
+      }),
+    ],
+  },
 ];
 
 export function listWorkspaceDiscoveryLabPackSeeds() {

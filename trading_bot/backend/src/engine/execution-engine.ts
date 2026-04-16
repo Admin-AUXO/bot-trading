@@ -638,6 +638,11 @@ export class ExecutionEngine {
       timeStopMinutes: readBoundedNumber(override.timeStopMinutes, basePlan.timeStopMinutes, 1, 120),
       timeStopMinReturnPercent: readBoundedNumber(override.timeStopMinReturnPercent, basePlan.timeStopMinReturnPercent, 0, 80),
       timeLimitMinutes: readBoundedNumber(override.timeLimitMinutes, basePlan.timeLimitMinutes, 2, 240),
+      partialStopLossEnabled: override.partialStopLossEnabled ?? basePlan.partialStopLossEnabled,
+      partialSlThresholdPercent: override.partialSlThresholdPercent ?? basePlan.partialSlThresholdPercent,
+      partialSlSellFraction: override.partialSlSellFraction ?? basePlan.partialSlSellFraction,
+      momentumTpExtensionEnabled: override.momentumTpExtensionEnabled ?? basePlan.momentumTpExtensionEnabled,
+      recalibrateIntervalMinutes: override.recalibrateIntervalMinutes ?? basePlan.recalibrateIntervalMinutes,
     };
 
     if (next.tp2Multiplier <= next.tp1Multiplier) {

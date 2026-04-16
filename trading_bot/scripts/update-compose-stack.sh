@@ -10,210 +10,151 @@ build_only=0
 force_recreate=1
 full_stack=0
 services_explicit=0
+skip_build=0
 
-declare -a profiles=()
-declare -a services=()
-
-append_unique() {
-  local value="$1"
-  shift
-  local existing
-  for existing in "$@"; do
-    if [[ "${existing}" == "${value}" ]]; then
-      return 0
-    fi
-  done
-  return 1
-}
-
-add_profile() {
-  local profile="$1"
-  if [[ ${#profiles[@]} -eq 0 ]]; then
-    profiles+=("${profile}")
-    return
-  fi
-  if ! append_unique "${profile}" "${profiles[@]}"; then
-    profiles+=("${profile}")
-  fi
-}
-
-add_service() {
-  local service="$1"
-  if [[ ${#services[@]} -eq 0 ]]; then
-    services+=("${service}")
-    return
-  fi
-  if ! append_unique "${service}" "${services[@]}"; then
-    services+=("${service}")
-  fi
-}
+# Arrays — initialize to empty to avoid set -u issues
+profiles=()
+services=()
 
 usage() {
   cat <<'EOF'
 Usage: ./scripts/update-compose-stack.sh [options]
 
 Refresh the repo's Docker Compose services in a repeatable way:
-1. sync compose env files from backend/.env
-2. validate docker compose config
-3. rebuild buildable services
-4. recreate the requested containers
+  1. sync compose env files from backend/.env
+  2. validate docker compose config
+  3. rebuild only services whose source files changed (smart rebuild)
+  4. recreate the requested containers
 
-Default services:
-  db-setup bot dashboard
+Default services: db-setup bot dashboard
 
 Options:
-  --env PATH               Use a different backend env file for compose env sync.
-  --skip-env-sync          Skip node ./scripts/sync-compose-env.mjs.
-  --build-only             Build requested services but do not run docker compose up.
-  --no-force-recreate      Use docker compose up without --force-recreate.
-  --full-stack             Also refresh grafana with the default app services.
-  --include-automation     Include the n8n sidecar and enable the automation profile.
-  --include-notes          Include the Obsidian sidecar and enable the notes profile.
-  --service NAME           Refresh only the named service. Repeat as needed.
-  --help                   Show this message.
+  --env PATH          Use a different backend env file for compose env sync.
+  --skip-env-sync     Skip the env-sync step.
+  --skip-build        Skip the build step entirely (env-only or no-src-changes).
+  --build-only        Build services but do not docker compose up.
+  --no-force-recreate Use 'docker compose up' without --force-recreate.
+  --full-stack        Also refresh grafana with the default app services.
+  --service NAME      Refresh only the named service. Repeat as needed.
+  --help              Show this message.
 
 Examples:
-  ./scripts/update-compose-stack.sh
-  ./scripts/update-compose-stack.sh --service dashboard
-  ./scripts/update-compose-stack.sh --service bot --service dashboard
-  ./scripts/update-compose-stack.sh --full-stack
-  ./scripts/update-compose-stack.sh --include-automation --service n8n
-  ./scripts/update-compose-stack.sh --include-notes --service obsidian
+  ./scripts/update-compose-stack.sh                           # normal full refresh
+  ./scripts/update-compose-stack.sh --skip-build             # fast env-only change
+  ./scripts/update-compose-stack.sh --service dashboard      # single service (smart rebuild)
+  ./scripts/update-compose-stack.sh --service bot --skip-build  # backend env change
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --env)
-      if [[ $# -lt 2 ]]; then
-        echo "[compose-refresh] --env requires a path" >&2
-        exit 1
-      fi
-      env_path="$2"
-      shift 2
-      ;;
-    --skip-env-sync)
-      sync_env=0
-      shift
-      ;;
-    --build-only)
-      build_only=1
-      shift
-      ;;
-    --no-force-recreate)
-      force_recreate=0
-      shift
-      ;;
-    --full-stack)
-      full_stack=1
-      shift
-      ;;
-    --include-automation)
-      add_profile "automation"
-      add_service "n8n"
-      shift
-      ;;
-    --include-notes)
-      add_profile "notes"
-      add_service "obsidian"
-      shift
-      ;;
+      env_path="$2"; shift 2 ;;
+    --skip-env-sync) sync_env=0; shift ;;
+    --skip-build)    skip_build=1; shift ;;
+    --build-only)    build_only=1; shift ;;
+    --no-force-recreate) force_recreate=0; shift ;;
+    --full-stack)    full_stack=1; shift ;;
     --service)
-      if [[ $# -lt 2 ]]; then
-        echo "[compose-refresh] --service requires a compose service name" >&2
-        exit 1
-      fi
       services_explicit=1
-      add_service "$2"
-      case "$2" in
-        n8n)
-          add_profile "automation"
-          ;;
-        obsidian)
-          add_profile "notes"
-          ;;
-      esac
-      shift 2
-      ;;
-    --help|-h)
-      usage
-      exit 0
-      ;;
-    *)
-      echo "[compose-refresh] Unknown option: $1" >&2
-      usage >&2
-      exit 1
-      ;;
+      services+=("$2")
+      [[ "$2" == "n8n" ]] && profiles+=("automation")
+      [[ "$2" == "obsidian" ]] && profiles+=("notes")
+      shift 2 ;;
+    --help|-h) usage; exit 0 ;;
+    *) echo "[compose-refresh] Unknown option: $1" >&2; usage >&2; exit 1 ;;
   esac
 done
 
-if [[ "${env_path}" != /* ]]; then
-  env_path="${repo_root}/${env_path}"
-fi
+[[ "${env_path}" != /* ]] && env_path="${repo_root}/${env_path}"
 
 cd "${repo_root}"
 
-if [[ ${services_explicit} -eq 0 ]]; then
-  add_service "db-setup"
-  add_service "bot"
-  add_service "dashboard"
-fi
+# Default services
+[[ ${services_explicit} -eq 0 ]] && services=(db-setup bot dashboard)
+[[ ${full_stack} -eq 1 ]] && services+=(grafana)
 
-if [[ ${full_stack} -eq 1 ]]; then
-  add_service "grafana"
-fi
-
-compose_cmd=(docker compose)
-if [[ ${#profiles[@]} -gt 0 ]]; then
-  for profile in "${profiles[@]}"; do
-    compose_cmd+=(--profile "${profile}")
-  done
-fi
-
-buildable_services=()
-for service in "${services[@]}"; do
-  case "${service}" in
-    db-setup|bot|dashboard)
-      buildable_services+=("${service}")
-      ;;
-  esac
-done
-
-echo "[compose-refresh] Repo root: ${repo_root}"
+echo "[compose-refresh] Repo root : ${repo_root}"
 echo "[compose-refresh] Env source: ${env_path}"
-echo "[compose-refresh] Services: ${services[*]}"
-if [[ ${#profiles[@]} -gt 0 ]]; then
-  echo "[compose-refresh] Profiles: ${profiles[*]}"
-fi
+echo "[compose-refresh] Services  : ${services[*]}"
 
+# ---------------------------------------------------------------------------
+# 1. Env sync
+# ---------------------------------------------------------------------------
 if [[ ${sync_env} -eq 1 ]]; then
   echo "[compose-refresh] Syncing compose env files"
   node ./scripts/sync-compose-env.mjs "${env_path}"
 else
-  echo "[compose-refresh] Skipping compose env sync"
+  echo "[compose-refresh] Skipping env sync"
 fi
 
+# ---------------------------------------------------------------------------
+# 2. Config validation
+# ---------------------------------------------------------------------------
 echo "[compose-refresh] Validating compose config"
+compose_cmd=(docker compose)
+[[ ${#profiles[@]} -gt 0 ]] && for p in "${profiles[@]}"; do compose_cmd+=(--profile "$p"); done
 "${compose_cmd[@]}" config >/dev/null
 
-if [[ ${#buildable_services[@]} -gt 0 ]]; then
-  echo "[compose-refresh] Building: ${buildable_services[*]}"
-  "${compose_cmd[@]}" build "${buildable_services[@]}"
-else
-  echo "[compose-refresh] No build step needed for requested services"
+# ---------------------------------------------------------------------------
+# 3. Smart rebuild — only rebuild services whose source files changed
+# ---------------------------------------------------------------------------
+if [[ ${skip_build} -eq 1 ]]; then
+  echo "[compose-refresh] Skipping build (--skip-build)"
+
+elif [[ ${#services[@]} -gt 0 ]]; then
+  needs_rebuild=()
+  touch_marker="${repo_root}/.docker-mtime"
+
+  for service in "${services[@]}"; do
+    case "${service}" in
+      dashboard)
+        if find "${repo_root}/dashboard/src" "${repo_root}/dashboard/app" \
+               -type f -newer "${touch_marker}" 2>/dev/null | grep -q .; then
+          needs_rebuild+=("${service}")
+        else
+          echo "[compose-refresh] ${service}: no src changes, skipping rebuild"
+        fi
+        ;;
+      bot)
+        if find "${repo_root}/backend/src" "${repo_root}/backend/prisma" \
+               "${repo_root}/backend/package.json" \
+               -type f -newer "${touch_marker}" 2>/dev/null | grep -q .; then
+          needs_rebuild+=("${service}")
+        else
+          echo "[compose-refresh] ${service}: no src changes, skipping rebuild"
+        fi
+        ;;
+      db-setup)
+        if find "${repo_root}/backend/prisma" \
+               -type f -newer "${touch_marker}" 2>/dev/null | grep -q .; then
+          needs_rebuild+=("${service}")
+        else
+          echo "[compose-refresh] ${service}: no src changes, skipping rebuild"
+        fi
+        ;;
+    esac
+  done
+
+  if [[ ${#needs_rebuild[@]} -gt 0 ]]; then
+    echo "[compose-refresh] Building: ${needs_rebuild[*]}"
+    "${compose_cmd[@]}" build "${needs_rebuild[@]}"
+    # Stamp so next run skips rebuild if nothing changed
+    touch "${touch_marker}"
+  else
+    echo "[compose-refresh] No services need rebuilding"
+  fi
 fi
 
-if [[ ${build_only} -eq 1 ]]; then
-  echo "[compose-refresh] Build-only mode finished"
-  exit 0
-fi
+[[ ${build_only} -eq 1 ]] && echo "[compose-refresh] Build-only finished" && exit 0
 
+# ---------------------------------------------------------------------------
+# 4. Recreate / restart services
+# ---------------------------------------------------------------------------
 up_args=(up -d)
-if [[ ${force_recreate} -eq 1 ]]; then
-  up_args+=(--force-recreate)
-fi
+[[ ${force_recreate} -eq 1 ]] && up_args+=(--force-recreate)
 
-echo "[compose-refresh] Recreating services"
+echo "[compose-refresh] Bringing up: ${services[*]}"
 "${compose_cmd[@]}" "${up_args[@]}" "${services[@]}"
 
 echo "[compose-refresh] Current status"

@@ -22,6 +22,8 @@ export type EntryScoringSignal = {
   top10HolderPercent: number | null | undefined;
   largestHolderPercent: number | null | undefined;
   ageSeconds: number;
+  /** Price change % between discovery and evaluation. Negative = dump since discovery. */
+  priceChangeSinceDiscoveryPercent?: number | null | undefined;
   source?: string | null | undefined;
   statusAdjustment?: number;
 };
@@ -85,6 +87,14 @@ export function scoreEntrySignal(
   const liquidityScore = logScore(signal.liquidityUsd ?? 0, thresholds.minLiquidityUsd);
   const exitabilityScore = (liquidityScore * 0.75) + (ageScore * 0.25);
 
+  // Fair value bonus: buying below or near discovery price is structural quality.
+  // Penalty for buying significantly above discovery price.
+  // Range: -0.08 (paying 8%+ premium) to +0.08 (buying at a discount).
+  const priceDelta = signal.priceChangeSinceDiscoveryPercent;
+  const priceQualityBonus = priceDelta != null
+    ? clamp(-priceDelta / 100 / 2.5, -0.08, 0.08)
+    : 0;
+
   const sourceBoost = signal.source === "pump_dot_fun" ? 0.03 : 0;
   return round(
     clamp(
@@ -92,6 +102,7 @@ export function scoreEntrySignal(
         + (structureScore * 0.35)
         + (exitabilityScore * 0.3)
         + sourceBoost
+        + priceQualityBonus
         + (signal.statusAdjustment ?? 0),
       0,
       1.2,

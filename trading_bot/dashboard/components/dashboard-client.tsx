@@ -14,13 +14,12 @@ import {
   ShieldAlert,
   Sparkles,
 } from "lucide-react";
-import { DeskPnlWidget } from "@/components/desk-pnl-widget";
 import { fetchJson } from "@/lib/api";
 import { operationalDeskRoutes } from "@/lib/dashboard-routes";
 import { formatCompactCurrency, formatInteger, formatPercent, formatRelativeMinutes, formatTimestamp } from "@/lib/format";
 import type { AdaptiveModelState, DeskHomePayload, DiagnosticsPayload, OperatorEvent } from "@/lib/types";
 import { useHydrated } from "@/lib/use-hydrated";
-import { CompactPageHeader, CompactStatGrid, DataTable, IconAction, Panel, StatusPill } from "@/components/dashboard-primitives";
+import { CompactPageHeader, DataTable, IconAction, Panel, ScanStat, StatusPill } from "@/components/dashboard-primitives";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/components/ui/cn";
@@ -37,8 +36,6 @@ export function DashboardClient(props: {
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const hydrated = useHydrated();
-  const degradedDesk = !home.readiness.allowed || diagnostics.issues.length > 0;
-  const diagnosticSummary = `${formatInteger(diagnostics.issues.length)} issue(s)`;
 
   const refresh = useEffectEvent(() => {
     startTransition(async () => {
@@ -68,22 +65,28 @@ export function DashboardClient(props: {
     };
   }, [refresh]);
 
+  const openPositions = home.positions ?? [];
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
+
+      {/* ── HEADER ──────────────────────────────────────────────────────── */}
       <CompactPageHeader
         eyebrow="Control"
         title="Desk"
-        description={!home.readiness.allowed ? home.readiness.detail ?? undefined : "Performance and runtime state."}
         badges={(
           <>
             <StatusPill value={home.readiness.allowed ? "ready" : "blocked"} />
             <StatusPill value={home.diagnostics.status} />
+            {home.adaptiveModel.enabled
+              ? <StatusPill value="adaptive_on" />
+              : null}
           </>
         )}
         actions={(
           <>
             <Button onClick={() => refresh()} variant="ghost" size="sm" title="Refresh">
-              <RefreshCcw className="h-4 w-4" />
+              <RefreshCcw className={cn("h-4 w-4", isPending && "animate-spin")} />
               {isPending ? "Syncing" : "Sync"}
             </Button>
             <Link
@@ -109,180 +112,450 @@ export function DashboardClient(props: {
           </>
         )}
       >
-        <CompactStatGrid
-          className={degradedDesk ? "xl:grid-cols-4" : "xl:grid-cols-4"}
-          items={degradedDesk
-            ? [
-                {
-                  label: "Desk state",
-                  value: home.readiness.summary,
-                  detail: home.readiness.detail ?? "Critical desk data is degraded.",
-                  tone: "danger",
-                },
-                {
-                  label: "Diagnostics",
-                  value: diagnosticSummary,
-                  detail: diagnostics.issues[0]?.label ?? "Provider and endpoint status",
-                  tone: diagnostics.issues.length > 0 ? "warning" : "default",
-                },
-                {
-                  label: "Queued intake",
-                  value: formatInteger(home.queue.queuedCandidates),
-                  detail: "Candidates awaiting review",
-                  tone: home.queue.queuedCandidates > 0 ? "warning" : "default",
-                },
-                {
-                  label: "Open risk",
-                  value: `${formatInteger(home.exposure.openPositions)}/${formatInteger(home.exposure.maxOpenPositions)}`,
-                  detail: `Cash ${formatCompactCurrency(home.exposure.cashUsd)}`,
-                  tone: home.exposure.openPositions > 0 ? "warning" : "default",
-                },
-              ]
-            : [
-                {
-                  label: "Realized today",
-                  value: formatCompactCurrency(home.performance.realizedPnlTodayUsd),
-                  detail: "Closed-book session PnL",
-                  tone: home.performance.realizedPnlTodayUsd >= 0 ? "accent" : "danger",
-                },
-                {
-                  label: "Win rate 7d",
-                  value: formatPercent(home.performance.winRate7d * 100, 0),
-                  detail: `${formatPercent(home.performance.avgReturnPct7d)} avg return`,
-                  tone: home.performance.winRate7d >= 0.5 ? "accent" : "warning",
-                },
-                {
-                  label: "Provider latency",
-                  value: `${formatInteger(home.latency.providerAvgLatencyMsToday)} ms`,
-                  detail: `Hot endpoint ${formatInteger(home.latency.hotEndpointAvgLatencyMsToday)} ms`,
-                  tone: home.latency.providerAvgLatencyMsToday > 1500 ? "warning" : "default",
-                },
-                {
-                  label: "Exec latency",
-                  value: `${formatInteger(home.latency.avgExecutionLatencyMs24h)} ms`,
-                  detail: `P95 ${formatInteger(home.latency.p95ExecutionLatencyMs24h)} ms`,
-                  tone: home.latency.avgExecutionLatencyMs24h > 4000 ? "warning" : "default",
-                },
-              ]}
-        />
+        {/* ── HEALTH STRIP ───────────────────────────────────────────── */}
+        <div className="mt-3 grid gap-2 grid-cols-2 sm:grid-cols-4 xl:grid-cols-6">
+          {/* Readiness */}
+          {!home.readiness.allowed ? (
+            <ScanStat
+              label="Desk state"
+              value={home.readiness.summary}
+              detail={home.readiness.detail ?? "A blocker is active"}
+              tone="danger"
+            />
+          ) : (
+            <>
+              <ScanStat
+                label="Realized today"
+                value={formatCompactCurrency(home.performance.realizedPnlTodayUsd)}
+                detail={`7d: ${formatCompactCurrency(home.performance.realizedPnl7dUsd)}`}
+                tone={home.performance.realizedPnlTodayUsd >= 0 ? "accent" : "danger"}
+              />
+              <ScanStat
+                label="Win rate 7d"
+                value={formatPercent(home.performance.winRate7d * 100, 0)}
+                detail={`Avg return ${formatPercent(home.performance.avgReturnPct7d)}`}
+                tone={home.performance.winRate7d >= 0.5 ? "accent" : "warning"}
+              />
+              <ScanStat
+                label="Open slots"
+                value={`${home.exposure.openPositions}/${home.exposure.maxOpenPositions}`}
+                detail={`Cash ${formatCompactCurrency(home.exposure.cashUsd)}`}
+                tone={home.exposure.openPositions > 0 ? "accent" : "default"}
+              />
+              <ScanStat
+                label="Queue ready"
+                value={formatInteger(home.queue.queuedCandidates)}
+                detail="Candidates waiting"
+                tone={home.queue.queuedCandidates > 0 ? "warning" : "default"}
+              />
+              <ScanStat
+                label="Provider"
+                value={`${formatInteger(home.latency.providerAvgLatencyMsToday)} ms`}
+                detail={`Exec ${formatInteger(home.latency.avgExecutionLatencyMs24h)} ms`}
+                tone={home.latency.providerAvgLatencyMsToday > 1500 ? "warning" : "default"}
+              />
+            </>
+          )}
+        </div>
       </CompactPageHeader>
 
+      {/* ── ALERTS ──────────────────────────────────────────────────────── */}
       {refreshError ? (
-        <div className="rounded-[16px] border border-[rgba(251,113,133,0.25)] bg-[rgba(251,113,133,0.08)] px-5 py-4 text-sm text-[var(--danger)]">
+        <div className="rounded-[12px] border border-[rgba(251,113,133,0.3)] bg-[rgba(251,113,133,0.08)] px-4 py-3 text-sm text-[var(--danger)]">
           Desk refresh failed: {refreshError}
         </div>
       ) : null}
 
-      <DeskPnlWidget performance={home.performance} events={events} />
+      {/* ── OPEN POSITIONS — always visible when positions exist ─────────── */}
+      {openPositions.length > 0 ? (
+        <section>
+          <div className="mb-2 flex items-center justify-between px-1">
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted">Live positions</span>
+              <span className="rounded-full bg-[var(--accent)]/15 px-2 py-0.5 text-[10px] font-semibold text-[var(--accent)]">
+                {openPositions.length}
+              </span>
+            </div>
+            <Link
+              href={`${operationalDeskRoutes.trading}?book=open` as Route}
+              className="text-[11px] text-text-muted transition hover:text-accent"
+            >
+              View all →
+            </Link>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {openPositions.slice(0, 6).map((pos) => (
+              <Link
+                key={pos.id}
+                href={`/positions/${pos.id}` as Route}
+                className="group rounded-[14px] border border-bg-border bg-[#101012] px-4 py-3 transition hover:border-[rgba(163,230,53,0.25)] hover:bg-[#111113]"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-text-primary">{pos.symbol}</span>
+                      <StatusPill value={pos.status} />
+                    </div>
+                    <div className="mt-1 text-[11px] text-text-muted font-mono">{pos.mint.slice(0, 6)}…{pos.mint.slice(-4)}</div>
+                  </div>
+                  <ArrowUpRight className="h-4 w-4 shrink-0 text-text-muted transition group-hover:text-accent" />
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  <div>
+                    <div className="text-[10px] uppercase tracking-[0.12em] text-text-muted">Entry</div>
+                    <div className="mt-0.5 text-sm font-semibold text-text-primary">${pos.entryPriceUsd}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase tracking-[0.12em] text-text-muted">Return</div>
+                    <div className={cn("mt-0.5 text-sm font-semibold", (pos.returnPct ?? 0) >= 0 ? "text-[var(--accent)]" : "text-[var(--danger)]")}>
+                      {formatPercent(pos.returnPct ?? 0)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase tracking-[0.12em] text-text-muted">Unrealized</div>
+                    <div className={cn("mt-0.5 text-sm font-semibold", (pos.unrealizedPnlUsd ?? 0) >= 0 ? "text-[var(--accent)]" : "text-[var(--danger)]")}>
+                      {formatCompactCurrency(pos.unrealizedPnlUsd ?? 0)}
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-2 flex items-center justify-between">
+                  <div className="text-[10px] text-text-muted">
+                    Opened {formatRelativeMinutes(pos.openedAt)}
+                  </div>
+                  <div className="text-[10px] text-text-muted">
+                    {pos.interventionLabel ?? "—"}
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
-      <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+      {/* ── THREE COLUMN SCAN ROW ──────────────────────────────────────── */}
+      <section className="grid gap-4 xl:grid-cols-3">
+
+        {/* Column 1: Pipeline health */}
         <Panel
-          title="Next actions"
-          eyebrow="Ranked"
-          description="Active issues and queue buckets requiring attention."
+          title="Pipeline"
+          eyebrow="Queue"
+          description="Candidates across evaluation stages."
         >
-          <InterventionStack items={buildInterventionItems(home, diagnostics).slice(0, 5)} />
+          <div className="space-y-2">
+            {home.queue.buckets
+              .filter((b) => b.count > 0 || b.bucket === "ready")
+              .map((bucket) => (
+                <div
+                  key={bucket.bucket}
+                  className="flex items-center justify-between gap-3 rounded-[12px] border border-bg-border bg-bg-hover/35 px-3 py-2.5"
+                >
+                  <div className="flex items-center gap-2">
+                    <StatusPill value={bucket.bucket} />
+                    <span className="text-sm font-medium text-text-primary">{bucket.label}</span>
+                  </div>
+                  <span className={cn(
+                    "text-sm font-semibold tabular-nums",
+                    bucket.count > 0 ? "text-text-primary" : "text-text-muted"
+                  )}>
+                    {formatInteger(bucket.count)}
+                  </span>
+                </div>
+              ))}
+            {home.queue.buckets.every((b) => b.count === 0) ? (
+              <div className="py-2 text-xs text-text-muted">No candidates in queue.</div>
+            ) : null}
+          </div>
         </Panel>
 
+        {/* Column 2: Loop status + guardrails */}
         <Panel
-          title="System state"
-          eyebrow="Guardrails and loops"
-          description="Risk, queue, adaptive posture, and provider pace."
+          title="Loop status"
+          eyebrow="Runtime"
+          description="Last run timestamps and guardrail state."
           tone={home.diagnostics.status === "danger" ? "critical" : home.diagnostics.status === "warning" ? "warning" : "passive"}
           action={<IconAction href={operationalDeskRoutes.settings} icon={ArrowUpRight} label="Settings" title="Open runtime settings" subtle />}
         >
-          <div className="space-y-4">
-            <div className="grid gap-2 sm:grid-cols-2">
-              <DeskStateItem label="Open risk" value={`${formatInteger(home.exposure.openPositions)}/${formatInteger(home.exposure.maxOpenPositions)}`} detail={`Cash ${formatCompactCurrency(home.exposure.cashUsd)}`} />
-              <DeskStateItem label="Queued intake" value={formatInteger(home.queue.queuedCandidates)} detail="Candidates awaiting review" />
-              <DeskStateItem label="Adaptive" value={home.adaptiveModel.enabled ? home.adaptiveModel.packName ?? "Staged" : "Inactive"} detail={home.adaptiveModel.status.toUpperCase()} />
-              <DeskStateItem label="Provider pace" value={`${formatInteger(home.providerPressure.projectedMonthlyUnits)} / ${formatInteger(home.providerPressure.monthlyBudgetUnits)}`} detail={home.providerPressure.paceStatus.toUpperCase()} />
-            </div>
-            <details className="group">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-[14px] border border-bg-border bg-bg-hover/35 px-4 py-3 text-sm font-medium text-text-primary">
-                <span>Loop timing and guardrails</span>
-                <span className="text-xs text-text-secondary group-open:hidden">Open</span>
-                <span className="hidden text-xs text-text-secondary group-open:inline">Close</span>
-              </summary>
-              <div className="mt-4 space-y-4">
-                <div className="grid gap-2 sm:grid-cols-3">
-                  <DeskStateItem label="Discovery" value={safeClientTimestamp(home.runtime.lastDiscoveryAt, hydrated, "Never")} detail="Last discovery loop" />
-                  <DeskStateItem label="Evaluation" value={safeClientTimestamp(home.runtime.lastEvaluationAt, hydrated, "Never")} detail="Last evaluation loop" />
-                  <DeskStateItem label="Exit checks" value={safeClientTimestamp(home.runtime.lastExitCheckAt, hydrated, "Never")} detail="Last exit loop" />
+          <div className="space-y-3">
+            {/* Loop timestamps */}
+            <div className="grid gap-1.5">
+              {[
+                { label: "Discovery", ts: home.runtime.lastDiscoveryAt, icon: Sparkles },
+                { label: "Evaluation", ts: home.runtime.lastEvaluationAt, icon: Cpu },
+                { label: "Exit checks", ts: home.runtime.lastExitCheckAt, icon: CirclePause },
+              ].map(({ label, ts, icon: Icon }) => (
+                <div key={label} className="flex items-center justify-between rounded-[10px] border border-bg-border bg-bg-hover/25 px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <Icon className="h-3.5 w-3.5 text-text-muted" />
+                    <span className="text-xs text-text-secondary">{label}</span>
+                  </div>
+                  <span className="text-[11px] font-medium tabular-nums text-text-muted">
+                    {safeClientTimestamp(ts, hydrated, "—")}
+                  </span>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {home.guardrails.map((guardrail) => (
-                    <Card key={guardrail.id} className="rounded-full border-bg-border bg-bg-hover/40 shadow-none">
-                      <CardContent className="px-3 py-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-text-muted">{guardrail.label}</span>
-                          <StatusPill value={guardrail.status} />
-                          <span className="text-sm font-semibold text-text-primary">{guardrail.value}</span>
-                        </div>
-                      </CardContent>
-                    </Card>
+              ))}
+            </div>
+
+            {/* Guardrails */}
+            {home.guardrails.length > 0 && (
+              <div>
+                <div className="mb-1.5 text-[10px] uppercase tracking-[0.14em] text-text-muted">Guardrails</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {home.guardrails.map((gr) => (
+                    <div
+                      key={gr.id}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-semibold",
+                        gr.status === "ok"
+                          ? "border-[rgba(163,230,53,0.25)] bg-[rgba(163,230,53,0.1)] text-[var(--success)]"
+                          : gr.status === "warning"
+                            ? "border-[rgba(250,204,21,0.25)] bg-[rgba(250,204,21,0.1)] text-[var(--warning)]"
+                            : "border-[rgba(251,113,133,0.25)] bg-[rgba(251,113,133,0.1)] text-[var(--danger)]",
+                      )}
+                    >
+                      <span>{gr.label}</span>
+                      <span>{gr.value}</span>
+                    </div>
                   ))}
                 </div>
               </div>
-            </details>
+            )}
+
+            {/* Adaptive model pill */}
+            <div className="flex items-center justify-between rounded-[10px] border border-bg-border bg-bg-hover/25 px-3 py-2">
+              <span className="text-xs text-text-secondary">Adaptive model</span>
+              <StatusPill value={home.adaptiveModel.enabled ? "enabled" : home.adaptiveModel.status} />
+            </div>
+
+            {/* Provider pace */}
+            <div className="flex items-center justify-between rounded-[10px] border border-bg-border bg-bg-hover/25 px-3 py-2">
+              <span className="text-xs text-text-secondary">Provider pace</span>
+              <span className={cn(
+                "text-[11px] font-semibold tabular-nums",
+                home.providerPressure.paceStatus === "ok" ? "text-[var(--success)]"
+                  : home.providerPressure.paceStatus === "warning" ? "text-[var(--warning)]"
+                  : "text-[var(--danger)]"
+              )}>
+                {formatInteger(home.providerPressure.projectedMonthlyUnits)} / {formatInteger(home.providerPressure.monthlyBudgetUnits)}
+              </span>
+            </div>
           </div>
+        </Panel>
+
+        {/* Column 3: Recent events */}
+        <Panel
+          title="Recent events"
+          eyebrow="Activity"
+          description="Last 6 operator events."
+          tone={events.some((e) => e.level !== "info") ? "warning" : "passive"}
+        >
+          {events.length === 0 ? (
+            <div className="py-3 text-xs text-text-muted">No recent events.</div>
+          ) : (
+            <div className="space-y-1.5">
+              {events.slice(0, 6).map((event) => (
+                <div
+                  key={event.id}
+                  className="flex items-start justify-between gap-2 rounded-[10px] border border-bg-border bg-bg-hover/30 px-3 py-2"
+                >
+                  <div className="flex items-start gap-2 min-w-0">
+                    <div className={cn(
+                      "mt-0.5 rounded-[6px] border border-bg-border p-1",
+                      event.kind.includes("failure") || event.level === "warning" || event.level === "danger"
+                        ? "bg-[rgba(251,113,133,0.1)] text-[var(--danger)]"
+                        : "bg-bg-primary/70 text-text-muted"
+                    )}>
+                      <EventIcon event={event} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="truncate text-[12px] font-medium text-text-primary">{event.title}</div>
+                      <div className="text-[10px] text-text-muted">{event.kind.replace(/_/g, " ")}</div>
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-[10px] tabular-nums text-text-muted">
+                    {formatRelativeMinutes(event.createdAt)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </Panel>
       </section>
 
-      <details className="group rounded-[16px] border border-bg-border bg-bg-secondary px-4 py-3">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-medium text-text-primary">
-          <span>Diagnostics detail and recent events</span>
-          <span className="text-xs text-text-secondary group-open:hidden">
-            {diagnostics.issues.length > 0 || events.length > 0
-              ? `${diagnosticSummary} · ${formatInteger(Math.min(events.length, 4))} events`
-              : "Quiet"}
-          </span>
-          <span className="hidden text-xs text-text-secondary group-open:inline">Close</span>
-        </summary>
-        <div className="mt-4 space-y-4">
-          {(diagnostics.providerRows.length > 0 || diagnostics.endpointRows.length > 0) ? (
-            <div className="grid gap-4 xl:grid-cols-2">
-              {diagnostics.providerRows.length > 0 ? (
-                <DataTable
-                  title="Provider pressure"
-                  eyebrow="Today"
-                  description="Provider call and burn pressure from live diagnostics."
-                  rows={diagnostics.providerRows}
-                  maxRows={6}
-                  preferredKeys={["provider", "total_calls", "total_units", "avg_latency_ms", "error_count"]}
-                  emptyTitle="No provider rows"
-                  emptyDetail="No provider summary rows are available."
-                  panelTone={diagnostics.summary.providerErrors > 0 ? "warning" : "default"}
-                />
-              ) : null}
-              {diagnostics.endpointRows.length > 0 ? (
-                <DataTable
-                  title="Endpoint faults"
-                  eyebrow="Hot endpoints"
-                  description="Most failure-prone endpoints right now."
-                  rows={diagnostics.endpointRows}
-                  maxRows={6}
-                  preferredKeys={["provider", "endpoint", "total_calls", "total_units", "avg_latency_ms", "error_count", "last_called_at"]}
-                  emptyTitle="No endpoint rows"
-                  emptyDetail="No endpoint diagnostics rows are available."
-                  panelTone={diagnostics.summary.latestPayloadFailures > 0 ? "warning" : "default"}
-                />
-              ) : null}
-            </div>
-          ) : (
-            <div className="rounded-[14px] border border-bg-border bg-bg-hover/35 px-4 py-3 text-sm text-text-secondary">No provider or endpoint diagnostics rows are active right now.</div>
-          )}
+      {/* ── PNL WIDGET — below the scan row ──────────────────────────────── */}
+      <DeskPnlWidget performance={home.performance} events={events} />
 
-          <EventList events={events.slice(0, 4)} emptyText="No recent event." compact hydrated={hydrated} />
-        </div>
-      </details>
+      {/* ── DIAGNOSTICS — collapsed unless there are issues ───────────────── */}
+      {diagnostics.issues.length > 0 || diagnostics.providerRows.length > 0 || diagnostics.endpointRows.length > 0 ? (
+        <details className="group rounded-[14px] border border-bg-border bg-bg-secondary">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-medium text-text-primary">
+            <div className="flex items-center gap-3">
+              <ShieldAlert className="h-4 w-4 text-[var(--warning)]" />
+              <span>Diagnostics — {diagnostics.issues.length} issue{diagnostics.issues.length !== 1 ? "s" : ""}</span>
+              {diagnostics.providerRows.length > 0 && (
+                <span className="text-[11px] text-text-muted">{diagnostics.providerRows.length} provider{diagnostics.providerRows.length !== 1 ? "s" : ""}</span>
+              )}
+              {diagnostics.endpointRows.length > 0 && (
+                <span className="text-[11px] text-text-muted">{diagnostics.endpointRows.length} endpoint{diagnostics.endpointRows.length !== 1 ? "s" : ""}</span>
+              )}
+            </div>
+            <span className="text-xs text-text-muted group-open:hidden">Expand</span>
+            <span className="hidden text-xs text-text-muted group-open:inline">Collapse</span>
+          </summary>
+          <div className="space-y-4 px-4 pb-4">
+            {diagnostics.issues.length > 0 && (
+              <div className="grid gap-2">
+                {diagnostics.issues.map((issue) => (
+                  <div key={issue.id} className="flex items-start justify-between gap-3 rounded-[10px] border border-bg-border bg-bg-hover/40 px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <StatusPill value={issue.level} />
+                      <span className="text-sm font-medium text-text-primary">{issue.label}</span>
+                    </div>
+                    <span className="text-xs text-text-muted text-right max-w-xs">{issue.detail}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {diagnostics.providerRows.length > 0 && (
+              <DataTable
+                title="Provider pressure"
+                eyebrow="Today"
+                rows={diagnostics.providerRows}
+                maxRows={5}
+                preferredKeys={["provider", "total_calls", "total_units", "avg_latency_ms", "error_count"]}
+                panelTone={diagnostics.summary.providerErrors > 0 ? "warning" : "default"}
+              />
+            )}
+            {diagnostics.endpointRows.length > 0 && (
+              <DataTable
+                title="Endpoint faults"
+                eyebrow="Hot endpoints"
+                rows={diagnostics.endpointRows}
+                maxRows={5}
+                preferredKeys={["provider", "endpoint", "total_calls", "avg_latency_ms", "error_count"]}
+                panelTone={diagnostics.summary.latestPayloadFailures > 0 ? "warning" : "default"}
+              />
+            )}
+          </div>
+        </details>
+      ) : null}
     </div>
   );
+}
+
+// ─── Sub-components ─────────────────────────────────────────────────────────────────
+
+function DeskPnlWidget(props: {
+  performance: DeskHomePayload["performance"];
+  events: OperatorEvent[];
+}) {
+  const { realizedPnlTodayUsd, realizedPnl7dUsd, winRate7d, avgReturnPct7d } = props.performance;
+
+  // Build daily PnL from close events
+  const dailyData = (() => {
+    const buckets: Record<string, number> = {};
+    for (const event of props.events) {
+      if (event.kind !== "position_closed") continue;
+      const date = new Date(event.createdAt);
+      const label = date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+      const pnl = typeof event.detail === "string"
+        ? parseFloat(event.detail.replace(/[^0-9.-]/g, "")) || 0
+        : 0;
+      buckets[label] = (buckets[label] ?? 0) + pnl;
+    }
+    return Object.entries(buckets).slice(-7).map(([label, value]) => ({ label, value }));
+  })();
+
+  const maxAbs = Math.max(...dailyData.map((d) => Math.abs(d.value)), 1);
+
+  return (
+    <section className="rounded-[14px] border border-bg-border bg-bg-card p-4">
+      <div className="mb-4 flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.14em] text-text-muted">Today P&amp;L</div>
+            <div className={cn("text-xl font-bold tabular-nums", realizedPnlTodayUsd >= 0 ? "text-[var(--accent)]" : "text-[var(--danger)]")}>
+              {formatCompactCurrency(realizedPnlTodayUsd)}
+            </div>
+          </div>
+          <div className="h-8 w-px bg-bg-border" />
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.14em] text-text-muted">7d P&amp;L</div>
+            <div className={cn("text-xl font-bold tabular-nums", realizedPnl7dUsd >= 0 ? "text-[var(--accent)]" : "text-[var(--danger)]")}>
+              {formatCompactCurrency(realizedPnl7dUsd)}
+            </div>
+          </div>
+          <div className="h-8 w-px bg-bg-border" />
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.14em] text-text-muted">Win rate 7d</div>
+            <div className={cn("text-xl font-bold tabular-nums", winRate7d >= 0.5 ? "text-[var(--accent)]" : "text-[var(--warning)]")}>
+              {formatPercent(winRate7d * 100, 0)}
+            </div>
+          </div>
+          <div className="h-8 w-px bg-bg-border" />
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.14em] text-text-muted">Avg return</div>
+            <div className={cn("text-xl font-bold tabular-nums", avgReturnPct7d >= 0 ? "text-[var(--accent)]" : "text-[var(--danger)]")}>
+              {formatPercent(avgReturnPct7d)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {dailyData.length > 0 && (
+        <div>
+          <div className="mb-2 flex h-16 items-end gap-1">
+            {dailyData.map((day) => {
+              const heightPct = (Math.abs(day.value) / maxAbs) * 100;
+              const isPositive = day.value >= 0;
+              return (
+                <div key={day.label} className="group/node relative flex flex-1 flex-col items-center justify-end">
+                  <div
+                    className={cn(
+                      "w-full rounded-[3px] transition-all hover:opacity-80",
+                      isPositive
+                        ? "bg-[var(--accent)]/60 hover:bg-[var(--accent)]"
+                        : "bg-[var(--danger)]/60 hover:bg-[var(--danger)]"
+                    )}
+                    style={{ height: `${Math.max(heightPct, 4)}%` }}
+                  />
+                  <div className="pointer-events-none absolute -top-7 left-1/2 z-10 hidden whitespace-nowrap rounded-[6px] border border-bg-border bg-bg-card px-2 py-1 text-[10px] font-medium text-text-primary shadow-lg group-hover/node:block">
+                    {formatCompactCurrency(day.value)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex gap-1">
+            {dailyData.map((day) => (
+              <div key={day.label} className="flex-1 text-center">
+                <div className="text-[9px] text-text-muted">{day.label.split(",")[0]}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function EventIcon(props: { event: OperatorEvent }) {
+  if (props.event.kind.includes("research")) return <FlaskConical className="h-3.5 w-3.5" />;
+  if (props.event.kind.includes("control") || props.event.kind.includes("pause") || props.event.kind.includes("resume")) {
+    return <CirclePause className="h-3.5 w-3.5" />;
+  }
+  if (props.event.kind.includes("failure") || props.event.level !== "info") return <AlertTriangle className="h-3.5 w-3.5" />;
+  return <RadioTower className="h-3.5 w-3.5" />;
+}
+
+function safeClientTimestamp(value: string | null | undefined, hydrated: boolean, fallback = "—"): string {
+  if (!value) return fallback;
+  return hydrated ? formatTimestamp(value) : "…";
 }
 
 function normalizeHomePayload(home: DeskHomePayload): DeskHomePayload {
   return {
     ...home,
+    positions: home.positions ?? [],
     performance: home.performance ?? {
       realizedPnlTodayUsd: 0,
       realizedPnl7dUsd: 0,
@@ -300,295 +573,33 @@ function normalizeHomePayload(home: DeskHomePayload): DeskHomePayload {
     runtime: home.runtime ?? {
       lastDiscoveryAt: null,
       lastEvaluationAt: null,
-      lastExitCheckAt: null,
+      lastExitCheckAt:  null,
     },
-    adaptiveModel: home.adaptiveModel ?? buildFallbackAdaptiveModel(),
+    queue: home.queue ?? {
+      queuedCandidates: 0,
+      buckets: [
+        { bucket: "ready",    count: 0, label: "Ready" },
+        { bucket: "risk",     count: 0, label: "Blocked by risk" },
+        { bucket: "provider", count: 0, label: "Blocked by provider" },
+        { bucket: "data",     count: 0, label: "Blocked by data" },
+      ],
+    },
+    adaptiveModel: home.adaptiveModel ?? {
+      status: "inactive",
+      automationUsesAdaptive: false,
+      enabled: false,
+      sourceRunId: null,
+      packId: null,
+      packName: null,
+      dominantMode: null,
+      dominantPresetId: null,
+      winnerCount: 0,
+      bandCount: 0,
+      calibrationConfidence: null,
+      staleWarning: "Adaptive model data is unavailable.",
+      degradedWarning: "Adaptive model data is unavailable.",
+      warnings: ["Adaptive model data is unavailable."],
+      updatedAt: null,
+    },
   };
-}
-
-function safeClientTimestamp(value: string | null | undefined, hydrated: boolean, fallback = "—") {
-  if (!value) {
-    return fallback;
-  }
-  return hydrated ? formatTimestamp(value) : "Syncing...";
-}
-
-function buildFallbackAdaptiveModel(): AdaptiveModelState {
-  return {
-    status: "inactive",
-    automationUsesAdaptive: false,
-    enabled: false,
-    sourceRunId: null,
-    packId: null,
-    packName: null,
-    dominantMode: null,
-    dominantPresetId: null,
-    winnerCount: 0,
-    bandCount: 0,
-    calibrationConfidence: null,
-    staleWarning: "Adaptive model data is unavailable from the current desk payload.",
-    degradedWarning: "Adaptive model data is unavailable from the current desk payload.",
-    warnings: ["Adaptive model data is unavailable from the current desk payload."],
-    updatedAt: null,
-  };
-}
-
-function DeskStateItem(props: { label: string; value: string; detail: string }) {
-  return (
-    <div className="rounded-[14px] border border-bg-border bg-bg-hover/35 px-3 py-3">
-      <div className="scorecard-grid">
-        <div className="scorecard-label wrap-anywhere">{props.label}</div>
-        <div className="scorecard-value wrap-anywhere text-sm font-semibold">{props.value}</div>
-        <div className="scorecard-detail text-xs leading-5">{props.detail}</div>
-      </div>
-    </div>
-  );
-}
-
-function InterventionStack(props: {
-  items: Array<{ id: string; level: "info" | "warning" | "danger"; label: string; detail: string; href: string }>;
-}) {
-  if (props.items.length === 0) {
-    return (
-      <div className="rounded-[14px] border border-bg-border bg-bg-hover/40 px-4 py-4 text-sm text-text-secondary">
-        Nothing urgent.
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-2">
-      {props.items.map((item, index) => (
-        <Link
-          key={item.id}
-          href={item.href as Route}
-          title={`Open ${item.label}`}
-          className="group flex items-start justify-between gap-3 rounded-[14px] border border-bg-border bg-bg-hover/40 px-3 py-3 transition hover:border-[rgba(255,255,255,0.12)] hover:bg-[#151517]"
-        >
-          <div className="flex min-w-0 items-start gap-3">
-            <div className="flex h-7 w-7 items-center justify-center rounded-full border border-bg-border bg-bg-primary/65 text-[11px] font-semibold text-text-primary">
-              {index + 1}
-            </div>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <StatusPill value={item.level} />
-                <div className="text-sm font-semibold text-text-primary">{item.label}</div>
-              </div>
-              <div className="mt-1 line-clamp-2 text-xs leading-5 text-text-secondary">{item.detail}</div>
-            </div>
-          </div>
-          <ArrowUpRight className="mt-1 h-4 w-4 shrink-0 text-text-secondary transition group-hover:text-accent" />
-        </Link>
-      ))}
-    </div>
-  );
-}
-
-function EventList(props: { events: OperatorEvent[]; emptyText: string; compact?: boolean; hydrated: boolean }) {
-  if (props.events.length === 0) {
-    return <div className="rounded-[14px] border border-bg-border bg-bg-hover/40 px-4 py-4 text-sm text-text-secondary">{props.emptyText}</div>;
-  }
-
-  return (
-    <div className={props.compact ? "space-y-2" : "space-y-3"}>
-      {props.events.map((event) => {
-        const href = eventHref(event);
-        return (
-          <div key={event.id} className={cn("rounded-[14px] border border-bg-border bg-bg-hover/40", props.compact ? "px-3 py-3" : "px-4 py-4")}>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className={cn("rounded-[10px] border border-bg-border bg-bg-primary/70 text-text-secondary", props.compact ? "p-1.5" : "p-2")}>
-                  <EventIcon event={event} />
-                </div>
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <StatusPill value={event.level} />
-                    <div className="text-sm font-semibold text-text-primary">{event.title}</div>
-                  </div>
-                  <div className="mt-1 text-[11px] uppercase tracking-[0.18em] text-text-muted">
-                    {event.kind.replace(/_/g, " ")}
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {href ? (
-                  <Link
-                    href={href as Route}
-                    className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "inline-flex items-center gap-2")}
-                    title="Open related record"
-                  >
-                    Open
-                    <ArrowUpRight className="h-3.5 w-3.5" />
-                  </Link>
-                ) : null}
-                <div className="text-xs text-text-muted">{safeClientTimestamp(event.createdAt, props.hydrated)}</div>
-              </div>
-            </div>
-            {event.detail ? <div className={cn("text-text-secondary", props.compact ? "mt-1 text-xs leading-5" : "mt-2 text-sm leading-6")}>{event.detail}</div> : null}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function AdaptiveModelPanel(props: { model: AdaptiveModelState }) {
-  const mode = props.model.enabled ? "Active model" : "Inactive model";
-  const riskTone = props.model.status === "degraded"
-    ? "text-accent-yellow"
-    : props.model.status === "stale"
-      ? "text-accent-red"
-      : "text-accent";
-  const summary = props.model.warnings[0]
-    ?? (props.model.enabled
-      ? "Adaptive model is backed by staged discovery output."
-      : "No adaptive strategy is staged yet. Run discovery and stage a calibrated strategy from results.");
-
-  return (
-    <div className="space-y-2.5">
-      <div className="rounded-[14px] border border-bg-border bg-bg-hover/45 px-3 py-2.5">
-        <div className="flex flex-wrap items-center gap-2">
-          <StatusPill value={mode} />
-          <span className={`text-sm font-semibold ${riskTone}`}>{props.model.status.toUpperCase()} adaptive status</span>
-        </div>
-        <div className="mt-1 text-xs leading-5 text-text-secondary">{summary}</div>
-      </div>
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-        <AdaptiveMetricCard
-          icon={Sparkles}
-          label="Pack"
-          value={props.model.packName ?? "Unstaged"}
-          detail={props.model.sourceRunId ? `Run ${props.model.sourceRunId}` : "No source run"}
-        />
-        <AdaptiveMetricCard
-          icon={Cpu}
-          label="Bands"
-          value={formatInteger(props.model.bandCount)}
-          detail="Decision bands"
-        />
-        <AdaptiveMetricCard
-          icon={Sparkles}
-          label="Winners"
-          value={formatInteger(props.model.winnerCount)}
-          detail="Calibration sample"
-        />
-        <AdaptiveMetricCard
-          icon={Cpu}
-          label="Confidence"
-          value={props.model.calibrationConfidence == null ? "—" : `${Math.round(props.model.calibrationConfidence * 100)}%`}
-          detail={props.model.dominantMode ?? "No dominant mode"}
-        />
-      </div>
-      <div className="text-xs leading-5 text-text-muted">
-        {props.model.automationUsesAdaptive ? "Live automation is using adaptive logic." : "Adaptive logic is staged but not currently running live automation."}
-      </div>
-    </div>
-  );
-}
-
-function AdaptiveMetricCard(props: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: string;
-  detail: string;
-}) {
-  const Icon = props.icon;
-  return (
-    <Card className="rounded-[14px] border-bg-border bg-[#101012] shadow-none">
-      <CardContent className="px-3 py-2.5">
-        <div className="flex items-center gap-2">
-          <Icon className="h-4 w-4 text-text-secondary" />
-          <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">{props.label}</span>
-        </div>
-        <div className="mt-1.5 text-sm font-semibold text-text-primary">{props.value}</div>
-        <div className="mt-0.5 text-[11px] leading-5 text-text-secondary">{props.detail}</div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function buildInterventionItems(home: DeskHomePayload, diagnostics: DiagnosticsPayload) {
-  const items: Array<{ id: string; level: "info" | "warning" | "danger"; label: string; detail: string; href: string }> = [];
-
-  if (!home.readiness.allowed) {
-    items.push({
-      id: "readiness-blocker",
-      level: "danger",
-      label: home.readiness.summary,
-      detail: home.readiness.detail ?? "A global blocker is active.",
-      href: operationalDeskRoutes.settings,
-    });
-  }
-
-  for (const issue of diagnostics.issues.slice(0, 3)) {
-    items.push({
-      id: issue.id,
-      level: issue.level,
-      label: issue.label,
-      detail: issue.detail,
-      href: operationalDeskRoutes.overview,
-    });
-  }
-
-  if (home.exposure.openPositions > 0) {
-    items.push({
-      id: "open-book",
-      level: home.exposure.openPositions >= home.exposure.maxOpenPositions ? "warning" : "info",
-      label: `${formatInteger(home.exposure.openPositions)} open position(s)`,
-      detail: `${formatInteger(home.exposure.maxOpenPositions)} max slots · cash ${formatCompactCurrency(home.exposure.cashUsd)}`,
-      href: `${operationalDeskRoutes.trading}?book=open`,
-    });
-  }
-
-  for (const bucket of home.queue.buckets.filter((entry) => entry.count > 0)) {
-    items.push({
-      id: `queue-${bucket.bucket}`,
-      level: bucket.bucket === "ready" ? "info" : bucket.bucket === "provider" ? "warning" : "danger",
-      label: `${formatInteger(bucket.count)} ${bucket.label.toLowerCase()}`,
-      detail: bucket.bucket === "ready" ? "Ready first." : "Still blocked.",
-      href: `${operationalDeskRoutes.trading}?bucket=${bucket.bucket}`,
-    });
-  }
-
-  if (home.providerPressure.paceStatus !== "ok") {
-    items.push({
-      id: "provider-pace",
-      level: home.providerPressure.paceStatus === "danger" ? "danger" : "warning",
-      label: "Provider pace under pressure",
-      detail: `${formatInteger(home.providerPressure.projectedMonthlyUnits)} projected against ${formatInteger(home.providerPressure.monthlyBudgetUnits)} budget`,
-      href: operationalDeskRoutes.overview,
-    });
-  }
-
-  return items.slice(0, 8);
-}
-
-function EventIcon(props: { event: OperatorEvent }) {
-  if (props.event.kind.includes("research")) {
-    return <FlaskConical className="h-4 w-4" />;
-  }
-
-  if (props.event.kind.includes("control") || props.event.kind.includes("pause") || props.event.kind.includes("resume")) {
-    return <CirclePause className="h-4 w-4" />;
-  }
-
-  if (props.event.kind.includes("failure") || props.event.level !== "info") {
-    return <AlertTriangle className="h-4 w-4" />;
-  }
-
-  return <RadioTower className="h-4 w-4" />;
-}
-
-function eventHref(event: OperatorEvent) {
-  if (!event.entityId || !event.entityType) return null;
-
-  if (event.entityType === "candidate") {
-    return `/candidates/${event.entityId}`;
-  }
-
-  if (event.entityType === "position") {
-    return `/positions/${event.entityId}`;
-  }
-
-  return null;
 }

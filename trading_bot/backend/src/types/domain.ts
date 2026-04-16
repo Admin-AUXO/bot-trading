@@ -248,7 +248,8 @@ export interface RuntimeSnapshot {
 
 export type StrategyPresetId =
   | "FIRST_MINUTE_POSTGRAD_CONTINUATION"
-  | "LATE_CURVE_MIGRATION_SNIPE";
+  | "LATE_CURVE_MIGRATION_SNIPE"
+  | "SCALP_30_60_FAST";
 
 export type StrategyRecipeMode = "graduated" | "pregrad";
 export type StrategyRecipeParamValue = string | number | boolean | null;

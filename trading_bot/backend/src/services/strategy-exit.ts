@@ -1,6 +1,58 @@
 import type { BotSettings } from "../types/domain.js";
 import { applyStrategySettings } from "./strategy-presets.js";
-import { asRecord, asNumber, clamp } from "../utils/types.js";
+import { asRecord, asNumber, asBoolean, clamp } from "../utils/types.js";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ATR Utilities
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Number of exit ticks used to compute ATR. */
+export const ATR_PERIOD = 20;
+
+/**
+ * True Range = max(|H-L|, |H-prevClose|, |L-prevClose|)
+ * Uses closing prices only (H/L are proxied by the close price ± half-ATR estimate).
+ * For a more accurate ATR, pass a High/Low/Close series; for this implementation
+ * we use |close[i] - close[i-1]| as the TR approximation which is standard
+ * when OHLC data is not available per tick.
+ */
+export function computeAtrFromPrices(prices: number[]): number {
+  if (prices.length < 2) return 0;
+  const n = Math.min(prices.length, ATR_PERIOD + 1);
+  const recent = prices.slice(-n);
+  let trSum = 0;
+  for (let i = 1; i < recent.length; i++) {
+    // Simplified True Range: |close[i] - close[i-1]| (Close-to-Close approximation)
+    const tr = Math.abs(recent[i] - recent[i - 1]);
+    trSum += tr;
+  }
+  return trSum / Math.max(recent.length - 1, 1);
+}
+
+/** ATR multiplier for the stop-loss band. */
+export const SL_ATR_MULTIPLIER = 1.5;
+
+/** ATR multiplier for the post-TP1 retrace floor. */
+export const RETRACE_ATR_MULTIPLIER = 1.5;
+
+/** ATR multiplier for the VTS (volatility-trailing-stop) floor. */
+export const VTS_ATR_MULTIPLIER = 2.0;
+
+/**
+ * When the evaluation price is more than this % above the discovery price,
+ * the position is rejected — you're paying more than fair value.
+ */
+export const FAIR_VALUE_ENTRY_PREMIUM_CAP = 0.05; // 5 %
+
+/**
+ * Runner-profile entries (score ≥ 0.82) allow a slightly higher premium
+ * since conviction and expected continuation are higher.
+ */
+export const RUNNER_ENTRY_PREMIUM_CAP = 0.07; // 7 %
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
 
 export type ExitProfile = "scalp" | "balanced" | "runner";
 
@@ -16,6 +68,16 @@ export type ExitPlan = {
   timeStopMinutes: number;
   timeStopMinReturnPercent: number;
   timeLimitMinutes: number;
+  /** If true, partial stop-loss is enabled (sell fraction on SL hit if loss is shallow). */
+  partialStopLossEnabled: boolean;
+  /** % loss threshold — partial SL triggers when pnlPercent is above this (less negative). */
+  partialSlThresholdPercent: number;
+  /** Fraction of position to sell when partial SL triggers. */
+  partialSlSellFraction: number;
+  /** If true, TP levels are extended dynamically when momentum is accelerating. */
+  momentumTpExtensionEnabled: boolean;
+  /** Minutes interval at which to attempt mid-position plan recalibration (0 = off). */
+  recalibrateIntervalMinutes: number;
 };
 
 export type ExitPlanContext = {
@@ -29,6 +91,26 @@ export type ExitPlanContext = {
   softIssueCount?: number | null;
 };
 
+/** Live market data fetched at each exit tick. */
+export type LiveExitContext = {
+  /** Most recent 5-minute volume in USD. */
+  volume5mUsd?: number | null;
+  /** Current buy/sell ratio over 5 minutes (buyVolume / sellVolume). */
+  buySellRatio?: number | null;
+  /**
+   * Simple ATR in dollar terms — same unit as priceUsd.
+   * Computed externally (e.g. ExitEngine) over the rolling price history.
+   */
+  atrUsd?: number | null;
+  /** 5-minute volume at position open time. Used to detect volume acceleration. */
+  volume5mAtEntry?: number | null;
+  /**
+   * Mid-position recalibration context — recomputed every recalibrateIntervalMinutes.
+   * Allows TP multipliers and stop-loss to tighten/loosen as new on-chain data arrives.
+   */
+  recalibratedContext?: ExitPlanContext;
+};
+
 type RuntimeExitPlan = Pick<
   ExitPlan,
   | "tp1SellFraction"
@@ -38,6 +120,11 @@ type RuntimeExitPlan = Pick<
   | "timeStopMinutes"
   | "timeStopMinReturnPercent"
   | "timeLimitMinutes"
+  | "partialStopLossEnabled"
+  | "partialSlThresholdPercent"
+  | "partialSlSellFraction"
+  | "momentumTpExtensionEnabled"
+  | "recalibrateIntervalMinutes"
 >;
 
 export type ExitDecision = {
@@ -59,6 +146,10 @@ export type ManagedExitPosition = {
   metadata: unknown;
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Exit Plan Builder
+// ─────────────────────────────────────────────────────────────────────────────
+
 export function buildExitPlan(
   settings: BotSettings,
   entryScore: number,
@@ -70,7 +161,7 @@ export function buildExitPlan(
   if (entryScore >= 0.82) {
     const timeStopMinutes = scaleMinutes(exits.timeStopMinutes, 1.7, exits.timeStopMinutes + 1, 60);
     const timeLimitMinutes = ensureTimeLimit(
-      scaleMinutes(exits.timeLimitMinutes, 1.6, exits.timeLimitMinutes + 2, 90),
+      scaleMinutes(exits.timeLimitMinutes, 1.6, exits.timeStopMinutes + 2, 90),
       timeStopMinutes,
     );
     return applyExitContext({
@@ -85,6 +176,11 @@ export function buildExitPlan(
       timeStopMinutes,
       timeStopMinReturnPercent: Math.max(exits.timeStopMinReturnPercent + 3, 8),
       timeLimitMinutes,
+      partialStopLossEnabled: true,
+      partialSlThresholdPercent: 8,
+      partialSlSellFraction: 0.5,
+      momentumTpExtensionEnabled: true,
+      recalibrateIntervalMinutes: 5,
     }, context);
   }
 
@@ -101,6 +197,11 @@ export function buildExitPlan(
       timeStopMinutes: exits.timeStopMinutes,
       timeStopMinReturnPercent: exits.timeStopMinReturnPercent,
       timeLimitMinutes: exits.timeLimitMinutes,
+      partialStopLossEnabled: true,
+      partialSlThresholdPercent: 10,
+      partialSlSellFraction: 0.5,
+      momentumTpExtensionEnabled: true,
+      recalibrateIntervalMinutes: 5,
     }, context);
   }
 
@@ -121,8 +222,17 @@ export function buildExitPlan(
     timeStopMinutes,
     timeStopMinReturnPercent: Math.max(exits.timeStopMinReturnPercent - 2, 2),
     timeLimitMinutes,
+    partialStopLossEnabled: false,
+    partialSlThresholdPercent: 8,
+    partialSlSellFraction: 0.5,
+    momentumTpExtensionEnabled: false,
+    recalibrateIntervalMinutes: 0,
   }, context);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Exit Plan Reader (persisted metadata → runtime overrides)
+// ─────────────────────────────────────────────────────────────────────────────
 
 export function readExitPlan(
   metadata: unknown,
@@ -139,68 +249,288 @@ export function readExitPlan(
     timeStopMinutes: asNumber(exitPlan?.timeStopMinutes) ?? fallback.timeStopMinutes,
     timeStopMinReturnPercent: asNumber(exitPlan?.timeStopMinReturnPercent) ?? fallback.timeStopMinReturnPercent,
     timeLimitMinutes: asNumber(exitPlan?.timeLimitMinutes) ?? fallback.timeLimitMinutes,
+    partialStopLossEnabled: asBoolean(exitPlan?.partialStopLossEnabled) ?? fallback.partialStopLossEnabled ?? true,
+    partialSlThresholdPercent: asNumber(exitPlan?.partialSlThresholdPercent) ?? fallback.partialSlThresholdPercent ?? 10,
+    partialSlSellFraction: asNumber(exitPlan?.partialSlSellFraction) ?? fallback.partialSlSellFraction ?? 0.5,
+    momentumTpExtensionEnabled: asBoolean(exitPlan?.momentumTpExtensionEnabled) ?? fallback.momentumTpExtensionEnabled ?? false,
+    recalibrateIntervalMinutes: asNumber(exitPlan?.recalibrateIntervalMinutes) ?? fallback.recalibrateIntervalMinutes ?? 0,
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Dynamic TP Extension Helper
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Returns an extended TP1 multiplier when momentum is accelerating.
+ * Returns the original tp1Multiplier if conditions aren't met.
+ */
+function getDynamicTpMultiplier(
+  currentTp: number,
+  priceUsd: number,
+  entryPriceUsd: number,
+  volume5mNow: number,
+  volume5mAtEntry: number,
+  buySellRatioNow: number,
+  profile: ExitProfile,
+): number {
+  const distanceToTp = ((currentTp * entryPriceUsd) - priceUsd) / priceUsd;
+
+  // Only attempt extension when within 5% of the TP level
+  if (distanceToTp > 0.05) return currentTp;
+
+  const volumeAccelerating = volume5mNow > volume5mAtEntry * 1.2;
+  const strongBuyPressure = buySellRatioNow > 1.5;
+  if (!volumeAccelerating || !strongBuyPressure) return currentTp;
+
+  const extension = profile === "runner" ? 0.18
+    : profile === "balanced" ? 0.12
+    : 0.04; // scalp: barely extend
+
+  return currentTp + extension;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main Exit Decision Engine
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Computes whether the given position should be exited at the current price.
+ *
+ * Key dynamic behaviours:
+ * 1. ATR-adjusted stop loss — widens in volatile conditions
+ * 2. Partial stop loss — sell 50% on SL hit if loss is shallow
+ * 3. Momentum-extended TPs — raise TP levels when volume/buy-pressure accelerate
+ * 4. Progressive TP fractions — sell less on fast approaches, more on slow ones
+ * 5. VTS — volatility-trailing-stop using ATR
+ * 6. Mid-position recalibration — TP/SL re-tuned every N minutes
+ */
 export function getExitDecision(
   position: ManagedExitPosition,
   priceUsd: number,
   fallback: RuntimeExitPlan,
+  liveContext?: LiveExitContext,
   now = new Date(),
 ): ExitDecision | null {
-  if (!Number.isFinite(priceUsd) || priceUsd <= 0) {
-    return null;
-  }
+  if (!Number.isFinite(priceUsd) || priceUsd <= 0) return null;
 
+  const exitPlan = readExitPlan(position.metadata, fallback);
   const peakPriceUsd = Math.max(position.peakPriceUsd, priceUsd);
   const pnlPercent = ((priceUsd - position.entryPriceUsd) / position.entryPriceUsd) * 100;
   const ageMinutes = (now.getTime() - position.openedAt.getTime()) / 60_000;
-  const exitPlan = readExitPlan(position.metadata, fallback);
+  const atr = liveContext?.atrUsd ?? 0;
 
-  if (!position.tp1Done && priceUsd <= position.stopLossPriceUsd) {
+  const profile = (asRecord(position.metadata)?.exitProfile as ExitProfile) ?? "balanced";
+
+  // ── 1. MID-POSITION RECALIBRATION ─────────────────────────────────────
+  // If recalibration is enabled and enough time has passed, allow updated context
+  // to override the TP multipliers and stop-loss percent (not fractions).
+  let effectiveTp1Multiplier = peakPriceUsd > 0
+    ? (position.takeProfit1PriceUsd / position.entryPriceUsd)
+    : 1.5;
+  let effectiveTp2Multiplier = peakPriceUsd > 0
+    ? (position.takeProfit2PriceUsd / position.entryPriceUsd)
+    : 2.2;
+  let effectiveStopLossPercent = exitPlan.timeStopMinutes > 0
+    ? (1 - (position.stopLossPriceUsd / position.entryPriceUsd)) * 100
+    : 20;
+
+  if (
+    exitPlan.recalibrateIntervalMinutes > 0
+    && liveContext?.recalibratedContext
+  ) {
+    const recalibrated = applyExitContext(
+      {
+        profile,
+        stopLossPercent: effectiveStopLossPercent,
+        tp1Multiplier: effectiveTp1Multiplier,
+        tp2Multiplier: effectiveTp2Multiplier,
+        tp1SellFraction: exitPlan.tp1SellFraction,
+        tp2SellFraction: exitPlan.tp2SellFraction,
+        postTp1RetracePercent: 15,
+        trailingStopPercent: 20,
+        timeStopMinutes: 20,
+        timeStopMinReturnPercent: 5,
+        timeLimitMinutes: 45,
+        partialStopLossEnabled: exitPlan.partialStopLossEnabled,
+        partialSlThresholdPercent: exitPlan.partialSlThresholdPercent,
+        partialSlSellFraction: exitPlan.partialSlSellFraction,
+        momentumTpExtensionEnabled: exitPlan.momentumTpExtensionEnabled,
+        recalibrateIntervalMinutes: exitPlan.recalibrateIntervalMinutes,
+      },
+      liveContext.recalibratedContext,
+    );
+    effectiveTp1Multiplier = recalibrated.tp1Multiplier;
+    effectiveTp2Multiplier = recalibrated.tp2Multiplier;
+    effectiveStopLossPercent = recalibrated.stopLossPercent;
+  }
+
+  const effectiveTp1Price = position.entryPriceUsd * effectiveTp1Multiplier;
+  const effectiveTp2Price = position.entryPriceUsd * effectiveTp2Multiplier;
+  const effectiveSlPrice = position.entryPriceUsd * (1 - effectiveStopLossPercent / 100);
+
+  // ── 2. DYNAMIC STOP LOSS (AVR-based) ───────────────────────────────────
+  // Wider of: static SL or entryPrice - ATR * multiplier
+  const atrAdjustedSl = atr > 0
+    ? position.entryPriceUsd - (atr * SL_ATR_MULTIPLIER)
+    : 0;
+  const effectiveStop = Math.max(atrAdjustedSl, effectiveSlPrice);
+
+  if (!position.tp1Done && priceUsd <= effectiveStop) {
+    // ── PARTIAL STOP LOSS ──────────────────────────────────────────────
+    if (
+      exitPlan.partialStopLossEnabled
+      && pnlPercent > -(exitPlan.partialSlThresholdPercent)
+    ) {
+      return {
+        reason: "partial_stop_loss",
+        fraction: exitPlan.partialSlSellFraction,
+        peakPriceUsd,
+      };
+    }
     return { reason: "stop_loss", peakPriceUsd };
   }
 
-  if (!position.tp1Done && priceUsd >= position.takeProfit1PriceUsd) {
-    return {
-      reason: "take_profit_1",
-      fraction: exitPlan.tp1SellFraction,
-      peakPriceUsd,
-    };
+  // ── 3. DYNAMIC TP1 — momentum extension ────────────────────────────────
+  let finalTp1Price = effectiveTp1Price;
+  if (
+    exitPlan.momentumTpExtensionEnabled
+    && !position.tp1Done
+  ) {
+    const volumeNow = liveContext?.volume5mUsd ?? 0;
+    const volumeEntry = liveContext?.volume5mAtEntry ?? volumeNow;
+    const bsr = liveContext?.buySellRatio ?? 1;
+
+    const dynamicTp1 = getDynamicTpMultiplier(
+      effectiveTp1Multiplier,
+      priceUsd,
+      position.entryPriceUsd,
+      volumeNow,
+      volumeEntry,
+      bsr,
+      profile,
+    );
+    finalTp1Price = position.entryPriceUsd * dynamicTp1;
   }
 
-  if (position.tp1Done && !position.tp2Done && priceUsd >= position.takeProfit2PriceUsd) {
-    return {
-      reason: "take_profit_2",
-      fraction: exitPlan.tp2SellFraction,
-      peakPriceUsd,
-    };
+  // ── 4. TP1 HIT — progressive fraction based on rate of approach ────────
+  if (!position.tp1Done && priceUsd >= finalTp1Price) {
+    const entryRatePerMin = pnlPercent / Math.max(ageMinutes, 0.5);
+    const volumeNow = liveContext?.volume5mUsd ?? 0;
+    const volumeEntry = liveContext?.volume5mAtEntry ?? volumeNow;
+    const bsr = liveContext?.buySellRatio ?? 1;
+    const volumeRising = volumeNow > volumeEntry * 1.2;
+    const strongBuyPressure = bsr > 1.5;
+
+    // Fast + strong momentum → sell less, keep running
+    // Slow + weak momentum → sell more, secure the win
+    const fastApproach = entryRatePerMin > 3;
+    const slowWeak = entryRatePerMin < 1 && !strongBuyPressure;
+
+    let tp1Fraction = exitPlan.tp1SellFraction;
+    if (fastApproach && strongBuyPressure) {
+      tp1Fraction = clamp(tp1Fraction * 0.6, 0.15, 0.45);
+    } else if (slowWeak) {
+      tp1Fraction = clamp(tp1Fraction * 1.4, 0.45, 0.75);
+    } else if (volumeRising && strongBuyPressure) {
+      // Volume spike at TP1 — scale out modestly
+      tp1Fraction = clamp(tp1Fraction * 0.75, 0.2, 0.5);
+    }
+
+    return { reason: "take_profit_1", fraction: tp1Fraction, peakPriceUsd };
   }
 
+  // ── 5. DYNAMIC TP2 — momentum extension ────────────────────────────────
+  let finalTp2Price = effectiveTp2Price;
+  if (
+    exitPlan.momentumTpExtensionEnabled
+    && position.tp1Done
+    && !position.tp2Done
+  ) {
+    const volumeNow = liveContext?.volume5mUsd ?? 0;
+    const volumeEntry = liveContext?.volume5mAtEntry ?? volumeNow;
+    const bsr = liveContext?.buySellRatio ?? 1;
+
+    // TP2 extension step: smaller than TP1 (already took some profit)
+    const extension = profile === "runner" ? 0.12 : profile === "balanced" ? 0.08 : 0.03;
+    const dynamicTp2 = getDynamicTpMultiplier(
+      effectiveTp2Multiplier,
+      priceUsd,
+      position.entryPriceUsd,
+      volumeNow,
+      volumeEntry,
+      bsr,
+      profile,
+    );
+    finalTp2Price = position.entryPriceUsd * dynamicTp2;
+  }
+
+  // ── 6. TP2 HIT — progressive fraction ────────────────────────────────
+  if (position.tp1Done && !position.tp2Done && priceUsd >= finalTp2Price) {
+    const bsr = liveContext?.buySellRatio ?? 1;
+    const strongBuyPressure = bsr > 1.5;
+
+    // On strong momentum: sell less, let remaining ride
+    const tp2Fraction = strongBuyPressure
+      ? clamp(exitPlan.tp2SellFraction * 0.7, 0.1, 0.3)
+      : exitPlan.tp2SellFraction;
+
+    return { reason: "take_profit_2", fraction: tp2Fraction, peakPriceUsd };
+  }
+
+  // ── 7. POST-TP1 RETRACE — volatility-adjusted ────────────────────────
   if (position.tp1Done && !position.tp2Done) {
-    const retraceFloor = peakPriceUsd * (1 - exitPlan.postTp1RetracePercent / 100);
-    if (priceUsd <= retraceFloor) {
+    // Wider of: static % retrace or peakPrice - ATR * multiplier
+    const staticRetraceFloor = peakPriceUsd * (1 - exitPlan.postTp1RetracePercent / 100);
+    const atrRetraceFloor = atr > 0
+      ? peakPriceUsd - (atr * RETRACE_ATR_MULTIPLIER)
+      : 0;
+    const effectiveRetraceFloor = Math.max(atrRetraceFloor, staticRetraceFloor);
+
+    if (priceUsd <= effectiveRetraceFloor) {
       return { reason: "post_tp1_retrace", peakPriceUsd };
     }
   }
 
+  // ── 8. VTS — volatility trailing stop ────────────────────────────────
   if (position.tp2Done) {
-    const trailingFloor = peakPriceUsd * (1 - exitPlan.trailingStopPercent / 100);
-    if (priceUsd <= trailingFloor) {
+    // Wider of: static % trailing or peakPrice - ATR * multiplier
+    const staticVtsFloor = peakPriceUsd * (1 - exitPlan.trailingStopPercent / 100);
+    const atrVtsFloor = atr > 0
+      ? peakPriceUsd - (atr * VTS_ATR_MULTIPLIER)
+      : 0;
+    const effectiveVtsFloor = Math.max(atrVtsFloor, staticVtsFloor);
+
+    if (priceUsd <= effectiveVtsFloor) {
       return { reason: "trailing_stop", peakPriceUsd };
     }
   }
 
+  // ── 9. TIME STOP — with momentum grace period ───────────────────────
   if (ageMinutes >= exitPlan.timeStopMinutes && pnlPercent < exitPlan.timeStopMinReturnPercent) {
+    // In strong uptrend: give up to 3 extra minutes
+    const volumeNow = liveContext?.volume5mUsd ?? 0;
+    const volumeEntry = liveContext?.volume5mAtEntry ?? volumeNow;
+    const bsr = liveContext?.buySellRatio ?? 1;
+    const strongMomentum = pnlPercent > 10 && bsr > 1.5 && volumeNow > volumeEntry;
+
+    if (strongMomentum && ageMinutes < exitPlan.timeStopMinutes + 3) {
+      return null; // hold a bit longer
+    }
     return { reason: "time_stop", peakPriceUsd };
   }
 
+  // ── 10. TIME LIMIT — hard exit ────────────────────────────────────
   if (ageMinutes >= exitPlan.timeLimitMinutes) {
     return { reason: "time_limit", peakPriceUsd };
   }
 
   return null;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
 
 function scaleMinutes(value: number, multiplier: number, min: number, max: number): number {
   return clamp(Math.round(value * multiplier * 10) / 10, min, max);
@@ -211,66 +541,41 @@ function ensureTimeLimit(value: number, timeStopMinutes: number): number {
 }
 
 function applyExitContext(plan: ExitPlan, context?: ExitPlanContext): ExitPlan {
-  if (!context) {
-    return plan;
-  }
+  if (!context) return plan;
 
   let fragility = 0;
   const age = context.timeSinceGraduationMin;
   if (typeof age === "number") {
-    if (age <= 5) {
-      fragility += 0.18;
-    } else if (age <= 15) {
-      fragility += 0.12;
-    } else if (age <= 30) {
-      fragility += 0.08;
-    }
+    if (age <= 5)      fragility += 0.18;
+    else if (age <= 15) fragility += 0.12;
+    else if (age <= 30) fragility += 0.08;
   }
 
   const marketCapUsd = context.marketCapUsd ?? null;
   if (typeof marketCapUsd === "number") {
-    if (marketCapUsd < 250_000) {
-      fragility += 0.18;
-    } else if (marketCapUsd < 600_000) {
-      fragility += 0.1;
-    } else if (marketCapUsd > 4_000_000) {
-      fragility -= 0.04;
-    }
+    if (marketCapUsd < 250_000)      fragility += 0.18;
+    else if (marketCapUsd < 600_000) fragility += 0.1;
+    else if (marketCapUsd > 4_000_000) fragility -= 0.04;
   }
 
   const socialCount = context.socialCount ?? 0;
-  if (socialCount === 0) {
-    fragility += 0.08;
-  } else if (socialCount >= 2) {
-    fragility -= 0.05;
-  }
+  if (socialCount === 0)           fragility += 0.08;
+  else if (socialCount >= 2)      fragility -= 0.05;
 
-  if ((context.top10HolderPercent ?? 0) >= 42) {
-    fragility += 0.08;
-  } else if ((context.top10HolderPercent ?? 0) <= 26) {
-    fragility -= 0.03;
-  }
+  if ((context.top10HolderPercent ?? 0) >= 42)      fragility += 0.08;
+  else if ((context.top10HolderPercent ?? 0) <= 26) fragility -= 0.03;
 
-  if ((context.largestHolderPercent ?? 0) >= 21) {
-    fragility += 0.06;
-  } else if ((context.largestHolderPercent ?? 0) <= 11) {
-    fragility -= 0.03;
-  }
+  if ((context.largestHolderPercent ?? 0) >= 21)     fragility += 0.06;
+  else if ((context.largestHolderPercent ?? 0) <= 11) fragility -= 0.03;
 
   const rugScore = context.rugScoreNormalized ?? null;
   if (typeof rugScore === "number") {
-    if (rugScore >= 70) {
-      fragility += 0.14;
-    } else if (rugScore >= 55) {
-      fragility += 0.08;
-    } else if (rugScore <= 30) {
-      fragility -= 0.04;
-    }
+    if (rugScore >= 70)      fragility += 0.14;
+    else if (rugScore >= 55) fragility += 0.08;
+    else if (rugScore <= 30) fragility -= 0.04;
   }
 
-  if ((context.lpLockedPercent ?? 0) >= 90) {
-    fragility -= 0.03;
-  }
+  if ((context.lpLockedPercent ?? 0) >= 90) fragility -= 0.03;
 
   fragility += Math.min(context.softIssueCount ?? 0, 3) * 0.04;
   fragility = clamp(fragility, -0.12, 0.42);
@@ -281,7 +586,10 @@ function applyExitContext(plan: ExitPlan, context?: ExitPlanContext): ExitPlan {
     tp1Multiplier + 0.18,
     3.2,
   );
-  const timeStopMinutes = clamp(Math.round(plan.timeStopMinutes * (1 - fragility * 0.55) * 10) / 10, 1.5, 18);
+  const timeStopMinutes = clamp(
+    Math.round(plan.timeStopMinutes * (1 - fragility * 0.55) * 10) / 10,
+    1.5, 18,
+  );
   const timeLimitMinutes = ensureTimeLimit(
     clamp(Math.round(plan.timeLimitMinutes * (1 - fragility * 0.62) * 10) / 10, 3, 32),
     timeStopMinutes,
