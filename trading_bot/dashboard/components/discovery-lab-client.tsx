@@ -30,7 +30,9 @@ import { CompactPageHeader, EmptyState, Panel, ScanStat, StatusPill } from "@/co
 import { fetchJson } from "@/lib/api";
 import { discoveryLabRoutes } from "@/lib/dashboard-routes";
 import { formatInteger, formatTimestamp, smartFormatValue } from "@/lib/format";
+import { clamp } from "@/lib/utils";
 import type {
+  BotSettings,
   DiscoveryLabApplyLiveStrategyResponse,
   DiscoveryLabCatalog,
   DiscoveryLabPack,
@@ -43,7 +45,6 @@ import type {
   DiscoveryLabValidationIssue,
   DiscoveryLabValidationResponse,
   LiveStrategySettings,
-  SettingsControlState,
 } from "@/lib/types";
 
 const THRESHOLD_FIELDS: Array<{ key: keyof DiscoveryLabThresholdOverrides; label: string }> = [
@@ -55,6 +56,7 @@ const THRESHOLD_FIELDS: Array<{ key: keyof DiscoveryLabThresholdOverrides; label
   { key: "minBuySellRatio", label: "Min buy / sell ratio" },
   { key: "maxTop10HolderPercent", label: "Max top10 holder %" },
   { key: "maxSingleHolderPercent", label: "Max single holder %" },
+  { key: "maxGraduationAgeSeconds", label: "Max graduation age seconds" },
   { key: "maxNegativePriceChange5mPercent", label: "Max negative 5m change %" },
 ];
 
@@ -67,6 +69,7 @@ const THRESHOLD_FIELD_CONFIG: Record<keyof DiscoveryLabThresholdOverrides, { uni
   minBuySellRatio: { unit: "ratio", step: 0.05, suggestions: [1, 1.1, 1.25] },
   maxTop10HolderPercent: { unit: "%", step: 1, suggestions: [35, 42, 50] },
   maxSingleHolderPercent: { unit: "%", step: 1, suggestions: [18, 22, 25] },
+  maxGraduationAgeSeconds: { unit: "seconds", step: 60, suggestions: [600, 1200, 1800] },
   maxNegativePriceChange5mPercent: { unit: "%", step: 0.5, suggestions: [8, 12, 15] },
 };
 
@@ -579,7 +582,6 @@ export function DiscoveryLabClient(props: {
   const [marketRegimeSuggestion, setMarketRegimeSuggestion] = useState<MarketRegimeSuggestion | null>(null);
   const [selectedOptimizationId, setSelectedOptimizationId] = useState("");
   const [liveStrategyDraft, setLiveStrategyDraft] = useState<LiveStrategySettings>(initialRuntimeSnapshot.settings.strategy.liveStrategy);
-  const [hasSettingsDraft, setHasSettingsDraft] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [hasHydrated, setHasHydrated] = useState(false);
   const [favoritePackIds, setFavoritePackIds] = useState<string[]>([]);
@@ -706,7 +708,7 @@ export function DiscoveryLabClient(props: {
   }, [issues.length]);
 
   useEffect(() => {
-    void loadSettingsControl();
+    void loadActiveSettings();
   }, []);
 
   useEffect(() => {
@@ -940,14 +942,11 @@ export function DiscoveryLabClient(props: {
     }
   }
 
-  async function loadSettingsControl() {
+  async function loadActiveSettings() {
     try {
-      const control = await fetchJson<SettingsControlState>("/settings/control");
-      const source = control.draft ?? control.active;
-      setLiveStrategyDraft(source.strategy.liveStrategy);
-      setHasSettingsDraft(Boolean(control.draft));
+      const settings = await fetchJson<BotSettings>("/settings");
+      setLiveStrategyDraft(settings.strategy.liveStrategy);
     } catch {
-      // Keep discovery-lab UI usable even if settings control is temporarily unavailable.
     }
   }
 
@@ -1006,12 +1005,12 @@ export function DiscoveryLabClient(props: {
           method: "POST",
           body: JSON.stringify({ runId: runDetail.id }),
         });
-        await loadSettingsControl();
+        await loadActiveSettings();
         setLiveStrategyDraft(sanitizeLiveStrategy(response.strategy));
-        setMessage(`Run calibration staged to settings draft at ${response.strategy.capitalModifierPercent}% capital modifier.`);
+        setMessage(`Run calibration applied to the active live strategy at ${response.strategy.capitalModifierPercent}% capital modifier.`);
         setError(null);
       } catch (issue) {
-        setError(issue instanceof Error ? issue.message : "failed to apply discovery-lab run to live strategy draft");
+        setError(issue instanceof Error ? issue.message : "failed to apply discovery-lab run to live strategy");
         setMessage(null);
       }
     });
@@ -1032,7 +1031,7 @@ export function DiscoveryLabClient(props: {
     startTransition(async () => {
       try {
         const nextLiveStrategy = sanitizeLiveStrategy(liveStrategyDraft);
-        const control = await fetchJson<SettingsControlState>("/settings/draft", {
+        const nextSettings = await fetchJson<BotSettings>("/settings", {
           method: "POST",
           body: JSON.stringify({
             strategy: {
@@ -1040,13 +1039,11 @@ export function DiscoveryLabClient(props: {
             },
           }),
         });
-        const source = control.draft ?? control.active;
-        setLiveStrategyDraft(source.strategy.liveStrategy);
-        setHasSettingsDraft(Boolean(control.draft));
-        setMessage("Live strategy draft updated. Run dry-run/promote from Settings when ready.");
+        setLiveStrategyDraft(nextSettings.strategy.liveStrategy);
+        setMessage("Live strategy updated.");
         setError(null);
       } catch (issue) {
-        setError(issue instanceof Error ? issue.message : "failed to save live strategy draft");
+        setError(issue instanceof Error ? issue.message : "failed to save live strategy");
         setMessage(null);
       }
     });
@@ -1534,7 +1531,7 @@ export function DiscoveryLabClient(props: {
                     disabled={isPending}
                   >
                     <WandSparkles className="h-4 w-4" />
-                    Stage live model
+                    Apply live model
                   </button>
                   <button
                     onClick={saveLiveStrategyDraft}
@@ -1542,7 +1539,7 @@ export function DiscoveryLabClient(props: {
                     disabled={isPending}
                   >
                     <Save className="h-4 w-4" />
-                    Save strategy draft
+                    Save live model
                   </button>
                 </>
               ) : null}
@@ -2646,7 +2643,7 @@ export function DiscoveryLabClient(props: {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <div className="section-kicker">Live strategy staging</div>
-                    <div className="mt-2 text-sm font-semibold text-text-primary">Open only when you want to tune the draft built from this run.</div>
+                    <div className="mt-2 text-sm font-semibold text-text-primary">Open only when you want to tune and apply the live model built from this run.</div>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <span className="meta-chip">{liveStrategyDraft.enabled ? "Enabled" : "Disabled"}</span>
@@ -2661,7 +2658,7 @@ export function DiscoveryLabClient(props: {
                     <ScanStat
                       label="Mode"
                       value={liveStrategyDraft.enabled ? "Enabled" : "Disabled"}
-                      detail={hasSettingsDraft ? "Draft staged" : "Active baseline"}
+                      detail="Active baseline"
                       tone={liveStrategyDraft.enabled ? "accent" : "default"}
                     />
                     <ScanStat
@@ -3475,10 +3472,6 @@ function humanizeLabel(value: string) {
     .replace(/_dot_/g, ".")
     .replace(/_/g, " ")
     .replace(/\b\w/g, (match) => match.toUpperCase());
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
 }
 
 function normalizeOptionalNumber(value: number | undefined, min: number, max: number): number | undefined {

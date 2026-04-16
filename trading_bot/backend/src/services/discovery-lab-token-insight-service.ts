@@ -1,13 +1,9 @@
 import type { BirdeyeClient } from "./birdeye-client.js";
+import { SharedTokenFactsService } from "./shared-token-facts.js";
 import type { TokenSecuritySnapshot } from "../types/domain.js";
+import { asRecord } from "../utils/types.js";
 
 type ScalarRecord = Record<string, unknown>;
-
-function asRecord(value: unknown): ScalarRecord | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? value as ScalarRecord
-    : null;
-}
 
 function getByPath(source: ScalarRecord | null, path: string): unknown {
   let current: unknown = source;
@@ -136,8 +132,8 @@ function toIsoFromBirdeye(record: ScalarRecord | null): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-function buildAxiomHref(mint: string): string {
-  return `https://axiom.trade/meme/${mint}?chain=sol`;
+function buildAxiomHref(target: string): string {
+  return `https://axiom.trade/meme/${target}?chain=sol`;
 }
 
 function buildDexScreenerHref(mint: string): string {
@@ -158,6 +154,8 @@ function buildSolscanAccountHref(address: string | null): string | null {
 
 export type DiscoveryLabTokenInsight = {
   mint: string;
+  pairAddress: string | null;
+  pairCreatedAt: string | null;
   symbol: string | null;
   name: string | null;
   source: string | null;
@@ -248,6 +246,7 @@ const TOKEN_INSIGHT_CACHE_MAX_SIZE = 256;
 
 export class DiscoveryLabTokenInsightService {
   private readonly cache = new Map<string, { fetchedAt: number; value: DiscoveryLabTokenInsight }>();
+  private readonly sharedFacts = new SharedTokenFactsService();
 
   constructor(private readonly birdeye: BirdeyeClient) {}
 
@@ -265,11 +264,31 @@ export class DiscoveryLabTokenInsightService {
       this.cache.delete(normalizedMint);
     }
 
+    const cachedFacts = await this.sharedFacts.getFreshFacts(normalizedMint);
+    const cachedMarketStats = asRecord(cachedFacts.marketStats);
+    const cachedDexPair = asRecord(cachedMarketStats?.dexPair);
+    const pairAddress = pickString(cachedDexPair, "pairAddress");
+    const pairCreatedAt = pickString(cachedDexPair, "pairCreatedAt");
     const [detail, overview, metadata, security] = await Promise.all([
       this.birdeye.getMemeTokenDetail(normalizedMint),
-      this.birdeye.getTokenOverview(normalizedMint),
-      this.birdeye.getTokenMetadata(normalizedMint),
-      this.birdeye.getTokenSecurity(normalizedMint),
+      cachedFacts.overview
+        ? Promise.resolve(cachedFacts.overview)
+        : this.birdeye.getTokenOverview(normalizedMint).then(async (value) => {
+          await this.sharedFacts.rememberOverview(normalizedMint, value as Record<string, unknown> | null);
+          return value;
+        }),
+      cachedFacts.metadata
+        ? Promise.resolve(cachedFacts.metadata)
+        : this.birdeye.getTokenMetadata(normalizedMint).then(async (value) => {
+          await this.sharedFacts.rememberMetadata(normalizedMint, value as Record<string, unknown> | null);
+          return value;
+        }),
+      cachedFacts.security
+        ? Promise.resolve(cachedFacts.security)
+        : this.birdeye.getTokenSecurity(normalizedMint).then(async (value) => {
+          await this.sharedFacts.rememberSecurity(normalizedMint, value);
+          return value;
+        }),
     ]);
 
     const projectRecords = [metadata, overview];
@@ -284,6 +303,8 @@ export class DiscoveryLabTokenInsightService {
 
     const insight: DiscoveryLabTokenInsight = {
       mint: normalizedMint,
+      pairAddress,
+      pairCreatedAt,
       symbol,
       name,
       source,
@@ -293,7 +314,7 @@ export class DiscoveryLabTokenInsightService {
       description,
       socials,
       toolLinks: {
-        axiom: buildAxiomHref(normalizedMint),
+        axiom: buildAxiomHref(pairAddress ?? normalizedMint),
         dexscreener: buildDexScreenerHref(normalizedMint),
         rugcheck: buildRugcheckHref(normalizedMint),
         solscanToken: buildSolscanTokenHref(normalizedMint),

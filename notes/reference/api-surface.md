@@ -52,6 +52,8 @@ Transport model:
 - `GET /api/operator/diagnostics`: current-fault diagnostics summary, endpoint burn, and stale-component issues
 - `GET /api/operator/discovery-lab/catalog`: discovery-lab pack catalog, active run summary, recent run summaries, available profiles, and known sources; the catalog now includes the retained `Scalp tape + structure` workspace pack plus the three repo-seeded workspace packs, while pack favorites stay browser-local
 - `GET /api/operator/discovery-lab/market-regime?runId=`: per-run market-regime snapshot for discovery-lab results and builder guidance, including regime, confidence, factor breakdown, stale flag, and suggested threshold overrides
+- `GET /api/operator/discovery-lab/market-stats?mint=&limit=&refresh=&focusOnly=`: cache-backed market-wide DEX pulse surface built from Birdeye discovery rows, DexScreener pair metrics, Rugcheck summaries, and tracked-position state. Default reads are snapshot-only and should not burn provider units. `refresh=true` performs a fresh provider pull; `focusOnly=true` with `mint=` refreshes only the single-token focus payload without recomputing the ranked board. The payload now includes `meta.cacheState`, `meta.lastRefreshedAt`, warning strings, and source-tier metadata so the UI can label paid, free, and local inputs.
+- `GET /api/operator/discovery-lab/strategy-suggestions?refresh=`: cache-backed current-market suggestion surface that returns five backend-owned pack drafts with confidence, session fit, threshold ranges, and discovery filter summaries. Default reads stay on the cached market-stats snapshot when available; `refresh=true` refreshes that snapshot first, then recomputes strategy ideas. The payload now includes `meta.cacheState`, `meta.marketStatsRefreshedAt`, warning strings, and source-tier metadata.
 - `GET /api/operator/discovery-lab/token-insight?mint=`: live provider-backed token enrichment for one result-row mint, including socials, creator/tool links, market pulse, and Birdeye security-derived flags for the full-review modal and trade ticket
 - `GET /api/operator/discovery-lab/runs`: recent discovery-lab run summaries, newest first
 - `GET /api/operator/discovery-lab/runs/:id`: full persisted discovery-lab run detail, including pack snapshot, thresholds, calibrated live-strategy payload (`strategyCalibration`), backend-owned adaptive winner cohorts and decision bands, report, and captured stdout or stderr
@@ -62,7 +64,6 @@ Transport model:
 - `GET /api/provider-payloads?limit=&provider=&endpoint=&entityKey=`: raw provider payloads ordered by `capturedAt DESC`, max `500`
 - `GET /api/snapshots?limit=&mint=&trigger=&candidateId=`: token snapshots ordered by `capturedAt DESC`, max `500`
 - `GET /api/settings`: validated merged runtime settings
-- `GET /api/settings/control`: draft-vs-active settings contract, including validation issues, changed paths, dry-run summary, and section metadata
 - `GET /api/views/:name`: SQL view rows, allowlisted only, hard limit `500`
 
 `GET /api/status` now also carries:
@@ -73,10 +74,6 @@ Transport model:
 ## Write Routes
 
 - `POST /api/settings`: accepts `Partial<BotSettings>`, merges against current settings, then validates the full result
-- `POST /api/settings/draft`: updates the persisted settings draft instead of active runtime state
-- `POST /api/settings/draft/discard`: deletes the persisted draft
-- `POST /api/settings/dry-run`: records the current draft review summary, including current gate vs draft gate and whether a new blocker was introduced
-- `POST /api/settings/promote`: promotes the draft to active settings after validation and, for live-affecting paths, a passing dry run
 - `POST /api/control/pause`
 - `POST /api/control/resume`
 - `POST /api/control/discover-now`
@@ -87,14 +84,14 @@ Transport model:
 - `POST /api/operator/discovery-lab/packs/delete`: deletes a custom local discovery-lab pack by `packId`
 - `POST /api/operator/discovery-lab/run`: starts a discovery-lab run from a saved pack or inline draft; returns `409` if another run is already active
 - `POST /api/operator/discovery-lab/manual-entry`: operator entry that promotes one pass-grade result row into a linked candidate and tracked open position, then refreshes managed exit monitoring immediately; execution path follows runtime mode (`LIVE` onchain, `DRY_RUN` simulated fills), and the request can now include an operator-selected `positionSizeUsd` plus per-trade exit overrides from the discovery-lab trade ticket
-- `POST /api/operator/discovery-lab/apply-live-strategy`: stages the selected completed run’s calibrated strategy pack into settings draft (`strategy.liveStrategy` + `strategy.livePresetId`)
+- `POST /api/operator/discovery-lab/apply-live-strategy`: applies the selected completed run’s calibrated strategy pack directly into active runtime settings (`strategy.liveStrategy` + `strategy.livePresetId`)
 
 Settings mutation rules:
 
 - `tradeMode` cannot change while open positions exist
 - `capital.capitalUsd` cannot change while open positions exist
-- The dashboard now edits a persisted draft first. Promotion flow is `draft -> validate -> dry run -> operator review -> promote`
-- Live-affecting paths are `tradeMode`, `capital.*`, `filters.*`, `exits.*`, and `research.*`
+- The dashboard now edits local form state and applies directly through `POST /api/settings`; there is no persisted settings-draft or promote phase
+- Live-affecting paths are `tradeMode`, `capital.*`, `filters.*`, `exits.*`, and `strategy.liveStrategy.*`
 - Live cadence stays read-only in the UI even though the API can still validate the full settings object
 
 Control-route mode rules:
@@ -112,7 +109,7 @@ Dashboard navigation conventions:
 - `/settings` redirects to `/operational-desk/settings`
 - `/telemetry` redirects to `/operational-desk/overview`
 - Discovery lab now owns nested routes:
-  `/discovery-lab/overview`, `/discovery-lab/studio`, `/discovery-lab/run-lab`, `/discovery-lab/results`, and `/discovery-lab/config`
+  `/discovery-lab/overview`, `/discovery-lab/market-stats`, `/discovery-lab/studio`, `/discovery-lab/run-lab`, `/discovery-lab/results`, `/discovery-lab/strategy-ideas`, and `/discovery-lab/config`
 - `/discovery-lab` remains a compatibility redirect to `/discovery-lab/overview`
 - Discovery-lab route selection now sets the client’s initial workbench section, while recent-run reload still swaps the loaded result set without leaving the selected route
 - Discovery-lab should default to `Runs` when no completed run is loaded and fall back to `Results` only when a completed run is selected
@@ -120,7 +117,11 @@ Dashboard navigation conventions:
 - Discovery-lab results can now open a manual trade directly from a selected token row in either runtime mode. The browser should call the proxy write route, not the backend directly, so control-secret auth still applies.
 - Discovery-lab results manual-entry flow now opens a full-screen trade ticket client-side, then posts the selected size and exit settings through the same proxy write route.
 - Discovery-lab results now fetch per-mint token insight through `/api/operator/discovery-lab/token-insight?mint=<mint>` for the full-review modal and trade ticket instead of relying only on the static run snapshot.
-- Discovery-lab results now also stage and edit live strategy packs; use `/discovery-lab/results` for staging and `/discovery-lab/config` for discovery-owned promotion review.
+- Discovery-lab results now also stage and edit live strategy packs; use `/discovery-lab/results` for staging and `/discovery-lab/config` for discovery-owned direct-apply settings.
+- Discovery-lab result rows now carry backend-owned trade setup data built from the same scoring, confidence, sizing, and exit-profile logic the live engine uses; the dashboard should prefer that payload over local duplicate calculations.
+- Discovery-lab market stats now belongs in `/discovery-lab/market-stats`, not in results or overview, so market-wide pulse checks and one-off token lookups stay separate from completed-run review.
+- Discovery-lab market stats and strategy ideas are manual-refresh surfaces: route loads should read cached snapshots only, while the explicit page refresh controls are the provider-spending path.
+- Discovery-lab strategy ideas now belongs in `/discovery-lab/strategy-ideas`; it is a read surface for backend-suggested pack drafts and threshold ranges, not a hidden results-side panel.
 - Routed detail pages carry `focus=<row-id>` and return into `/operational-desk/trading` with preserved bucket/book, sort, search, and scroll-target context
 
 ## Auth Boundary
@@ -134,33 +135,20 @@ Dashboard navigation conventions:
 
 - `v_runtime_overview`
 - `v_candidate_funnel_daily`
+- `v_position_snapshot_latest`
+- `v_open_position_monitor`
+- `v_recent_fill_activity`
+- `v_fill_daily`
+- `v_fill_pnl_daily`
+- `v_position_pnl_daily`
 - `v_position_performance`
 - `v_api_provider_daily`
 - `v_api_endpoint_efficiency`
 - `v_raw_api_payload_recent`
-- `v_token_snapshot_enriched`
-- `v_candidate_reject_reason_daily`
-- `v_snapshot_trigger_daily`
-- `v_position_exit_reason_daily`
 - `v_runtime_settings_current`
-- `v_candidate_latest_filter_state`
-- `v_api_provider_hourly`
-- `v_api_endpoint_hourly`
-- `v_payload_failure_hourly`
-- `v_runtime_lane_health`
-- `v_runtime_live_status`
-- `v_open_position_monitor`
-- `v_recent_fill_activity`
-- `v_position_snapshot_latest`
-- `v_fill_pnl_daily`
-- `v_fill_daily`
-- `v_position_pnl_daily`
-- `v_source_outcome_daily`
-- `v_candidate_cohort_daily`
-- `v_position_cohort_daily`
-- `v_candidate_funnel_daily_source`
-- `v_candidate_reject_reason_daily_source`
 - `v_candidate_decision_facts`
-- `v_config_change_log`
-- `v_kpi_by_config_window`
-- `v_config_field_change`
+- `v_discovery_lab_run_summary`
+- `v_discovery_lab_pack_performance`
+- `v_discovery_lab_recipe_outcomes`
+- `v_discovery_lab_token_outcomes`
+- `v_shared_token_fact_cache`

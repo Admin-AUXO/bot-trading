@@ -2,12 +2,16 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
+import { Prisma } from "@prisma/client";
+import { db } from "../db/client.js";
 import type { LiveStrategySettings } from "../types/domain.js";
 import { RuntimeConfigService } from "./runtime-config.js";
 import { logger } from "../utils/logger.js";
 import { buildDiscoveryLabLiveStrategy } from "./discovery-lab-strategy-calibration.js";
 import { listCreatedDiscoveryLabPacks } from "./discovery-lab-created-packs.js";
 import { listWorkspaceDiscoveryLabPackSeeds } from "./discovery-lab-workspace-packs.js";
+import { DexScreenerClient, type DexScreenerTokenPair } from "./dexscreener-client.js";
+import { buildTradeSetup, type TradeSetup } from "./trade-setup.js";
 import {
   KNOWN_SOURCES,
   DEFAULT_PROFILE,
@@ -22,6 +26,17 @@ import {
   slugify,
   withAutoPackName,
 } from "./discovery-lab-pack-types.js";
+import type {
+  RecipeMode,
+  DiscoveryLabProfile,
+  DiscoveryLabPackKind,
+  DiscoveryLabRecipe,
+  DiscoveryLabThresholdOverrides,
+  DiscoveryLabPack,
+  DiscoveryLabValidationIssue,
+  DiscoveryLabPackDraft,
+} from "./discovery-lab-pack-types.js";
+import { toJsonValue } from "../utils/json.js";
 export type {
   RecipeMode,
   DiscoveryLabProfile,
@@ -157,6 +172,15 @@ type DiscoveryLabReport = {
     timeSinceCreationMin: number | null;
     softIssues: string[];
     notes: string[];
+    pairAddress?: string | null;
+    pairCreatedAt?: string | null;
+    socials?: {
+      website: string | null;
+      twitter: string | null;
+      telegram: string | null;
+      count: number;
+    } | null;
+    tradeSetup?: TradeSetup | null;
   }>;
 };
 
@@ -224,6 +248,7 @@ export class DiscoveryLabService {
     await fs.mkdir(this.runsDir, { recursive: true });
     await this.seedWorkspacePacks();
     await this.reconcileInterruptedRuns();
+    await this.syncKnownPacksToDb();
   }
 
   async getCatalog(): Promise<DiscoveryLabCatalog> {
@@ -314,12 +339,15 @@ export class DiscoveryLabService {
     const filePath = this.packFilePath(id);
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     await writeJsonFileAtomic(filePath, record);
-    return this.readCustomPack(filePath);
+    const pack = await this.readCustomPack(filePath);
+    await this.upsertPackRecord(pack);
+    return pack;
   }
 
   async deletePack(packId: string): Promise<{ ok: true }> {
     const filePath = this.packFilePath(packId);
     await fs.rm(filePath, { force: true });
+    await db.discoveryLabPack.deleteMany({ where: { id: packId } });
     return { ok: true };
   }
 
@@ -444,11 +472,20 @@ export class DiscoveryLabService {
       const raw = await fs.readFile(this.runFilePath(runId), "utf8");
       return JSON.parse(raw) as DiscoveryLabRunDetail;
     } catch {
-      return null;
+      const row = await db.discoveryLabRun.findUnique({ where: { id: runId } });
+      return row ? this.fromDbRun(row) : null;
     }
   }
 
   async listRunSummaries(): Promise<DiscoveryLabRunSummary[]> {
+    const dbRuns = await db.discoveryLabRun.findMany({
+      orderBy: [{ startedAt: "desc" }],
+      take: MAX_RECENT_RUNS,
+    });
+    if (dbRuns.length > 0) {
+      return dbRuns.map((row) => toRunSummary(this.fromDbRun(row)));
+    }
+
     const files = await this.readJsonFiles(this.runsDir, (entry) => entry.endsWith(".run.json"));
     const details = files
       .map((item) => item as DiscoveryLabRunDetail)
@@ -483,12 +520,14 @@ export class DiscoveryLabService {
       Promise.resolve(listCreatedDiscoveryLabPacks()),
       this.listCustomPacks(),
     ]);
-    return [...created, ...custom].sort((left, right) => {
+    const packs = [...created, ...custom].sort((left, right) => {
       if (left.kind !== right.kind) {
         return left.kind === "created" ? -1 : 1;
       }
       return left.name.localeCompare(right.name);
     });
+    await this.syncPacksToDb(packs);
+    return packs;
   }
 
   private async listCustomPacks(): Promise<DiscoveryLabPack[]> {
@@ -549,6 +588,7 @@ export class DiscoveryLabService {
 
   private async writeRunDetail(detail: DiscoveryLabRunDetail): Promise<void> {
     await writeJsonFileAtomic(this.runFilePath(detail.id), detail);
+    await this.upsertRunRecord(detail);
     await this.pruneRuns();
   }
 
@@ -595,6 +635,53 @@ export class DiscoveryLabService {
     current.evaluationCount = report?.deepEvaluations.length ?? null;
     if (report) {
       const baseSettings = await this.config.getSettings();
+      const [botState, openPositions] = await Promise.all([
+        db.botState.findUnique({ where: { id: "singleton" } }),
+        db.position.count({ where: { status: "OPEN" } }),
+      ]);
+      const dexPairs = await this.loadDexPairsForReport(report);
+      const cashUsd = Number(botState?.cashUsd ?? baseSettings.capital.capitalUsd);
+      const winnerByMint = new Map(report.winners.map((winner) => [winner.address, winner] as const));
+      report.deepEvaluations = report.deepEvaluations.map((evaluation) => ({
+        ...evaluation,
+        pairAddress: dexPairs.get(evaluation.mint)?.pairAddress?.trim() || null,
+        pairCreatedAt: dexPairs.get(evaluation.mint)?.pairCreatedAt ?? null,
+        socials: {
+          website: dexPairs.get(evaluation.mint)?.website ?? null,
+          twitter: dexPairs.get(evaluation.mint)?.twitter ?? null,
+          telegram: dexPairs.get(evaluation.mint)?.telegram ?? null,
+          count: [
+            dexPairs.get(evaluation.mint)?.website,
+            dexPairs.get(evaluation.mint)?.twitter,
+            dexPairs.get(evaluation.mint)?.telegram,
+          ].filter(Boolean).length,
+        },
+        tradeSetup: buildTradeSetup({
+          settings: baseSettings,
+          cashUsd,
+          openPositions,
+          entryPriceUsd: evaluation.priceUsd,
+          entryScore: evaluation.entryScore,
+          presetId: evaluation.mode === "pregrad"
+            ? "LATE_CURVE_MIGRATION_SNIPE"
+            : "FIRST_MINUTE_POSTGRAD_CONTINUATION",
+          playScore: evaluation.playScore,
+          winnerScore: winnerByMint.get(evaluation.mint)?.score ?? null,
+          marketContext: {
+            marketCapUsd: evaluation.marketCapUsd,
+            timeSinceGraduationMin: evaluation.timeSinceGraduationMin,
+            top10HolderPercent: evaluation.top10HolderPercent,
+            largestHolderPercent: evaluation.largestHolderPercent,
+            socialCount: [
+              dexPairs.get(evaluation.mint)?.website,
+              dexPairs.get(evaluation.mint)?.twitter,
+              dexPairs.get(evaluation.mint)?.telegram,
+            ].filter(Boolean).length,
+            lpLockedPercent: null,
+            softIssueCount: evaluation.softIssues.length,
+          },
+        }),
+      }));
       current.strategyCalibration = buildDiscoveryLabLiveStrategy(current, baseSettings);
     } else {
       current.strategyCalibration = null;
@@ -609,7 +696,249 @@ export class DiscoveryLabService {
 
     this.runningProcess = null;
     await this.writeRunDetail(current);
+    await this.syncRunReportTables(current);
     await fs.rm(recipePath, { force: true }).catch(() => undefined);
+  }
+
+  private async loadDexPairsForReport(report: DiscoveryLabReport): Promise<Map<string, DexScreenerTokenPair>> {
+    const mints = [...new Set(report.deepEvaluations.map((evaluation) => evaluation.mint).filter(Boolean))];
+    if (mints.length === 0) {
+      return new Map();
+    }
+
+    try {
+      const dexscreener = new DexScreenerClient();
+      return await dexscreener.getTopPairsByMint(mints);
+    } catch (error) {
+      logger.warn({ err: error, mintCount: mints.length }, "discovery-lab dex pair enrichment failed");
+      return new Map();
+    }
+  }
+
+  private async syncKnownPacksToDb(): Promise<void> {
+    await this.syncPacksToDb(await this.listPacks());
+  }
+
+  private async syncPacksToDb(packs: DiscoveryLabPack[]): Promise<void> {
+    await Promise.all(packs.map((pack) => this.upsertPackRecord(pack)));
+  }
+
+  private async upsertPackRecord(pack: DiscoveryLabPack): Promise<void> {
+    await db.discoveryLabPack.upsert({
+      where: { id: pack.id },
+      update: {
+        kind: mapPackKindForDb(pack),
+        name: pack.name,
+        description: pack.description,
+        thesis: pack.thesis ?? null,
+        targetPnlBand: pack.targetPnlBand ? toJsonValue(pack.targetPnlBand) : Prisma.DbNull,
+        defaultProfile: pack.defaultProfile,
+        defaultSources: toJsonValue(pack.defaultSources),
+        thresholdOverrides: toJsonValue(pack.thresholdOverrides ?? {}),
+        recipes: toJsonValue(pack.recipes),
+        sourcePath: pack.sourcePath,
+      },
+      create: {
+        id: pack.id,
+        kind: mapPackKindForDb(pack),
+        name: pack.name,
+        description: pack.description,
+        thesis: pack.thesis ?? null,
+        targetPnlBand: pack.targetPnlBand ? toJsonValue(pack.targetPnlBand) : Prisma.DbNull,
+        defaultProfile: pack.defaultProfile,
+        defaultSources: toJsonValue(pack.defaultSources),
+        thresholdOverrides: toJsonValue(pack.thresholdOverrides ?? {}),
+        recipes: toJsonValue(pack.recipes),
+        sourcePath: pack.sourcePath,
+      },
+    });
+  }
+
+  private async upsertRunRecord(detail: DiscoveryLabRunDetail): Promise<void> {
+    const settings = await this.config.getSettings();
+    await db.discoveryLabRun.upsert({
+      where: { id: detail.id },
+      update: {
+        status: detail.status,
+        packId: detail.packId,
+        packName: detail.packName,
+        packKind: mapPackKindForDb(detail.packSnapshot),
+        profile: detail.profile,
+        sources: toJsonValue(detail.sources),
+        allowOverfiltered: detail.allowOverfiltered,
+        queryCount: detail.queryCount,
+        winnerCount: detail.winnerCount,
+        evaluationCount: detail.evaluationCount,
+        thresholdOverrides: toJsonValue(detail.thresholdOverrides ?? {}),
+        packSnapshot: toJsonValue(detail.packSnapshot),
+        report: detail.report ? toJsonValue(detail.report) : Prisma.DbNull,
+        strategyCalibration: detail.strategyCalibration ? toJsonValue(detail.strategyCalibration) : Prisma.DbNull,
+        configSnapshot: toJsonValue(settings),
+        stdout: detail.stdout,
+        stderr: detail.stderr,
+        errorMessage: detail.errorMessage,
+        startedAt: new Date(detail.startedAt),
+        completedAt: detail.completedAt ? new Date(detail.completedAt) : null,
+      },
+      create: {
+        id: detail.id,
+        status: detail.status,
+        packId: detail.packId,
+        packName: detail.packName,
+        packKind: mapPackKindForDb(detail.packSnapshot),
+        profile: detail.profile,
+        sources: toJsonValue(detail.sources),
+        allowOverfiltered: detail.allowOverfiltered,
+        queryCount: detail.queryCount,
+        winnerCount: detail.winnerCount,
+        evaluationCount: detail.evaluationCount,
+        thresholdOverrides: toJsonValue(detail.thresholdOverrides ?? {}),
+        packSnapshot: toJsonValue(detail.packSnapshot),
+        report: detail.report ? toJsonValue(detail.report) : Prisma.DbNull,
+        strategyCalibration: detail.strategyCalibration ? toJsonValue(detail.strategyCalibration) : Prisma.DbNull,
+        configSnapshot: toJsonValue(settings),
+        stdout: detail.stdout,
+        stderr: detail.stderr,
+        errorMessage: detail.errorMessage,
+        createdAt: new Date(detail.createdAt),
+        startedAt: new Date(detail.startedAt),
+        completedAt: detail.completedAt ? new Date(detail.completedAt) : null,
+      },
+    });
+  }
+
+  private async syncRunReportTables(detail: DiscoveryLabRunDetail): Promise<void> {
+    if (!detail.report) {
+      await db.discoveryLabRunQuery.deleteMany({ where: { runId: detail.id } });
+      await db.discoveryLabRunToken.deleteMany({ where: { runId: detail.id } });
+      return;
+    }
+
+    const winnerByMint = new Map(detail.report.winners.map((winner) => [winner.address, winner] as const));
+
+    await db.$transaction([
+      db.discoveryLabRunQuery.deleteMany({ where: { runId: detail.id } }),
+      db.discoveryLabRunToken.deleteMany({ where: { runId: detail.id } }),
+    ]);
+
+    if (detail.report.querySummaries.length > 0) {
+      await db.discoveryLabRunQuery.createMany({
+        data: detail.report.querySummaries.map((summary) => ({
+          runId: detail.id,
+          key: summary.key,
+          source: summary.source,
+          recipeName: summary.recipeName,
+          recipeMode: summary.recipeMode,
+          filterCount: summary.filterCount,
+          returnedCount: summary.returnedCount,
+          selectedCount: summary.selectedCount,
+          goodCount: summary.goodCount,
+          rejectCount: summary.rejectCount,
+          selectionRatePercent: summary.selectionRatePercent,
+          passRatePercent: summary.passRatePercent,
+          winnerHitRatePercent: summary.winnerHitRatePercent,
+          avgGoodPlayScore: summary.avgGoodPlayScore,
+          avgGoodEntryScore: summary.avgGoodEntryScore,
+          avgSelectedPlayScore: summary.avgSelectedPlayScore,
+          avgSelectedEntryScore: summary.avgSelectedEntryScore,
+          estimatedCu: summary.estimatedCu,
+          metadata: toJsonValue({
+            goodMints: summary.goodMints,
+            topSelectedTokens: summary.topSelectedTokens,
+            topGoodTokens: summary.topGoodTokens,
+          }),
+        })),
+      });
+    }
+
+    if (detail.report.deepEvaluations.length > 0) {
+      await db.discoveryLabRunToken.createMany({
+        data: detail.report.deepEvaluations.map((evaluation) => {
+          const winner = winnerByMint.get(evaluation.mint) ?? null;
+          return {
+            runId: detail.id,
+            mint: evaluation.mint,
+            symbol: evaluation.symbol,
+            source: evaluation.source,
+            recipeName: evaluation.recipeName,
+            recipeMode: evaluation.mode,
+            passed: evaluation.pass,
+            grade: evaluation.grade,
+            rejectReason: evaluation.rejectReason,
+            playScore: evaluation.playScore,
+            entryScore: evaluation.entryScore,
+            priceUsd: evaluation.priceUsd,
+            liquidityUsd: evaluation.liquidityUsd,
+            marketCapUsd: evaluation.marketCapUsd,
+            holders: evaluation.holders,
+            volume5mUsd: evaluation.volume5mUsd,
+            volume30mUsd: evaluation.volume30mUsd,
+            uniqueWallets5m: evaluation.uniqueWallets5m,
+            buySellRatio: evaluation.buySellRatio,
+            priceChange5mPercent: evaluation.priceChange5mPercent,
+            priceChange30mPercent: evaluation.priceChange30mPercent,
+            top10HolderPercent: evaluation.top10HolderPercent,
+            largestHolderPercent: evaluation.largestHolderPercent,
+            timeSinceGraduationMin: evaluation.timeSinceGraduationMin,
+            timeSinceCreationMin: evaluation.timeSinceCreationMin,
+            softIssues: toJsonValue(evaluation.softIssues),
+            notes: toJsonValue(evaluation.notes),
+            isWinner: Boolean(winner),
+            winnerScore: winner?.score ?? null,
+            winnerRecipeNames: winner ? toJsonValue(winner.whichRecipes) : Prisma.DbNull,
+            tradeSetup: evaluation.tradeSetup ? toJsonValue(evaluation.tradeSetup) : Prisma.DbNull,
+          };
+        }),
+      });
+    }
+  }
+
+  private fromDbRun(row: {
+    id: string;
+    status: DiscoveryLabRunStatus;
+    createdAt: Date;
+    startedAt: Date;
+    completedAt: Date | null;
+    packId: string;
+    packName: string;
+    packKind: string;
+    profile: string;
+    sources: unknown;
+    allowOverfiltered: boolean;
+    queryCount: number | null;
+    winnerCount: number | null;
+    evaluationCount: number | null;
+    errorMessage: string | null;
+    packSnapshot: unknown;
+    thresholdOverrides: unknown;
+    strategyCalibration: unknown;
+    stdout: string | null;
+    stderr: string | null;
+    report: unknown;
+  }): DiscoveryLabRunDetail {
+    return {
+      id: row.id,
+      status: row.status,
+      createdAt: row.createdAt.toISOString(),
+      startedAt: row.startedAt.toISOString(),
+      completedAt: row.completedAt?.toISOString() ?? null,
+      packId: row.packId,
+      packName: row.packName,
+      packKind: mapPackKindFromDb(row.packKind),
+      profile: row.profile as DiscoveryLabProfile,
+      sources: Array.isArray(row.sources) ? row.sources as string[] : [],
+      allowOverfiltered: row.allowOverfiltered,
+      queryCount: row.queryCount,
+      winnerCount: row.winnerCount,
+      evaluationCount: row.evaluationCount,
+      errorMessage: row.errorMessage,
+      packSnapshot: row.packSnapshot as DiscoveryLabPack,
+      thresholdOverrides: (row.thresholdOverrides ?? {}) as DiscoveryLabThresholdOverrides,
+      strategyCalibration: (row.strategyCalibration ?? null) as LiveStrategySettings | null,
+      stdout: row.stdout ?? "",
+      stderr: row.stderr ?? "",
+      report: (row.report ?? null) as DiscoveryLabReport | null,
+    };
   }
 
   private async reconcileInterruptedRuns(): Promise<void> {
@@ -748,4 +1077,21 @@ function extractFailureMessage(stderr: string, stdout: string): string {
     return "discovery lab run failed";
   }
   return "discovery lab run failed";
+}
+
+function mapPackKindForDb(pack: Pick<DiscoveryLabPack, "kind" | "id">): "CREATED" | "WORKSPACE" | "CUSTOM" {
+  if (pack.kind === "created") {
+    return "CREATED";
+  }
+  if (pack.id.startsWith("workspace-")) {
+    return "WORKSPACE";
+  }
+  return "CUSTOM";
+}
+
+function mapPackKindFromDb(kind: string): DiscoveryLabPackKind {
+  if (kind === "CREATED") {
+    return "created";
+  }
+  return "custom";
 }

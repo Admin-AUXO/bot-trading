@@ -2,32 +2,33 @@ import { SettingsClient } from "@/components/settings-client";
 import { serverFetch } from "@/lib/api";
 import { operationalDeskRoutes } from "@/lib/dashboard-routes";
 import { buildGrafanaDashboardLink } from "@/lib/grafana";
-import type { SettingsControlState } from "@/lib/types";
+import type { BotSettings } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 export default async function DiscoveryLabConfigPage() {
-  const settings = await serverFetch<SettingsControlState>("/api/settings/control");
+  const settings = await serverFetch<BotSettings>("/api/settings");
   const grafanaHref = buildGrafanaDashboardLink("config");
 
   return (
     <SettingsClient
       initial={settings}
       grafanaHref={grafanaHref}
-      sectionIds={["strategy", "entry", "exit", "research"]}
+      sectionIds={["strategy", "entry", "exit", "advanced"]}
       header={{
         eyebrow: "Discovery lab",
-        title: "Config and promotion",
-        description: "Discovery-owned strategy, filters, exits, and research caps with the same review workflow.",
+        title: "Live setup",
+        description: "Lean direct-edit surface for pump-first discovery, fast evaluations, and short live sessions.",
       }}
       contextLink={{
         href: operationalDeskRoutes.settings,
         label: "Operational settings",
       }}
       strategyLinkHref="/discovery-lab/results"
-      saveBarLabel="Save, dry run, then promote the lab-derived configuration."
+      saveBarLabel="Apply discovery-owned settings directly."
       emptySectionTitle="No discovery settings in this view"
       emptySectionDetail="This surface only carries the discovery-owned config groups."
+      editorMode="hot-discovery"
     />
   );
 }

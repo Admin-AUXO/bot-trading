@@ -104,6 +104,7 @@ type ManualExitPresetId = "calibrated" | "scalp" | "balanced" | "runner";
 
 type TokenBoardRow = {
   mint: string;
+  pairAddress: string | null;
   symbol: string;
   outcome: TokenOutcome;
   modes: DiscoveryLabRunReport["deepEvaluations"][number]["mode"][];
@@ -126,6 +127,7 @@ type TokenBoardRow = {
   softIssues: string[];
   notes: string[];
   signal: TokenSignalSnapshot | null;
+  tradeSetup: DiscoveryLabRunReport["deepEvaluations"][number]["tradeSetup"] | null;
   searchText: string;
 };
 
@@ -137,6 +139,7 @@ type InsightState = {
 
 type MutableTokenBoardRow = {
   mint: string;
+  pairAddress: string | null;
   symbol: string;
   sources: Set<string>;
   recipes: Set<string>;
@@ -159,6 +162,7 @@ type MutableTokenBoardRow = {
   signal: TokenSignalSnapshot | null;
   signalPriority: number;
   signalScore: number;
+  tradeSetup: DiscoveryLabRunReport["deepEvaluations"][number]["tradeSetup"] | null;
 };
 
 type TokenRowMetrics = {
@@ -503,7 +507,7 @@ export function DiscoveryLabResultsBoard(props: {
               ))}
             </div>
             <div className="mt-2 flex flex-wrap gap-1.5">
-              <TokenMarketLinks mint={row.mint} symbol={row.symbol} creator={null} />
+              <TokenMarketLinks mint={row.mint} pairAddress={row.pairAddress} symbol={row.symbol} creator={null} />
             </div>
           </div>
         );
@@ -931,7 +935,7 @@ export function DiscoveryLabResultsBoard(props: {
                                 <td className="table-cell">
                                   <div className="flex flex-wrap items-center gap-2">
                                     <div className="text-text-primary">{row.symbol}</div>
-                                    <TokenMarketLinks mint={row.mint} symbol={row.symbol} />
+                                    <TokenMarketLinks mint={row.mint} pairAddress={row.pairAddress} symbol={row.symbol} />
                                   </div>
                                   <div className="mt-1 font-mono text-[11px] tracking-[0.04em] text-text-muted">{row.mint}</div>
                                 </td>
@@ -1420,7 +1424,7 @@ function TokenCard(props: {
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <div className="text-sm font-semibold text-text-primary">{props.row.symbol}</div>
-            <TokenMarketLinks mint={props.row.mint} symbol={props.row.symbol} creator={null} />
+            <TokenMarketLinks mint={props.row.mint} pairAddress={props.row.pairAddress} symbol={props.row.symbol} creator={null} />
             {props.trackedPosition ? <Badge variant="default">Open position</Badge> : null}
           </div>
           <div className="mt-1 font-mono text-[11px] tracking-[0.04em] text-text-muted">{props.row.mint}</div>
@@ -1542,7 +1546,7 @@ function TokenDetailsModal(props: {
   const creator = props.insight?.creator ?? null;
   const socialLinks = props.insight?.socials ?? null;
   const toolLinks = props.insight?.toolLinks ?? {
-    axiom: buildAxiomHref(props.row.mint),
+    axiom: buildAxiomHref(props.row.pairAddress ?? props.row.mint),
     dexscreener: buildDexScreenerHref(props.row.mint),
     rugcheck: buildRugcheckHref(props.row.mint),
     solscanToken: buildSolscanTokenHref(props.row.mint),
@@ -1615,7 +1619,7 @@ function TokenDetailsModal(props: {
                   </div>
                   <div className="mt-1 font-mono text-[11px] tracking-[0.04em] text-text-muted">{props.row.mint}</div>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <TokenMarketLinks mint={props.row.mint} symbol={props.row.symbol} creator={creator} />
+                    <TokenMarketLinks mint={props.row.mint} pairAddress={props.row.pairAddress} symbol={props.row.symbol} creator={creator} />
                   </div>
                 </div>
                 <Button type="button" onClick={props.onClose} variant="ghost" size="sm">
@@ -2534,7 +2538,7 @@ function RawHitCard(props: {
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <div className="text-sm text-text-primary">{props.row.symbol}</div>
-        <TokenMarketLinks mint={props.row.mint} symbol={props.row.symbol} />
+        <TokenMarketLinks mint={props.row.mint} pairAddress={props.row.pairAddress} symbol={props.row.symbol} />
       </div>
       <div className="mt-1 font-mono text-[11px] tracking-[0.04em] text-text-muted">{props.row.mint}</div>
 
@@ -2578,6 +2582,7 @@ function buildTokenRows(report: DiscoveryLabRunReport | null): TokenBoardRow[] {
     }
     evaluation.softIssues.forEach((issue) => current.softIssues.add(issue));
     evaluation.notes.forEach((note) => current.notes.add(note));
+    current.pairAddress = current.pairAddress ?? evaluation.pairAddress ?? null;
 
     const signalPriority = evaluation.pass ? 2 : 1;
     if (
@@ -2604,6 +2609,8 @@ function buildTokenRows(report: DiscoveryLabRunReport | null): TokenBoardRow[] {
       };
       current.signalPriority = signalPriority;
       current.signalScore = evaluation.playScore;
+      current.tradeSetup = evaluation.tradeSetup ?? null;
+      current.pairAddress = evaluation.pairAddress ?? current.pairAddress;
     }
   }
 
@@ -2633,6 +2640,7 @@ function buildTokenRows(report: DiscoveryLabRunReport | null): TokenBoardRow[] {
       const symbol = row.symbol.trim().length > 0 ? row.symbol : "Unknown token";
       return {
         mint: row.mint,
+        pairAddress: row.pairAddress,
         symbol,
         outcome,
         modes: [...row.modes].sort(),
@@ -2655,9 +2663,11 @@ function buildTokenRows(report: DiscoveryLabRunReport | null): TokenBoardRow[] {
         softIssues: [...row.softIssues],
         notes: [...row.notes],
         signal: row.signal,
+        tradeSetup: row.tradeSetup,
         searchText: [
           symbol,
           row.mint,
+          row.pairAddress ?? "",
           ...row.modes,
           ...recipes,
           ...row.sources,
@@ -2681,6 +2691,7 @@ function getOrCreateRow(rows: Map<string, MutableTokenBoardRow>, mint: string, s
 
   const next: MutableTokenBoardRow = {
     mint,
+    pairAddress: null,
     symbol,
     sources: new Set<string>(),
     recipes: new Set<string>(),
@@ -2703,6 +2714,7 @@ function getOrCreateRow(rows: Map<string, MutableTokenBoardRow>, mint: string, s
     signal: null,
     signalPriority: 0,
     signalScore: Number.NEGATIVE_INFINITY,
+    tradeSetup: null,
   };
   rows.set(mint, next);
   return next;
@@ -2783,9 +2795,9 @@ function humanizeFilterLabel(value: ResultFilter): string {
   return RESULT_FILTERS.find((item) => item.id === value)?.label ?? "All rows";
 }
 
-function TokenMarketLinks(props: { mint: string; symbol: string; creator?: string | null }) {
+function TokenMarketLinks(props: { mint: string; pairAddress?: string | null; symbol: string; creator?: string | null }) {
   const links = [
-    { label: "Axiom", href: buildAxiomHref(props.mint), title: `Open ${props.symbol} on Axiom` },
+    { label: "Axiom", href: buildAxiomHref(props.pairAddress ?? props.mint), title: `Open ${props.symbol} on Axiom` },
     { label: "Dex", href: buildDexScreenerHref(props.mint), title: `Open ${props.symbol} on DexScreener` },
     { label: "Rug", href: buildRugcheckHref(props.mint), title: `Open ${props.symbol} on Rugcheck` },
     { label: "Sol", href: buildSolscanTokenHref(props.mint), title: `Open ${props.symbol} on Solscan` },
@@ -2851,8 +2863,8 @@ function StatusFlagCard(props: {
   );
 }
 
-function buildAxiomHref(mint: string): string {
-  return `https://axiom.trade/meme/${mint}?chain=sol`;
+function buildAxiomHref(target: string): string {
+  return `https://axiom.trade/meme/${target}?chain=sol`;
 }
 
 function buildDexScreenerHref(mint: string): string {
@@ -2906,6 +2918,29 @@ function buildTokenTradeSetup(
   row: TokenBoardRow,
   runtimeSnapshot: DiscoveryLabRuntimeSnapshot | null,
 ): TokenTradeSetup | null {
+  if (row.tradeSetup) {
+    return {
+      presetId: row.tradeSetup.presetId,
+      profile: row.tradeSetup.profile,
+      suggestedCapitalUsd: row.tradeSetup.suggestedCapitalUsd,
+      entryPriceUsd: row.tradeSetup.entryPriceUsd,
+      stopLossPercent: row.tradeSetup.stopLossPercent,
+      stopLossPriceUsd: row.tradeSetup.stopLossPriceUsd,
+      tp1Percent: row.tradeSetup.tp1Percent,
+      tp1PriceUsd: row.tradeSetup.tp1PriceUsd,
+      tp1SellFractionPercent: row.tradeSetup.tp1SellFractionPercent,
+      tp2Percent: row.tradeSetup.tp2Percent,
+      tp2PriceUsd: row.tradeSetup.tp2PriceUsd,
+      tp2SellFractionPercent: row.tradeSetup.tp2SellFractionPercent,
+      postTp1RetracePercent: row.tradeSetup.postTp1RetracePercent,
+      trailingStopPercent: row.tradeSetup.trailingStopPercent,
+      maxHoldMinutes: row.tradeSetup.timeLimitMinutes,
+      timeStopMinutes: row.tradeSetup.timeStopMinutes,
+      timeStopMinReturnPercent: row.tradeSetup.timeStopMinReturnPercent,
+      doubleUpConfidencePercent: row.tradeSetup.confidenceScore * 100,
+    };
+  }
+
   if (!runtimeSnapshot) {
     return null;
   }

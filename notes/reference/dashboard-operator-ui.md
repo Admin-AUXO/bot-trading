@@ -96,12 +96,14 @@ Purpose: document the current UI contract for the Next.js operator desk so later
 
 - `/operational-desk/overview`: current control desk only, including compact diagnostics and provider fault surfaces
 - `/operational-desk/trading`: unified lifecycle workbench for candidate intake and position management, with compact KPI header and segmented intake and book controls
-- `/operational-desk/settings`: smaller runtime-control surface for desk-facing capital, cadence, and promotion review
+- `/operational-desk/settings`: smaller runtime-control surface for desk-facing capital and cadence edits with direct apply
 - `/discovery-lab/overview`: dedicated landing surface for current run posture, pack inventory, and shared workflow language
+- `/discovery-lab/market-stats`: market-wide pulse check plus direct single-mint lookup backed by shared backend provider logic; default route loads stay cache-only and visually distinguish paid Birdeye inputs from free Rugcheck and DexScreener inputs
 - `/discovery-lab/studio`: builder-first discovery workspace for package editing, thresholds, and strategy ladders
 - `/discovery-lab/run-lab`: launch and process-state surface for lab runs
 - `/discovery-lab/results`: current-run review with market-regime guidance, full result board, live strategy staging, and manual trade ticket flow
-- `/discovery-lab/config`: discovery-owned config and promotion surface for strategy, discovery filters, exits, and research caps
+- `/discovery-lab/strategy-ideas`: backend-suggested pack ideas for the current regime; route loads stay read-only and cache-backed, while refresh controls expose the manual-refresh path for confidence, threshold ranges, and session fit
+- `/discovery-lab/config`: discovery-owned config surface for strategy, discovery filters, exits, and hot runtime parameters
 - compatibility routes:
   `/`, `/trading`, `/settings`, `/discovery-lab`, `/candidates`, `/positions`, and `/telemetry` remain as redirects so old links keep working while primary navigation stays compact
 
@@ -140,6 +142,7 @@ Purpose: document the current UI contract for the Next.js operator desk so later
   the page header should stay compact and contextual; do not bring back a large local hero or a duplicated score-strip ahead of the builder
   the sticky bar should focus on contextual actions for the active tab so operators do not see build, run, and staging controls all at once
   discovery should not repeat the same pack or run facts in the tab rail, page header, sticky bar, and local cards at the same time; one compact context row plus one active-action bar is enough
+  market stats should sit ahead of results in the operator workflow: pulse first, suggested ideas second, completed-run review third
   the builder should no longer force raw JSON as the primary editing surface for recipes; structured controls with suggested values, selects, and numeric inputs should own the common path, with raw JSON kept as an advanced escape hatch
   the top tab rail should stay terse in its default state; short labels win over always-visible helper copy
   `Builder` combines package and strategy editing in one surface
@@ -167,7 +170,7 @@ Purpose: document the current UI contract for the Next.js operator desk so later
   the results header should carry the current run context once, ahead of the live strategy pack and token board, instead of repeating the same package and run facts in several stacked panels
   the token board should appear before live-strategy tuning so review remains the first action on the results tab
   result-side secondary synthesis such as cohort rollups and adaptive previews should default behind disclosure instead of sitting above the token board
-  live-strategy staging should open as a compact summary first, with the full draft editor hidden behind a disclosure until the operator is ready to tune promotion settings
+  live-strategy staging should open as a compact summary first, with the full editor hidden behind a disclosure until the operator is ready to tune and apply the active model
   the primary result surface should be a deduplicated token board keyed by mint, not a repeated per-strategy dump
   results should not spend vertical space on a duplicate outer frame before the token board
   result controls should read in one strip: filters, search, score timestamp, run duration, and a small amount of scan-critical summary
@@ -180,12 +183,18 @@ Purpose: document the current UI contract for the Next.js operator desk so later
   token details should surface price and structure context plus derived setup, conservative EV, risk, and outcome metrics without bloating base rows
   full-screen token review should also surface provider-backed project links, socials, creator context, live market pulse, and security posture so the operator can make the go/no-go call without leaving the modal
   full-screen token review should scan in this order: setup summary, EV/risk, market structure, timing/liquidity, recipe consensus, then watchouts
-  the token review modal should keep a persistent summary rail with outcome, overlap, best score, setup profile, and manual-entry CTA visible while scrolling
+  the token review modal should keep a persistent summary rail with outcome, overlap, best score, confidence-weighted setup profile, and manual-entry CTA visible while scrolling
   manual entry from results must open a full-screen trade ticket instead of a browser confirm; the ticket should let the operator customize final size and exit settings before sending the managed entry
-  the trade ticket should expose quick size presets, exit-profile presets, derived price previews, validation feedback, and current open-slot or cash context so the operator does not edit a raw numeric wall blind
+  the trade ticket should expose quick size presets, exit-profile presets, derived stop and take-profit previews, validation feedback, and current open-slot or cash context so the operator does not edit a raw numeric wall blind
+  result rows and modals should prefer progress bars, colored badges, compact percent deltas, and scan-first metric strips over nested box stacks
   manual entry should refuse duplicate-mint opens and clearly hand the operator into the tracked open position when one already exists
   a compact market-regime strip and refresh timestamp should remain visible above table controls so operators can interpret table scores in context
-  market-regime suggestions belong in `Builder` with one-click apply to draft threshold overrides; they must never silently rewrite runtime settings
+  the market-stats route should show the overall pulse and the single-token lookup in one scan path instead of burying the lookup inside results modals
+  market-stats and strategy-ideas should surface freshness, stale-vs-empty state, and refresh controls in the header so operators can tell when a paid provider pull is about to happen
+  market-stats should mark Birdeye-derived slices as paid and Rugcheck/DexScreener-derived slices as free in both the source legend and the primary board scan path
+  strategy-ideas should present confidence, session fit, threshold ranges, and pack shape without forcing the operator through raw JSON first
+  strategy-ideas should keep raw threshold override values behind disclosure; threshold bars and pack-shape summary own the first scan path
+  market-regime suggestions belong in `Builder` with one-click apply to local threshold overrides; they must never silently rewrite runtime settings
   source, strategy, and winner rollups should stay compact and secondary so the page does not drown the operator in helper tables
   raw per-strategy hits can stay available, but they should live behind a quieter secondary surface instead of dominating the page
   builder should prefer one primary column; side rails are acceptable on runs when they stay narrow, collapsible, and hidden by default on wide screens

@@ -2,12 +2,12 @@ import { SettingsClient } from "@/components/settings-client";
 import { serverFetch } from "@/lib/api";
 import { discoveryLabRoutes } from "@/lib/dashboard-routes";
 import { buildGrafanaDashboardLink } from "@/lib/grafana";
-import type { SettingsControlState } from "@/lib/types";
+import type { BotSettings } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 export default async function OperationalDeskSettingsPage() {
-  const settings = await serverFetch<SettingsControlState>("/api/settings/control");
+  const settings = await serverFetch<BotSettings>("/api/settings");
   const grafanaHref = buildGrafanaDashboardLink("config");
 
   return (
@@ -18,14 +18,14 @@ export default async function OperationalDeskSettingsPage() {
       header={{
         eyebrow: "Operational desk",
         title: "Runtime controls",
-        description: "Capital, cadence, and promotion controls for the live desk.",
+        description: "Direct-edit controls for live mode, capital, and cadence.",
       }}
       contextLink={{
         href: discoveryLabRoutes.config,
         label: "Discovery config",
       }}
       strategyLinkHref={discoveryLabRoutes.results}
-      saveBarLabel="Save, dry run, then promote the desk-facing runtime controls."
+      saveBarLabel="Apply desk-facing runtime controls directly."
       emptySectionTitle="No operational settings in this view"
       emptySectionDetail="This surface only carries the capital and advanced runtime controls."
     />

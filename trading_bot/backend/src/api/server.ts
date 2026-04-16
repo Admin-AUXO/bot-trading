@@ -9,6 +9,8 @@ import type {
   DiscoveryLabRunRequest,
 } from "../services/discovery-lab-service.js";
 import type { DiscoveryLabMarketRegimeResponse } from "../services/discovery-lab-market-regime-service.js";
+import type { DiscoveryLabMarketStatsPayload } from "../services/discovery-lab-market-stats-service.js";
+import type { DiscoveryLabStrategySuggestionsPayload } from "../services/discovery-lab-strategy-suggestion-service.js";
 
 function parseLimit(value: unknown, fallback: number, max: number): number {
   const parsed = Number(value);
@@ -17,6 +19,16 @@ function parseLimit(value: unknown, fallback: number, max: number): number {
   }
 
   return Math.min(Math.floor(parsed), max);
+}
+
+function parseBooleanFlag(value: unknown): boolean {
+  if (typeof value === "string") {
+    return ["1", "true", "yes", "on"].includes(value.toLowerCase());
+  }
+  if (typeof value === "number") {
+    return value === 1;
+  }
+  return value === true;
 }
 
 function errorToStatus(error: unknown): number {
@@ -63,12 +75,7 @@ export function createApiServer(deps: {
   getPositionDetail: (positionId: string) => Promise<unknown | null>;
   getDiagnostics: () => Promise<unknown>;
   getSettings: () => Promise<BotSettings>;
-  getSettingsControl: () => Promise<unknown>;
   patchSettings: (input: Partial<BotSettings>) => Promise<BotSettings>;
-  patchSettingsDraft: (input: Partial<BotSettings>) => Promise<unknown>;
-  discardSettingsDraft: () => Promise<unknown>;
-  runSettingsDryRun: () => Promise<unknown>;
-  promoteSettingsDraft: () => Promise<unknown>;
   pause: (reason?: string) => Promise<void>;
   resume: () => Promise<void>;
   triggerDiscovery: () => Promise<void>;
@@ -82,6 +89,8 @@ export function createApiServer(deps: {
   listDiscoveryLabRuns: () => Promise<unknown>;
   getDiscoveryLabRun: (runId: string) => Promise<unknown | null>;
   getDiscoveryLabMarketRegime: (runId: string) => Promise<DiscoveryLabMarketRegimeResponse>;
+  getDiscoveryLabMarketStats: (input?: { mint?: string; limit?: number; refresh?: boolean; focusOnly?: boolean }) => Promise<DiscoveryLabMarketStatsPayload>;
+  getDiscoveryLabStrategySuggestions: (input?: { refresh?: boolean }) => Promise<DiscoveryLabStrategySuggestionsPayload>;
   getDiscoveryLabTokenInsight: (input: { mint?: string }) => Promise<unknown>;
   enterDiscoveryLabManualTrade: (input: {
     runId?: string;
@@ -172,6 +181,19 @@ export function createApiServer(deps: {
       return res.status(400).json({ error: "runId is required" });
     }
     return res.json(await deps.getDiscoveryLabMarketRegime(runId));
+  });
+
+  app.get("/api/operator/discovery-lab/market-stats", async (req, res) => {
+    const mint = typeof req.query.mint === "string" ? req.query.mint.trim() : undefined;
+    const limit = parseLimit(req.query.limit, 18, 30);
+    const refresh = parseBooleanFlag(req.query.refresh);
+    const focusOnly = parseBooleanFlag(req.query.focusOnly);
+    return res.json(await deps.getDiscoveryLabMarketStats({ mint, limit, refresh, focusOnly }));
+  });
+
+  app.get("/api/operator/discovery-lab/strategy-suggestions", async (req, res) => {
+    const refresh = parseBooleanFlag(req.query.refresh);
+    return res.json(await deps.getDiscoveryLabStrategySuggestions({ refresh }));
   });
 
   app.get("/api/operator/discovery-lab/token-insight", async (req, res) => {
@@ -279,7 +301,7 @@ export function createApiServer(deps: {
     const mint = typeof req.query.mint === "string" ? req.query.mint : undefined;
     const trigger = typeof req.query.trigger === "string" ? req.query.trigger : undefined;
     const candidateId = typeof req.query.candidateId === "string" ? req.query.candidateId : undefined;
-    const rows = await db.tokenSnapshot.findMany({
+    const rows = await db.tokenMetrics.findMany({
       where: {
         mint: mint || undefined,
         trigger: trigger || undefined,
@@ -295,28 +317,8 @@ export function createApiServer(deps: {
     res.json(await deps.getSettings());
   });
 
-  app.get("/api/settings/control", async (_req, res) => {
-    res.json(await deps.getSettingsControl());
-  });
-
   app.post("/api/settings", async (req, res) => {
     res.json(await deps.patchSettings(req.body ?? {}));
-  });
-
-  app.post("/api/settings/draft", async (req, res) => {
-    res.json(await deps.patchSettingsDraft(req.body ?? {}));
-  });
-
-  app.post("/api/settings/draft/discard", async (_req, res) => {
-    res.json(await deps.discardSettingsDraft());
-  });
-
-  app.post("/api/settings/dry-run", async (_req, res) => {
-    res.json(await deps.runSettingsDryRun());
-  });
-
-  app.post("/api/settings/promote", async (_req, res) => {
-    res.json(await deps.promoteSettingsDraft());
   });
 
   app.post("/api/control/pause", async (req, res) => {
@@ -352,32 +354,19 @@ export function createApiServer(deps: {
       "v_api_provider_daily",
       "v_api_endpoint_efficiency",
       "v_raw_api_payload_recent",
-      "v_token_snapshot_enriched",
-      "v_candidate_reject_reason_daily",
-      "v_snapshot_trigger_daily",
-      "v_position_exit_reason_daily",
       "v_runtime_settings_current",
-      "v_candidate_latest_filter_state",
-      "v_api_provider_hourly",
-      "v_api_endpoint_hourly",
-      "v_payload_failure_hourly",
-      "v_runtime_lane_health",
-      "v_runtime_live_status",
       "v_open_position_monitor",
       "v_recent_fill_activity",
       "v_position_snapshot_latest",
       "v_fill_pnl_daily",
       "v_fill_daily",
       "v_position_pnl_daily",
-      "v_source_outcome_daily",
-      "v_candidate_cohort_daily",
-      "v_position_cohort_daily",
-      "v_candidate_funnel_daily_source",
-      "v_candidate_reject_reason_daily_source",
       "v_candidate_decision_facts",
-      "v_config_change_log",
-      "v_kpi_by_config_window",
-      "v_config_field_change",
+      "v_discovery_lab_run_summary",
+      "v_discovery_lab_pack_performance",
+      "v_discovery_lab_recipe_outcomes",
+      "v_discovery_lab_token_outcomes",
+      "v_shared_token_fact_cache",
     ]);
     const viewName = req.params.name;
     if (!allowed.has(viewName)) {

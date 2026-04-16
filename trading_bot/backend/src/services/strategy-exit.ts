@@ -1,16 +1,6 @@
 import type { BotSettings } from "../types/domain.js";
 import { applyStrategySettings } from "./strategy-presets.js";
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
-}
-
-function asNumber(value: unknown): number | null {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
+import { asRecord, asNumber, clamp } from "../utils/types.js";
 
 export type ExitProfile = "scalp" | "balanced" | "runner";
 
@@ -26,6 +16,17 @@ export type ExitPlan = {
   timeStopMinutes: number;
   timeStopMinReturnPercent: number;
   timeLimitMinutes: number;
+};
+
+export type ExitPlanContext = {
+  marketCapUsd?: number | null;
+  timeSinceGraduationMin?: number | null;
+  top10HolderPercent?: number | null;
+  largestHolderPercent?: number | null;
+  socialCount?: number | null;
+  rugScoreNormalized?: number | null;
+  lpLockedPercent?: number | null;
+  softIssueCount?: number | null;
 };
 
 type RuntimeExitPlan = Pick<
@@ -62,6 +63,7 @@ export function buildExitPlan(
   settings: BotSettings,
   entryScore: number,
   strategyPresetId = settings.strategy.livePresetId,
+  context?: ExitPlanContext,
 ): ExitPlan {
   const exits = applyStrategySettings(settings, strategyPresetId).exits;
 
@@ -71,7 +73,7 @@ export function buildExitPlan(
       scaleMinutes(exits.timeLimitMinutes, 1.6, exits.timeLimitMinutes + 2, 90),
       timeStopMinutes,
     );
-    return {
+    return applyExitContext({
       profile: "runner",
       stopLossPercent: clamp(exits.stopLossPercent * 1.05, 12, 35),
       tp1Multiplier: Math.max(exits.tp1Multiplier + 0.15, 1.55),
@@ -83,11 +85,11 @@ export function buildExitPlan(
       timeStopMinutes,
       timeStopMinReturnPercent: Math.max(exits.timeStopMinReturnPercent + 3, 8),
       timeLimitMinutes,
-    };
+    }, context);
   }
 
   if (entryScore >= 0.62) {
-    return {
+    return applyExitContext({
       profile: "balanced",
       stopLossPercent: exits.stopLossPercent,
       tp1Multiplier: exits.tp1Multiplier,
@@ -99,7 +101,7 @@ export function buildExitPlan(
       timeStopMinutes: exits.timeStopMinutes,
       timeStopMinReturnPercent: exits.timeStopMinReturnPercent,
       timeLimitMinutes: exits.timeLimitMinutes,
-    };
+    }, context);
   }
 
   const timeStopMinutes = scaleMinutes(exits.timeStopMinutes, 0.8, 1.5, exits.timeStopMinutes);
@@ -107,7 +109,7 @@ export function buildExitPlan(
     scaleMinutes(exits.timeLimitMinutes, 0.75, Math.max(exits.timeStopMinutes + 1, 3), exits.timeLimitMinutes),
     timeStopMinutes,
   );
-  return {
+  return applyExitContext({
     profile: "scalp",
     stopLossPercent: clamp(exits.stopLossPercent * 0.8, 10, 25),
     tp1Multiplier: Math.max(exits.tp1Multiplier - 0.1, 1.28),
@@ -119,7 +121,7 @@ export function buildExitPlan(
     timeStopMinutes,
     timeStopMinReturnPercent: Math.max(exits.timeStopMinReturnPercent - 2, 2),
     timeLimitMinutes,
-  };
+  }, context);
 }
 
 export function readExitPlan(
@@ -200,14 +202,102 @@ export function getExitDecision(
   return null;
 }
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
-}
-
 function scaleMinutes(value: number, multiplier: number, min: number, max: number): number {
   return clamp(Math.round(value * multiplier * 10) / 10, min, max);
 }
 
 function ensureTimeLimit(value: number, timeStopMinutes: number): number {
   return Math.max(value, Math.round((timeStopMinutes + 1) * 10) / 10);
+}
+
+function applyExitContext(plan: ExitPlan, context?: ExitPlanContext): ExitPlan {
+  if (!context) {
+    return plan;
+  }
+
+  let fragility = 0;
+  const age = context.timeSinceGraduationMin;
+  if (typeof age === "number") {
+    if (age <= 5) {
+      fragility += 0.18;
+    } else if (age <= 15) {
+      fragility += 0.12;
+    } else if (age <= 30) {
+      fragility += 0.08;
+    }
+  }
+
+  const marketCapUsd = context.marketCapUsd ?? null;
+  if (typeof marketCapUsd === "number") {
+    if (marketCapUsd < 250_000) {
+      fragility += 0.18;
+    } else if (marketCapUsd < 600_000) {
+      fragility += 0.1;
+    } else if (marketCapUsd > 4_000_000) {
+      fragility -= 0.04;
+    }
+  }
+
+  const socialCount = context.socialCount ?? 0;
+  if (socialCount === 0) {
+    fragility += 0.08;
+  } else if (socialCount >= 2) {
+    fragility -= 0.05;
+  }
+
+  if ((context.top10HolderPercent ?? 0) >= 42) {
+    fragility += 0.08;
+  } else if ((context.top10HolderPercent ?? 0) <= 26) {
+    fragility -= 0.03;
+  }
+
+  if ((context.largestHolderPercent ?? 0) >= 21) {
+    fragility += 0.06;
+  } else if ((context.largestHolderPercent ?? 0) <= 11) {
+    fragility -= 0.03;
+  }
+
+  const rugScore = context.rugScoreNormalized ?? null;
+  if (typeof rugScore === "number") {
+    if (rugScore >= 70) {
+      fragility += 0.14;
+    } else if (rugScore >= 55) {
+      fragility += 0.08;
+    } else if (rugScore <= 30) {
+      fragility -= 0.04;
+    }
+  }
+
+  if ((context.lpLockedPercent ?? 0) >= 90) {
+    fragility -= 0.03;
+  }
+
+  fragility += Math.min(context.softIssueCount ?? 0, 3) * 0.04;
+  fragility = clamp(fragility, -0.12, 0.42);
+
+  const tp1Multiplier = clamp(plan.tp1Multiplier - (fragility * 0.16), 1.2, 2.1);
+  const tp2Multiplier = clamp(
+    Math.max(plan.tp2Multiplier - (fragility * 0.3), tp1Multiplier + 0.18),
+    tp1Multiplier + 0.18,
+    3.2,
+  );
+  const timeStopMinutes = clamp(Math.round(plan.timeStopMinutes * (1 - fragility * 0.55) * 10) / 10, 1.5, 18);
+  const timeLimitMinutes = ensureTimeLimit(
+    clamp(Math.round(plan.timeLimitMinutes * (1 - fragility * 0.62) * 10) / 10, 3, 32),
+    timeStopMinutes,
+  );
+
+  return {
+    ...plan,
+    stopLossPercent: clamp(plan.stopLossPercent - (fragility * 2.8), 8, 24),
+    tp1Multiplier,
+    tp2Multiplier,
+    tp1SellFraction: clamp(plan.tp1SellFraction + (fragility * 0.22), 0.22, 0.82),
+    tp2SellFraction: clamp(plan.tp2SellFraction - (fragility * 0.12), 0.08, 0.35),
+    postTp1RetracePercent: clamp(plan.postTp1RetracePercent - (fragility * 6), 5, 18),
+    trailingStopPercent: clamp(plan.trailingStopPercent - (fragility * 7), 7, 22),
+    timeStopMinutes,
+    timeStopMinReturnPercent: clamp(plan.timeStopMinReturnPercent + (fragility * 4), 1, 14),
+    timeLimitMinutes,
+  };
 }

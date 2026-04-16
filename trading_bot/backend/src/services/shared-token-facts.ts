@@ -18,6 +18,9 @@ const CACHE_TTL_MS = {
 
 type CacheKey =
   | "latestDetail"
+  | "latestOverview"
+  | "latestMetadata"
+  | "latestMarketStats"
   | "latestTradeData"
   | "latestMintAuthorities"
   | "latestHolderConcentration"
@@ -25,6 +28,9 @@ type CacheKey =
 
 type CacheTimestampKey =
   | "latestDetailAt"
+  | "latestOverviewAt"
+  | "latestMetadataAt"
+  | "latestMarketStatsAt"
   | "latestTradeDataAt"
   | "latestMintAuthoritiesAt"
   | "latestHolderConcentrationAt"
@@ -32,6 +38,9 @@ type CacheTimestampKey =
 
 export type FreshTokenFacts = {
   detail: DiscoveryToken | null;
+  overview: Record<string, unknown> | null;
+  metadata: Record<string, unknown> | null;
+  marketStats: Record<string, unknown> | null;
   tradeData: TradeDataSnapshot | null;
   mintAuthorities: MintAuthoritySnapshot | null;
   holderConcentration: HolderConcentration | null;
@@ -64,6 +73,18 @@ export class SharedTokenFactsService {
 
   async rememberDetail(mint: string, detail: DiscoveryToken | null): Promise<void> {
     await this.writeFact(mint, "latestDetail", "latestDetailAt", detail);
+  }
+
+  async rememberOverview(mint: string, overview: Record<string, unknown> | null): Promise<void> {
+    await this.writeFact(mint, "latestOverview", "latestOverviewAt", overview);
+  }
+
+  async rememberMetadata(mint: string, metadata: Record<string, unknown> | null): Promise<void> {
+    await this.writeFact(mint, "latestMetadata", "latestMetadataAt", metadata);
+  }
+
+  async rememberMarketStats(mint: string, marketStats: Record<string, unknown> | null): Promise<void> {
+    await this.writeFact(mint, "latestMarketStats", "latestMarketStatsAt", marketStats);
   }
 
   async rememberTradeData(mint: string, tradeData: TradeDataSnapshot | null): Promise<void> {
@@ -102,6 +123,12 @@ export class SharedTokenFactsService {
       select: {
         latestDetail: true,
         latestDetailAt: true,
+        latestOverview: true,
+        latestOverviewAt: true,
+        latestMetadata: true,
+        latestMetadataAt: true,
+        latestMarketStats: true,
+        latestMarketStatsAt: true,
         latestTradeData: true,
         latestTradeDataAt: true,
         latestMintAuthorities: true,
@@ -115,6 +142,9 @@ export class SharedTokenFactsService {
 
     return {
       detail: this.readFreshFromRow<DiscoveryToken>(row, "latestDetail", "latestDetailAt", CACHE_TTL_MS.detail),
+      overview: this.readFreshFromRow<Record<string, unknown>>(row, "latestOverview", "latestOverviewAt", CACHE_TTL_MS.detail),
+      metadata: this.readFreshFromRow<Record<string, unknown>>(row, "latestMetadata", "latestMetadataAt", CACHE_TTL_MS.detail),
+      marketStats: this.readFreshFromRow<Record<string, unknown>>(row, "latestMarketStats", "latestMarketStatsAt", CACHE_TTL_MS.detail),
       tradeData: this.readFreshFromRow<TradeDataSnapshot>(row, "latestTradeData", "latestTradeDataAt", CACHE_TTL_MS.tradeData),
       mintAuthorities: this.readFreshFromRow<MintAuthoritySnapshot>(
         row,

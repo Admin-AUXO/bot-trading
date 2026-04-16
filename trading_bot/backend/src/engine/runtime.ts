@@ -11,7 +11,9 @@ import { RuntimeConfigService } from "../services/runtime-config.js";
 import { SharedTokenFactsService } from "../services/shared-token-facts.js";
 import { DiscoveryLabService } from "../services/discovery-lab-service.js";
 import { DiscoveryLabMarketRegimeService } from "../services/discovery-lab-market-regime-service.js";
+import { DiscoveryLabMarketStatsService } from "../services/discovery-lab-market-stats-service.js";
 import { DiscoveryLabManualEntryService } from "../services/discovery-lab-manual-entry.js";
+import { DiscoveryLabStrategySuggestionService } from "../services/discovery-lab-strategy-suggestion-service.js";
 import { DiscoveryLabTokenInsightService } from "../services/discovery-lab-token-insight-service.js";
 import { buildAdaptiveModelState } from "../services/adaptive-model.js";
 import { getStrategyPreset } from "../services/strategy-presets.js";
@@ -37,6 +39,15 @@ export class BotRuntime {
     getRun: (runId) => this.discoveryLab.getRun(runId),
   });
   private readonly discoveryLabTokenInsight = new DiscoveryLabTokenInsightService(this.birdeye);
+  private readonly discoveryLabMarketStats = new DiscoveryLabMarketStatsService({
+    birdeye: this.birdeye,
+    tokenInsight: this.discoveryLabTokenInsight,
+    getSettings: () => this.config.getSettings(),
+  });
+  private readonly discoveryLabStrategySuggestions = new DiscoveryLabStrategySuggestionService({
+    getSettings: () => this.config.getSettings(),
+    getMarketStats: (input) => this.discoveryLabMarketStats.getMarketStats(input),
+  });
   private readonly execution = new ExecutionEngine(this.risk, this.config);
   private readonly discoveryLabManualEntry = new DiscoveryLabManualEntryService(this.discoveryLab, this.execution);
   private readonly exits = new ExitEngine(this.birdeye, this.execution, this.config, this.risk);
@@ -71,12 +82,7 @@ export class BotRuntime {
       getPositionDetail: (positionId) => this.desk.getPositionDetail(positionId),
       getDiagnostics: () => this.desk.getDiagnostics(),
       getSettings: () => this.config.getSettings(),
-      getSettingsControl: () => this.desk.getSettingsControl(),
       patchSettings: (input) => this.config.patchSettings(input),
-      patchSettingsDraft: (input) => this.patchSettingsDraft(input),
-      discardSettingsDraft: () => this.discardSettingsDraft(),
-      runSettingsDryRun: () => this.runSettingsDryRun(),
-      promoteSettingsDraft: () => this.promoteSettingsDraft(),
       pause: (reason) => this.pause(reason),
       resume: () => this.resume(),
       triggerDiscovery: () => this.runDiscoveryNow(),
@@ -90,6 +96,8 @@ export class BotRuntime {
       listDiscoveryLabRuns: () => this.discoveryLab.listRunSummaries(),
       getDiscoveryLabRun: (runId) => this.discoveryLab.getRun(runId),
       getDiscoveryLabMarketRegime: (runId) => this.discoveryLabMarketRegime.getMarketRegime(runId),
+      getDiscoveryLabMarketStats: (input) => this.discoveryLabMarketStats.getMarketStats(input),
+      getDiscoveryLabStrategySuggestions: (input) => this.discoveryLabStrategySuggestions.getSuggestions(input),
       getDiscoveryLabTokenInsight: (input) => this.getDiscoveryLabTokenInsight(input),
       enterDiscoveryLabManualTrade: (input) => this.enterDiscoveryLabManualTrade(input),
       applyDiscoveryLabLiveStrategy: (input) => this.applyDiscoveryLabLiveStrategy(input),
@@ -158,12 +166,7 @@ export class BotRuntime {
       db.candidate.count({ where: { status: { in: [...QUEUED_CANDIDATE_STATUSES] } } }),
       db.candidate.findMany({ take: 20, orderBy: { discoveredAt: "desc" } }),
       db.fill.findMany({ take: 20, orderBy: { createdAt: "desc" } }),
-      db.$queryRawUnsafe(`
-        SELECT provider, total_calls, total_units, avg_latency_ms, error_count
-        FROM v_api_provider_daily
-        WHERE session_date = CURRENT_DATE
-        ORDER BY provider
-      `) as Promise<unknown[]>,
+      this.getProviderSummaryForSnapshot(),
       this.providerBudget.getBirdeyeBudgetSnapshot(),
     ]);
 
@@ -194,6 +197,37 @@ export class BotRuntime {
       providerBudget,
       adaptiveModel: buildAdaptiveModelState(settings),
     };
+  }
+
+  private async getProviderSummaryForSnapshot(): Promise<unknown[]> {
+    try {
+      return await db.$queryRawUnsafe(`
+        SELECT provider, total_calls, total_units, avg_latency_ms, error_count
+        FROM v_api_provider_daily
+        WHERE session_date = CURRENT_DATE
+        ORDER BY provider
+      `) as unknown[];
+    } catch (error) {
+      logger.warn({ err: error }, "snapshot provider view unavailable; falling back to ApiEvent aggregation");
+    }
+
+    try {
+      return await db.$queryRawUnsafe(`
+        SELECT
+          provider,
+          COUNT(*)::int AS total_calls,
+          COALESCE(SUM(units), 0)::int AS total_units,
+          AVG(COALESCE("latencyMs", 0))::numeric(12, 2) AS avg_latency_ms,
+          SUM(CASE WHEN success THEN 0 ELSE 1 END)::int AS error_count
+        FROM "ApiEvent"
+        WHERE DATE_TRUNC('day', "calledAt")::date = CURRENT_DATE
+        GROUP BY provider
+        ORDER BY provider
+      `) as unknown[];
+    } catch (error) {
+      logger.error({ err: error }, "snapshot provider fallback query failed");
+      return [];
+    }
   }
 
   private async armLiveStartupPause(tradeMode: string) {
@@ -276,7 +310,7 @@ export class BotRuntime {
           },
         },
       }),
-      db.tokenSnapshot.deleteMany({
+      db.tokenMetrics.deleteMany({
         where: {
           capturedAt: {
             lt: new Date(Date.now() - env.SNAPSHOT_RETENTION_DAYS * 24 * 60 * 60 * 1000),
@@ -383,9 +417,18 @@ export class BotRuntime {
     if ((calibration.calibrationSummary?.winnerCount ?? 0) <= 0) {
       throw new Error("cannot apply a live strategy from a run with no winners");
     }
+    if ((calibration.calibrationSummary?.calibrationConfidence ?? 0) < 0.56) {
+      throw new Error("strategy calibration confidence is too weak to apply safely");
+    }
+    if (
+      (calibration.calibrationSummary?.avgWinnerTimeSinceGraduationMin ?? Number.POSITIVE_INFINITY) <= 30
+      && (calibration.calibrationSummary?.winnerCount ?? 0) < 3
+    ) {
+      throw new Error("sub-30m winner sample is too thin; rerun or widen the pack before applying");
+    }
 
     const currentSettings = await this.config.getSettings();
-    await this.config.patchDraft({
+    await this.config.patchSettings({
       strategy: {
         dryRunPresetId: currentSettings.strategy.dryRunPresetId,
         heliusWatcherEnabled: currentSettings.strategy.heliusWatcherEnabled,
@@ -395,9 +438,9 @@ export class BotRuntime {
     });
 
     await recordOperatorEvent({
-      kind: "settings_draft",
-      title: "Discovery-lab live strategy staged",
-      detail: `Run ${run.packName} updated the settings draft with pack discovery, calibrated exits, and a ${calibration.capitalModifierPercent}% capital modifier.`,
+      kind: "settings_apply",
+      title: "Discovery-lab live strategy applied",
+      detail: `Run ${run.packName} updated the active live strategy with pack discovery, calibrated exits, and a ${calibration.capitalModifierPercent}% capital modifier.`,
       metadata: {
         runId,
         packId: calibration.packId,
@@ -494,105 +537,6 @@ export class BotRuntime {
     });
 
     await this.graduation.discover();
-  }
-
-  private async patchSettingsDraft(input: Partial<import("../types/domain.js").BotSettings>) {
-    const next = await this.config.patchDraft(input);
-    await recordOperatorEvent({
-      kind: "settings_draft",
-      title: "Settings draft updated",
-      detail: next.changedPaths.length > 0 ? `${next.changedPaths.length} fields changed in draft.` : "Draft created without material changes.",
-      metadata: { changedPaths: next.changedPaths },
-    });
-    return next;
-  }
-
-  private async discardSettingsDraft() {
-    const state = await this.config.discardDraft();
-    await recordOperatorEvent({
-      kind: "settings_draft",
-      title: "Settings draft discarded",
-      detail: "Pending config changes were dropped.",
-    });
-    return state;
-  }
-
-  private async runSettingsDryRun() {
-    const state = await this.config.getControlState();
-    if (!state.draft) {
-      throw new Error("no settings draft is available");
-    }
-    if (!state.validation.ok) {
-      throw new Error("draft settings are invalid; fix validation issues before running a dry run");
-    }
-
-    const [currentGate, draftGate, openPositions, queuedCandidates] = await Promise.all([
-      this.risk.canOpenPosition(state.active),
-      this.risk.canOpenPosition(state.draft),
-      db.position.count({ where: { status: "OPEN" } }),
-      db.candidate.count({ where: { status: { in: [...QUEUED_CANDIDATE_STATUSES] } } }),
-    ]);
-
-    const currentReason = currentGate.reason ?? null;
-    const draftReason = draftGate.reason ?? null;
-    const noNewBlocker = draftGate.allowed || (!currentGate.allowed && currentReason === draftReason);
-    const summary = {
-      ranAt: new Date().toISOString(),
-      basedOnUpdatedAt: state.activeUpdatedAt,
-      changedPaths: state.changedPaths,
-      liveAffectingPaths: state.liveAffectingPaths,
-      currentGate: {
-        allowed: currentGate.allowed,
-        reason: currentReason,
-      },
-      draftGate: {
-        allowed: draftGate.allowed,
-        reason: draftReason,
-      },
-      openPositions,
-      queuedCandidates,
-      noNewBlocker,
-      safeToPromote: state.liveAffectingPaths.length === 0 || noNewBlocker,
-    };
-
-    const next = await this.config.saveDraftDryRun(summary);
-    await recordOperatorEvent({
-      kind: "settings_dry_run",
-      level: summary.safeToPromote ? "info" : "warning",
-      title: "Settings dry run completed",
-      detail: summary.safeToPromote
-        ? "Draft review is ready for operator promotion."
-        : draftReason ?? "Draft introduced a new blocker.",
-      metadata: summary as Record<string, unknown>,
-    });
-    return next;
-  }
-
-  private async promoteSettingsDraft() {
-    const state = await this.config.getControlState();
-    if (!state.draft) {
-      throw new Error("no settings draft is available");
-    }
-    if (state.liveAffectingPaths.length > 0) {
-      if (!state.dryRun) {
-        throw new Error("run a settings dry run before promoting live-affecting changes");
-      }
-      if (!state.dryRun.safeToPromote) {
-        throw new Error("draft dry run did not pass review; fix blockers before promoting");
-      }
-      if (state.dryRun.basedOnUpdatedAt !== state.activeUpdatedAt) {
-        throw new Error("active settings changed after the draft dry run; rerun the dry run before promoting");
-      }
-    }
-
-    const next = await this.config.promoteDraft();
-    await recordOperatorEvent({
-      kind: "settings_promote",
-      title: "Settings promoted",
-      detail: `${state.changedPaths.length} draft fields moved to active settings.`,
-      metadata: { changedPaths: state.changedPaths },
-    });
-    return next;
   }
 
   private isUsHours(now = new Date()): boolean {

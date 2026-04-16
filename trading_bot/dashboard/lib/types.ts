@@ -231,51 +231,6 @@ export type DiagnosticsPayload = {
   issues: Array<{ id: string; label: string; detail: string; level: "warning" | "danger" }>;
 };
 
-export type SettingsValidationIssue = {
-  path: string;
-  message: string;
-};
-
-export type SettingsDryRunSummary = {
-  ranAt: string;
-  basedOnUpdatedAt: string;
-  changedPaths: string[];
-  liveAffectingPaths: string[];
-  currentGate: {
-    allowed: boolean;
-    reason: string | null;
-  };
-  draftGate: {
-    allowed: boolean;
-    reason: string | null;
-  };
-  openPositions: number;
-  queuedCandidates: number;
-  noNewBlocker: boolean;
-  safeToPromote: boolean;
-};
-
-export type SettingsControlState = {
-  active: BotSettings;
-  draft: BotSettings | null;
-  dirty: boolean;
-  changedPaths: string[];
-  liveAffectingPaths: string[];
-  validation: {
-    ok: boolean;
-    issues: SettingsValidationIssue[];
-  };
-  dryRun: SettingsDryRunSummary | null;
-  activeUpdatedAt: string;
-  basedOnUpdatedAt: string | null;
-  sections: Array<{
-    id: "capital" | "strategy" | "entry" | "exit" | "research" | "advanced";
-    label: string;
-    editable: boolean;
-    paths: string[];
-  }>;
-};
-
 export type ActionResponse = {
   ok: boolean;
   action: string;
@@ -297,6 +252,7 @@ export type DiscoveryLabThresholdOverrides = Partial<{
   minBuySellRatio: number;
   maxTop10HolderPercent: number;
   maxSingleHolderPercent: number;
+  maxGraduationAgeSeconds: number;
   maxNegativePriceChange5mPercent: number;
 }>;
 
@@ -567,6 +523,37 @@ export type DiscoveryLabRunReport = {
     timeSinceCreationMin: number | null;
     softIssues: string[];
     notes: string[];
+    pairAddress?: string | null;
+    pairCreatedAt?: string | null;
+    socials?: {
+      website: string | null;
+      twitter: string | null;
+      telegram: string | null;
+      count: number;
+    } | null;
+    tradeSetup?: {
+      presetId: "FIRST_MINUTE_POSTGRAD_CONTINUATION" | "LATE_CURVE_MIGRATION_SNIPE";
+      entryScore: number;
+      confidenceScore: number;
+      playScore: number | null;
+      winnerScore: number | null;
+      profile: "scalp" | "balanced" | "runner";
+      suggestedCapitalUsd: number;
+      entryPriceUsd: number | null;
+      stopLossPercent: number;
+      stopLossPriceUsd: number | null;
+      tp1Percent: number;
+      tp1PriceUsd: number | null;
+      tp1SellFractionPercent: number;
+      tp2Percent: number;
+      tp2PriceUsd: number | null;
+      tp2SellFractionPercent: number;
+      postTp1RetracePercent: number;
+      trailingStopPercent: number;
+      timeStopMinutes: number;
+      timeStopMinReturnPercent: number;
+      timeLimitMinutes: number;
+    } | null;
   }>;
 };
 
@@ -636,16 +623,6 @@ export type BotSettings = {
     timeStopMinReturnPercent: number;
     timeLimitMinutes: number;
   };
-  research: {
-    discoveryLimit: number;
-    fullEvaluationLimit: number;
-    maxMockPositions: number;
-    fixedPositionSizeUsd: number;
-    pollIntervalMs: number;
-    maxRunDurationMs: number;
-    birdeyeUnitCap: number;
-    heliusUnitCap: number;
-  };
 };
 
 export type DiscoveryLabRuntimeSnapshot = {
@@ -663,6 +640,8 @@ export type DiscoveryLabRuntimeSnapshot = {
 
 export type DiscoveryLabTokenInsight = {
   mint: string;
+  pairAddress: string | null;
+  pairCreatedAt: string | null;
   symbol: string | null;
   name: string | null;
   source: string | null;
@@ -741,4 +720,148 @@ export type DiscoveryLabStrategyCalibration = LiveStrategySettings;
 export type DiscoveryLabApplyLiveStrategyResponse = {
   ok: true;
   strategy: DiscoveryLabStrategyCalibration;
+};
+
+export type DiscoveryLabMarketTokenRow = {
+  mint: string;
+  pairAddress: string | null;
+  pairCreatedAt: string | null;
+  symbol: string;
+  name: string;
+  source: string | null;
+  primarySignal: string;
+  graduationAgeMinutes: number | null;
+  priceUsd: number | null;
+  liquidityUsd: number | null;
+  marketCapUsd: number | null;
+  volume5mUsd: number | null;
+  volume24hUsd: number | null;
+  buys5m: number | null;
+  sells5m: number | null;
+  priceChange5mPercent: number | null;
+  priceChange1hPercent: number | null;
+  rugScore: number | null;
+  rugScoreNormalized: number | null;
+  rugRiskLevel: "danger" | "warning" | "info" | "unknown";
+  topRiskName: string | null;
+  lpLockedPercent: number | null;
+  trackedPositionId: string | null;
+  trackedPositionStatus: "OPEN" | "CLOSED" | null;
+  socials: {
+    website: string | null;
+    twitter: string | null;
+    telegram: string | null;
+    count: number;
+  };
+  toolLinks: {
+    dexscreener: string;
+    rugcheck: string;
+    axiom: string;
+  };
+};
+
+export type DiscoveryLabMarketStatsPayload = {
+  generatedAt: string;
+  meta: {
+    refreshMode: "manual";
+    cacheState: "empty" | "ready" | "degraded";
+    lastRefreshedAt: string | null;
+    staleMinutes: number | null;
+    warnings: string[];
+    focusMint: string | null;
+    focusTokenCachedAt: string | null;
+    sources: Array<{
+      key: string;
+      label: string;
+      tier: "paid" | "free" | "local";
+      detail: string;
+    }>;
+  };
+  tokenUniverseSize: number;
+  marketPulse: {
+    advancingSharePercent: number;
+    cautionSharePercent: number;
+    medianPriceChange5mPercent: number | null;
+    medianLiquidityUsd: number | null;
+    medianVolume24hUsd: number | null;
+    medianRugScoreNormalized: number | null;
+    trackedOpenPositions: number;
+  };
+  sourceMix: {
+    birdeyeRecentCount: number;
+    birdeyeMomentumCount: number;
+    rugcheckRecentCount: number;
+    rugcheckVerifiedCount: number;
+  };
+  tokens: DiscoveryLabMarketTokenRow[];
+  focusToken: {
+    insight: DiscoveryLabTokenInsight;
+    rugcheck: {
+      mint: string;
+      score: number | null;
+      scoreNormalized: number | null;
+      lpLockedPercent: number | null;
+      topRiskLevel: "danger" | "warning" | "info" | "unknown";
+      topRiskName: string | null;
+      riskCount: number;
+      risks: Array<{
+        name: string;
+        level: string | null;
+        score: number | null;
+        description: string | null;
+      }>;
+    } | null;
+    trackedPositionId: string | null;
+    trackedPositionStatus: "OPEN" | "CLOSED" | null;
+  } | null;
+};
+
+export type DiscoveryLabStrategySuggestionsPayload = {
+  generatedAt: string;
+  meta: {
+    refreshMode: "manual";
+    cacheState: "empty" | "ready" | "degraded";
+    lastRefreshedAt: string | null;
+    staleMinutes: number | null;
+    warnings: string[];
+    focusMint: string | null;
+    focusTokenCachedAt: string | null;
+    marketStatsRefreshedAt: string | null;
+    sources: Array<{
+      key: string;
+      label: string;
+      tier: "paid" | "free" | "local";
+      detail: string;
+    }>;
+  };
+  regime: "RISK_ON" | "CHOP" | "RISK_OFF";
+  confidencePercent: number;
+  marketSummary: {
+    tokenUniverseSize: number;
+    advancingSharePercent: number;
+    cautionSharePercent: number;
+    medianPriceChange5mPercent: number | null;
+    medianLiquidityUsd: number | null;
+    medianVolume24hUsd: number | null;
+    medianRugScoreNormalized: number | null;
+  };
+  suggestions: Array<{
+    id: string;
+    title: string;
+    summary: string;
+    confidencePercent: number;
+    recommendedSessionMinutes: number;
+    posture: "aggressive" | "balanced" | "defensive";
+    thresholdOverrides: DiscoveryLabThresholdOverrides;
+    thresholdRanges: Array<{
+      key: keyof DiscoveryLabThresholdOverrides;
+      label: string;
+      unit: "usd" | "percent" | "count" | "ratio";
+      min: number;
+      recommended: number;
+      max: number;
+    }>;
+    discoveryFilters: Array<{ key: string; label: string; value: string }>;
+    packDraft: DiscoveryLabPackDraft;
+  }>;
 };

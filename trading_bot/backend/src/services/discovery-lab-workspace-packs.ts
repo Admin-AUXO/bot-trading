@@ -24,6 +24,7 @@ type WorkspacePackSeed = {
     minBuySellRatio?: number;
     maxTop10HolderPercent?: number;
     maxSingleHolderPercent?: number;
+    maxGraduationAgeSeconds?: number;
     maxNegativePriceChange5mPercent?: number;
   };
 };
@@ -91,15 +92,16 @@ export const WORKSPACE_DISCOVERY_LAB_PACK_SEEDS: WorkspacePackSeed[] = [
     targetPnlBand: { label: "45-110% scalp", minPercent: 45, maxPercent: 110 },
     defaultProfile: "scalp",
     thresholdOverrides: {
-      minLiquidityUsd: 9_000,
-      maxMarketCapUsd: 1_800_000,
-      minHolders: 40,
-      minVolume5mUsd: 1_800,
-      minUniqueBuyers5m: 14,
-      minBuySellRatio: 1.08,
-      maxTop10HolderPercent: 42,
-      maxSingleHolderPercent: 22,
-      maxNegativePriceChange5mPercent: 14,
+      minLiquidityUsd: 10_000,
+      maxMarketCapUsd: 1_050_000,
+      minHolders: 44,
+      minVolume5mUsd: 2_100,
+      minUniqueBuyers5m: 15,
+      minBuySellRatio: 1.1,
+      maxTop10HolderPercent: 39,
+      maxSingleHolderPercent: 20,
+      maxGraduationAgeSeconds: 1_200,
+      maxNegativePriceChange5mPercent: 12,
     },
     recipes: [
       buildGraduatedRecipe({
@@ -134,15 +136,16 @@ export const WORKSPACE_DISCOVERY_LAB_PACK_SEEDS: WorkspacePackSeed[] = [
     targetPnlBand: { label: "35-100% micro scalp", minPercent: 35, maxPercent: 100 },
     defaultProfile: "scalp",
     thresholdOverrides: {
-      minLiquidityUsd: 8_000,
-      maxMarketCapUsd: 2_000_000,
-      minHolders: 35,
-      minVolume5mUsd: 1_500,
-      minUniqueBuyers5m: 12,
-      minBuySellRatio: 1.05,
-      maxTop10HolderPercent: 45,
-      maxSingleHolderPercent: 25,
-      maxNegativePriceChange5mPercent: 18,
+      minLiquidityUsd: 9_000,
+      maxMarketCapUsd: 950_000,
+      minHolders: 40,
+      minVolume5mUsd: 1_900,
+      minUniqueBuyers5m: 14,
+      minBuySellRatio: 1.08,
+      maxTop10HolderPercent: 41,
+      maxSingleHolderPercent: 21,
+      maxGraduationAgeSeconds: 1_500,
+      maxNegativePriceChange5mPercent: 14,
     },
     recipes: [
       buildGraduatedRecipe({

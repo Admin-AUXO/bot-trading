@@ -29,6 +29,7 @@ export type DiscoveryLabThresholdOverrides = Partial<{
   minBuySellRatio: number;
   maxTop10HolderPercent: number;
   maxSingleHolderPercent: number;
+  maxGraduationAgeSeconds: number;
   maxNegativePriceChange5mPercent: number;
 }>;
 
@@ -168,6 +169,7 @@ export const thresholdOverridesSchema = z.object({
   minBuySellRatio: z.number().nonnegative().optional(),
   maxTop10HolderPercent: z.number().nonnegative().optional(),
   maxSingleHolderPercent: z.number().nonnegative().optional(),
+  maxGraduationAgeSeconds: z.number().int().positive().optional(),
   maxNegativePriceChange5mPercent: z.number().nonnegative().optional(),
 });
 export const customPackFileSchema = z.object({

@@ -19,8 +19,10 @@ import {
   RefreshCcw,
   Search,
   Settings2,
+  Sparkles,
 } from "lucide-react";
 import { fetchJson } from "@/lib/api";
+import { discoveryLabRoutes } from "@/lib/dashboard-routes";
 import { formatInteger, formatMinutesAgo } from "@/lib/format";
 import type { ActionResponse, DeskShellPayload } from "@/lib/types";
 import { StatusPill } from "@/components/dashboard-primitives";
@@ -67,27 +69,27 @@ type CommandItem = {
 
 const navGroups: NavGroup[] = [
   {
-    id: "operational-desk",
-    label: "Operational desk",
+    id: "control",
+    label: "Control",
     icon: Activity,
     items: [
       {
-        id: "operational-overview",
+        id: "control-overview",
         href: "/operational-desk/overview" as Route,
-        label: "Overview",
+        label: "Desk",
         icon: Activity,
         matchPrefixes: ["/operational-desk/overview", "/"],
       },
       {
-        id: "operational-trading",
+        id: "control-trading",
         href: "/operational-desk/trading" as Route,
-        label: "Trading",
+        label: "Lifecycle",
         icon: GitPullRequestArrow,
         matchPrefixes: ["/operational-desk/trading", "/trading", "/candidates", "/positions"],
         countKey: "trading",
       },
       {
-        id: "operational-settings",
+        id: "control-settings",
         href: "/operational-desk/settings" as Route,
         label: "Settings",
         icon: Settings2,
@@ -96,44 +98,58 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
-    id: "discovery-lab",
-    label: "Discovery lab",
+    id: "lab",
+    label: "Lab",
     icon: FlaskConical,
     items: [
       {
-        id: "discovery-overview",
-        href: "/discovery-lab/overview" as Route,
-        label: "Overview",
-        icon: Radar,
-        matchPrefixes: ["/discovery-lab/overview"],
+        id: "lab-overview",
+        href: discoveryLabRoutes.overview,
+        label: "Lab",
+        icon: FlaskConical,
+        matchPrefixes: [discoveryLabRoutes.overview, discoveryLabRoutes.root],
       },
       {
-        id: "discovery-studio",
-        href: "/discovery-lab/studio" as Route,
+        id: "lab-market",
+        href: discoveryLabRoutes.marketStats,
+        label: "Market",
+        icon: Search,
+        matchPrefixes: [discoveryLabRoutes.marketStats],
+      },
+      {
+        id: "lab-ideas",
+        href: discoveryLabRoutes.strategyIdeas,
+        label: "Ideas",
+        icon: Sparkles,
+        matchPrefixes: [discoveryLabRoutes.strategyIdeas],
+      },
+      {
+        id: "lab-studio",
+        href: discoveryLabRoutes.studio,
         label: "Studio",
         icon: FlaskConical,
-        matchPrefixes: ["/discovery-lab/studio"],
+        matchPrefixes: [discoveryLabRoutes.studio],
       },
       {
-        id: "discovery-run-lab",
-        href: "/discovery-lab/run-lab" as Route,
-        label: "Run lab",
+        id: "lab-run",
+        href: discoveryLabRoutes.runLab,
+        label: "Run",
         icon: PlayCircle,
-        matchPrefixes: ["/discovery-lab/run-lab"],
+        matchPrefixes: [discoveryLabRoutes.runLab],
       },
       {
-        id: "discovery-results",
-        href: "/discovery-lab/results" as Route,
+        id: "lab-results",
+        href: discoveryLabRoutes.results,
         label: "Results",
         icon: Search,
-        matchPrefixes: ["/discovery-lab/results", "/discovery-lab"],
+        matchPrefixes: [discoveryLabRoutes.results],
       },
       {
-        id: "discovery-config",
-        href: "/discovery-lab/config" as Route,
+        id: "lab-config",
+        href: discoveryLabRoutes.config,
         label: "Config",
         icon: Settings2,
-        matchPrefixes: ["/discovery-lab/config"],
+        matchPrefixes: [discoveryLabRoutes.config],
       },
     ],
   },
@@ -512,7 +528,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <Badge className="normal-case">Sync {shell ? formatMinutesAgo(shell.lastSyncAt) : "—"}</Badge>
                     {shell?.primaryBlocker?.label ? <Badge className="normal-case">{shell.primaryBlocker.label}</Badge> : null}
                   </div>
-                  <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
                     <span className="text-sm font-semibold text-text-primary">{sidebarContext.title}</span>
                     {shellError ? <Badge variant="danger" className="normal-case tracking-normal">{shellError}</Badge> : null}
                     {actionError ? <Badge variant="danger" className="normal-case tracking-normal">{actionError}</Badge> : null}
@@ -748,7 +764,7 @@ function matchesRoute(pathname: string, item: NavItem) {
 }
 
 function buildSidebarContext(pathname: string, shell: DeskShellPayload | null): SidebarContext {
-  const tradingNavItem = navItems.find((item) => item.id === "operational-trading");
+  const tradingNavItem = navItems.find((item) => item.id === "control-trading");
   const tradingCount = tradingNavItem ? routeCount(shell, tradingNavItem) : null;
 
   if (
@@ -758,13 +774,13 @@ function buildSidebarContext(pathname: string, shell: DeskShellPayload | null): 
     pathname.startsWith("/trading/")
   ) {
     return {
-      eyebrow: "Current page",
-      title: "Trading lifecycle",
-      detail: "Unified operating surface from intake through open risk and recent outcomes.",
+      eyebrow: "Control",
+      title: "Lifecycle",
+      detail: "Intake → open risk → outcomes.",
       links: [
-        { href: "/operational-desk/trading", label: "Lifecycle board", badge: tradingCount },
-        { href: "/operational-desk/trading?bucket=ready", label: "Ready intake" },
-        { href: "/operational-desk/trading?book=open", label: "Open positions" },
+        { href: "/operational-desk/trading", label: "Board", badge: tradingCount },
+        { href: "/operational-desk/trading?bucket=ready", label: "Ready" },
+        { href: "/operational-desk/trading?book=open", label: "Open" },
       ],
     };
   }
@@ -772,24 +788,23 @@ function buildSidebarContext(pathname: string, shell: DeskShellPayload | null): 
   if (pathname === "/candidates" || pathname.startsWith("/candidates/")) {
     if (pathname !== "/candidates") {
       return {
-        eyebrow: "Current page",
-        title: "Candidate detail",
-        detail: "Why it matters, gate state, and stored evidence.",
+        eyebrow: "Control",
+        title: "Candidate",
+        detail: "Gate state and evidence.",
         links: [
-          { href: "/operational-desk/trading", label: "Back to lifecycle", badge: tradingCount },
+          { href: "/operational-desk/trading", label: "Lifecycle", badge: tradingCount },
           { href: "/operational-desk/overview", label: "Desk" },
         ],
       };
     }
     return {
-      eyebrow: "Current page",
-      title: "Candidate queue",
-      detail: "Triage by blocker bucket with URL-backed sort and filter state.",
+      eyebrow: "Control",
+      title: "Candidates",
+      detail: "Triage by blocker.",
       links: [
         { href: "/operational-desk/trading?bucket=ready", label: "Ready" },
         { href: "/operational-desk/trading?bucket=risk", label: "Risk" },
         { href: "/operational-desk/trading?bucket=provider", label: "Provider" },
-        { href: "/operational-desk/trading?bucket=data", label: "Data" },
       ],
     };
   }
@@ -797,33 +812,31 @@ function buildSidebarContext(pathname: string, shell: DeskShellPayload | null): 
   if (pathname === "/positions" || pathname.startsWith("/positions/")) {
     if (pathname !== "/positions") {
       return {
-        eyebrow: "Current page",
-        title: "Position detail",
-        detail: "Intervention state, execution trace, fills, and snapshots.",
+        eyebrow: "Control",
+        title: "Position",
+        detail: "Exec trace, fills, snapshots.",
         links: [
-          { href: "/operational-desk/trading", label: "Back to lifecycle", badge: tradingCount },
-          { href: "/operational-desk/settings", label: "Runtime settings" },
+          { href: "/operational-desk/trading", label: "Lifecycle", badge: tradingCount },
+          { href: "/operational-desk/settings", label: "Settings" },
         ],
       };
     }
     return {
-      eyebrow: "Current page",
-      title: "Position book",
-      detail: "Scan open risk first, then review the closed book.",
+      eyebrow: "Control",
+      title: "Positions",
+      detail: "Open → closed.",
       links: [
-        { href: "/operational-desk/trading?book=open", label: "Open book", badge: tradingCount },
-        { href: "/operational-desk/trading?book=closed", label: "Closed book" },
-        { href: "/operational-desk/settings", label: "Settings" },
+        { href: "/operational-desk/trading?book=open", label: "Open", badge: tradingCount },
+        { href: "/operational-desk/trading?book=closed", label: "Closed" },
       ],
     };
   }
 
-  if (pathname === "/discovery-lab" || pathname.startsWith("/discovery-lab/")) {
+  if (pathname === discoveryLabRoutes.root) {
     return {
-      eyebrow: "Current page",
-      title: "Discovery lab",
-      detail: "Results, builder, and run control stay on one workbench.",
-      notes: ["Results first", "Pack + strategy edits", "Runs and logs"],
+      eyebrow: "Lab",
+      title: "Lab",
+      detail: "Market, strategy, results.",
     };
   }
 
@@ -834,10 +847,9 @@ function buildSidebarContext(pathname: string, shell: DeskShellPayload | null): 
     pathname.startsWith("/settings/")
   ) {
     return {
-      eyebrow: "Current page",
+      eyebrow: "Control",
       title: "Settings",
-      detail: "Draft, validate, dry run, then promote.",
-      notes: ["Draft", "Validate", "Dry run", "Promote"],
+      detail: "Direct-apply runtime controls.",
     };
   }
 
@@ -845,20 +857,19 @@ function buildSidebarContext(pathname: string, shell: DeskShellPayload | null): 
   if (activeNav) {
     const activeGroup = navGroups.find((group) => group.items.some((item) => item.id === activeNav.id));
     return {
-      eyebrow: activeGroup?.label ?? "Current page",
+      eyebrow: activeGroup?.label ?? "Page",
       title: activeNav.label,
-      detail: "Primary operator workspace.",
+      detail: "Workspace.",
     };
   }
 
   return {
-    eyebrow: "Current page",
-    title: "Control desk",
-    detail: "Exposure, queue pressure, and live faults at a glance.",
+    eyebrow: "Control",
+    title: "Desk",
+    detail: "Exposure, queue, faults.",
     links: [
-      { href: "/operational-desk/trading", label: "Trading lifecycle", badge: tradingCount },
-      { href: "/discovery-lab/results", label: "Discovery lab" },
-      { href: "/operational-desk/settings", label: "Settings" },
+      { href: "/operational-desk/trading", label: "Lifecycle", badge: tradingCount },
+      { href: "/discovery-lab/results", label: "Lab" },
     ],
   };
 }
