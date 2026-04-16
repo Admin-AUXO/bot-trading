@@ -27,7 +27,7 @@ The installer now supports startup profiles:
 
 - `compact` default: keep startup lean and enable only the primary local file surface
 - `db`: add `postgres` when schema or reporting truth matters
-- `research`: add `context7`, `fetch`, and `time` for current-doc tasks
+- `research`: add `context7`, `fetch`, `firecrawl`, and `time` for current-doc and live web-data tasks
 - `dashboard`: add browser and UI MCPs for dashboard execution work
 - `provider`: add provider-facing MCPs plus lightweight fetch/time support
 - `full`: enable the broader research and browser stack for tasks that truly need it
@@ -52,7 +52,7 @@ Repo hook posture:
 
 ## Shared Config Posture
 
-- Default repo posture: `approval_policy = "on-request"`, `sandbox_mode = "workspace-write"`, `model_reasoning_effort = "medium"`, `plan_mode_reasoning_effort = "high"`, `personality = "pragmatic"`, and hooks enabled via `[features].codex_hooks = true`
+- Default repo posture: `approval_policy = "on-request"`, `sandbox_mode = "workspace-write"`, default model `codex-MiniMax-M2.7` via provider `minimax`, `model_reasoning_effort = "medium"`, `plan_mode_reasoning_effort = "high"`, `personality = "pragmatic"`, and hooks enabled via `[features].codex_hooks = true`
 - `fast` profile: lower reasoning for well-scoped tasks
 - `mini` profile: switch the main agent to `gpt-5.4-mini` for lighter repo work
 - `write` profile: switch the main agent to `gpt-5.3-codex` for implementation-heavy sessions in an already-understood surface
@@ -76,6 +76,7 @@ Keep the unrestricted profile off the default path. Reach for it only after the 
 - dashboard component registry search and install flows: `shadcn`
 - Solana, Helius, wallet, and chain-specific reads: `helius`
 - simple timezone and current-time questions: `time`
+- self-hosted web search, scrape, crawl, and page-content fetches: `firecrawl`
 
 ## Startup Policy
 
@@ -111,6 +112,7 @@ Obsidian is the repo memory system. Parallel memory stores create drift.
 
 - Use `context7` for current technical docs when the answer depends on a live library or framework contract.
 - Use `fetch` for exact URLs, changelogs, and single-page primary-source confirmation.
+- Use `firecrawl` when the task needs live web search or scrape capability and the local Firecrawl sidecar is running. The repo launcher defaults `FIRECRAWL_API_URL` to `http://127.0.0.1:3002`, so cloud credits are not required for the shared local path.
 - Use `shadcn` for dashboard UI work that needs registry-backed component discovery or install scaffolding; do not use it as a substitute for reading the repo's own dashboard primitives first.
 - Do not browse before checking local notes and code when the answer is probably already in the repo.
 

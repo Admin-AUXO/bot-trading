@@ -25,7 +25,7 @@ COPY --chown=node:node --from=builder /app/package.json ./
 COPY --chown=node:node --from=builder /app/package-lock.json ./
 COPY --chown=node:node --from=builder /app/prisma.config.ts ./
 USER node
-CMD ["npm", "run", "db:setup"]
+CMD ["npm", "run", "db:setup:dangerous"]
 
 FROM base AS runner
 ENV NODE_ENV=production

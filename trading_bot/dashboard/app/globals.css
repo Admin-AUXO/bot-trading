@@ -623,3 +623,22 @@ a {
     linear-gradient(90deg, rgba(217, 249, 157, 0.12), transparent 26%),
     rgba(255, 255, 255, 0.02);
 }
+
+/* ── Skeleton loaders ─────────────────────────────────────────── */
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.45; }
+}
+
+.skeleton {
+  animation: skeleton-pulse 1.6s ease-in-out infinite;
+  background: var(--bg-hover, rgba(255,255,255,0.06));
+  border-radius: 10px;
+}
+
+.skeleton-h-10  { height: 2.5rem; }
+.skeleton-h-24  { height: 6rem; }
+.skeleton-h-56  { height: 14rem; }
+.skeleton-w-72 { width: 18rem; }
+.skeleton-w-full { width: 100%; }
+.skeleton-w-1\/3 { width: 33%; }

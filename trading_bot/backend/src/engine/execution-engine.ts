@@ -1,6 +1,7 @@
 import type { Position, Prisma } from "@prisma/client";
 import { db } from "../db/client.js";
 import { RuntimeConfigService } from "../services/runtime-config.js";
+import { BOT_STATE_ID } from "./constants.js";
 import { LiveTradeExecutor, type LiveTradeExecution } from "../services/live-trade-executor.js";
 import { recordOperatorEvent } from "../services/operator-events.js";
 import { buildExitPlan, type ExitPlan } from "../services/strategy-exit.js";
@@ -8,25 +9,19 @@ import { recordTokenSnapshot } from "../services/token-snapshot-recorder.js";
 import type { BotSettings } from "../types/domain.js";
 import { toJsonValue } from "../utils/json.js";
 import { logger } from "../utils/logger.js";
+import { asNumber, asRecord, asString } from "../utils/types.js";
 import { RiskEngine } from "./risk-engine.js";
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
-}
-
-function toNumber(value: unknown): number | null {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
 
 function toTrimmedString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
+function toNumber(value: unknown): number | null {
+  return asNumber(value);
+}
+
 function readBoundedNumber(value: unknown, fallback: number, min: number, max: number): number {
-  const parsed = toNumber(value);
+  const parsed = asNumber(value);
   if (parsed === null) {
     return fallback;
   }
@@ -131,10 +126,11 @@ export class ExecutionEngine {
 
   private async openDryRunPosition(settings: BotSettings, input: OpenPositionInput): Promise<string> {
     const position = await db.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT 1 FROM "BotState" WHERE id = 'singleton' FOR UPDATE`;
+      await tx.$queryRaw`SELECT 1 FROM "BotState" WHERE id =  FOR UPDATE`;
 
       const entryScore = this.readEntryScore(input.metrics);
-      const capacity = await this.risk.canOpenPositionTx(tx, settings, { entryScore });
+      const confidenceScore = this.readConfidenceScore(input.metrics);
+      const capacity = await this.risk.canOpenPositionTx(tx, settings, { entryScore, confidenceScore });
       if (!capacity.allowed) {
         throw new Error(capacity.reason ?? "risk blocked entry");
       }
@@ -160,7 +156,8 @@ export class ExecutionEngine {
 
   private async openLivePosition(settings: BotSettings, input: OpenPositionInput): Promise<string> {
     const entryScore = this.readEntryScore(input.metrics);
-    const capacity = await this.risk.canOpenPosition(settings, { entryScore });
+    const confidenceScore = this.readConfidenceScore(input.metrics);
+    const capacity = await this.risk.canOpenPosition(settings, { entryScore, confidenceScore });
     if (!capacity.allowed) {
       throw new Error(capacity.reason ?? "risk blocked entry");
     }
@@ -267,12 +264,20 @@ export class ExecutionEngine {
     amountUsd: number,
     amountToken: number,
   ): Promise<{ id: string }> {
+    // Idempotent recovery: if the fill already exists (partial failure on a previous attempt),
+    // return the existing position rather than creating a duplicate.
+    const existing = await db.fill.findFirst({ where: { txSignature: executed.signature } });
+    if (existing) {
+      logger.warn({ txSignature: executed.signature, fillId: existing.id }, "fill already exists, skipping duplicate persist");
+      return { id: existing.positionId };
+    }
+
     const entryScore = this.readEntryScore(input.metrics);
     const strategyPresetId = this.readStrategyPresetId(input.metrics, settings);
     const exitPlan = this.resolveExitPlan(settings, entryScore, strategyPresetId, input.exitPlanOverride);
     try {
       return await db.$transaction(async (tx) => {
-        await tx.$queryRaw`SELECT 1 FROM "BotState" WHERE id = 'singleton' FOR UPDATE`;
+        await tx.$queryRaw`SELECT 1 FROM "BotState" WHERE id = ${BOT_STATE_ID} FOR UPDATE`;
 
         return this.persistOpenedPosition(tx, {
           settings,
@@ -328,7 +333,7 @@ export class ExecutionEngine {
   private async persistClose(input: PersistCloseInput): Promise<Position | null> {
     return db.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT 1 FROM "Position" WHERE id = ${input.input.positionId} FOR UPDATE`;
-      await tx.$queryRaw`SELECT 1 FROM "BotState" WHERE id = 'singleton' FOR UPDATE`;
+      await tx.$queryRaw`SELECT 1 FROM "BotState" WHERE id =  FOR UPDATE`;
 
       const position = await tx.position.findUniqueOrThrow({
         where: { id: input.input.positionId },
@@ -358,6 +363,18 @@ export class ExecutionEngine {
           amountToken,
           pnlUsd,
           txSignature: input.txSignature,
+          executionReason: input.input.reason,
+          executionMode: input.settings.tradeMode,
+          entryOrigin: position.entryOrigin,
+          totalLatencyMs: this.readLiveTimingValue(input.fillMetadata, "totalMs"),
+          quoteLatencyMs: this.readLiveTimingValue(input.fillMetadata, "quoteMs"),
+          swapBuildLatencyMs: this.readLiveTimingValue(input.fillMetadata, "swapBuildMs"),
+          senderBuildLatencyMs: this.readLiveTimingValue(input.fillMetadata, "senderBuildMs"),
+          broadcastConfirmLatencyMs: this.readLiveTimingValue(input.fillMetadata, "broadcastAndConfirmMs"),
+          settlementReadLatencyMs: this.readLiveTimingValue(input.fillMetadata, "settlementReadMs"),
+          executionSlippageBps: this.readLiveNumber(input.fillMetadata, "executionSlippageBps"),
+          quotedOutAmountUsd: this.readLiveNumber(input.fillMetadata, "quotedOutAmountUsd"),
+          actualOutAmountUsd: this.readLiveNumber(input.fillMetadata, "actualOutAmountUsd"),
           metadata: toJsonValue({
             reason: input.input.reason,
             mode: input.settings.tradeMode,
@@ -392,7 +409,7 @@ export class ExecutionEngine {
       }
 
       await tx.botState.update({
-        where: { id: "singleton" },
+        where: { id: BOT_STATE_ID },
         data: {
           cashUsd: { increment: amountUsd },
           realizedPnlUsd: { increment: pnlUsd },
@@ -413,10 +430,16 @@ export class ExecutionEngine {
     const source = toTrimmedString(input.input.metrics.source);
     const discoveryRecipeName = toTrimmedString(input.input.metrics.discoveryRecipeName);
     const entryOrigin = toTrimmedString(input.input.metrics.entryOrigin);
+    const exitProfile = toTrimmedString(input.input.metrics.exitProfile) ?? exitPlan.profile;
+    const confidenceScore = this.readConfidenceScore(input.input.metrics);
     const manualEntry = input.input.metrics.manualEntry === true;
     const discoveryLabReportAgeMsAtEntry = toNumber(input.input.metrics.discoveryLabReportAgeMsAtEntry);
     const discoveryLabRunAgeMsAtEntry = toNumber(input.input.metrics.discoveryLabRunAgeMsAtEntry);
     const discoveryLabCompletionLagMsAtEntry = toNumber(input.input.metrics.discoveryLabCompletionLagMsAtEntry);
+    const requestedSizeUsd = toNumber(input.input.positionSizeUsd);
+    const liveStrategyCapitalModifierPercent = input.settings.tradeMode === "LIVE" && input.settings.strategy.liveStrategy.enabled
+      ? input.settings.strategy.liveStrategy.capitalModifierPercent
+      : 100;
     const liveFill = asRecord(input.fillMetadata?.live);
     const liveTiming = asRecord(liveFill?.timing);
     const created = await tx.position.create({
@@ -434,12 +457,14 @@ export class ExecutionEngine {
         amountUsd: input.amountUsd,
         amountToken: input.amountToken,
         remainingToken: input.amountToken,
+        entryOrigin,
         metadata: toJsonValue({
           mode: input.settings.tradeMode,
           settings: input.settings,
           strategyPresetId,
           entryScore,
-          exitProfile: exitPlan.profile,
+          confidenceScore,
+          exitProfile,
           source,
           discoveryRecipeName,
           entryOrigin,
@@ -452,6 +477,16 @@ export class ExecutionEngine {
           metrics: input.input.metrics,
           live: input.liveContext ?? undefined,
         }),
+        exitProfile,
+        requestedSizeUsd,
+        confidenceScore,
+        plannedSizeUsd: input.amountUsd,
+        capitalModifierPercent: liveStrategyCapitalModifierPercent,
+        discoveryLabRunId: toTrimmedString(input.input.metrics.discoveryLabRunId),
+        discoveryLabPackId: toTrimmedString(input.input.metrics.discoveryLabPackId),
+        liveStrategyRunId: toTrimmedString(input.input.metrics.liveStrategyRunId),
+        liveStrategyPackId: toTrimmedString(input.input.metrics.liveStrategyPackId),
+        reportAgeMsAtEntry: discoveryLabReportAgeMsAtEntry,
       },
     });
 
@@ -463,12 +498,22 @@ export class ExecutionEngine {
         amountUsd: input.amountUsd,
         amountToken: input.amountToken,
         txSignature: input.txSignature,
+        executionReason: "entry",
+        executionMode: input.settings.tradeMode,
+        entryOrigin,
+        totalLatencyMs: this.readLiveTimingValue(input.fillMetadata, "totalMs"),
+        quoteLatencyMs: this.readLiveTimingValue(input.fillMetadata, "quoteMs"),
+        swapBuildLatencyMs: this.readLiveTimingValue(input.fillMetadata, "swapBuildMs"),
+        senderBuildLatencyMs: this.readLiveTimingValue(input.fillMetadata, "senderBuildMs"),
+        broadcastConfirmLatencyMs: this.readLiveTimingValue(input.fillMetadata, "broadcastAndConfirmMs"),
+        settlementReadLatencyMs: this.readLiveTimingValue(input.fillMetadata, "settlementReadMs"),
         metadata: toJsonValue({
           mode: input.settings.tradeMode,
           settings: input.settings,
           strategyPresetId,
           entryScore,
-          exitProfile: exitPlan.profile,
+          confidenceScore,
+          exitProfile,
           source,
           discoveryRecipeName,
           entryOrigin,
@@ -479,6 +524,11 @@ export class ExecutionEngine {
           exitPlan,
           ...(input.fillMetadata ?? {}),
         }),
+        executionSlippageBps: this.readLiveNumber(input.fillMetadata, "executionSlippageBps"),
+        quotedOutAmountUsd: this.readLiveNumber(input.fillMetadata, "quotedOutAmountUsd"),
+        actualOutAmountUsd: this.readLiveNumber(input.fillMetadata, "actualOutAmountUsd"),
+        quotedOutAmountToken: this.readLiveNumber(input.fillMetadata, "quotedOutAmountToken"),
+        actualOutAmountToken: this.readLiveNumber(input.fillMetadata, "actualOutAmountToken"),
       },
     });
 
@@ -490,13 +540,21 @@ export class ExecutionEngine {
         acceptedAt: new Date(),
         positionId: created.id,
         rejectReason: null,
+        entryOrigin,
         strategyPresetId,
+        entryScore,
+        exitProfile,
+        confidenceScore,
+        discoveryLabRunId: toTrimmedString(input.input.metrics.discoveryLabRunId),
+        discoveryLabPackId: toTrimmedString(input.input.metrics.discoveryLabPackId),
+        liveStrategyRunId: toTrimmedString(input.input.metrics.liveStrategyRunId),
+        liveStrategyPackId: toTrimmedString(input.input.metrics.liveStrategyPackId),
         metrics: toJsonValue(input.input.metrics),
       },
     });
 
     await tx.botState.update({
-      where: { id: "singleton" },
+      where: { id: BOT_STATE_ID },
       data: {
         cashUsd: { decrement: input.amountUsd },
       },
@@ -653,6 +711,38 @@ export class ExecutionEngine {
     });
   }
 
+  /**
+   * Find a fill by its on-chain transaction signature.
+   * Used for idempotent recovery when a live trade lands but persistence fails mid-transaction.
+   */
+  async findBySignature(txSignature: string) {
+    return db.fill.findFirst({ where: { txSignature } });
+  }
+
+  /**
+   * Reconcile phantom fills on startup — fills that exist without a parent position.
+   * Logs and emits an operator event; does not auto-resolve to avoid data corruption.
+   */
+  async reconcilePhantomFills(): Promise<number> {
+    const phantomFills = await db.$queryRawUnsafe<Array<{ id: string; position_id: string; tx_signature: string; mint: string }>>(`
+      SELECT f.id, f."positionId" as position_id, f."txSignature" as tx_signature, p.mint
+      FROM "Fill" f
+      LEFT JOIN "Position" p ON p.id = f."positionId"
+      WHERE p.id IS NULL
+    `);
+
+    if (phantomFills.length === 0) return 0;
+
+    logger.warn({ count: phantomFills.length }, "phantom fills detected on startup, operator intervention required");
+    await recordOperatorEvent({
+      kind: "phantom_fill_reconciliation",
+      level: "danger",
+      title: `${phantomFills.length} phantom fill(s) need manual reconciliation`,
+      detail: `Found fills without parent positions. Manually inspect and resolve: ${phantomFills.map((f) => f.tx_signature).join(", ")}`,
+    });
+    return phantomFills.length;
+  }
+
   private async pauseForPersistenceFailure(
     side: "buy" | "sell",
     entity: string,
@@ -673,7 +763,7 @@ export class ExecutionEngine {
 
     try {
       await db.botState.update({
-        where: { id: "singleton" },
+        where: { id: BOT_STATE_ID },
         data: {
           pauseReason: message,
         },
@@ -719,7 +809,11 @@ export class ExecutionEngine {
     }
   }
 
-  private async runExclusive<T>(task: () => Promise<T>): Promise<T> {
+  /**
+   * Exposed for ExitEngine so that concurrent close attempts on the same position
+   * are serialised through the same queue used by openPosition / closePosition.
+   */
+  async runExclusive<T>(task: () => Promise<T>): Promise<T> {
     const next = this.executionQueue.then(task, task);
     this.executionQueue = next.then(() => undefined, () => undefined);
     return next;
@@ -728,6 +822,11 @@ export class ExecutionEngine {
   private readEntryScore(metrics: Record<string, unknown>): number {
     const direct = toNumber(metrics.entryScore);
     return direct !== null ? this.clamp(direct, 0, 1) : 0.65;
+  }
+
+  private readConfidenceScore(metrics: Record<string, unknown>): number | null {
+    const direct = toNumber(metrics.confidenceScore);
+    return direct !== null ? this.clamp(direct, 0, 1) : null;
   }
 
   private readStrategyPresetId(
@@ -743,5 +842,16 @@ export class ExecutionEngine {
 
   private clamp(value: number, min: number, max: number): number {
     return Math.min(Math.max(value, min), max);
+  }
+
+  private readLiveNumber(fillMetadata: Record<string, unknown> | undefined, key: string): number | null {
+    const live = asRecord(fillMetadata?.live);
+    return toNumber(live?.[key]);
+  }
+
+  private readLiveTimingValue(fillMetadata: Record<string, unknown> | undefined, key: string): number | null {
+    const live = asRecord(fillMetadata?.live);
+    const timing = asRecord(live?.timing);
+    return toNumber(timing?.[key]);
   }
 }

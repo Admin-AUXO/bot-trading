@@ -3,6 +3,7 @@ import { env } from "../config/env.js";
 import { db } from "../db/client.js";
 import { RuntimeConfigService } from "../services/runtime-config.js";
 import { getLiveTradingReadiness } from "../services/live-trade-executor.js";
+import { calculatePlannedPositionSizeUsd } from "../services/trade-setup.js";
 import type { BotSettings } from "../types/domain.js";
 
 type CapacityCheckClient = Prisma.TransactionClient | typeof db;
@@ -25,6 +26,7 @@ type DailyRiskState = {
 
 type EntrySizingSignal = {
   entryScore?: number | null;
+  confidenceScore?: number | null;
 };
 
 export class RiskEngine {
@@ -244,50 +246,13 @@ export class RiskEngine {
     openPositions: number,
     signal?: EntrySizingSignal,
   ): number {
-    if (cashUsd <= 0) {
-      return 0;
-    }
-
-    const baseSizeUsd = settings.capital.positionSizeUsd;
-    const maxOpenPositions = Math.max(settings.capital.maxOpenPositions, 1);
-    const remainingSlots = Math.max(maxOpenPositions - openPositions, 1);
-    const entryScore = this.clamp(signal?.entryScore ?? 0.65, 0, 1);
-    const minimumTicketUsd = Math.min(cashUsd, Math.max(10, Math.min(baseSizeUsd * 0.6, 15)));
-    const standardCapUsd = Math.min(cashUsd, Math.min(baseSizeUsd, cashUsd / remainingSlots));
-    const exposureScale = openPositions === 0
-      ? 1
-      : openPositions === 1
-        ? 0.94
-        : 0.82;
-
-    let plannedSizeUsd = minimumTicketUsd + Math.max(standardCapUsd - minimumTicketUsd, 0) * entryScore;
-    plannedSizeUsd *= exposureScale;
-
-    if (entryScore >= 0.88 && openPositions <= 1) {
-      const boostedCapUsd = Math.min(
-        cashUsd,
-        Math.max(baseSizeUsd + 5, baseSizeUsd * 1.2),
-      );
-      const boostProgress = this.clamp((entryScore - 0.88) / 0.12, 0, 1);
-      plannedSizeUsd = Math.max(
-        plannedSizeUsd,
-        standardCapUsd + Math.max(boostedCapUsd - standardCapUsd, 0) * boostProgress,
-      );
-    }
-
-    if (settings.tradeMode === "LIVE" && settings.strategy.liveStrategy.enabled) {
-      plannedSizeUsd *= settings.strategy.liveStrategy.capitalModifierPercent / 100;
-    }
-
-    const floorUsd = Math.min(cashUsd, openPositions >= maxOpenPositions - 1 ? 10 : minimumTicketUsd);
-    return this.roundUsd(this.clamp(plannedSizeUsd, floorUsd, cashUsd));
-  }
-
-  private roundUsd(value: number): number {
-    return Math.round(value * 100) / 100;
-  }
-
-  private clamp(value: number, min: number, max: number): number {
-    return Math.min(Math.max(value, min), max);
+    return calculatePlannedPositionSizeUsd({
+      settings,
+      cashUsd,
+      openPositions,
+      entryScore: signal?.entryScore ?? 0.65,
+      confidenceScore: signal?.confidenceScore ?? signal?.entryScore ?? null,
+      applyLiveStrategyModifier: true,
+    });
   }
 }

@@ -4,9 +4,36 @@ import { RuntimeConfigService } from "../services/runtime-config.js";
 import { getExitDecision } from "../services/strategy-exit.js";
 import { ExecutionEngine } from "./execution-engine.js";
 import { RiskEngine } from "./risk-engine.js";
+import { BOT_STATE_ID } from "./constants.js";
+import { logger } from "../utils/logger.js";
+import { recordOperatorEvent } from "../services/operator-events.js";
+
+const IN_FLIGHT_TIMEOUT_MS = 90_000; // 90-second hard timeout for hung close attempts
+
+/** Tracks when a given position was added to the in-flight set. */
+const inFlightAddedAt = new Map<string, number>();
+
+/** Guards against the same position being closed concurrently from multiple exit passes. */
+function markInFlight(positionId: string): boolean {
+  const now = Date.now();
+  // Evict stale entries (hung trades)
+  for (const [id, addedAt] of inFlightAddedAt) {
+    if (now - addedAt > IN_FLIGHT_TIMEOUT_MS) {
+      inFlightAddedAt.delete(id);
+    }
+  }
+  if (inFlightAddedAt.has(positionId)) return false;
+  inFlightAddedAt.set(positionId, now);
+  return true;
+}
+
+function clearInFlight(positionId: string): void {
+  inFlightAddedAt.delete(positionId);
+}
 
 export class ExitEngine {
-  private readonly inFlightPositionIds = new Set<string>();
+  private readonly priceUnavailableCount = new Map<string, number>();
+  private readonly PRICE_SKIP_THRESHOLD = 3;
 
   constructor(
     private readonly birdeye: BirdeyeClient,
@@ -39,12 +66,33 @@ export class ExitEngine {
     const prices = await this.birdeye.getMultiPrice(openPositions.map((position) => position.mint));
 
     for (const position of openPositions) {
-      if (this.inFlightPositionIds.has(position.id)) {
+      if (!markInFlight(position.id)) {
         continue;
       }
 
       const priceUsd = prices[position.mint] ?? null;
-      if (!priceUsd || priceUsd <= 0) continue;
+      if (!priceUsd || priceUsd <= 0) {
+        const skipCount = (this.priceUnavailableCount.get(position.id) ?? 0) + 1;
+        this.priceUnavailableCount.set(position.id, skipCount);
+        logger.warn({ positionId: position.id, mint: position.mint, priceUsd }, "price unavailable, skipping exit check");
+        if (skipCount >= this.PRICE_SKIP_THRESHOLD) {
+          this.priceUnavailableCount.delete(position.id);
+          await recordOperatorEvent({
+            kind: "exit_price_unavailable",
+            level: "warning",
+            title: `Exit check stalled: price unavailable for ${position.mint}`,
+            detail: `Position ${position.id} has been skipped ${skipCount} consecutive times due to missing price data.`,
+            entityType: "position",
+            entityId: position.id,
+            metadata: { mint: position.mint, skipCount },
+          });
+        }
+        clearInFlight(position.id);
+        continue;
+      }
+
+      // Reset skip counter on successful price fetch
+      this.priceUnavailableCount.delete(position.id);
 
       const exitDecision = getExitDecision({
         openedAt: position.openedAt,
@@ -67,16 +115,20 @@ export class ExitEngine {
         timeLimitMinutes: settings.exits.timeLimitMinutes,
       });
 
-      this.inFlightPositionIds.add(position.id);
       try {
         if (exitDecision) {
-          await this.execution.closePosition({
-            positionId: position.id,
-            reason: exitDecision.reason,
-            priceUsd,
-            fraction: exitDecision.fraction,
-            peakPriceUsd: exitDecision.peakPriceUsd,
-          });
+          // Serialise closePosition calls through the execution engine's exclusive queue
+          // to prevent concurrent close attempts on the same position from multiple loops.
+          await this.execution.runExclusive(() =>
+            this.execution.closePosition({
+              positionId: position.id,
+              reason: exitDecision.reason,
+              priceUsd,
+              fraction: exitDecision.fraction,
+              peakPriceUsd: exitDecision.peakPriceUsd,
+            }),
+          );
+          clearInFlight(position.id);
           continue;
         }
 
@@ -88,7 +140,7 @@ export class ExitEngine {
           },
         });
       } finally {
-        this.inFlightPositionIds.delete(position.id);
+        clearInFlight(position.id);
       }
     }
 

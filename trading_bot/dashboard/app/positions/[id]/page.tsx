@@ -1,8 +1,10 @@
+import React from "react";
 import { ArrowLeft, ArrowUpRight } from "lucide-react";
 import Link from "next/link";
 import type { Route } from "next";
 import { CopyButton } from "@/components/copy-button";
 import { DataTable, PageHero, Panel, StatusPill } from "@/components/dashboard-primitives";
+import { PositionDetailActions, InterventionPriorityBadge } from "@/components/position-detail-actions";
 import { serverFetch } from "@/lib/api";
 import { operationalDeskRoutes } from "@/lib/dashboard-routes";
 import { formatCurrency, formatNumber, formatTimestamp, humanizeKey, smartFormatValue } from "@/lib/format";
@@ -55,6 +57,11 @@ export default async function PositionDetailPage(props: {
             </Link>
             <CopyButton value={detail.summary.id} label="Copy id" />
             <CopyButton value={detail.summary.mint} label="Copy mint" />
+            <PositionDetailActions
+              positionId={detail.summary.id}
+              mint={detail.summary.mint}
+              stopLossPriceUsd={detail.summary.stopLossPriceUsd}
+            />
             {grafanaHref ? (
               <a
                 href={grafanaHref}
@@ -74,6 +81,10 @@ export default async function PositionDetailPage(props: {
             <div className="section-kicker">Now</div>
             <div className="mt-4 grid gap-3">
               <SummaryRow label="Intervention" value={detail.summary.interventionLabel} />
+              <SummaryRow
+                label="Priority"
+                value={<InterventionPriorityBadge priority={detail.summary.interventionPriority} />}
+              />
               <SummaryRow label="Opened" value={formatTimestamp(detail.summary.openedAt)} />
               <SummaryRow label="Closed" value={detail.summary.closedAt ? formatTimestamp(detail.summary.closedAt) : "—"} />
               <SummaryRow label="Entry" value={formatCurrency(detail.summary.entryPriceUsd, 6)} />
@@ -94,7 +105,12 @@ export default async function PositionDetailPage(props: {
           tone={positionTone(detail.summary)}
         >
           <div className="grid gap-3 md:grid-cols-2">
-            <Metric label="Intervention priority" value={String(detail.summary.interventionPriority)} />
+            <Metric
+              label="Intervention priority"
+              value={
+                <InterventionPriorityBadge priority={detail.summary.interventionPriority} />
+              }
+            />
             <Metric label="Intervention label" value={detail.summary.interventionLabel} />
             <Metric label="Exit reason" value={detail.summary.exitReason ?? "Still open"} />
             <Metric label="Remaining token" value={detail.summary.remainingToken.toFixed(4)} />
@@ -212,7 +228,7 @@ function buildPositionBackHref(props: { book?: string; sort?: string; focus?: st
   return `${operationalDeskRoutes.trading}${query ? `?${query}` : ""}${hash}`;
 }
 
-function SummaryRow(props: { label: string; value: string }) {
+function SummaryRow(props: { label: string; value: React.ReactNode }) {
   return (
     <div className="rounded-[12px] border border-bg-border bg-bg-primary/55 px-3 py-3">
       <div className="scorecard-grid">
@@ -224,7 +240,7 @@ function SummaryRow(props: { label: string; value: string }) {
   );
 }
 
-function Metric(props: { label: string; value: string }) {
+function Metric(props: { label: string; value: React.ReactNode }) {
   return (
     <div className="micro-stat">
       <div className="scorecard-grid">

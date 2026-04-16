@@ -1,46 +1,36 @@
----
-type: reference
-status: active
-area: repo
-date: 2026-04-10
-source_files: []
-graph_checked:
-next_action:
----
+# Reference Docs
 
-# Reference Index
+Canonical docs for agents. Each note is the single source of truth for its area.
 
-Canonical repo docs live inside the Obsidian vault so Codex can read and update docs, durable memory, and active workstream summaries from one place.
+## Docs
 
-## Route By Task
+| Doc | Covers |
+|-----|--------|
+| [agent-workflow.md](agent-workflow.md) | Agent workflow, questioning rules, vault hygiene |
+| [tech-stack.md](tech-stack.md) | Repo shape, ownership, stack |
+| [obsidian.md](obsidian.md) | Vault workflow, Docker sidecar |
+| [tool-routing.md](tool-routing.md) | MCP defaults, token-efficient tool choice |
+| [bootstrap-and-docker.md](bootstrap-and-docker.md) | Setup, env, Docker, verification |
+| [api-surface.md](api-surface.md) | Backend routes, dashboard proxy, auth |
+| [prisma-and-views.md](prisma-and-views.md) | Schema, SQL views, reporting |
+| [strategy.md](strategy.md) | Discovery, evaluation, risk, exits |
+| [dashboard-operator-ui.md](dashboard-operator-ui.md) | UI naming, typography, layout |
+| [grafana-portfolio.md](grafana-portfolio.md) | Grafana dashboards, generator |
+| [graphify.md](graphify.md) | Repo graph workflow |
 
-- Agent workflow, questioning discipline, and vault update rules: [`agent-workflow.md`](agent-workflow.md)
-- Repo shape, ownership boundaries, and non-features: [`tech-stack.md`](tech-stack.md)
-- Dashboard naming, typography, layout rules, and operator UI contract: [`dashboard-operator-ui.md`](dashboard-operator-ui.md)
-- Grafana portfolio, generator layout, and alerting/dashboard guidance: [`grafana-portfolio.md`](grafana-portfolio.md)
-- Setup modes, env handling, Docker flow, and verification commands: [`bootstrap-and-docker.md`](bootstrap-and-docker.md)
-- Graphify workflow and repo-local wrapper commands: [`graphify.md`](graphify.md)
-- Obsidian workflow, Docker sidecar, and note discipline: [`obsidian.md`](obsidian.md)
-- MCP and tool routing defaults for token-efficient agent work: [`tool-routing.md`](tool-routing.md)
-- Backend routes, dashboard proxy behavior, and auth rules: [`api-surface.md`](api-surface.md)
-- Prisma schema ownership, evidence tables, SQL views, and reporting rules: [`prisma-and-views.md`](prisma-and-views.md)
-- Graduation discovery, evaluation, risk, and exit flow: [`strategy.md`](strategy.md)
+## Read Order
 
-## Minimum Read Order
+1. `../../AGENTS.md`
+2. `../README.md`
+3. `agent-workflow.md` ← only if planning-heavy or ambiguous
+4. one task-specific ref doc
+5. one task-specific durable note
+6. `../../graphify-out/GRAPH_REPORT.md` ← only if architecture/ownership matters
+7. `../../trading_bot/AGENTS.md` ← only if touching `trading_bot/`
 
-1. [`../../AGENTS.md`](../../AGENTS.md)
-2. [`../README.md`](../README.md)
-3. [`agent-workflow.md`](agent-workflow.md) only when the task is planning-heavy, ambiguous, or likely to create durable guidance
-4. The one task-specific reference doc you actually need
-5. The one relevant durable note under `../sessions/`, `../investigations/`, `../decisions/`, `../runbooks/`, or `../trading-memory/`
-6. [`../../graphify-out/GRAPH_REPORT.md`](../../graphify-out/GRAPH_REPORT.md) only when architecture or ownership context matters
-7. [`../../trading_bot/AGENTS.md`](../../trading_bot/AGENTS.md) once you are editing inside `trading_bot/`
-8. Only after that should you open code files
+## Edit Rules
 
-## Editing Standard
-
-- Verify commands, paths, env vars, routes, and runtime claims against code before editing.
-- Prefer one canonical statement over repeated reminders across multiple notes.
-- Delete stale notes instead of preserving historical noise.
-- Archive dead handoffs instead of keeping every session in the active read path.
-- Update durable memory notes when a task teaches the repo something worth remembering.
+- Verify claims against code before editing.
+- One canonical statement, not repeated reminders.
+- Delete stale notes, don't preserve noise.
+- Update durable memory when a task teaches something worth keeping.

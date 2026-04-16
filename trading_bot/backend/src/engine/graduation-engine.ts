@@ -6,6 +6,7 @@ import { HeliusClient } from "../services/helius-client.js";
 import { ProviderBudgetService } from "../services/provider-budget-service.js";
 import { RuntimeConfigService } from "../services/runtime-config.js";
 import { SharedTokenFactsService, type FreshTokenFacts } from "../services/shared-token-facts.js";
+import { buildSignalConfidence, deriveExitProfile, scoreEntrySignal } from "../services/entry-scoring.js";
 import {
   applyStrategySettings,
   derivePresetIdFromRecipeMode,
@@ -37,7 +38,13 @@ type DiscoveryCandidateSeed = {
   token: DiscoveryToken;
   strategyPresetId: StrategyPresetId;
   discoveryRecipeName: string;
-  metadata?: Record<string, unknown>;
+  metadata?: {
+    stage?: string;
+    strategyPresetId?: StrategyPresetId;
+    strategyRecipeName?: string;
+    liveStrategyPackId?: string | null;
+    liveStrategyRunId?: string | null;
+  };
 };
 
 export class GraduationEngine {
@@ -86,10 +93,6 @@ export class GraduationEngine {
     });
   }
 
-  isLiveTradableSource(source: string): boolean {
-    return this.isTradableSource(source);
-  }
-
   async discover(): Promise<void> {
     if (this.discoveryInFlight) return;
     this.discoveryInFlight = true;
@@ -120,8 +123,12 @@ export class GraduationEngine {
           },
         }));
 
-      await Promise.all(discoverySeeds.map(async ({ token, strategyPresetId, discoveryRecipeName, metadata }) => {
+      await Promise.all(discoverySeeds.map(async (seed) => {
+        const { token, strategyPresetId, discoveryRecipeName } = seed;
         const discoveryState = this.toDiscoveryFilterState(token);
+        const seedMetadata = seed.metadata as { liveStrategyRunId?: string | null; liveStrategyPackId?: string | null } | undefined;
+        const liveStrategyRunId = seedMetadata?.liveStrategyRunId ?? undefined;
+        const liveStrategyPackId = seedMetadata?.liveStrategyPackId ?? undefined;
         const created = await db.candidate.create({
           data: {
             mint: token.mint,
@@ -134,9 +141,11 @@ export class GraduationEngine {
             status: "DISCOVERED",
             discoveredAt: new Date(),
             graduatedAt: toOptionalDate(token.graduatedAt),
+            liveStrategyRunId,
+            liveStrategyPackId,
             ...this.toCandidateData(discoveryState, false),
             scheduledEvaluationAt: new Date(Date.now() + settings.cadence.entryDelayMs),
-            metadata: toJsonValue(metadata ?? {
+            metadata: toJsonValue({
               stage: "discovered",
               strategyPresetId,
               strategyRecipeName: discoveryRecipeName,
@@ -185,23 +194,23 @@ export class GraduationEngine {
     const seeds = new Map<string, DiscoveryCandidateSeed>();
     const sourceRecipePairs = sources.flatMap((source) => recipes.map((recipe) => ({ source, recipe })));
     const groups = await Promise.all(sourceRecipePairs.map(async ({ source, recipe }) => {
-      const rows = await this.birdeye.getMemeTokensForRecipe({
+      const rows: DiscoveryToken[] = await this.birdeye.getMemeTokensForRecipe({
         recipeParams: recipe.params,
         source,
         mode: recipe.mode,
         limit: Math.min(limit, recipe.deepEvalLimit ?? limit),
       });
-      return rows.map((token) => ({
+      return rows.map((token: DiscoveryToken) => ({
         token,
         strategyPresetId: derivePresetIdFromRecipeMode(recipe.mode),
         discoveryRecipeName: recipe.name,
-        metadata: {
-          stage: "discovered",
-          strategyPresetId: derivePresetIdFromRecipeMode(recipe.mode),
-          strategyRecipeName: recipe.name,
-          liveStrategyPackId: settings.strategy.liveStrategy.packId,
-          liveStrategyRunId: settings.strategy.liveStrategy.sourceRunId,
-        },
+          metadata: {
+            stage: "discovered",
+            strategyPresetId: derivePresetIdFromRecipeMode(recipe.mode),
+            strategyRecipeName: recipe.name,
+            liveStrategyPackId: settings.strategy.liveStrategy.packId ?? undefined,
+            liveStrategyRunId: settings.strategy.liveStrategy.sourceRunId ?? undefined,
+          },
       } satisfies DiscoveryCandidateSeed));
     }));
 
@@ -356,6 +365,7 @@ export class GraduationEngine {
           status: { in: DUE_CANDIDATE_STATUSES },
           scheduledEvaluationAt: { lte: new Date() },
         },
+        include: { latestMetrics: true },
         orderBy: { scheduledEvaluationAt: "asc" },
         take: settings.cadence.evaluationConcurrency * EVALUATION_POOL_MULTIPLIER,
       });
@@ -389,7 +399,7 @@ export class GraduationEngine {
         try {
           const evaluation = await this.evaluateCandidate(
             candidate.mint,
-            candidate.metrics as Record<string, unknown> | null,
+            candidate.latestMetrics?.metadata as Record<string, unknown> | null,
             settings,
             candidate.strategyPresetId as StrategyPresetId,
           );
@@ -475,15 +485,23 @@ export class GraduationEngine {
 
           await db.candidate.update({
             where: { id: candidate.id },
-              data: {
-                status: "ACCEPTED",
-                acceptedAt: new Date(),
-                lastEvaluatedAt: new Date(),
-                rejectReason: null,
-                strategyPresetId: candidate.strategyPresetId,
-                ...this.toCandidateData(evaluation.filterState, true),
-                metrics: toJsonValue(evaluation.metrics),
-              },
+            data: {
+              status: "ACCEPTED",
+              acceptedAt: new Date(),
+              lastEvaluatedAt: new Date(),
+              rejectReason: null,
+              strategyPresetId: candidate.strategyPresetId,
+              entryOrigin: "runtime_auto_entry",
+              entryScore: this.readMetricNumber(evaluation.metrics, "entryScore"),
+              confidenceScore: this.readMetricNumber(evaluation.metrics, "confidenceScore"),
+              exitProfile: this.readMetricString(evaluation.metrics, "exitProfile"),
+              liveStrategyRunId: this.readMetricString(evaluation.metrics, "liveStrategyRunId") ?? candidate.liveStrategyRunId,
+              liveStrategyPackId: this.readMetricString(evaluation.metrics, "liveStrategyPackId") ?? candidate.liveStrategyPackId,
+              discoveryLabRunId: this.readMetricString(evaluation.metrics, "discoveryLabRunId"),
+              discoveryLabPackId: this.readMetricString(evaluation.metrics, "discoveryLabPackId"),
+              ...this.toCandidateData(evaluation.filterState, true),
+              metrics: toJsonValue(evaluation.metrics),
+            },
           });
 
           const positionId = await this.execution.openPosition({
@@ -854,8 +872,11 @@ export class GraduationEngine {
       graduatedAt: merged.graduatedAt,
       source: merged.source,
     });
+    const confidenceScore = buildSignalConfidence({ entryScore });
+    metrics.entryOrigin = "runtime_auto_entry";
     metrics.entryScore = entryScore;
-    metrics.exitProfile = entryScore >= 0.82 ? "runner" : entryScore >= 0.62 ? "balanced" : "scalp";
+    metrics.confidenceScore = confidenceScore;
+    metrics.exitProfile = deriveExitProfile(confidenceScore);
 
     return {
       passed: true,
@@ -883,17 +904,21 @@ export class GraduationEngine {
     })));
   }
 
-  private scoreCandidate(candidate: Candidate, settings: Awaited<ReturnType<RuntimeConfigService["getSettings"]>>): number {
+  private scoreCandidate(
+    candidate: Candidate & { latestMetrics?: { liquidityUsd?: unknown; volume5mUsd?: unknown; buySellRatio?: unknown; priceChange5mPercent?: unknown; uniqueWallets5m?: unknown; holders?: unknown; top10HolderPercent?: unknown; largestHolderPercent?: unknown } | null },
+    settings: Awaited<ReturnType<RuntimeConfigService["getSettings"]>>,
+  ): number {
     const effectiveSettings = applyStrategySettings(settings, candidate.strategyPresetId as StrategyPresetId);
+    const metrics = candidate.latestMetrics;
     return this.scoreFilterState({
-      liquidityUsd: Number(candidate.liquidityUsd ?? 0),
-      volume5mUsd: Number(candidate.volume5mUsd ?? 0),
-      buySellRatio: Number(candidate.buySellRatio ?? 0),
-      priceChange5mPercent: Number(candidate.priceChange5mPercent ?? 0),
-      uniqueWallets5m: Number(candidate.uniqueWallets5m ?? 0),
-      holders: Number(candidate.holders ?? 0),
-      top10HolderPercent: Number(candidate.top10HolderPercent ?? effectiveSettings.filters.maxTop10HolderPercent),
-      largestHolderPercent: Number(candidate.largestHolderPercent ?? effectiveSettings.filters.maxSingleHolderPercent),
+      liquidityUsd: Number(metrics?.liquidityUsd ?? 0),
+      volume5mUsd: Number(metrics?.volume5mUsd ?? 0),
+      buySellRatio: Number(metrics?.buySellRatio ?? 0),
+      priceChange5mPercent: Number(metrics?.priceChange5mPercent ?? 0),
+      uniqueWallets5m: Number(metrics?.uniqueWallets5m ?? 0),
+      holders: Number(metrics?.holders ?? 0),
+      top10HolderPercent: Number(metrics?.top10HolderPercent ?? effectiveSettings.filters.maxTop10HolderPercent),
+      largestHolderPercent: Number(metrics?.largestHolderPercent ?? effectiveSettings.filters.maxSingleHolderPercent),
     }, effectiveSettings, {
       graduatedAt: candidate.graduatedAt ? Math.floor(candidate.graduatedAt.getTime() / 1000) : null,
       discoveredAtMs: candidate.discoveredAt.getTime(),
@@ -992,65 +1017,28 @@ export class GraduationEngine {
       ? input.graduatedAt * 1000
       : input.discoveredAtMs ?? now;
     const ageSeconds = Math.max(0, (now - referenceMs) / 1000);
-    const ageScore = this.clamp(1 - (ageSeconds / Math.max(settings.filters.maxGraduationAgeSeconds, 1)), 0, 1);
-
-    const volumeScore = this.logScore(Number(filterState.volume5mUsd ?? 0), settings.filters.minVolume5mUsd);
-    const ratioScore = this.clamp(
-      (Number(filterState.buySellRatio ?? 0) - settings.filters.minBuySellRatio)
-        / Math.max(settings.filters.minBuySellRatio, 1),
-      0,
-      1,
-    );
-    const priceScore = this.clamp(
-      (Number(filterState.priceChange5mPercent ?? 0) + settings.filters.maxNegativePriceChange5mPercent)
-        / Math.max(settings.filters.maxNegativePriceChange5mPercent + 20, 1),
-      0,
-      1,
-    );
-    const momentumScore = (volumeScore * 0.45) + (ratioScore * 0.35) + (priceScore * 0.2);
-
-    const uniqueBuyerScore = this.clamp(
-      Number(filterState.uniqueWallets5m ?? 0) / Math.max(settings.filters.minUniqueBuyers5m * 2, 1),
-      0,
-      1,
-    );
-    const holderScore = this.clamp(
-      Number(filterState.holders ?? 0) / Math.max(settings.filters.minHolders * 2, 1),
-      0,
-      1,
-    );
-    const top10Score = this.clamp(
-      1 - (Number(filterState.top10HolderPercent ?? settings.filters.maxTop10HolderPercent) / Math.max(settings.filters.maxTop10HolderPercent, 1)),
-      0,
-      1,
-    );
-    const largestHolderScore = this.clamp(
-      1 - (Number(filterState.largestHolderPercent ?? settings.filters.maxSingleHolderPercent) / Math.max(settings.filters.maxSingleHolderPercent, 1)),
-      0,
-      1,
-    );
-    const structureScore = (uniqueBuyerScore * 0.5) + (holderScore * 0.25) + (top10Score * 0.15) + (largestHolderScore * 0.1);
-
-    const liquidityScore = this.logScore(Number(filterState.liquidityUsd ?? 0), settings.filters.minLiquidityUsd);
-    const exitabilityScore = (liquidityScore * 0.75) + (ageScore * 0.25);
-
-    const sourceBoost = input.source === "pump_dot_fun" ? 0.03 : 0;
     const statusAdjustment = input.status === "ERROR"
       ? -0.05
       : input.status === "SKIPPED"
         ? -0.01
         : 0;
 
-    return (momentumScore * 0.35) + (structureScore * 0.35) + (exitabilityScore * 0.3) + sourceBoost + statusAdjustment;
-  }
-
-  private logScore(value: number, floor: number): number {
-    const normalized = Math.log1p(Math.max(value, 0)) / Math.log1p(Math.max(floor * 6, 1));
-    return this.clamp(normalized, 0, 1);
-  }
-
-  private clamp(value: number, min: number, max: number): number {
-    return Math.min(Math.max(value, min), max);
+    return scoreEntrySignal(
+      {
+        liquidityUsd: Number(filterState.liquidityUsd ?? 0),
+        volume5mUsd: Number(filterState.volume5mUsd ?? 0),
+        buySellRatio: Number(filterState.buySellRatio ?? 0),
+        priceChange5mPercent: Number(filterState.priceChange5mPercent ?? 0),
+        uniqueWallets5m: Number(filterState.uniqueWallets5m ?? 0),
+        holders: Number(filterState.holders ?? 0),
+        top10HolderPercent: Number(filterState.top10HolderPercent ?? settings.filters.maxTop10HolderPercent),
+        largestHolderPercent: Number(filterState.largestHolderPercent ?? settings.filters.maxSingleHolderPercent),
+        ageSeconds,
+        source: input.source,
+        statusAdjustment,
+      },
+      settings.filters,
+    );
   }
 
   private mergeDiscoveryMetrics(
@@ -1152,6 +1140,16 @@ export class GraduationEngine {
   private readString(source: Record<string, unknown>, key: string): string | null {
     const value = source[key];
     return typeof value === "string" && value.length > 0 ? value : null;
+  }
+
+  private readMetricNumber(source: Record<string, unknown>, key: string): number | null {
+    const value = source[key];
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
+  }
+
+  private readMetricString(source: Record<string, unknown>, key: string): string | null {
+    const value = source[key];
+    return typeof value === "string" && value.trim().length > 0 ? value : null;
   }
 
   private extractBaselineDiscovery(baselineMetrics: Record<string, unknown> | null): Record<string, unknown> {

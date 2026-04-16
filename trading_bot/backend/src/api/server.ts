@@ -2,6 +2,7 @@ import express from "express";
 import { ZodError } from "zod";
 import { db } from "../db/client.js";
 import { env } from "../config/env.js";
+import { BOT_STATE_ID } from "../engine/constants.js";
 import type { BotSettings, RuntimeSnapshot } from "../types/domain.js";
 import type {
   DiscoveryLabCatalog,
@@ -101,7 +102,22 @@ export function createApiServer(deps: {
   applyDiscoveryLabLiveStrategy: (input: { runId?: string }) => Promise<unknown>;
 }) {
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: "1mb" }));
+
+  // ── Authentication middleware ─────────────────────────────────────────────────
+  function authMiddleware(req: express.Request, res: express.Response, next: express.NextFunction): void {
+    if (!env.CONTROL_API_SECRET) {
+      return next(); // no secret configured — leave endpoints open (dev mode)
+    }
+    const headerKey = typeof req.headers.authorization === "string" && req.headers.authorization.startsWith("Bearer ")
+      ? req.headers.authorization.slice("Bearer ".length)
+      : req.headers["x-api-key"];
+    if (typeof headerKey !== "string" || headerKey !== env.CONTROL_API_SECRET) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+    next();
+  }
 
   async function respondWithDeskState(
     res: express.Response,
@@ -114,8 +130,9 @@ export function createApiServer(deps: {
     res.json({ ok: true, action, shell, home });
   }
 
+  // Public routes — no auth required
   app.get("/health", async (_req, res) => {
-    const state = await db.botState.findUnique({ where: { id: "singleton" } });
+    const state = await db.botState.findUnique({ where: { id: BOT_STATE_ID } });
     res.json({
       ok: true,
       tradeMode: state?.tradeMode ?? "unknown",
@@ -125,6 +142,10 @@ export function createApiServer(deps: {
   app.get("/api/status", async (_req, res) => {
     res.json(await deps.getSnapshot());
   });
+
+  // Authenticated routes
+  app.use("/api/control", authMiddleware);
+  app.use("/api/operator", authMiddleware);
 
   app.get("/api/desk/shell", async (_req, res) => {
     res.json(await deps.getDeskShell());
@@ -318,6 +339,10 @@ export function createApiServer(deps: {
   });
 
   app.post("/api/settings", async (req, res) => {
+    res.json(await deps.patchSettings(req.body ?? {}));
+  });
+
+  app.patch("/api/settings", async (req, res) => {
     res.json(await deps.patchSettings(req.body ?? {}));
   });
 

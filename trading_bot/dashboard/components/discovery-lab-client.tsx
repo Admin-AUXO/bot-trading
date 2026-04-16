@@ -1532,7 +1532,7 @@ export function DiscoveryLabClient(props: {
     <Panel
       title="Pack setup"
       eyebrow={draftTitle}
-      description="Choose the pack, set defaults, and keep the working draft grounded before editing strategies."
+      description="Choose a pack, set defaults, then edit strategies."
       action={<StatusPill value={draft.defaultProfile ?? "high-value"} />}
     >
       <div className="rounded-[16px] border border-bg-border bg-[#0d0f10] p-4">
@@ -1630,19 +1630,25 @@ export function DiscoveryLabClient(props: {
             ))}
           </div>
         ) : null}
-        <div className="mt-3 text-sm text-text-secondary">{nextStep}</div>
+        <div className="mt-3 text-xs text-text-secondary">{nextStep}</div>
         {(draft.thesis || draft.description) ? (
-          <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.3fr)_minmax(14rem,0.7fr)]">
-            <div className="rounded-[14px] border border-bg-border bg-[#101012] px-3 py-3">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">Pack thesis</div>
-              <div className="mt-2 text-sm text-text-secondary">{draft.thesis ?? draft.description}</div>
+          <details className="mt-4 rounded-[14px] border border-bg-border bg-[#101012] px-3 py-3">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">Pack context</div>
+                <div className="mt-1 text-sm font-semibold text-text-primary">{formatTargetPnlBand(draft.targetPnlBand)}</div>
+              </div>
+              <span className="meta-chip">Open</span>
+            </summary>
+            <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1.3fr)_minmax(14rem,0.7fr)]">
+              <div className="text-sm text-text-secondary">{draft.thesis ?? draft.description}</div>
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">Target profit band</div>
+                <div className="mt-2 text-sm font-semibold text-text-primary">{formatTargetPnlBand(draft.targetPnlBand)}</div>
+                <div className="mt-1 text-xs text-text-secondary">Strategies below are staged across continuation ranges.</div>
+              </div>
             </div>
-            <div className="rounded-[14px] border border-bg-border bg-[#101012] px-3 py-3">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">Target profit band</div>
-              <div className="mt-2 text-sm font-semibold text-text-primary">{formatTargetPnlBand(draft.targetPnlBand)}</div>
-              <div className="mt-1 text-xs text-text-secondary">Strategies below are staged to scan different continuation ranges.</div>
-            </div>
-          </div>
+          </details>
         ) : null}
       </div>
 
@@ -2593,8 +2599,21 @@ export function DiscoveryLabClient(props: {
           <div className={clsx("grid gap-4", showSupportRail ? "xl:grid-cols-[minmax(0,1fr)_18rem]" : "xl:grid-cols-1")}>
             <div className="space-y-4">
               {runCockpitPanel}
-              {showRunOutputPanel ? runOutputPanel : null}
-              {showLogPanel ? logPanel : null}
+              {(showRunOutputPanel || showLogPanel) ? (
+                <details className="rounded-[18px] border border-bg-border bg-[#101112]">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4">
+                    <div>
+                      <div className="section-kicker">Run evidence</div>
+                      <div className="mt-2 text-sm font-semibold text-text-primary">Open only for logs, outputs, and process detail.</div>
+                    </div>
+                    <span className="meta-chip">Collapsed by default</span>
+                  </summary>
+                  <div className="space-y-4 border-t border-bg-border px-5 py-4">
+                    {showRunOutputPanel ? runOutputPanel : null}
+                    {showLogPanel ? logPanel : null}
+                  </div>
+                </details>
+              ) : null}
             </div>
             {showSupportRail ? (
               <div className="space-y-4">

@@ -4,17 +4,14 @@ Use this file to orient at repo root. Almost all changes belong under `trading_b
 
 ## Session Startup Order
 
-For every new Codex session in this repo, read files in this order before opening code:
+For every new Codex session:
 
 1. `AGENTS.md`
 2. `notes/README.md`
 3. `notes/reference/index.md`
-4. Only the task-relevant reference docs and memory notes under `notes/`
-5. `trading_bot/AGENTS.md` if the task will touch `trading_bot/`
-6. `graphify-out/GRAPH_REPORT.md` if it exists and the task needs architecture or ownership context
-7. Only then read actual codebase files under `trading_bot/` or other source directories
-
-Do not jump straight into source files before completing that read order.
+4. One task-specific ref doc + one durable note
+5. `trading_bot/AGENTS.md` if touching `trading_bot/`
+6. `graphify-out/GRAPH_REPORT.md` only if architecture/ownership context needed
 
 ## Current Repo
 

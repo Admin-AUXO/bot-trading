@@ -93,7 +93,7 @@ export async function recordTokenSnapshot(input: {
   securityRisk?: string | null;
   metadata?: unknown;
 }) {
-  await db.tokenSnapshot.create({
+  await db.tokenMetrics.create({
     data: {
       candidateId: input.candidateId ?? null,
       positionId: input.positionId ?? null,

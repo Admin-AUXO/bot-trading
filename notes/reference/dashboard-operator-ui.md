@@ -70,6 +70,7 @@ Purpose: document the current UI contract for the Next.js operator desk so later
   open positions
   queued count
   sync
+- Keep shell-state density high; do not repeat blocker, mode, health, and sync as separate large cards in both the sidebar and the header
 - Sidebar should not carry a second current-page summary card beneath navigation; the shell rail stays for route navigation plus one compact shell-state row only
 - Sync labels in the shell should prefer relative recency such as `5m ago` over full timestamps
 - Desktop sidebar can collapse into an icon rail and should remember that state locally so the workbench can expand without losing route access
@@ -191,6 +192,7 @@ Purpose: document the current UI contract for the Next.js operator desk so later
   the market-stats route should show the overall pulse and the single-token lookup in one scan path instead of burying the lookup inside results modals
   market-stats and strategy-ideas should surface freshness, stale-vs-empty state, and refresh controls in the header so operators can tell when a paid provider pull is about to happen
   market-stats and strategy-ideas should present their primary boards as horizontal card carousels on desktop so the operator can scan rich cards without pushing the page into long vertical stacks
+  desktop market-stats and strategy-ideas carousels should target two cards per viewport, not three or four squeezed cards
   market-stats should mark Birdeye-derived slices as paid and Rugcheck/DexScreener-derived slices as free in both the source legend and the primary board scan path
   strategy-ideas should present confidence, session fit, threshold ranges, and pack shape without forcing the operator through raw JSON first
   strategy-ideas should keep raw threshold override values behind disclosure; threshold bars and pack-shape summary own the first scan path
@@ -229,6 +231,8 @@ Purpose: document the current UI contract for the Next.js operator desk so later
 - Homepage diagnostics must surface fresh provider payload failures; a green desk summary while the backend is logging live provider errors is a broken contract
 - Do not reintroduce a filler quick-routes panel if the shell and pinned strip already cover navigation
 - Page headers across the app stay compact: short title, status, actions, and a dense stat strip rather than a large hero void
+- When a page is empty or degraded, swap broad stat walls and repeated empty cards for one compact warning/context row plus collapsed evidence
+- Results, diagnostics, logs, and other secondary evidence should stay behind disclosure unless the page has active data that requires immediate attention
 
 ## Copy Tone
 

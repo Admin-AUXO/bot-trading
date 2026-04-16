@@ -1,5 +1,8 @@
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 
-export function toJsonValue(value: unknown): Prisma.InputJsonValue {
-  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+export function toJsonValue(value: unknown) {
+  if (value === null || value === undefined) {
+    return Prisma.DbNull;
+  }
+  return JSON.parse(JSON.stringify(value));
 }

@@ -89,6 +89,7 @@ export function DiscoveryLabMarketStatsClient(props: {
     payload.meta.cacheState === "empty"
       ? "snapshot empty"
       : payload.meta.cacheState;
+  const boardMessage = refreshError ?? payload.meta.warnings[0] ?? null;
 
   return (
     <div className="space-y-5">
@@ -181,18 +182,12 @@ export function DiscoveryLabMarketStatsClient(props: {
         />
       </CompactPageHeader>
 
-      {refreshError ? <WarningBanner message={refreshError} /> : null}
-      {payload.meta.warnings.length > 0 ? (
-        <WarningBanner
-          message={payload.meta.warnings.join(" ")}
-          tone="warning"
-        />
-      ) : null}
+      {boardMessage ? <WarningBanner message={boardMessage} tone={refreshError ? "danger" : "warning"} /> : null}
 
       <Panel
-        title="Refresh controls"
+        title="Refresh"
         eyebrow="Manual spend"
-        description="Only explicit refresh uses paid Birdeye units. DexScreener, Rugcheck, and runtime context stay free or local."
+        description="Use one board refresh for broad context. Use single-mint refresh only when the board is not enough."
         tone={payload.meta.cacheState === "degraded" ? "warning" : "default"}
       >
         <div className="grid gap-4">
@@ -300,6 +295,7 @@ export function DiscoveryLabMarketStatsClient(props: {
           <EmptyState
             title="No market board cached yet"
             detail="The page is available. Use Refresh board only when you want to spend provider calls on a new snapshot."
+            compact
           />
         )}
       </Panel>
@@ -310,6 +306,13 @@ export function DiscoveryLabMarketStatsClient(props: {
         description="Use this only when the board is not enough and you need a one-mint refresh."
         tone={payload.focusToken ? "default" : "passive"}
       >
+        <details className="group">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-[14px] border border-bg-border bg-bg-hover/35 px-4 py-3 text-sm font-medium text-text-primary">
+            <span>{payload.focusToken ? "Loaded token detail" : payload.meta.focusMint ? `Retry ${payload.meta.focusMint.slice(0, 8)}` : "No mint loaded"}</span>
+            <span className="text-xs text-text-secondary group-open:hidden">Open</span>
+            <span className="hidden text-xs text-text-secondary group-open:inline">Close</span>
+          </summary>
+          <div className="mt-4">
         {payload.focusToken ? (
           <div className="grid gap-3">
             <div className="flex flex-wrap items-center gap-2">
@@ -426,13 +429,17 @@ export function DiscoveryLabMarketStatsClient(props: {
           <EmptyState
             title={`No token detail for ${payload.meta.focusMint.slice(0, 8)}`}
             detail="The page stayed up, but this mint did not produce a usable response. Retry only if you need another paid one-token lookup."
+            compact
           />
         ) : (
           <EmptyState
             title="No mint loaded"
             detail="Paste a mint and use Load token only when you need a fresh single-token read."
+            compact
           />
         )}
+          </div>
+        </details>
       </Panel>
     </div>
   );
@@ -498,7 +505,7 @@ function MarketTokenCard(props: { token: DiscoveryLabMarketTokenRow }) {
   const socialCount = token.socials.count;
 
   return (
-    <div className="min-w-[19rem] max-w-[22rem] snap-start rounded-[18px] border border-bg-border bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))] p-4 md:min-w-[20rem]">
+    <div className="min-w-[19rem] max-w-[22rem] snap-start rounded-[18px] border border-bg-border bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))] p-3.5 md:min-w-[20rem] xl:min-w-[calc((100%-0.75rem)/2)] xl:max-w-[calc((100%-0.75rem)/2)]">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -550,13 +557,13 @@ function MarketTokenCard(props: { token: DiscoveryLabMarketTokenRow }) {
         </div>
 
         <div
-          className={`rounded-full px-3 py-1 text-sm font-semibold ${positiveMove ? "bg-[rgba(163,230,53,0.14)] text-[var(--success)]" : "bg-[rgba(251,113,133,0.14)] text-[var(--danger)]"}`}
+          className={`rounded-full px-2.5 py-1 text-sm font-semibold ${positiveMove ? "bg-[rgba(163,230,53,0.14)] text-[var(--success)]" : "bg-[rgba(251,113,133,0.14)] text-[var(--danger)]"}`}
         >
           {formatPercent(token.priceChange5mPercent)}
         </div>
       </div>
 
-      <div className="mt-4 grid gap-2 md:grid-cols-3">
+      <div className="mt-3 grid gap-2 md:grid-cols-3">
         <MetricCard
           label="Structure"
           value={formatCompactCurrency(token.liquidityUsd)}
@@ -576,7 +583,7 @@ function MarketTokenCard(props: { token: DiscoveryLabMarketTokenRow }) {
         />
       </div>
 
-      <div className="mt-4 grid gap-3 xl:grid-cols-[1fr_auto]">
+      <div className="mt-3 grid gap-3 xl:grid-cols-[1fr_auto]">
         <div className="flex flex-wrap gap-2">
           {token.rugRiskLevel === "danger" ? (
             <InlineLabel value="free risk high" tone="danger" />

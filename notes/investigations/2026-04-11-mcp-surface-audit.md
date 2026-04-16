@@ -15,10 +15,11 @@ source_files:
   - .codex/agents/
   - .codex/scripts/install-mcp-config.cjs
   - .codex/scripts/start-birdeye-mcp.cjs
+  - .codex/scripts/start-firecrawl-mcp.cjs
   - trading_bot/AGENTS.md
   - .codex/log/codex-tui.log
 graph_checked:
-next_action: Re-run the direct shell-side Birdeye MCP newline-JSON probe from a fresh top-level session so the local opt-in path can be classified as working or broken on this macOS host instead of left half-validated.
+next_action: Re-run the direct shell-side Birdeye MCP newline-JSON probe from a fresh top-level session so the local opt-in path can be classified as working or broken on this macOS host instead of left half-validated, and recheck Firecrawl MCP if the upstream self-hosted auth contract changes again.
 ---
 
 # MCP Surface Audit
@@ -134,6 +135,27 @@ Risks:
 Best practice:
 
 - use for known URLs, changelogs, raw docs, and single-page confirmation
+
+### `firecrawl`
+
+Verdict: keep installed but off the compact path; enable for live web-search and scrape tasks when the local Firecrawl sidecar is up.
+
+Strengths:
+
+- gives Codex a repo-owned live web data surface without spending hosted Firecrawl credits
+- pairs cleanly with the local `trading_bot` Firecrawl sidecar because the launcher defaults `FIRECRAWL_API_URL` to `http://127.0.0.1:3002`
+- supports broader search and scrape workflows than `fetch` alone when the task starts from a query instead of a known URL
+
+Risks:
+
+- startup or tool calls will fail if the local Firecrawl sidecar is down
+- upstream Firecrawl MCP behavior around self-hosted auth has changed before, so the launcher contract should be revalidated if upgrades break requests
+
+Best practice:
+
+- keep it disabled in `compact`, `db`, `dashboard`, and `provider`
+- enable it in `research` and `full`
+- use `fetch` for exact single-page reads first; use `firecrawl` when the task needs live search, scrape, or crawl behavior
 
 ### `shadcn`
 

@@ -1,5 +1,6 @@
 import { db } from "../db/client.js";
 import type { ExecutionEngine } from "../engine/execution-engine.js";
+import { buildSignalConfidence, deriveExitProfile } from "./entry-scoring.js";
 import type { DiscoveryLabRunDetail } from "./discovery-lab-service.js";
 import type { ExitPlan } from "./strategy-exit.js";
 import { toJsonValue } from "../utils/json.js";
@@ -49,16 +50,6 @@ function readStrategyPresetId(
     : "FIRST_MINUTE_POSTGRAD_CONTINUATION";
 }
 
-function readExitProfile(entryScore: number): "scalp" | "balanced" | "runner" {
-  if (entryScore >= 0.82) {
-    return "runner";
-  }
-  if (entryScore >= 0.62) {
-    return "balanced";
-  }
-  return "scalp";
-}
-
 function pickBestEvaluation(
   run: DiscoveryLabRunDetail,
   mint: string,
@@ -86,6 +77,11 @@ function buildCandidateMetrics(
 ) {
   const strategyPresetId = readStrategyPresetId(evaluation.mode);
   const entryScore = Math.max(0, Math.min(1, evaluation.entryScore));
+  const confidenceScore = buildSignalConfidence({
+    entryScore,
+    playScore: evaluation.playScore,
+    winnerScore: run.report?.winners.find((row) => row.address === evaluation.mint)?.score ?? null,
+  });
   const winner = run.report?.winners.find((row) => row.address === evaluation.mint) ?? null;
   const nowMs = Date.now();
   const runStartedAtMs = Date.parse(run.startedAt);
@@ -110,7 +106,8 @@ function buildCandidateMetrics(
     pass: evaluation.pass,
     playScore: evaluation.playScore,
     entryScore,
-    exitProfile: readExitProfile(entryScore),
+    confidenceScore,
+    exitProfile: deriveExitProfile(confidenceScore),
     priceUsd: evaluation.priceUsd,
     liquidityUsd: evaluation.liquidityUsd,
     marketCapUsd: evaluation.marketCapUsd,
@@ -260,6 +257,7 @@ export class DiscoveryLabManualEntryService {
         strategyPresetId,
         discoveryRecipeName: evaluation.recipeName,
         status: "ACCEPTED",
+        entryOrigin: "discovery_lab_manual_entry",
         discoveredAt: now,
         scheduledEvaluationAt: now,
         lastEvaluatedAt: now,
@@ -276,6 +274,20 @@ export class DiscoveryLabManualEntryService {
         priceChange30mPercent: evaluation.priceChange30mPercent,
         top10HolderPercent: evaluation.top10HolderPercent,
         largestHolderPercent: evaluation.largestHolderPercent,
+        entryScore: evaluation.entryScore,
+        playScore: evaluation.playScore,
+        exitProfile: deriveExitProfile(buildSignalConfidence({
+          entryScore: evaluation.entryScore,
+          playScore: evaluation.playScore,
+          winnerScore: run.report.winners.find((row) => row.address === mint)?.score ?? null,
+        })),
+        confidenceScore: buildSignalConfidence({
+          entryScore: evaluation.entryScore,
+          playScore: evaluation.playScore,
+          winnerScore: run.report.winners.find((row) => row.address === mint)?.score ?? null,
+        }),
+        discoveryLabRunId: run.id,
+        discoveryLabPackId: run.packId,
         metadata: toJsonValue({
           entryOrigin: "discovery_lab_manual_entry",
           manualEntry: true,

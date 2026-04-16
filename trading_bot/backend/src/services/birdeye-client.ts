@@ -1,24 +1,6 @@
 import type { DiscoveryToken, TokenSecuritySnapshot, TradeDataSnapshot } from "../types/domain.js";
 import { recordApiEvent, recordRawApiPayload } from "./provider-telemetry.js";
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
-}
-
-function asNumber(value: unknown): number | null {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function asString(value: unknown): string | null {
-  return typeof value === "string" && value.trim().length > 0 ? value : null;
-}
-
-function asBoolean(value: unknown): boolean | null {
-  return typeof value === "boolean" ? value : null;
-}
+import { asRecord, asNumber, asString, asBoolean } from "../utils/types.js";
 
 function getByPath(source: Record<string, unknown>, path: string): unknown {
   let current: unknown = source;
@@ -276,9 +258,6 @@ export class BirdeyeClient {
     sortType?: "asc" | "desc";
   }): Promise<DiscoveryToken[]> {
     const requestParams: Record<string, string | number | boolean> = {
-      // Birdeye rejects this endpoint when too many filters are sent together.
-      // Keep looser discovery shaping here and leave the stricter strategy contract
-      // to the client-side evaluation stack.
       sort_by: params.sortBy?.trim().length ? params.sortBy : (params.graduated ? "graduated_time" : "trade_1m_count"),
       sort_type: params.sortType ?? "desc",
       limit: params.limit,

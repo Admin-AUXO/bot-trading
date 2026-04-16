@@ -10,6 +10,7 @@ const targetConfigPath = path.join(codexHome, "config.toml");
 const launcherPath = path.join(repoRoot, ".codex", "scripts", "start-stdio-command.cjs");
 const birdeyeLauncherPath = path.join(repoRoot, ".codex", "scripts", "start-birdeye-mcp.cjs");
 const desktopCommanderLauncherPath = path.join(repoRoot, ".codex", "scripts", "start-desktop-commander.cjs");
+const firecrawlLauncherPath = path.join(repoRoot, ".codex", "scripts", "start-firecrawl-mcp.cjs");
 const backendEnvPath = path.join(repoRoot, "trading_bot", "backend", ".env");
 
 const blockStart = "# >>> bot-trading managed MCP begin >>>";
@@ -27,7 +28,7 @@ if (!validProfiles.has(profile)) {
 const profileServers = {
   compact: ["desktop_commander"],
   db: ["desktop_commander", "postgres"],
-  research: ["desktop_commander", "context7", "fetch", "time"],
+  research: ["desktop_commander", "context7", "fetch", "firecrawl", "time"],
   dashboard: ["desktop_commander", "chrome_devtools", "context7", "fetch", "shadcn"],
   provider: ["desktop_commander", "birdeye-mcp", "fetch", "helius", "time"],
   full: [
@@ -36,6 +37,7 @@ const profileServers = {
     "chrome_devtools",
     "context7",
     "fetch",
+    "firecrawl",
     "postgres",
     "shadcn",
     "helius",
@@ -154,6 +156,11 @@ url = "https://mcp.context7.com/mcp"
       `enabled = ${isEnabled("fetch", backendEnv) ? "true" : "false"}`,
       "required = false",
       "startup_timeout_ms = 20000",
+    ]),
+    renderCommandServer("firecrawl", [firecrawlLauncherPath], [
+      `enabled = ${isEnabled("firecrawl", backendEnv) ? "true" : "false"}`,
+      "required = false",
+      "startup_timeout_ms = 30000",
     ]),
     renderCommandServer("postgres", [...launcherArgs, "npx", "-y", "@modelcontextprotocol/server-postgres", postgresDsn], [
       `enabled = ${isEnabled("postgres", backendEnv) ? "true" : "false"}`,

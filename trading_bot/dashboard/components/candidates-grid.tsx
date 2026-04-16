@@ -10,8 +10,9 @@ import { WorkbenchRowActions } from "@/components/workbench-row-actions";
 import { formatCompactCurrency, formatNumber, formatTimestamp } from "@/lib/format";
 import { buildGrafanaDashboardLink } from "@/lib/grafana";
 import type { CandidateBucket, CandidateQueuePayload } from "@/lib/types";
+import { shortMint } from "@/lib/utils";
+import { buildCandidateDetailHref, type CandidateSort } from "@/src/lib/use-trading-search-params";
 
-type CandidateSort = "recent" | "entry" | "liquidity" | "volume" | "buySell";
 type CandidateRow = CandidateQueuePayload["rows"][number];
 
 export function CandidatesGrid(props: {
@@ -304,10 +305,4 @@ function buildHeatCellStyle(value: unknown, scale: { min: number; max: number } 
   };
 }
 
-function shortMint(mint: string) {
-  return `${mint.slice(0, 6)}…${mint.slice(-4)}`;
-}
 
-function buildCandidateDetailHref(id: string, bucket: CandidateBucket, sort: CandidateSort, query: string) {
-  return `/candidates/${id}?bucket=${bucket}&sort=${sort}&focus=${id}${query ? `&q=${encodeURIComponent(query)}` : ""}`;
-}

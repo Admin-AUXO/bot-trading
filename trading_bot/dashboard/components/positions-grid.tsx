@@ -10,8 +10,9 @@ import { WorkbenchRowActions } from "@/components/workbench-row-actions";
 import { formatCompactCurrency, formatPercent, formatTimestamp } from "@/lib/format";
 import { buildGrafanaDashboardLink } from "@/lib/grafana";
 import type { PositionBookPayload } from "@/lib/types";
+import { shortMint } from "@/lib/utils";
+import { buildPositionDetailHref, type PositionSort } from "@/src/lib/use-trading-search-params";
 
-type PositionSort = "priority" | "opened" | "pnl" | "latency";
 type PositionRow = PositionBookPayload["rows"][number];
 
 export function PositionsGrid(props: {
@@ -310,10 +311,4 @@ function buildHeatCellStyle(value: unknown, scale: { min: number; max: number; i
   };
 }
 
-function shortMint(mint: string) {
-  return `${mint.slice(0, 6)}…${mint.slice(-4)}`;
-}
 
-function buildPositionDetailHref(id: string, book: PositionBookPayload["book"], sort: PositionSort, query: string) {
-  return `/positions/${id}?book=${book}&sort=${sort}&focus=${id}${query ? `&q=${encodeURIComponent(query)}` : ""}`;
-}

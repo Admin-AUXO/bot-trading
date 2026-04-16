@@ -4,17 +4,14 @@ This guide applies inside `trading_bot/`.
 
 ## Session Startup Order
 
-If a task will touch anything under `trading_bot/`, the required read order is:
+If a task will touch anything under `trading_bot/`:
 
 1. `../AGENTS.md`
 2. `../notes/README.md`
 3. `../notes/reference/index.md`
-4. The task-relevant reference docs and memory notes in `../notes/`
-5. `../graphify-out/GRAPH_REPORT.md` if it exists and the task needs architecture or ownership context
+4. One task-specific ref doc + one durable note
+5. `../graphify-out/GRAPH_REPORT.md` only if architecture/ownership context needed
 6. `trading_bot/AGENTS.md`
-7. Only then open files under `backend/`, `dashboard/`, or other source directories
-
-Do not skip ahead to source files before that sequence.
 
 ## Reality
 

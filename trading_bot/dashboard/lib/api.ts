@@ -22,7 +22,6 @@ export async function fetchJson<T>(path: string, init?: RequestInit): Promise<T>
         message = payload.error;
       }
     } catch {
-      // Fall back to the status-based message when the response is not JSON.
     }
     throw new Error(message);
   }

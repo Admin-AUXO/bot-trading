@@ -1,8 +1,8 @@
-import type { BotState, Candidate, Fill, Position, TokenSnapshot } from "@prisma/client";
+import type { BotState, Candidate, Fill, Position, TokenMetrics } from "@prisma/client";
 import { db } from "../db/client.js";
 import type { AdaptiveModelState, AdaptiveTokenExplanation, LiveStrategySettings } from "../types/domain.js";
 import type { RiskEngine } from "../engine/risk-engine.js";
-import type { RuntimeConfigService, SettingsControlState } from "./runtime-config.js";
+import type { RuntimeConfigService } from "./runtime-config.js";
 import type { ProviderBudgetService } from "./provider-budget-service.js";
 import { buildAdaptiveModelState, buildAdaptiveTokenExplanation } from "./adaptive-model.js";
 import { listOperatorEvents } from "./operator-events.js";
@@ -378,6 +378,7 @@ export class OperatorDeskService {
       db.candidate.findMany({
         take: 150,
         orderBy: { discoveredAt: "desc" },
+        include: { latestMetrics: true },
       }),
     ]);
 
@@ -398,7 +399,7 @@ export class OperatorDeskService {
     if (!candidate) return null;
 
     const [snapshots, payloads] = await Promise.all([
-      db.tokenSnapshot.findMany({
+      db.tokenMetrics.findMany({
         where: { OR: [{ candidateId }, { mint: candidate.mint }] },
         orderBy: { capturedAt: "desc" },
         take: 40,
@@ -484,7 +485,7 @@ export class OperatorDeskService {
     if (!position) return null;
 
     const [snapshots, row] = await Promise.all([
-      db.tokenSnapshot.findMany({
+      db.tokenMetrics.findMany({
         where: { OR: [{ positionId }, { mint: position.mint }] },
         orderBy: { capturedAt: "desc" },
         take: 40,
@@ -550,10 +551,6 @@ export class OperatorDeskService {
       staleComponents: diagnostics.staleComponents,
       issues: diagnostics.issues,
     };
-  }
-
-  async getSettingsControl(): Promise<SettingsControlState> {
-    return this.config.getControlState();
   }
 
   private buildPrimaryBlocker(botState: BotState, gate: Awaited<ReturnType<RiskEngine["canOpenPosition"]>>) {
@@ -668,7 +665,7 @@ export class OperatorDeskService {
     }));
   }
 
-  private toCandidateQueueRow(row: Candidate, liveStrategy: LiveStrategySettings) {
+  private toCandidateQueueRow(row: Candidate & { latestMetrics?: TokenMetrics | null }, liveStrategy: LiveStrategySettings) {
     const secondaryReasons = this.getCandidateSecondaryReasons(row);
     const filterState = this.snapshotRecord(row);
     return {
@@ -680,16 +677,16 @@ export class OperatorDeskService {
       bucket: this.getCandidateBucket(row),
       primaryBlocker: secondaryReasons[0] ?? this.getCandidateBucketLabel(this.getCandidateBucket(row)),
       secondaryReasons: secondaryReasons.slice(1),
-      liquidityUsd: maybeNumber(row.liquidityUsd),
-      volume5mUsd: maybeNumber(row.volume5mUsd),
-      buySellRatio: maybeNumber(row.buySellRatio),
-      top10HolderPercent: maybeNumber(row.top10HolderPercent),
+      liquidityUsd: maybeNumber(row.latestMetrics?.liquidityUsd),
+      volume5mUsd: maybeNumber(row.latestMetrics?.volume1mUsd),
+      buySellRatio: maybeNumber(row.latestMetrics?.metadata ? (asRecord(row.latestMetrics.metadata).buySellRatio5m ?? (asRecord(row.latestMetrics.metadata).buySellRatio)) : null),
+      top10HolderPercent: maybeNumber(row.latestMetrics?.top10HolderPct),
       discoveredAt: row.discoveredAt.toISOString(),
       lastEvaluatedAt: row.lastEvaluatedAt?.toISOString() ?? null,
       adaptive: buildAdaptiveTokenExplanation({
         liveStrategy,
         filterState,
-        metrics: asRecord(row.metrics),
+        metrics: asRecord(row.latestMetrics?.metadata ?? row.metadata),
       }),
     };
   }
@@ -734,7 +731,7 @@ export class OperatorDeskService {
 
   private async toPositionBookRow(row: Position, liveStrategy: LiveStrategySettings) {
     const [latestSnapshot, latestFill] = await Promise.all([
-      db.tokenSnapshot.findFirst({
+      db.tokenMetrics.findFirst({
         where: { OR: [{ positionId: row.id }, { mint: row.mint }] },
         orderBy: { capturedAt: "desc" },
         select: { capturedAt: true },
@@ -840,7 +837,7 @@ export class OperatorDeskService {
     };
   }
 
-  private snapshotRecord(row: Candidate | Position | TokenSnapshot) {
+  private snapshotRecord(row: Candidate | Position | TokenMetrics) {
     return Object.fromEntries(
       Object.entries(row).map(([key, value]) => [
         key,
@@ -853,8 +850,8 @@ export class OperatorDeskService {
     const metadata = asRecord(fill.metadata);
     const live = asRecord(metadata.live);
     const timing = asRecord(live.timing);
-    const executionReason = typeof metadata.reason === "string" ? metadata.reason : null;
-    const entryOrigin = typeof metadata.entryOrigin === "string" ? metadata.entryOrigin : null;
+    const executionReason = fill.executionReason ?? (typeof metadata.reason === "string" ? metadata.reason : null);
+    const entryOrigin = fill.entryOrigin ?? (typeof metadata.entryOrigin === "string" ? metadata.entryOrigin : null);
 
     return {
       id: fill.id,
@@ -866,17 +863,17 @@ export class OperatorDeskService {
       amountToken: Number(fill.amountToken),
       pnlUsd: fill.pnlUsd == null ? null : Number(fill.pnlUsd),
       txSignature: fill.txSignature,
-      totalLatencyMs: maybeNumber(timing.totalMs),
-      quoteLatencyMs: maybeNumber(timing.quoteMs),
-      swapBuildLatencyMs: maybeNumber(timing.swapBuildMs),
-      senderBuildLatencyMs: maybeNumber(timing.senderBuildMs),
-      broadcastConfirmLatencyMs: maybeNumber(timing.broadcastAndConfirmMs),
-      settlementReadLatencyMs: maybeNumber(timing.settlementReadMs),
-      executionSlippageBps: maybeNumber(live.executionSlippageBps),
-      quotedOutAmountUsd: maybeNumber(live.quotedOutAmountUsd),
-      actualOutAmountUsd: maybeNumber(live.actualOutAmountUsd),
-      quotedOutAmountToken: maybeNumber(live.quotedOutAmountToken),
-      actualOutAmountToken: maybeNumber(live.actualOutAmountToken),
+      totalLatencyMs: maybeNumber(fill.totalLatencyMs) ?? maybeNumber(timing.totalMs),
+      quoteLatencyMs: maybeNumber(fill.quoteLatencyMs) ?? maybeNumber(timing.quoteMs),
+      swapBuildLatencyMs: maybeNumber(fill.swapBuildLatencyMs) ?? maybeNumber(timing.swapBuildMs),
+      senderBuildLatencyMs: maybeNumber(fill.senderBuildLatencyMs) ?? maybeNumber(timing.senderBuildMs),
+      broadcastConfirmLatencyMs: maybeNumber(fill.broadcastConfirmLatencyMs) ?? maybeNumber(timing.broadcastAndConfirmMs),
+      settlementReadLatencyMs: maybeNumber(fill.settlementReadLatencyMs) ?? maybeNumber(timing.settlementReadMs),
+      executionSlippageBps: maybeNumber(fill.executionSlippageBps) ?? maybeNumber(live.executionSlippageBps),
+      quotedOutAmountUsd: maybeNumber(fill.quotedOutAmountUsd) ?? maybeNumber(live.quotedOutAmountUsd),
+      actualOutAmountUsd: maybeNumber(fill.actualOutAmountUsd) ?? maybeNumber(live.actualOutAmountUsd),
+      quotedOutAmountToken: maybeNumber(fill.quotedOutAmountToken) ?? maybeNumber(live.quotedOutAmountToken),
+      actualOutAmountToken: maybeNumber(fill.actualOutAmountToken) ?? maybeNumber(live.actualOutAmountToken),
       discoveryLabReportAgeMsAtEntry: maybeNumber(metadata.discoveryLabReportAgeMsAtEntry),
       discoveryLabRunAgeMsAtEntry: maybeNumber(metadata.discoveryLabRunAgeMsAtEntry),
       discoveryLabCompletionLagMsAtEntry: maybeNumber(metadata.discoveryLabCompletionLagMsAtEntry),

@@ -31,6 +31,7 @@ export function DiscoveryLabStrategyIdeasClient(props: {
   const [payload, setPayload] = useState(props.initialPayload);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const contextMessage = refreshError ?? payload.meta.warnings[0] ?? null;
 
   const refreshIdeas = () => {
     startTransition(async () => {
@@ -142,18 +143,12 @@ export function DiscoveryLabStrategyIdeasClient(props: {
         />
       </CompactPageHeader>
 
-      {refreshError ? <WarningBanner message={refreshError} /> : null}
-      {payload.meta.warnings.length > 0 ? (
-        <WarningBanner
-          message={payload.meta.warnings.join(" ")}
-          tone="warning"
-        />
-      ) : null}
+      {contextMessage ? <WarningBanner message={contextMessage} tone={refreshError ? "danger" : "warning"} /> : null}
 
       <Panel
-        title="Snapshot status"
+        title="Context"
         eyebrow="Manual refresh only"
-        description="Suggestions reuse cached market stats until you ask for a fresh board. Opening this page is cheap; refresh is the paid path."
+        description="This page should explain snapshot freshness once, then get out of the way."
         tone={payload.meta.cacheState === "degraded" ? "warning" : "default"}
       >
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
@@ -186,16 +181,23 @@ export function DiscoveryLabStrategyIdeasClient(props: {
             detail="Underlying board snapshot age"
           />
         </div>
-        <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-          {payload.meta.sources.map((source) => (
-            <SourceCard
-              key={source.key}
-              label={source.label}
-              tier={source.tier}
-              detail={source.detail}
-            />
-          ))}
-        </div>
+        {payload.suggestions.length > 0 ? (
+          <details className="group mt-3">
+            <summary className="cursor-pointer list-none text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">
+              Source mix
+            </summary>
+            <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+              {payload.meta.sources.map((source) => (
+                <SourceCard
+                  key={source.key}
+                  label={source.label}
+                  tier={source.tier}
+                  detail={source.detail}
+                />
+              ))}
+            </div>
+          </details>
+        ) : null}
       </Panel>
 
       <Panel
@@ -241,6 +243,7 @@ export function DiscoveryLabStrategyIdeasClient(props: {
           <EmptyState
             title="No strategy ideas cached yet"
             detail="The page is healthy, but it stays read-only and empty until you manually refresh ideas."
+            compact
           />
         )}
       </Panel>
@@ -319,7 +322,7 @@ function SuggestionCard(props: {
   );
 
   return (
-    <div className={`min-w-[20rem] max-w-[24rem] snap-start rounded-[18px] border p-4 ${tone}`}>
+    <div className={`min-w-[20rem] max-w-[24rem] snap-start rounded-[18px] border p-3.5 xl:min-w-[calc((100%-1rem)/2)] xl:max-w-[calc((100%-1rem)/2)] ${tone}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -350,7 +353,22 @@ function SuggestionCard(props: {
         </div>
       </div>
 
-      <div className="mt-4 grid gap-2 md:grid-cols-4">
+      <div className="mt-3 flex flex-wrap gap-2">
+        <InlineLabel
+          value={`${formatInteger(suggestion.packDraft.recipes.length)} recipes`}
+          tone="local"
+        />
+        <InlineLabel
+          value={`${suggestion.recommendedSessionMinutes}m session`}
+          tone="neutral"
+        />
+        <InlineLabel
+          value={suggestion.packDraft.targetPnlBand?.label ?? "runtime band"}
+          tone="neutral"
+        />
+      </div>
+
+      <div className="mt-3 grid gap-2 md:grid-cols-3">
         <IdeaMetric
           label="Confidence"
           value={`${suggestion.confidencePercent}%`}
@@ -372,19 +390,9 @@ function SuggestionCard(props: {
           )}
           detail="Upper market-cap band"
         />
-        <IdeaMetric
-          label="Structure"
-          value={`${formatInteger(suggestion.packDraft.recipes.length)} recipes`}
-          detail={suggestion.packDraft.targetPnlBand?.label ?? "Runtime band"}
-        />
-        <IdeaMetric
-          label="Session"
-          value={`${suggestion.recommendedSessionMinutes}m`}
-          detail="Suggested live session"
-        />
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className="mt-3 flex flex-wrap gap-2">
         {primaryFilters.map((filter) => (
           <InlineLabel
             key={`${suggestion.id}-${filter.key}`}
@@ -417,7 +425,7 @@ function SuggestionCard(props: {
         </details>
       ) : null}
 
-      <div className="mt-4 grid gap-2">
+      <div className="mt-3 grid gap-2">
         {primaryThresholds.map((range) => (
           <ThresholdBar
             key={range.key}
@@ -431,7 +439,7 @@ function SuggestionCard(props: {
         ))}
       </div>
 
-      <details className="mt-4 group rounded-[14px] border border-bg-border bg-bg-hover/35 p-3">
+      <details className="mt-3 group rounded-[14px] border border-bg-border bg-bg-hover/35 p-3">
         <summary className="cursor-pointer list-none">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>

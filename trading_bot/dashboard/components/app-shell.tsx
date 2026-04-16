@@ -401,7 +401,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       label="Open"
                       value={shell ? formatInteger(shell.statusSummary.openPositions) : "—"}
                     />
-                    <CompactShellMetric label="Sync" value={shell ? formatMinutesAgo(shell.lastSyncAt) : "—"} />
+                    <CompactShellMetric label="Queue" value={shell ? formatInteger(shell.statusSummary.queuedCandidates) : "—"} />
                   </div>
                 </div>
               ) : (
@@ -409,20 +409,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="section-kicker">Shell</div>
-                      <div className="mt-1.5 text-sm font-semibold text-text-primary">
-                        {shell?.primaryBlocker?.label ?? "Desk clear"}
-                      </div>
+                      <div className="mt-1 text-sm font-semibold text-text-primary">{shellError ? "Shell degraded" : shell?.primaryBlocker?.label ?? "Desk clear"}</div>
+                      <div className="mt-1 text-xs text-text-secondary">Sync {shell ? formatMinutesAgo(shell.lastSyncAt) : "—"}</div>
                     </div>
                     <StatusPill value={shell?.health ?? "waiting"} />
                   </div>
-                  <div className="grid grid-cols-4 gap-1.5 text-xs text-text-secondary">
+                  <div className="grid grid-cols-3 gap-1.5 text-xs text-text-secondary">
                     <ShellMetric label="Mode" value={shortMode(shell?.mode)} />
                     <ShellMetric
                       label="Open"
                       value={shell ? `${formatInteger(shell.statusSummary.openPositions)}/${formatInteger(shell.statusSummary.maxOpenPositions)}` : "—"}
                     />
                     <ShellMetric label="Queued" value={shell ? formatInteger(shell.statusSummary.queuedCandidates) : "—"} />
-                    <ShellMetric label="Sync" value={shell ? formatMinutesAgo(shell.lastSyncAt) : "—"} />
                   </div>
                 </div>
               )}
@@ -516,13 +514,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="section-kicker text-accent">{sidebarContext.eyebrow}</span>
-                    <StatusPill value={shell?.mode ?? "waiting"} />
-                    <StatusPill value={shell?.health ?? "waiting"} />
-                    <Badge className="normal-case">Sync {shell ? formatMinutesAgo(shell.lastSyncAt) : "—"}</Badge>
                     {shell?.primaryBlocker?.label ? <Badge className="normal-case">{shell.primaryBlocker.label}</Badge> : null}
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-2">
                     <span className="text-sm font-semibold text-text-primary">{sidebarContext.title}</span>
+                    <span className="text-xs text-text-secondary">{sidebarContext.detail}</span>
+                    <StatusPill value={shell?.mode ?? "waiting"} />
+                    <StatusPill value={shell?.health ?? "waiting"} />
+                    <Badge className="normal-case">Sync {shell ? formatMinutesAgo(shell.lastSyncAt) : "—"}</Badge>
                     {shellError ? <Badge variant="danger" className="normal-case tracking-normal">{shellError}</Badge> : null}
                     {actionError ? <Badge variant="danger" className="normal-case tracking-normal">{actionError}</Badge> : null}
                   </div>
@@ -558,18 +557,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       {liveArmAction.label}
                     </Button>
                   ) : null}
-                  {(shell?.availableActions ?? []).filter((action) => !isLiveArmAction(action)).map((action) => (
-                    <Button
-                      key={action.id}
-                      onClick={() => runAction(action.id, action.confirmation)}
-                      disabled={!action.enabled || isPending}
-                      title={action.label}
-                      variant={action.id === "pause" || action.id === "resume" ? "warning" : "secondary"}
-                    >
-                      <ActionIcon actionId={action.id} />
-                      {action.label}
-                    </Button>
-                  ))}
+                  {(shell?.availableActions ?? []).filter((action) => !isLiveArmAction(action)).length > 0 ? (
+                    <details className="group relative">
+                      <summary className="flex h-10 cursor-pointer list-none items-center gap-2 rounded-[12px] border border-bg-border bg-[#101012] px-3 text-sm text-text-primary">
+                        <RefreshCcw className="h-4 w-4" />
+                        Runtime
+                      </summary>
+                      <div className="absolute right-0 top-[calc(100%+0.5rem)] z-40 min-w-[13rem] rounded-[16px] border border-bg-border bg-[var(--surface-modal-strong)] p-2 shadow-2xl">
+                        <div className="space-y-1">
+                          {(shell?.availableActions ?? []).filter((action) => !isLiveArmAction(action)).map((action) => (
+                            <button
+                              key={action.id}
+                              type="button"
+                              onClick={() => runAction(action.id, action.confirmation)}
+                              disabled={!action.enabled || isPending}
+                              title={action.label}
+                              className="flex w-full items-center gap-2 rounded-[12px] px-3 py-2 text-left text-sm text-text-primary transition hover:bg-[#151517] disabled:cursor-not-allowed disabled:text-text-muted"
+                            >
+                              <ActionIcon actionId={action.id} />
+                              {action.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </details>
+                  ) : null}
                 </div>
               </div>
             </header>

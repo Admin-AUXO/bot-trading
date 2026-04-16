@@ -143,6 +143,7 @@ Compose contract:
 - Startup chain: `postgres` -> `db-setup` -> `bot` -> `dashboard`
 - Postgres binds on `127.0.0.1:${POSTGRES_PORT:-56432}` for host-local tools only
 - `db-setup` applies Prisma schema and SQL views before the bot starts
+- `db-setup` and `bot` each override `DATABASE_URL` to the container-safe `postgres` hostname in Compose, so a host-local `backend/.env` can still point at `localhost` without breaking the stack
 - `bot` health checks `GET /health`
 - repo-local discovery-lab seed packs under `backend/.local/discovery-lab/packs/` are copied into the bot runner image at build time, so adding or changing those files requires a bot image rebuild before the dashboard catalog can see them
 - `dashboard` waits for backend health, injects `API_URL=http://bot:3101`, and reads only `dashboard/compose.env` for its control secret and Grafana deep-link contract
@@ -207,6 +208,30 @@ Notes:
 - State lives in the named volume `n8n-data`.
 - The synced env file carries the editor URL, webhook URL, and timezone defaults so local workflows generate consistent callback URLs.
 
+## Run Mode E: Firecrawl Sidecar
+
+Use this when you want a local-only self-hosted Firecrawl instance for scraping and crawl experiments without coupling it to the trading bot database or startup chain.
+
+1. Review [`../../trading_bot/firecrawl/compose.env.example`](../../trading_bot/firecrawl/compose.env.example) and update `trading_bot/firecrawl/compose.env` if you need a stronger `FIRECRAWL_BULL_AUTH_KEY`, OpenAI-backed extraction, proxy credentials, or a custom SearXNG endpoint.
+2. Start only the Firecrawl profile:
+
+```bash
+cd trading_bot
+docker compose --profile firecrawl up -d firecrawl-playwright firecrawl-redis firecrawl-rabbitmq firecrawl-postgres firecrawl-api
+```
+
+3. Open Firecrawl at `http://127.0.0.1:3002` by default.
+4. If you need the Bull queue admin UI, open `http://127.0.0.1:3002/admin/<FIRECRAWL_BULL_AUTH_KEY>/queues`.
+
+Notes:
+
+- Firecrawl is intentionally isolated on its own `firecrawl-backend` network and does not join the trading app `postgres -> db-setup -> bot -> dashboard` chain.
+- The Firecrawl API binds to `127.0.0.1:${FIRECRAWL_PORT:-3002}` only by default. Keep it local unless you put real auth and a proxy in front of it.
+- The Firecrawl stack uses upstream GHCR images pinned by digest for the API, Playwright service, and upstream Postgres image so rebuilds stay reproducible even though upstream currently publishes them behind `latest`.
+- Keep the Firecrawl Postgres defaults on `postgres` unless you also rebuild or reconfigure the upstream `nuq-postgres` image; its bootstrap expects `pg_cron` to initialize against that database.
+- `firecrawl-postgres` persists state in the named volume `firecrawl-pgdata`.
+- Firecrawl self-hosting still lacks the hosted Fire-engine capabilities, so expect simpler scraping behavior than the cloud service on heavily defended sites.
+
 ## Ports And Env
 
 - `POSTGRES_PORT`: host bind for Postgres on `127.0.0.1`, default `56432`
@@ -216,11 +241,13 @@ Notes:
 - `N8N_PORT`: local n8n bind, default `5678`
 - `OBSIDIAN_HTTP_PORT`: local HTTP bind for Obsidian, default `3110`
 - `OBSIDIAN_HTTPS_PORT`: local HTTPS bind for Obsidian, default `3111`
+- `FIRECRAWL_PORT`: local Firecrawl API bind, default `3002`
 - `postgres`, `db-setup`, and `bot` read [`../../trading_bot/backend/.env`](../../trading_bot/backend/.env)
 - `dashboard` reads `trading_bot/dashboard/compose.env`
 - `grafana` reads `trading_bot/grafana/compose.env`
 - `n8n` reads `trading_bot/n8n/compose.env`
-- Checked-in examples live at [`../../trading_bot/dashboard/compose.env.example`](../../trading_bot/dashboard/compose.env.example), [`../../trading_bot/grafana/compose.env.example`](../../trading_bot/grafana/compose.env.example), and [`../../trading_bot/n8n/compose.env.example`](../../trading_bot/n8n/compose.env.example)
+- `firecrawl-api` and `firecrawl-postgres` read `trading_bot/firecrawl/compose.env`
+- Checked-in examples live at [`../../trading_bot/dashboard/compose.env.example`](../../trading_bot/dashboard/compose.env.example), [`../../trading_bot/grafana/compose.env.example`](../../trading_bot/grafana/compose.env.example), [`../../trading_bot/n8n/compose.env.example`](../../trading_bot/n8n/compose.env.example), and [`../../trading_bot/firecrawl/compose.env.example`](../../trading_bot/firecrawl/compose.env.example)
 - Generate the service env files with `./scripts/sync-compose-env.sh` after you change `backend/.env`
 - `node ./scripts/sync-compose-env.mjs` strips carriage returns while parsing `backend/.env`, so a Windows-edited env file can still fan out cleanly into the compose-only env files
 - If credentials change, keep `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, and `DATABASE_URL` aligned
@@ -233,13 +260,16 @@ Notes:
 cd trading_bot && docker compose config
 cd trading_bot && docker compose --profile notes config
 cd trading_bot && docker compose --profile automation config
+cd trading_bot && docker compose --profile firecrawl config
 cd trading_bot && node ./scripts/sync-compose-env.mjs
 cd trading_bot && ./scripts/update-compose-stack.sh --build-only
 cd trading_bot && docker compose build dashboard
 cd trading_bot && docker compose up -d --build db-setup grafana bot dashboard
 cd trading_bot && docker compose --profile automation up -d n8n
+cd trading_bot && docker compose --profile firecrawl up -d firecrawl-playwright firecrawl-redis firecrawl-rabbitmq firecrawl-postgres firecrawl-api
 curl -sf http://127.0.0.1:5678/healthz/readiness
 curl -sf http://127.0.0.1:3400/api/health
+curl -sf http://127.0.0.1:3002
 cd trading_bot/backend && npm run build
 cd trading_bot/backend && npm run db:setup
 cd trading_bot/dashboard && npm run build

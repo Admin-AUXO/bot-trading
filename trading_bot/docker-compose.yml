@@ -29,6 +29,19 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    ulimits:
+      nofile:
+        soft: 1024
+        hard: 2048
+    shm_size: 128m
 
   db-setup:
     <<: *app-defaults
@@ -39,6 +52,8 @@ services:
     restart: on-failure:3
     env_file:
       - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-botuser}:${POSTGRES_PASSWORD:-botpass}@postgres:5432/${POSTGRES_DB:-trading_bot}
     depends_on:
       postgres:
         condition: service_healthy
@@ -56,11 +71,18 @@ services:
       - "${BOT_PORT:-3101}:${BOT_PORT:-3101}"
     env_file:
       - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-botuser}:${POSTGRES_PASSWORD:-botpass}@postgres:5432/${POSTGRES_DB:-trading_bot}
     depends_on:
       postgres:
         condition: service_healthy
       db-setup:
         condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
     healthcheck:
       test:
         - CMD-SHELL
@@ -92,6 +114,11 @@ services:
     depends_on:
       bot:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
     healthcheck:
       test:
         - CMD-SHELL
@@ -126,15 +153,10 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/etc/grafana/dashboards:ro
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "wget -q -O- http://127.0.0.1:3000/api/health | grep -Eq '\"database\"[[:space:]]*:[[:space:]]*\"ok\"'",
-        ]
-      interval: 20s
-      timeout: 5s
-      retries: 6
-      start_period: 20s
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   n8n:
     <<: *app-defaults
@@ -148,6 +170,8 @@ services:
       - ./n8n/compose.env
     volumes:
       - n8n-data:/home/node/.n8n
+    networks:
+      - n8n-backend
     healthcheck:
       test:
         - CMD-SHELL
@@ -159,6 +183,169 @@ services:
       timeout: 5s
       retries: 6
       start_period: 30s
+
+  n8n-mcp:
+    <<: *app-defaults
+    profiles: ["automation"]
+    image: ghcr.io/czlonkowski/n8n-mcp:latest
+    pull_policy: always
+    container_name: trading-n8n-mcp
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${N8N_MCP_PORT:-3010}:3000"
+    environment:
+      - N8N_MODE=true
+      - MCP_MODE=http
+      - N8N_API_URL=http://n8n:5678
+      - N8N_API_KEY=${N8N_API_KEY}
+      - MCP_AUTH_TOKEN=${N8N_MCP_AUTH_TOKEN}
+      - AUTH_TOKEN=${N8N_MCP_AUTH_TOKEN}
+      - PORT=3000
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    networks:
+      - n8n-backend
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          node -e "fetch('http://127.0.0.1:3000/health').then((res) => {
+            if (!res.ok) process.exit(1);
+          }).catch(() => process.exit(1))"
+      interval: 20s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+
+  firecrawl-playwright:
+    <<: *app-defaults
+    profiles: ["firecrawl"]
+    image: ghcr.io/firecrawl/playwright-service:latest@sha256:6b2a9e59ff7953c4116be4bcfaaae95e2dd7e30acaaa1b9a490dc7d32fbac5eb
+    container_name: trading-firecrawl-playwright
+    restart: unless-stopped
+    environment:
+      PORT: 3000
+      PROXY_SERVER: ${FIRECRAWL_PROXY_SERVER:-}
+      PROXY_USERNAME: ${FIRECRAWL_PROXY_USERNAME:-}
+      PROXY_PASSWORD: ${FIRECRAWL_PROXY_PASSWORD:-}
+      ALLOW_LOCAL_WEBHOOKS: ${FIRECRAWL_ALLOW_LOCAL_WEBHOOKS:-true}
+      BLOCK_MEDIA: ${FIRECRAWL_BLOCK_MEDIA:-}
+      MAX_CONCURRENT_PAGES: ${FIRECRAWL_CRAWL_CONCURRENT_REQUESTS:-10}
+    networks:
+      - firecrawl-backend
+    cpus: 2.0
+    mem_limit: 4G
+    memswap_limit: 4G
+    tmpfs:
+      - /tmp/.cache:noexec,nosuid,size=1g
+
+  firecrawl-api:
+    <<: *app-defaults
+    profiles: ["firecrawl"]
+    image: ghcr.io/firecrawl/firecrawl:latest@sha256:0aa3a187baed1b8fef36ccfaeeaa8969a47a765338f145e010ec7372a5d190bb
+    container_name: trading-firecrawl-api
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${FIRECRAWL_PORT:-3002}:3002"
+    env_file:
+      - ./firecrawl/compose.env
+    environment:
+      HOST: "0.0.0.0"
+      PORT: 3002
+      INTERNAL_PORT: 3002
+      EXTRACT_WORKER_PORT: 3004
+      WORKER_PORT: 3005
+      REDIS_URL: redis://firecrawl-redis:6379
+      REDIS_RATE_LIMIT_URL: redis://firecrawl-redis:6379
+      PLAYWRIGHT_MICROSERVICE_URL: http://firecrawl-playwright:3000/scrape
+      POSTGRES_HOST: firecrawl-postgres
+      POSTGRES_PORT: 5432
+      NUQ_RABBITMQ_URL: amqp://firecrawl-rabbitmq:5672
+      ENV: local
+      USE_DB_AUTHENTICATION: ${FIRECRAWL_USE_DB_AUTHENTICATION:-false}
+      BULL_AUTH_KEY: ${FIRECRAWL_BULL_AUTH_KEY:-CHANGEME}
+      TEST_API_KEY: ${FIRECRAWL_TEST_API_KEY:-}
+      OPENAI_API_KEY: ${FIRECRAWL_OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${FIRECRAWL_OPENAI_BASE_URL:-}
+      MODEL_NAME: ${FIRECRAWL_MODEL_NAME:-}
+      MODEL_EMBEDDING_NAME: ${FIRECRAWL_MODEL_EMBEDDING_NAME:-}
+      OLLAMA_BASE_URL: ${FIRECRAWL_OLLAMA_BASE_URL:-}
+      PROXY_SERVER: ${FIRECRAWL_PROXY_SERVER:-}
+      PROXY_USERNAME: ${FIRECRAWL_PROXY_USERNAME:-}
+      PROXY_PASSWORD: ${FIRECRAWL_PROXY_PASSWORD:-}
+      SEARXNG_ENDPOINT: ${FIRECRAWL_SEARXNG_ENDPOINT:-}
+      SEARXNG_ENGINES: ${FIRECRAWL_SEARXNG_ENGINES:-}
+      SEARXNG_CATEGORIES: ${FIRECRAWL_SEARCATEGORIES:-}
+      POSTGRES_USER: ${FIRECRAWL_POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${FIRECRAWL_POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${FIRECRAWL_POSTGRES_DB:-postgres}
+    depends_on:
+      firecrawl-redis:
+        condition: service_started
+      firecrawl-playwright:
+        condition: service_started
+      firecrawl-rabbitmq:
+        condition: service_healthy
+      firecrawl-postgres:
+        condition: service_started
+    networks:
+      - firecrawl-backend
+    command: node dist/src/harness.js --start-docker
+    cpus: 4.0
+    mem_limit: 8G
+    memswap_limit: 8G
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          node -e "fetch('http://127.0.0.1:3002').then((res) => {
+            if (!res.ok) process.exit(1);
+          }).catch(() => process.exit(1))"
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 45s
+
+  firecrawl-redis:
+    <<: *logging-defaults
+    profiles: ["firecrawl"]
+    image: redis:7-alpine
+    container_name: trading-firecrawl-redis
+    restart: unless-stopped
+    command: redis-server --bind 0.0.0.0
+    networks:
+      - firecrawl-backend
+
+  firecrawl-rabbitmq:
+    <<: *logging-defaults
+    profiles: ["firecrawl"]
+    image: rabbitmq:3-management
+    container_name: trading-firecrawl-rabbitmq
+    restart: unless-stopped
+    networks:
+      - firecrawl-backend
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 5s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  firecrawl-postgres:
+    <<: *logging-defaults
+    profiles: ["firecrawl"]
+    image: ghcr.io/firecrawl/nuq-postgres:latest@sha256:8565e5f46000085c16d247a4354c41e2439dbcf1640f7dd6e6406c0b18c31732
+    container_name: trading-firecrawl-postgres
+    restart: unless-stopped
+    env_file:
+      - ./firecrawl/compose.env
+    environment:
+      POSTGRES_USER: ${FIRECRAWL_POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${FIRECRAWL_POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${FIRECRAWL_POSTGRES_DB:-postgres}
+    volumes:
+      - firecrawl-pgdata:/var/lib/postgresql/data
+    networks:
+      - firecrawl-backend
 
   obsidian:
     <<: *logging-defaults
@@ -184,4 +371,9 @@ volumes:
   trading-pgdata:
   grafana-data:
   n8n-data:
+  firecrawl-pgdata:
   obsidian-config:
+
+networks:
+  firecrawl-backend:
+  n8n-backend:

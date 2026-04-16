@@ -1,6 +1,8 @@
 import { ProviderName } from "@prisma/client";
 import { env } from "../config/env.js";
 import { db } from "../db/client.js";
+import { logger } from "../utils/logger.js";
+import { recordOperatorEvent } from "./operator-events.js";
 
 export type BirdeyeBudgetLane = "discovery" | "evaluation" | "security" | "reserve";
 
@@ -115,20 +117,18 @@ export class ProviderBudgetService {
     }
 
     if (snapshot.totalUsedUnits + projectedUnits > snapshot.monthlyBudgetUnits) {
-      return {
-        allowed: false,
-        reason: `Birdeye monthly budget exhausted (${snapshot.totalUsedUnits}/${snapshot.monthlyBudgetUnits} CU used)`,
-        snapshot,
-      };
+      const reason = `Birdeye monthly budget exhausted (${snapshot.totalUsedUnits}/${snapshot.monthlyBudgetUnits} CU used)`;
+      logger.warn({ reason, lane }, "Birdeye budget exhausted");
+      await this.emitBudgetWarning("exhausted", lane, reason);
+      return { allowed: false, reason, snapshot };
     }
 
     const projectedMonthlyBurn = Math.round((snapshot.totalUsedUnits + projectedUnits) / snapshot.monthProgress);
     if (lane !== "reserve" && projectedMonthlyBurn > snapshot.monthlyBudgetUnits * 1.05) {
-      return {
-        allowed: false,
-        reason: `Birdeye monthly pace too hot (${projectedMonthlyBurn}/${snapshot.monthlyBudgetUnits} CU projected)`,
-        snapshot,
-      };
+      const reason = `Birdeye monthly pace too hot (${projectedMonthlyBurn}/${snapshot.monthlyBudgetUnits} CU projected)`;
+      logger.warn({ reason, lane }, "Birdeye budget pace warning");
+      await this.emitBudgetWarning("pace_hot", lane, reason);
+      return { allowed: false, reason, snapshot };
     }
 
     const laneSnapshot = snapshot.lanes[lane];
@@ -138,14 +138,37 @@ export class ProviderBudgetService {
       : laneSnapshot.budgetUnits * 1.1;
 
     if (laneProjectedMonthlyBurn > laneBudgetCap) {
-      return {
-        allowed: false,
-        reason: `Birdeye ${lane} pace above target (${laneProjectedMonthlyBurn}/${laneSnapshot.budgetUnits} CU projected)`,
-        snapshot,
-      };
+      const reason = `Birdeye ${lane} pace above target (${laneProjectedMonthlyBurn}/${laneSnapshot.budgetUnits} CU projected)`;
+      logger.warn({ reason, lane }, "Birdeye lane budget pace warning");
+      await this.emitBudgetWarning("lane_pace_hot", lane, reason);
+      return { allowed: false, reason, snapshot };
     }
 
     return { allowed: true, snapshot };
+  }
+
+  private async emitBudgetWarning(type: string, lane: BirdeyeBudgetLane, detail: string): Promise<void> {
+    try {
+      await recordOperatorEvent({
+        kind: `birdeye_budget_${type}`,
+        level: "warning",
+        title: `Birdeye budget ${type}: ${lane} lane`,
+        detail,
+        metadata: { lane, type },
+      });
+    } catch {
+      // Swallow: event emission failure must not block budget decisions
+    }
+  }
+
+  /**
+   * Returns cached/shared facts when BIRDEYE_BUDGET_EMERGENCY_BYPASS=true.
+   * In bypass mode, callers should treat a { allowed: false } decision as
+   * { allowed: true, snapshot } using the most recent snapshot without a fresh API call.
+   */
+  async getBypassSnapshot(): Promise<BirdeyeBudgetSnapshot | null> {
+    if (!env.BIRDEYE_BUDGET_EMERGENCY_BYPASS) return null;
+    return this.getBirdeyeBudgetSnapshot();
   }
 
   private clamp(value: number, min: number, max: number): number {

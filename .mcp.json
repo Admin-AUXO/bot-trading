@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "desktop_commander": {
+      "command": "node",
+      "args": [".codex/scripts/start-desktop-commander.cjs"],
+      "enabled": true,
+      "required": false
+    }
+  }
+}

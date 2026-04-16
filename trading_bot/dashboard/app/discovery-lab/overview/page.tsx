@@ -32,25 +32,13 @@ export default async function DiscoveryLabOverviewPage() {
             <StatusPill value={catalog.activeRun?.status ?? "idle"} />
           </>
         )}
-        actions={(
-          <>
-            <Link href={discoveryLabRoutes.studio} className={buttonVariants({ variant: "secondary", size: "sm" })}>
-              Open studio
-            </Link>
-            <Link href={discoveryLabRoutes.results} className={buttonVariants({ variant: "default", size: "sm" })}>
-              Open results
-              <ArrowUpRight className="h-4 w-4" />
-            </Link>
-          </>
-        )}
       >
         <CompactStatGrid
-          className="xl:grid-cols-4"
+          className="xl:grid-cols-3"
           items={[
             { label: "Active run", value: catalog.activeRun ? catalog.activeRun.packName : "Idle", detail: catalog.activeRun?.status ?? "No run in flight", tone: catalog.activeRun ? "warning" : "default" },
             { label: "Recent runs", value: formatInteger(catalog.recentRuns.length), detail: latestRun?.completedAt ? `Latest ${formatTimestamp(latestRun.completedAt)}` : "History ready", tone: "accent" },
             { label: "Workspace packs", value: formatInteger(customPackCount), detail: `${formatInteger(createdPackCount)} seeded packs`, tone: "default" },
-            { label: "Known sources", value: formatInteger(catalog.knownSources.length), detail: catalog.knownSources.join(", ") || "No sources", tone: "default" },
           ]}
         />
       </CompactPageHeader>

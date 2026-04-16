@@ -244,65 +244,6 @@ export interface RuntimeSnapshot {
   providerSummary?: unknown[];
   providerBudget?: unknown;
   adaptiveModel?: AdaptiveModelState;
-  research?: {
-    activeRun: ResearchRunSummary | null;
-    latestCompletedRun: ResearchRunSummary | null;
-    previousCompletedRun: ResearchRunSummary | null;
-  };
-}
-
-export interface ResearchRunComparison {
-  previousRunId: string;
-  realizedPnlUsdDelta: number;
-  strategyPassRateDeltaPercent: number;
-  mockWinRateDeltaPercent: number;
-  averageHoldMinutesDelta: number;
-  openedCountDelta: number;
-}
-
-export interface ResearchRunSummary {
-  id: string;
-  status: "RUNNING" | "COMPLETED" | "FAILED";
-  startedAt: Date | string;
-  completedAt: Date | string | null;
-  lastPolledAt: Date | string | null;
-  pollIntervalMs: number;
-  maxDurationMs: number;
-  discoveryLimit: number;
-  fullEvaluationLimit: number;
-  maxMockPositions: number;
-  fixedPositionSizeUsd: number;
-  birdeyeUnitCap: number;
-  heliusUnitCap: number;
-  totalDiscovered: number;
-  totalShortlisted: number;
-  totalEvaluated: number;
-  totalStrategyPassed: number;
-  totalMockOpened: number;
-  totalMockClosed: number;
-  liveTradablePassed: number;
-  researchTradablePassed: number;
-  birdeyeCalls: number;
-  birdeyeUnitsUsed: number;
-  heliusCalls: number;
-  heliusUnitsUsed: number;
-  realizedPnlUsd: number;
-  winRatePercent: number | null;
-  averageHoldMinutes: number | null;
-  errorMessage: string | null;
-  comparison: ResearchRunComparison | null;
-  configSnapshot: BotSettings;
-}
-
-export interface ResearchSettings {
-  discoveryLimit: number;
-  fullEvaluationLimit: number;
-  maxMockPositions: number;
-  fixedPositionSizeUsd: number;
-  pollIntervalMs: number;
-  maxRunDurationMs: number;
-  birdeyeUnitCap: number;
-  heliusUnitCap: number;
 }
 
 export type StrategyPresetId =
@@ -490,6 +431,5 @@ export interface BotSettings {
     timeStopMinReturnPercent: number;
       timeLimitMinutes: number;
   };
-  research: ResearchSettings;
   strategy: StrategySettings;
 }

@@ -1,4 +1,5 @@
 import { env } from "../../src/config/env.js";
+import { scoreEntrySignal } from "../../src/services/entry-scoring.js";
 import type { DiscoveryToken, HolderConcentration, MintAuthoritySnapshot, TradeDataSnapshot } from "../../src/types/domain.js";
 import { clamp, gradeFromScore, logScore, recipeWindowSeconds, resolveRelativeNumber } from "./shared.js";
 import type { DeepEvaluation, LabRecipe, LabThresholds } from "./types.js";
@@ -145,40 +146,32 @@ function runtimeLikeScore(input: {
 }) {
   const { token, tradeData, holderConcentration, thresholds, referenceUnix, ageWindowSeconds } = input;
   const ageSeconds = referenceUnix ? Math.max(0, Math.floor(Date.now() / 1000) - referenceUnix) : ageWindowSeconds;
-  const ageScore = clamp(1 - (ageSeconds / Math.max(ageWindowSeconds, 1)), 0, 1);
-  const volumeScore = logScore(tradeData?.volume5mUsd ?? token.volume5mUsd ?? 0, thresholds.minVolume5mUsd);
   const ratio = (tradeData?.volumeBuy5mUsd ?? 0) / Math.max(tradeData?.volumeSell5mUsd ?? 0, 1);
-  const ratioScore = clamp((ratio - thresholds.minBuySellRatio) / Math.max(thresholds.minBuySellRatio, 1), 0, 1);
-  const priceScore = clamp(
-    ((tradeData?.priceChange5mPercent ?? token.priceChange5mPercent ?? 0) + thresholds.maxNegativePriceChange5mPercent)
-      / Math.max(thresholds.maxNegativePriceChange5mPercent + 20, 1),
-    0,
-    1,
+  return scoreEntrySignal(
+    {
+      liquidityUsd: token.liquidityUsd ?? 0,
+      volume5mUsd: tradeData?.volume5mUsd ?? token.volume5mUsd ?? 0,
+      buySellRatio: ratio,
+      priceChange5mPercent: tradeData?.priceChange5mPercent ?? token.priceChange5mPercent ?? 0,
+      uniqueWallets5m: tradeData?.uniqueWallets5m ?? 0,
+      holders: token.holders ?? 0,
+      top10HolderPercent: holderConcentration?.top10Percent ?? thresholds.maxTop10HolderPercent,
+      largestHolderPercent: holderConcentration?.largestHolderPercent ?? thresholds.maxSingleHolderPercent,
+      ageSeconds,
+      source: token.source,
+    },
+    {
+      minLiquidityUsd: thresholds.minLiquidityUsd,
+      minVolume5mUsd: thresholds.minVolume5mUsd,
+      minBuySellRatio: thresholds.minBuySellRatio,
+      minUniqueBuyers5m: thresholds.minUniqueBuyers5m,
+      minHolders: thresholds.minHolders,
+      maxTop10HolderPercent: thresholds.maxTop10HolderPercent,
+      maxSingleHolderPercent: thresholds.maxSingleHolderPercent,
+      maxNegativePriceChange5mPercent: thresholds.maxNegativePriceChange5mPercent,
+      maxGraduationAgeSeconds: Math.max(ageWindowSeconds, 1),
+    },
   );
-  const momentumScore = (volumeScore * 0.45) + (ratioScore * 0.35) + (priceScore * 0.2);
-
-  const uniqueBuyerScore = clamp(
-    (tradeData?.uniqueWallets5m ?? 0) / Math.max(thresholds.minUniqueBuyers5m * 2, 1),
-    0,
-    1,
-  );
-  const holderScore = clamp((token.holders ?? 0) / Math.max(thresholds.minHolders * 2, 1), 0, 1);
-  const top10Score = clamp(
-    1 - ((holderConcentration?.top10Percent ?? thresholds.maxTop10HolderPercent) / Math.max(thresholds.maxTop10HolderPercent, 1)),
-    0,
-    1,
-  );
-  const largestScore = clamp(
-    1 - ((holderConcentration?.largestHolderPercent ?? thresholds.maxSingleHolderPercent) / Math.max(thresholds.maxSingleHolderPercent, 1)),
-    0,
-    1,
-  );
-  const structureScore = (uniqueBuyerScore * 0.5) + (holderScore * 0.25) + (top10Score * 0.15) + (largestScore * 0.1);
-
-  const liquidityScore = logScore(token.liquidityUsd ?? 0, thresholds.minLiquidityUsd);
-  const exitabilityScore = (liquidityScore * 0.75) + (ageScore * 0.25);
-
-  return (momentumScore * 0.35) + (structureScore * 0.35) + (exitabilityScore * 0.3);
 }
 
 export function evaluateGraduatedToken(

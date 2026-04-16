@@ -59,7 +59,7 @@ export function CompactPageHeader(props: {
         </div>
         {props.actions ? <div className="flex flex-wrap items-center gap-2">{props.actions}</div> : null}
       </div>
-      {props.children ? <div className="mt-2.5">{props.children}</div> : null}
+      {props.children ? <div className="mt-2">{props.children}</div> : null}
     </section>
   );
 }
@@ -73,9 +73,11 @@ export function CompactStatGrid(props: {
   }>;
   className?: string;
 }) {
+  const items = props.items.filter(Boolean);
+
   return (
     <div className={clsx("grid gap-2 md:grid-cols-2 xl:grid-cols-4", props.className)}>
-      {props.items.map((item) => (
+      {items.map((item) => (
         <ScanStat
           key={`${item.label}-${item.value}-${item.detail ?? ""}`}
           label={item.label}
@@ -180,10 +182,10 @@ export function ScanStat(props: {
   );
 }
 
-export function EmptyState(props: { title: string; detail: string }) {
+export function EmptyState(props: { title: string; detail: string; compact?: boolean; className?: string }) {
   return (
-    <div className="flex flex-col items-center justify-center px-4 py-8 text-center">
-      <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-bg-border bg-bg-hover text-text-muted">
+    <div className={clsx("flex flex-col items-center justify-center text-center", props.compact ? "px-4 py-5" : "px-4 py-8", props.className)}>
+      <div className={clsx("mb-3 flex items-center justify-center rounded-xl border border-bg-border bg-bg-hover text-text-muted", props.compact ? "h-8 w-8" : "h-10 w-10")}>
         <AlertCircle className="h-4 w-4" />
       </div>
       <div className="text-sm font-medium text-text-secondary">{props.title}</div>

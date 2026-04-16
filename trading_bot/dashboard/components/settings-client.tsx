@@ -439,25 +439,23 @@ export function SettingsClient({
               <span className="hidden text-xs text-text-secondary group-open:inline">Close</span>
             </summary>
             <div className="mt-4 space-y-4">
-              <Panel title="Sections" eyebrow="Secondary controls">
-                <div className="flex flex-wrap gap-2">
-                  {availableSections.map((section) => (
-                    <button
-                      key={section.section}
-                      type="button"
-                      onClick={() => setActiveSection(section.section)}
-                      className={clsx(
-                        "rounded-full border px-3 py-1.5 text-sm transition",
-                        activeSection === section.section
-                          ? "border-[rgba(163,230,53,0.28)] bg-[#121511] text-text-primary"
-                          : "border-bg-border bg-bg-hover/30 text-text-secondary hover:bg-bg-hover/50",
-                      )}
-                    >
-                      {section.title}
-                    </button>
-                  ))}
-                </div>
-              </Panel>
+              <div className="flex flex-wrap gap-2">
+                {availableSections.map((section) => (
+                  <button
+                    key={section.section}
+                    type="button"
+                    onClick={() => setActiveSection(section.section)}
+                    className={clsx(
+                      "rounded-full border px-3 py-1.5 text-sm transition",
+                      activeSection === section.section
+                        ? "border-[rgba(163,230,53,0.28)] bg-[#121511] text-text-primary"
+                        : "border-bg-border bg-bg-hover/30 text-text-secondary hover:bg-bg-hover/50",
+                    )}
+                  >
+                    {section.title}
+                  </button>
+                ))}
+              </div>
               {selectedGroup ? (
                 <SectionEditor
                   group={selectedGroup}
@@ -471,47 +469,28 @@ export function SettingsClient({
           </details>
         </>
       ) : (
-        <section className="grid gap-4 xl:grid-cols-[15rem_minmax(0,1fr)]">
-          <Panel title="Sections" eyebrow="Direct apply" className="xl:sticky xl:top-[calc(var(--shell-header-height)+1rem)] xl:self-start">
-            <div className="md:hidden">
-              <select
-                value={activeSection}
-                onChange={(event) => setActiveSection(event.target.value as SectionId)}
-                className="w-full rounded-[12px] border border-bg-border bg-bg-primary/65 px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent"
-              >
-                {availableSections.map((section) => (
-                  <option key={section.section} value={section.section}>
-                    {section.title}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="hidden space-y-1.5 md:block">
-              {availableSections.map((section) => {
-                const sectionChanged = section.fields.filter((field) => changedPaths.includes(field.path)).length;
-                return (
-                  <button
-                    key={section.section}
-                    type="button"
-                    onClick={() => setActiveSection(section.section)}
-                    className={clsx(
-                      "w-full rounded-[12px] border px-3 py-2.5 text-left transition",
-                      activeSection === section.section
-                        ? "border-[rgba(163,230,53,0.28)] bg-[#121511] text-text-primary"
-                        : "border-bg-border bg-bg-hover/30 text-text-secondary hover:bg-bg-hover/50",
-                    )}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm font-medium">{section.title}</span>
-                      {sectionChanged > 0 ? <Badge variant="warning">{sectionChanged}</Badge> : null}
-                    </div>
-                    <div className="mt-1 text-xs text-text-muted">{section.description}</div>
-                  </button>
-                );
-              })}
-            </div>
-          </Panel>
-
+        <section className="space-y-4">
+          <div className="flex flex-wrap gap-2">
+            {availableSections.map((section) => {
+              const sectionChanged = section.fields.filter((field) => changedPaths.includes(field.path)).length;
+              return (
+                <button
+                  key={section.section}
+                  type="button"
+                  onClick={() => setActiveSection(section.section)}
+                  className={clsx(
+                    "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition",
+                    activeSection === section.section
+                      ? "border-[rgba(163,230,53,0.28)] bg-[#121511] text-text-primary"
+                      : "border-bg-border bg-bg-hover/30 text-text-secondary hover:bg-bg-hover/50",
+                  )}
+                >
+                  <span>{section.title}</span>
+                  {sectionChanged > 0 ? <Badge variant="warning">{sectionChanged}</Badge> : null}
+                </button>
+              );
+            })}
+          </div>
           {selectedGroup ? (
             <SectionEditor
               group={selectedGroup}
@@ -531,7 +510,7 @@ export function SettingsClient({
         </section>
       )}
 
-      <div className="sticky bottom-4 z-20 rounded-[16px] border border-bg-border bg-bg-secondary p-3.5 shadow-[0_18px_50px_rgba(0,0,0,0.22)]">
+      <div className="sticky bottom-4 z-20 rounded-[16px] border border-bg-border bg-bg-secondary p-3 shadow-[0_18px_50px_rgba(0,0,0,0.22)]">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div>
             <div className="text-sm font-medium text-text-primary">{saveBarLabel ?? "Apply settings directly."}</div>
@@ -649,7 +628,7 @@ function HotParameterRow(props: {
 
   return (
     <div className="rounded-[14px] border border-bg-border bg-bg-hover/30 px-4 py-3">
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1.2fr)_9rem_minmax(0,12rem)_6rem] xl:items-center">
+      <div className="grid gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-medium text-text-primary">{props.label}</span>
@@ -658,33 +637,35 @@ function HotParameterRow(props: {
           </div>
           <div className="mt-1 text-xs leading-5 text-text-secondary">{props.detail}</div>
         </div>
-        <div className="rounded-[12px] border border-bg-border bg-bg-primary/45 px-3 py-2">
-          <div className="text-[10px] uppercase tracking-[0.16em] text-text-muted">Active</div>
-          <div className="mt-1 text-sm font-medium text-text-primary">{smartFormatValue(props.path, props.activeValue)}</div>
-        </div>
-        <div className="rounded-[12px] border border-bg-border bg-bg-primary/65 px-3 py-2">
-          <div className="text-[10px] uppercase tracking-[0.16em] text-text-muted">Now</div>
-          <div className="mt-1 flex items-center gap-2">
-            <input
-              type="number"
-              value={String(props.value)}
-              onChange={(event) => props.onChange(props.path, event.target.value)}
-              className="min-w-0 flex-1 bg-transparent text-sm text-text-primary outline-none"
-            />
-            <span className="text-[10px] uppercase tracking-[0.16em] text-text-muted">{fieldUnit(props.path) || "value"}</span>
+        <div className="grid gap-2 md:grid-cols-[8.5rem_minmax(0,1fr)] xl:grid-cols-[8.5rem_minmax(0,1fr)_auto]">
+          <div className="rounded-[12px] border border-bg-border bg-bg-primary/45 px-3 py-2">
+            <div className="text-[10px] uppercase tracking-[0.16em] text-text-muted">Active</div>
+            <div className="mt-1 text-sm font-medium text-text-primary">{smartFormatValue(props.path, props.activeValue)}</div>
           </div>
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          {props.suggestions?.map((suggestion) => (
-            <button
-              key={suggestion.label}
-              type="button"
-              onClick={() => props.onChange(props.path, suggestion.value)}
-              className="rounded-full border border-bg-border bg-bg-primary/55 px-2.5 py-1 text-[11px] text-text-secondary transition hover:bg-bg-hover/60 hover:text-text-primary"
-            >
-              {suggestion.label}
-            </button>
-          ))}
+          <div className="rounded-[12px] border border-bg-border bg-bg-primary/65 px-3 py-2">
+            <div className="text-[10px] uppercase tracking-[0.16em] text-text-muted">Now</div>
+            <div className="mt-1 flex items-center gap-2">
+              <input
+                type="number"
+                value={String(props.value)}
+                onChange={(event) => props.onChange(props.path, event.target.value)}
+                className="min-w-0 flex-1 bg-transparent text-sm text-text-primary outline-none"
+              />
+              <span className="text-[10px] uppercase tracking-[0.16em] text-text-muted">{fieldUnit(props.path) || "value"}</span>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {props.suggestions?.map((suggestion) => (
+              <button
+                key={suggestion.label}
+                type="button"
+                onClick={() => props.onChange(props.path, suggestion.value)}
+                className="rounded-full border border-bg-border bg-bg-primary/55 px-2.5 py-1 text-[11px] text-text-secondary transition hover:bg-bg-hover/60 hover:text-text-primary"
+              >
+                {suggestion.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
     </div>

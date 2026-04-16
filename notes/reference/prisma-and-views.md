@@ -59,6 +59,8 @@ Evidence and telemetry:
 - `OperatorEvent`: desk-owned event feed for control actions, runtime failures, config reviews, and other operator-relevant transitions
 - `SharedTokenFact`: reusable per-mint fact cache for Birdeye detail, trade data, token security, Helius mint authorities, Helius holder concentration, token overview, token metadata, and market stats. Live evaluation and discovery-lab token insight should reuse this row before calling providers again.
 - `SharedTokenFactMigrationSignal`: append-only Helius watcher signal log keyed by signature so duplicate websocket events do not multiply
+- `ResearchFill`: research-mode fill records with mint, side, price, amount, slippage, mint source, and score. Used for backtesting and research analysis.
+- `ExitEvent`: audit trail for position exits with positionId, reason (TP1_HIT, TP2_HIT, STOP_LOSS, TRAILING_STOP, TIME_STOP, MANUAL), optional profile, price, and PnL.
 
 ## View Contract
 
@@ -102,6 +104,22 @@ These views are repo-owned and currently exposed through `GET /api/views/:name`.
 - If a view is added or renamed, update both `create_views.sql` and the API allowlist in [`../../trading_bot/backend/src/api/server.ts`](../../trading_bot/backend/src/api/server.ts).
 - Keep reporting grounded in candidates, positions, fills, snapshots, or provider telemetry. `BotState` and `RuntimeConfig` are operational singletons, not historical fact tables.
 - `OperatorEvent` is an operational support table. It exists for desk auditability and control flow, not for primary Grafana trend reporting.
+
+## Data Retention
+
+The following tables have automated or manual cleanup policies to prevent unbounded growth:
+
+### OperatorEvent
+
+A weekly cleanup job removes events older than 30 days:
+
+```sql
+DELETE FROM "OperatorEvent" WHERE "createdAt" < NOW() - INTERVAL '30 days';
+```
+
+This can be wired into a scheduled job (e.g., a cron entry on the host, a pg_cron scheduled task, or a one-off script run via `npm run db:cleanup`). The interval is intentionally conservative to preserve recent audit context while pruning stale noise.
+
+Other telemetry tables use time-bounded Grafana queries rather than hard deletes: `ApiEvent`, `RawApiPayload`, and `TokenMetrics` are partitioned or queried with `capturedAt > now() - interval 'N days'` to keep dashboard load fast without data loss.
 - `RuntimeConfigVersion` is the historical exception on purpose. It exists specifically so Grafana can analyze config windows without pretending a singleton table has history.
 - Prefer adding missing evidence to `TokenMetrics`, `SharedTokenFact`, or provider telemetry instead of inventing dashboard-only derived fields that cannot be audited later.
 - The old research tables and views are intentionally removed. Discovery analysis now belongs in `DiscoveryLabRun*`, attributed trade rows, and shared token facts instead of a second dry-run table family.

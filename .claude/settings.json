@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "description": "Claude Code project settings for bot-trading — graduation trading bot in trading_bot/",
+  "model": "MiniMax-M2.7",
+  "fastModel": "MiniMax-M2.7-HighSpeed",
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(docker compose *)",
+      "Bash(git status)",
+      "Bash(git diff)",
+      "Bash(git log --oneline -20)",
+      "Bash(git branch)",
+      "Bash(node ./.codex/scripts/install-mcp-config.cjs *)",
+      "Bash(node ./.codex/scripts/graphify.mjs *)",
+      "Bash(node ./.codex/scripts/graphify-rebuild.mjs)",
+      "Read(./**)",
+      "Read(./trading_bot/**)",
+      "Read(./notes/**)",
+      "Edit(./trading_bot/**)",
+      "Edit(./notes/**)"
+    ],
+    "deny": [
+      "Bash(rm -rf)",
+      "Bash(dropdb)",
+      "Bash(git push --force)",
+      "Bash(curl *)",
+      "Bash(wget *)",
+      "Read(./trading_bot/backend/.env)",
+      "Read(./**/.env*)",
+      "Read(./**/secrets/**)",
+      "Edit(./trading_bot/backend/prisma/migrations/**)"
+    ],
+    "defaultMode": "acceptEdits"
+  },
+  "mcpServers": {
+    "desktop_commander": {
+      "command": "node",
+      "args": [".codex/scripts/start-desktop-commander.cjs"],
+      "enabled": true
+    }
+  },
+  "hooks": {
+    "onStartup": ".codex/scripts/session-start-hook.cjs"
+  },
+  "env": {
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "80",
+    "MAX_THINKING_TOKENS": "10000"
+  },
+  "includeGitInstructions": true,
+  "respectGitignore": true,
+  "showClearContextOnPlanAccept": false
+}

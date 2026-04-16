@@ -56,12 +56,12 @@ Purpose: orient an agent to the live app shape and the ownership boundaries that
 - `/operational-desk/overview` degrades instead of blanking if the initial home contract fetch fails, and can emit an external Grafana diagnostics pivot when env-backed dashboard UIDs are configured
 - Global shell includes a keyboard-driven command launcher on `⌘K` for route jumps and live shell actions
 - `/operational-desk/trading`: operator workbench grouped by backend-assigned blocker buckets plus open-risk-first position management, with routed detail pages and URL-preserved `bucket`, `sort`, `book`, and row-focus state
-- `/operational-desk/settings`: desk-facing runtime control with validation, dry-run review, and explicit promotion for capital and cadence changes
+- `/operational-desk/settings`: desk-facing runtime control with direct apply for capital and cadence changes
 - `/discovery-lab/overview`: workflow landing for current run posture and quick entry points
 - `/discovery-lab/studio`: package and strategy editing
 - `/discovery-lab/run-lab`: active run control and process monitoring
 - `/discovery-lab/results`: current-run token board, manual trade ticket, and live strategy staging
-- `/discovery-lab/config`: discovery-owned settings review and promotion surface
+- `/discovery-lab/config`: discovery-owned live-strategy and config surface
 - `/`, `/trading`, `/settings`, `/telemetry`, and `/discovery-lab` are compatibility redirects into those grouped routes
 - There is no repo-supported in-app `/research` surface anymore; dry-run discovery experiments live in `trading_bot/backend/scripts/discovery-lab.ts`
 - The intended visual language is dark, restrained, and tool-like:

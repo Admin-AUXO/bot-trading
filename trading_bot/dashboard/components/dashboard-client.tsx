@@ -14,13 +14,13 @@ import {
   ShieldAlert,
   Sparkles,
 } from "lucide-react";
+import { DeskPnlWidget } from "@/components/desk-pnl-widget";
 import { fetchJson } from "@/lib/api";
 import { operationalDeskRoutes } from "@/lib/dashboard-routes";
 import { formatCompactCurrency, formatInteger, formatPercent, formatRelativeMinutes, formatTimestamp } from "@/lib/format";
 import type { AdaptiveModelState, DeskHomePayload, DiagnosticsPayload, OperatorEvent } from "@/lib/types";
 import { useHydrated } from "@/lib/use-hydrated";
 import { CompactPageHeader, CompactStatGrid, DataTable, IconAction, Panel, StatusPill } from "@/components/dashboard-primitives";
-import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/components/ui/cn";
@@ -37,6 +37,8 @@ export function DashboardClient(props: {
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const hydrated = useHydrated();
+  const degradedDesk = !home.readiness.allowed || diagnostics.issues.length > 0;
+  const diagnosticSummary = `${formatInteger(diagnostics.issues.length)} issue(s)`;
 
   const refresh = useEffectEvent(() => {
     startTransition(async () => {
@@ -69,29 +71,28 @@ export function DashboardClient(props: {
   return (
     <div className="space-y-5">
       <CompactPageHeader
-        eyebrow="Graduation control"
-        title="Operator desk"
-        description={!home.readiness.allowed ? home.readiness.detail ?? undefined : "Compact control view for PnL, latency, and runtime state."}
+        eyebrow="Control"
+        title="Desk"
+        description={!home.readiness.allowed ? home.readiness.detail ?? undefined : "Performance and runtime state."}
         badges={(
           <>
             <StatusPill value={home.readiness.allowed ? "ready" : "blocked"} />
             <StatusPill value={home.diagnostics.status} />
-            <Badge className="normal-case tracking-normal">15s auto refresh</Badge>
           </>
         )}
         actions={(
           <>
-            <Button onClick={() => refresh()} variant="ghost" size="sm" title="Refresh the control desk">
+            <Button onClick={() => refresh()} variant="ghost" size="sm" title="Refresh">
               <RefreshCcw className="h-4 w-4" />
-              {isPending ? "Refreshing" : "Refresh"}
+              {isPending ? "Syncing" : "Sync"}
             </Button>
             <Link
               href={operationalDeskRoutes.trading}
               className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "inline-flex items-center gap-2")}
-              title="Open trading lifecycle"
+              title="Trading lifecycle"
             >
               <ArrowUpRight className="h-4 w-4" />
-              Open trading
+              Lifecycle
             </Link>
             {props.grafanaHref ? (
               <a
@@ -99,9 +100,9 @@ export function DashboardClient(props: {
                 target="_blank"
                 rel="noreferrer"
                 className={cn(buttonVariants({ variant: "default", size: "sm" }), "inline-flex items-center gap-2")}
-                title="Open the linked Grafana dashboard"
+                title="Grafana dashboard"
               >
-                Open Grafana
+                Grafana
                 <ArrowUpRight className="h-4 w-4" />
               </a>
             ) : null}
@@ -109,44 +110,60 @@ export function DashboardClient(props: {
         )}
       >
         <CompactStatGrid
-          className="xl:grid-cols-6"
-          items={[
-            {
-              label: "Realized today",
-              value: formatCompactCurrency(home.performance.realizedPnlTodayUsd),
-              detail: "Closed-book session PnL",
-              tone: home.performance.realizedPnlTodayUsd >= 0 ? "accent" : "danger",
-            },
-            {
-              label: "Realized 7d",
-              value: formatCompactCurrency(home.performance.realizedPnl7dUsd),
-              detail: "Rolling week",
-              tone: home.performance.realizedPnl7dUsd >= 0 ? "accent" : "danger",
-            },
-            {
-              label: "Win rate 7d",
-              value: formatPercent(home.performance.winRate7d * 100, 0),
-              detail: `${formatPercent(home.performance.avgReturnPct7d)} avg return`,
-              tone: home.performance.winRate7d >= 0.5 ? "accent" : "warning",
-            },
-            {
-              label: "Avg hold 7d",
-              value: formatRelativeMinutes(home.performance.avgHoldMinutes7d),
-              detail: "Closed positions",
-            },
-            {
-              label: "Provider latency",
-              value: `${formatInteger(home.latency.providerAvgLatencyMsToday)} ms`,
-              detail: `Hot endpoint ${formatInteger(home.latency.hotEndpointAvgLatencyMsToday)} ms`,
-              tone: home.latency.providerAvgLatencyMsToday > 1500 ? "warning" : "default",
-            },
-            {
-              label: "Exec latency",
-              value: `${formatInteger(home.latency.avgExecutionLatencyMs24h)} ms`,
-              detail: `P95 ${formatInteger(home.latency.p95ExecutionLatencyMs24h)} ms`,
-              tone: home.latency.avgExecutionLatencyMs24h > 4000 ? "warning" : "default",
-            },
-          ]}
+          className={degradedDesk ? "xl:grid-cols-4" : "xl:grid-cols-4"}
+          items={degradedDesk
+            ? [
+                {
+                  label: "Desk state",
+                  value: home.readiness.summary,
+                  detail: home.readiness.detail ?? "Critical desk data is degraded.",
+                  tone: "danger",
+                },
+                {
+                  label: "Diagnostics",
+                  value: diagnosticSummary,
+                  detail: diagnostics.issues[0]?.label ?? "Provider and endpoint status",
+                  tone: diagnostics.issues.length > 0 ? "warning" : "default",
+                },
+                {
+                  label: "Queued intake",
+                  value: formatInteger(home.queue.queuedCandidates),
+                  detail: "Candidates awaiting review",
+                  tone: home.queue.queuedCandidates > 0 ? "warning" : "default",
+                },
+                {
+                  label: "Open risk",
+                  value: `${formatInteger(home.exposure.openPositions)}/${formatInteger(home.exposure.maxOpenPositions)}`,
+                  detail: `Cash ${formatCompactCurrency(home.exposure.cashUsd)}`,
+                  tone: home.exposure.openPositions > 0 ? "warning" : "default",
+                },
+              ]
+            : [
+                {
+                  label: "Realized today",
+                  value: formatCompactCurrency(home.performance.realizedPnlTodayUsd),
+                  detail: "Closed-book session PnL",
+                  tone: home.performance.realizedPnlTodayUsd >= 0 ? "accent" : "danger",
+                },
+                {
+                  label: "Win rate 7d",
+                  value: formatPercent(home.performance.winRate7d * 100, 0),
+                  detail: `${formatPercent(home.performance.avgReturnPct7d)} avg return`,
+                  tone: home.performance.winRate7d >= 0.5 ? "accent" : "warning",
+                },
+                {
+                  label: "Provider latency",
+                  value: `${formatInteger(home.latency.providerAvgLatencyMsToday)} ms`,
+                  detail: `Hot endpoint ${formatInteger(home.latency.hotEndpointAvgLatencyMsToday)} ms`,
+                  tone: home.latency.providerAvgLatencyMsToday > 1500 ? "warning" : "default",
+                },
+                {
+                  label: "Exec latency",
+                  value: `${formatInteger(home.latency.avgExecutionLatencyMs24h)} ms`,
+                  detail: `P95 ${formatInteger(home.latency.p95ExecutionLatencyMs24h)} ms`,
+                  tone: home.latency.avgExecutionLatencyMs24h > 4000 ? "warning" : "default",
+                },
+              ]}
         />
       </CompactPageHeader>
 
@@ -156,11 +173,13 @@ export function DashboardClient(props: {
         </div>
       ) : null}
 
+      <DeskPnlWidget performance={home.performance} events={events} />
+
       <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
         <Panel
           title="Next actions"
           eyebrow="Ranked"
-          description="Stale loops, blockers, payload failures, and open-risk pressure."
+          description="Active issues and queue buckets requiring attention."
         >
           <InterventionStack items={buildInterventionItems(home, diagnostics).slice(0, 5)} />
         </Panel>
@@ -179,7 +198,6 @@ export function DashboardClient(props: {
               <DeskStateItem label="Adaptive" value={home.adaptiveModel.enabled ? home.adaptiveModel.packName ?? "Staged" : "Inactive"} detail={home.adaptiveModel.status.toUpperCase()} />
               <DeskStateItem label="Provider pace" value={`${formatInteger(home.providerPressure.projectedMonthlyUnits)} / ${formatInteger(home.providerPressure.monthlyBudgetUnits)}`} detail={home.providerPressure.paceStatus.toUpperCase()} />
             </div>
-
             <details className="group">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-[14px] border border-bg-border bg-bg-hover/35 px-4 py-3 text-sm font-medium text-text-primary">
                 <span>Loop timing and guardrails</span>
@@ -211,63 +229,53 @@ export function DashboardClient(props: {
         </Panel>
       </section>
 
-      <Panel
-        title="Diagnostics detail"
-        eyebrow="Collapsed by default"
-        description={diagnostics.providerRows.length === 0 && diagnostics.endpointRows.length === 0 ? "No provider or endpoint rows are active right now." : "Open only when you need backend evidence."}
-        tone={diagnostics.issues.length > 0 ? "warning" : "passive"}
-      >
-        <details className="group">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-[14px] border border-bg-border bg-bg-hover/35 px-4 py-3 text-sm font-medium text-text-primary">
-            <span>
-              {diagnostics.issues.length > 0
-                ? `${formatInteger(diagnostics.issues.length)} issue(s), ${formatInteger(diagnostics.providerRows.length)} provider row(s), ${formatInteger(diagnostics.endpointRows.length)} endpoint row(s)`
-                : "Quiet diagnostics"}
-            </span>
-            <span className="text-xs text-text-secondary group-open:hidden">Open</span>
-            <span className="hidden text-xs text-text-secondary group-open:inline">Close</span>
-          </summary>
-          <div className="mt-4 grid gap-4 xl:grid-cols-2">
-            <DataTable
-              title="Provider pressure"
-              eyebrow="Today"
-              description="Provider call and burn pressure from live diagnostics."
-              rows={diagnostics.providerRows}
-              maxRows={6}
-              preferredKeys={["provider", "total_calls", "total_units", "avg_latency_ms", "error_count"]}
-              emptyTitle="No provider rows"
-              emptyDetail="No provider summary rows are available."
-              panelTone={diagnostics.summary.providerErrors > 0 ? "warning" : "default"}
-            />
-            <DataTable
-              title="Endpoint faults"
-              eyebrow="Hot endpoints"
-              description="Most failure-prone endpoints right now."
-              rows={diagnostics.endpointRows}
-              maxRows={6}
-              preferredKeys={["provider", "endpoint", "total_calls", "total_units", "avg_latency_ms", "error_count", "last_called_at"]}
-              emptyTitle="No endpoint rows"
-              emptyDetail="No endpoint diagnostics rows are available."
-              panelTone={diagnostics.summary.latestPayloadFailures > 0 ? "warning" : "default"}
-            />
-          </div>
-        </details>
-      </Panel>
-
-      <section className="grid gap-4">
-        <Panel title="Recent events" eyebrow="Actions" description="Open only when you need the latest operator trail.">
-          <details className="group">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-[14px] border border-bg-border bg-bg-hover/35 px-4 py-3 text-sm font-medium text-text-primary">
-              <span>{events.length > 0 ? `${formatInteger(Math.min(events.length, 4))} recent event(s)` : "No recent events"}</span>
-              <span className="text-xs text-text-secondary group-open:hidden">Open</span>
-              <span className="hidden text-xs text-text-secondary group-open:inline">Close</span>
-            </summary>
-            <div className="mt-4">
-              <EventList events={events.slice(0, 4)} emptyText="No recent event." compact hydrated={hydrated} />
+      <details className="group rounded-[16px] border border-bg-border bg-bg-secondary px-4 py-3">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-medium text-text-primary">
+          <span>Diagnostics detail and recent events</span>
+          <span className="text-xs text-text-secondary group-open:hidden">
+            {diagnostics.issues.length > 0 || events.length > 0
+              ? `${diagnosticSummary} · ${formatInteger(Math.min(events.length, 4))} events`
+              : "Quiet"}
+          </span>
+          <span className="hidden text-xs text-text-secondary group-open:inline">Close</span>
+        </summary>
+        <div className="mt-4 space-y-4">
+          {(diagnostics.providerRows.length > 0 || diagnostics.endpointRows.length > 0) ? (
+            <div className="grid gap-4 xl:grid-cols-2">
+              {diagnostics.providerRows.length > 0 ? (
+                <DataTable
+                  title="Provider pressure"
+                  eyebrow="Today"
+                  description="Provider call and burn pressure from live diagnostics."
+                  rows={diagnostics.providerRows}
+                  maxRows={6}
+                  preferredKeys={["provider", "total_calls", "total_units", "avg_latency_ms", "error_count"]}
+                  emptyTitle="No provider rows"
+                  emptyDetail="No provider summary rows are available."
+                  panelTone={diagnostics.summary.providerErrors > 0 ? "warning" : "default"}
+                />
+              ) : null}
+              {diagnostics.endpointRows.length > 0 ? (
+                <DataTable
+                  title="Endpoint faults"
+                  eyebrow="Hot endpoints"
+                  description="Most failure-prone endpoints right now."
+                  rows={diagnostics.endpointRows}
+                  maxRows={6}
+                  preferredKeys={["provider", "endpoint", "total_calls", "total_units", "avg_latency_ms", "error_count", "last_called_at"]}
+                  emptyTitle="No endpoint rows"
+                  emptyDetail="No endpoint diagnostics rows are available."
+                  panelTone={diagnostics.summary.latestPayloadFailures > 0 ? "warning" : "default"}
+                />
+              ) : null}
             </div>
-          </details>
-        </Panel>
-      </section>
+          ) : (
+            <div className="rounded-[14px] border border-bg-border bg-bg-hover/35 px-4 py-3 text-sm text-text-secondary">No provider or endpoint diagnostics rows are active right now.</div>
+          )}
+
+          <EventList events={events.slice(0, 4)} emptyText="No recent event." compact hydrated={hydrated} />
+        </div>
+      </details>
     </div>
   );
 }

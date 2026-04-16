@@ -122,19 +122,15 @@ export default async function OperationalDeskTradingPage(props: { searchParams?:
                   pq: positionQuery,
                 }) as Route}
                 title={`Open ${item.label}`}
-                className={cn("min-w-[10rem] rounded-full border px-3 py-2.5 transition", (
+                className={cn(
+                  "inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm transition",
                   item.bucket === candidatePayload.bucket
-                    ? "border-[rgba(163,230,53,0.28)] bg-[#121511]"
-                    : "border-bg-border bg-bg-hover/35 hover:border-[rgba(255,255,255,0.12)] hover:bg-bg-hover/50"
-                ))}
+                    ? "border-[rgba(163,230,53,0.28)] bg-[#121511] text-text-primary"
+                    : "border-bg-border bg-bg-hover/35 text-text-secondary hover:border-[rgba(255,255,255,0.12)] hover:bg-bg-hover/50 hover:text-text-primary",
+                )}
               >
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="section-kicker">{item.label}</div>
-                    <div className="mt-1 text-xs text-text-secondary">{item.bucket === candidatePayload.bucket ? "Active bucket" : "Switch view"}</div>
-                  </div>
-                  <div className="text-lg font-semibold tracking-tight text-text-primary">{formatInteger(item.count)}</div>
-                </div>
+                <span>{item.label}</span>
+                <span className="rounded-full border border-bg-border bg-bg-primary/50 px-2 py-0.5 text-[11px] font-semibold text-text-primary">{formatInteger(item.count)}</span>
               </Link>
             ))}
           </div>
@@ -206,21 +202,15 @@ export default async function OperationalDeskTradingPage(props: { searchParams?:
         <div className="space-y-4">
           <div className="flex flex-wrap gap-2">
             <Link href={buildTradingHref({ bucket: candidateBucket, sort: candidateSort, q: candidateQuery, book: "open", psort: positionSort, pq: positionQuery }) as Route} title="Open active positions" className={cn("min-w-[10rem] rounded-full border px-3 py-2.5 transition", positionBook === "open" ? "border-[rgba(163,230,53,0.28)] bg-[#121511]" : "border-bg-border bg-bg-hover/35 hover:border-[rgba(255,255,255,0.12)] hover:bg-bg-hover/50")}>
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="section-kicker">Open book</div>
-                  <div className="mt-1 text-xs text-text-secondary">Active risk</div>
-                </div>
-                <div className="text-lg font-semibold tracking-tight text-text-primary">{formatInteger(positionPayload.totals.openCount)}</div>
+              <div className="flex items-center gap-2 text-sm">
+                <span>Open book</span>
+                <span className="rounded-full border border-bg-border bg-bg-primary/50 px-2 py-0.5 text-[11px] font-semibold text-text-primary">{formatInteger(positionPayload.totals.openCount)}</span>
               </div>
             </Link>
             <Link href={buildTradingHref({ bucket: candidateBucket, sort: candidateSort, q: candidateQuery, book: "closed", psort: positionSort, pq: positionQuery }) as Route} title="Open closed positions" className={cn("min-w-[10rem] rounded-full border px-3 py-2.5 transition", positionBook === "closed" ? "border-[rgba(163,230,53,0.28)] bg-[#121511]" : "border-bg-border bg-bg-hover/35 hover:border-[rgba(255,255,255,0.12)] hover:bg-bg-hover/50")}>
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="section-kicker">Closed book</div>
-                  <div className="mt-1 text-xs text-text-secondary">Resolved outcomes</div>
-                </div>
-                <div className="text-lg font-semibold tracking-tight text-text-primary">{formatInteger(positionPayload.totals.closedCount)}</div>
+              <div className="flex items-center gap-2 text-sm">
+                <span>Closed book</span>
+                <span className="rounded-full border border-bg-border bg-bg-primary/50 px-2 py-0.5 text-[11px] font-semibold text-text-primary">{formatInteger(positionPayload.totals.closedCount)}</span>
               </div>
             </Link>
           </div>

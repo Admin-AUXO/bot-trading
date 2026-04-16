@@ -1,22 +1,9 @@
----
-type: reference
-status: active
-area: decisions
-date: 2026-04-10
-source_files: []
-graph_checked:
-next_action:
----
-
 # Decisions
 
-Use this folder for durable choices that later sessions should not rediscover from scratch.
-
-- Record the problem, the decision, the reasoning, and the follow-up.
-- Link the matching reference notes and investigations.
-- Update the canonical reference note when the decision changes an external contract.
+Durable choices and rationale. Keep narrow: what was decided and why.
 
 ## Current
 
-- [2026-04-10 Grafana Dashboard Plan](2026-04-10-grafana-dashboard-plan.md)
+- [2026-04-16 Meme Coin Schema Evolution](2026-04-16-meme-coin-schema-evolution.md) - Unified TokenMetrics, removed TokenSnapshot, 60% column reduction
 - [2026-04-15 Session Bookends With Mini Agents](2026-04-15-session-bookends-with-mini-agents.md)
+- [2026-04-10 Grafana Dashboard Plan](2026-04-10-grafana-dashboard-plan.md)

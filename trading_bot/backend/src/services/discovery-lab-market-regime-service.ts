@@ -1,4 +1,5 @@
 import { logger } from "../utils/logger.js";
+import { asRecord, asArray, asBoolean, asNumber, asString } from "../utils/types.js";
 import type {
   DiscoveryLabRunDetail,
   DiscoveryLabThresholdOverrides,
@@ -797,27 +798,4 @@ function normalizeAddress(value: string | null): string | null {
   if (!value) return null;
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : null;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
-}
-
-function asArray(value: unknown): unknown[] {
-  return Array.isArray(value) ? value : [];
-}
-
-function asString(value: unknown): string | null {
-  return typeof value === "string" && value.trim().length > 0 ? value : null;
-}
-
-function asNumber(value: unknown): number | null {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function asBoolean(value: unknown): boolean | null {
-  return typeof value === "boolean" ? value : null;
 }

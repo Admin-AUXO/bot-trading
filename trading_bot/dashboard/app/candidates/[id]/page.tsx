@@ -3,6 +3,7 @@ import Link from "next/link";
 import type { Route } from "next";
 import { CopyButton } from "@/components/copy-button";
 import { DataTable, PageHero, Panel, StatusPill } from "@/components/dashboard-primitives";
+import { CandidateDetailActions } from "@/components/candidate-detail-actions";
 import { serverFetch } from "@/lib/api";
 import { operationalDeskRoutes } from "@/lib/dashboard-routes";
 import { formatCompactCurrency, formatNumber, formatPercent, formatTimestamp, humanizeKey, smartFormatValue } from "@/lib/format";
@@ -48,6 +49,10 @@ export default async function CandidateDetailPage(props: {
               Back to trading
             </Link>
             <CopyButton value={detail.summary.mint} label="Copy mint" />
+            <CandidateDetailActions
+              candidateId={detail.summary.id}
+              mint={detail.summary.mint}
+            />
             {grafanaHref ? (
               <a
                 href={grafanaHref}

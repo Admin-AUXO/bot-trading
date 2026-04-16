@@ -186,8 +186,10 @@ model Candidate {
   @@index([strategyPresetId, status, scheduledEvaluationAt])
   @@index([discoveryLabRunId, discoveredAt])
   @@index([discoveredAt])
+  @@index([creator])
+  @@index([platformId])
+  @@index([mint, strategyPresetId, status])
 }
-
 
 
 
@@ -303,6 +305,24 @@ model Fill {
 
 
 
+
+model ResearchFill {
+  id            String   @id @default(cuid())
+  mint         String
+  symbol       String  @default("")
+  side         FillSide
+  priceUsd    Decimal @db.Decimal(18, 9)
+  amountUsd   Decimal @db.Decimal(18, 9)
+  amountToken Decimal @db.Decimal(24, 9)
+  txSignature String?
+  slippageBps Int?
+  mintSource   String?
+  score       Decimal?  @db.Decimal(8, 6)
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([mint])
+}
 
 model DiscoveryLabPack {
   id             String               @id
@@ -522,6 +542,19 @@ model OperatorEvent {
   @@index([createdAt])
   @@index([kind, createdAt])
   @@index([entityType, entityId, createdAt])
+}
+
+model ExitEvent {
+  id          String   @id @default(cuid())
+  positionId  String
+  reason      String
+  profile     String?
+  priceUsd   Decimal  @db.Decimal(18, 9)
+  pnlUsd     Decimal? @db.Decimal(18, 9)
+  createdAt  DateTime @default(now())
+
+  @@index([positionId])
+  @@index([createdAt])
 }
 
 model ApiEvent {

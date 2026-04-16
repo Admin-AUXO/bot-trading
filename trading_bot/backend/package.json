@@ -13,8 +13,10 @@
     "lab:telegram-alert": "tsx scripts/discovery-lab-telegram-alert.ts",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
+    "db:push:dangerous": "prisma db push --accept-data-loss",
     "db:views": "prisma db execute --file prisma/views/create_views.sql",
-    "db:setup": "npm run db:push && npm run db:views"
+    "db:setup": "npm run db:push && npm run db:views",
+    "db:setup:dangerous": "npm run db:push:dangerous && npm run db:views"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.7.0",

@@ -22,6 +22,7 @@ import { ExecutionEngine } from "./execution-engine.js";
 import { ExitEngine } from "./exit-engine.js";
 import { GraduationEngine } from "./graduation-engine.js";
 import { createApiServer } from "../api/server.js";
+import { BOT_STATE_ID } from "./constants.js";
 
 const QUEUED_CANDIDATE_STATUSES = ["DISCOVERED", "SKIPPED", "ERROR"] as const;
 const LIVE_STARTUP_PAUSE_REASON = "live mode is paused on startup; resume from the dashboard to begin trading";
@@ -69,8 +70,14 @@ export class BotRuntime {
     await this.risk.ensureState();
     await this.discoveryLab.ensure();
     await this.migrationWatcher.start();
+
     const startupSettings = await this.config.getSettings();
     const startupState = await this.armLiveStartupPause(startupSettings.tradeMode);
+
+    // Reconcile any phantom fills from previous crashed sessions before live trading begins
+    if (startupSettings.tradeMode === "LIVE") {
+      await this.safeRun("phantom fill reconciliation", async () => { await this.execution.reconcilePhantomFills(); });
+    }
     const app = createApiServer({
       getSnapshot: () => this.getSnapshot(),
       getDeskShell: () => this.desk.getShell(),
@@ -237,7 +244,7 @@ export class BotRuntime {
     }
 
     const next = await db.botState.update({
-      where: { id: "singleton" },
+      where: { id: BOT_STATE_ID },
       data: { pauseReason: LIVE_STARTUP_PAUSE_REASON },
     });
     await recordOperatorEvent({
@@ -294,11 +301,36 @@ export class BotRuntime {
     assign: (handle: NodeJS.Timeout) => void,
   ): Promise<void> {
     if (this.stopped) return;
-    const delayMs = await getDelayMs();
+    let delayMs: number;
+    try {
+      delayMs = await getDelayMs();
+    } catch (err) {
+      logger.error({ err, label }, "scheduleLoop getDelayMs failed; using 30s fallback");
+      delayMs = 30_000;
+      await this.alertConsecutiveFailure(label);
+    }
     assign(setTimeout(async () => {
       await this.safeRun(label, fn);
       await this.scheduleLoop(label, getDelayMs, fn, assign);
     }, delayMs));
+  }
+
+  private consecutiveFailures = new Map<string, number>();
+  private readonly CONSECUTIVE_FAILURE_ALERT_THRESHOLD = 3;
+
+  private async alertConsecutiveFailure(label: string): Promise<void> {
+    const count = (this.consecutiveFailures.get(label) ?? 0) + 1;
+    this.consecutiveFailures.set(label, count);
+    if (count >= this.CONSECUTIVE_FAILURE_ALERT_THRESHOLD) {
+      await recordOperatorEvent({
+        kind: "runtime_failure",
+        level: "danger",
+        title: `Runtime loop degraded: ${label}`,
+        detail: `${label} has failed to retrieve its schedule delay ${count} consecutive times. Check DB connectivity and configuration.`,
+        metadata: { label, consecutiveFailures: count },
+      });
+      this.consecutiveFailures.set(label, 0); // reset after alerting
+    }
   }
 
   private async runMaintenance(): Promise<void> {
@@ -460,7 +492,7 @@ export class BotRuntime {
 
   private async pause(reason?: string): Promise<void> {
     await db.botState.update({
-      where: { id: "singleton" },
+      where: { id: BOT_STATE_ID },
       data: {
         pauseReason: reason?.trim() || "manual pause",
       },
@@ -476,7 +508,7 @@ export class BotRuntime {
   private async resume(): Promise<void> {
     const settings = await this.config.getSettings();
     await db.botState.update({
-      where: { id: "singleton" },
+      where: { id: BOT_STATE_ID },
       data: {
         pauseReason: null,
       },

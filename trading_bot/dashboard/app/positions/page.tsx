@@ -1,13 +1,14 @@
 import { redirect } from "next/navigation";
 import { operationalDeskRoutes } from "@/lib/dashboard-routes";
+import { firstParam } from "@/src/lib/use-trading-search-params";
+
+export const dynamic = "force-dynamic";
 
 type SearchParamsInput = Promise<{
   book?: string | string[] | undefined;
   sort?: string | string[] | undefined;
   q?: string | string[] | undefined;
 }>;
-
-export const dynamic = "force-dynamic";
 
 export default async function PositionsPage(props: { searchParams?: SearchParamsInput }) {
   const searchParams = props.searchParams ? await props.searchParams : {};
@@ -23,8 +24,4 @@ export default async function PositionsPage(props: { searchParams?: SearchParams
     params.set("pq", q.trim());
   }
   redirect(`${operationalDeskRoutes.trading}?${params.toString()}`);
-}
-
-function firstParam(value: string | string[] | undefined) {
-  return Array.isArray(value) ? value[0] : value;
 }

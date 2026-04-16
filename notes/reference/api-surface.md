@@ -74,11 +74,13 @@ Transport model:
 ## Write Routes
 
 - `POST /api/settings`: accepts `Partial<BotSettings>`, merges against current settings, then validates the full result
+- `PATCH /api/settings`: same merge-and-validate behavior as POST; exists for semantic correctness (partial update vs. full replace)
 - `POST /api/control/pause`
 - `POST /api/control/resume`
 - `POST /api/control/discover-now`
 - `POST /api/control/evaluate-now`
-- `POST /api/control/exit-check-now`
+- `PATCH /api/control/positions/:id`: update position params (e.g., stop loss override)
+- `DELETE /api/control/positions/:id`: close position
 - `POST /api/operator/discovery-lab/validate`: validates an inline discovery-lab draft and returns `{ ok, issues, pack }`
 - `POST /api/operator/discovery-lab/packs/save`: saves or updates a custom local discovery-lab pack
 - `POST /api/operator/discovery-lab/packs/delete`: deletes a custom local discovery-lab pack by `packId`
@@ -126,8 +128,13 @@ Dashboard navigation conventions:
 
 ## Auth Boundary
 
-- Control, settings, and discovery-lab routes are currently unauthenticated at the app layer.
-- The dashboard proxy forwards reads and writes without injecting any control-secret header.
+- All `/api/control/*` and `/api/operator/*` routes require authentication.
+- Auth methods (checked in order):
+  1. `Authorization: Bearer <CONTROL_API_SECRET>` header
+  2. `X-API-Key: <CONTROL_API_SECRET>` header
+- Public routes (no auth): `GET /health`, `GET /api/status`, `GET /api/settings`
+- Dashboard proxy forwards `Authorization` and `X-API-Key` headers from browser requests to the backend.
+- Payload size limit: `1mb` JSON body maximum.
 
 ## SQL View Allowlist
 

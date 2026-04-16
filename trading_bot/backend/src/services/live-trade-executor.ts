@@ -181,7 +181,7 @@ export function getLiveTradingReadiness(): { ready: boolean; reason?: string } {
   try {
     parseSecretKey(env.TRADING_WALLET_PRIVATE_KEY_B58);
   } catch {
-    return { ready: false, reason: "TRADING_WALLET_PRIVATE_KEY_B58 is not valid base58 or JSON key material" };
+    return { ready: false, reason: "Trading wallet is misconfigured: invalid private key" };
   }
 
   if (!isStableQuoteMint(env.LIVE_QUOTE_MINT)) {
@@ -196,9 +196,16 @@ export function getLiveTradingReadiness(): { ready: boolean; reason?: string } {
 
 export class LiveTradeExecutor {
   private readonly connection = new Connection(env.HELIUS_RPC_URL, "confirmed");
-  private readonly wallet = env.TRADING_WALLET_PRIVATE_KEY_B58
-    ? Keypair.fromSecretKey(parseSecretKey(env.TRADING_WALLET_PRIVATE_KEY_B58))
-    : null;
+  private readonly wallet: Keypair | null = (() => {
+    if (!env.TRADING_WALLET_PRIVATE_KEY_B58) return null;
+    try {
+      return Keypair.fromSecretKey(parseSecretKey(env.TRADING_WALLET_PRIVATE_KEY_B58));
+    } catch {
+      // Crash-resistant: an invalid key at boot is caught here rather than propagating.
+      // getLiveTradingReadiness() will surface the problem to the operator.
+      return null;
+    }
+  })();
 
   isConfigured(): boolean {
     return getLiveTradingReadiness().ready;
