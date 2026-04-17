@@ -19,16 +19,20 @@ next_action: If compose refresh needs finer-grained waiting or log capture later
 - The repo had the raw commands for compose refresh, but no single supported helper for the common sync-build-recreate path.
 - The repeated failure mode in recent compose work was stale container env after `backend/.env` changed, so the helper needed env sync and force recreation by default.
 - The safest default refresh scope is the core app chain: `db-setup`, `bot`, and `dashboard`.
+- The first smart-rebuild pass was too narrow for the dashboard. It watched `dashboard/src` and `dashboard/app`, which missed real repo changes under `dashboard/components` and let stale UI containers survive a refresh.
 
 ## What Changed
 
 - Added `trading_bot/scripts/update-compose-stack.sh` to sync compose env files, validate compose config, rebuild buildable services, and recreate the requested containers.
+- Expanded the helper’s smart-rebuild watch set so dashboard rebuild detection now covers `app/`, `components/`, `lib/`, `public/`, `scripts/`, and package/config files, while backend rebuild detection now also includes `backend/scripts/` and `package-lock.json`.
+- Made the helper rebuild requested services when the `.docker-mtime` marker does not exist yet, instead of silently treating the first run like “no changes”.
 - Added the repo-local skill `.agents/skills/compose-stack-refresh/SKILL.md` so future agents use the helper instead of retyping the flow.
 - Updated `notes/reference/bootstrap-and-docker.md` and `README.md` to point to the helper as the supported fast refresh path.
 
 ## What I Verified
 
 - `cd trading_bot && ./scripts/update-compose-stack.sh`
+- `cd trading_bot && ./scripts/update-compose-stack.sh --service dashboard`
 - `cd trading_bot && docker compose ps bot dashboard`
 - `curl -sf http://127.0.0.1:3101/health`
 - `curl -I -sf http://127.0.0.1:3100`

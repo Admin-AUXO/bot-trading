@@ -155,6 +155,7 @@ Compose contract:
 - `node ./scripts/sync-compose-env.mjs` is the supported way to derive those service env files from `backend/.env`
 - after changing `backend/.env` or regenerating the compose env files, recreate `bot` and `dashboard` so stale container env does not keep serving placeholder secrets
 - `./scripts/update-compose-stack.sh` is the supported refresh path when you want that sync, build, and recreate flow in one command
+- the helper now watches the real dashboard build inputs (`app/`, `components/`, `lib/`, `public/`, `scripts/`, and package/config files) plus backend `scripts/`, not just `src/`, so UI-only changes do not get skipped as false `no src changes`
 - First login to Grafana with the default admin credentials will prompt for a password change. If you are only smoke-testing the local stack, you can skip that prompt and still reach the provisioned dashboards.
 
 ## Run Mode C: Obsidian Notes Sidecar

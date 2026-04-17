@@ -225,7 +225,7 @@ export const WORKSPACE_DISCOVERY_LAB_PACK_SEEDS: WorkspacePackSeed[] = [  // ─
   // ─────────────────────────────────────────────────────────────────────────────
   {
     id: "workspace-trend-scout",
-    name: "Workspace - Trend Scout",
+    name: "Scalp 30-60% · Trend Scout",
     description: "Fast-moving graduated tokens sorted by trade recency. Built for tokens showing directional momentum on the graduated side.",
     thesis: "Use when you want to follow the tape: graduated names with current five-minute and one-hour momentum in the 30-60% scalp band.",
     targetPnlBand: { label: "30-60% momentum scalp", minPercent: 30, maxPercent: 60 },
@@ -292,7 +292,7 @@ export const WORKSPACE_DISCOVERY_LAB_PACK_SEEDS: WorkspacePackSeed[] = [  // ─
   // ─────────────────────────────────────────────────────────────────────────────
   {
     id: "workspace-pump-holder",
-    name: "Workspace - Pump Holder",
+    name: "Scalp 30-60% · Pump Holder",
     description: "Wallet-breadth and volume-intensity focused pack. Sorts by unique holder count and one-minute volume to catch early pump dynamics.",
     thesis: "Use when you want early pump dynamics: strong holder distribution and one-minute volume signals in the 30-60% scalp band.",
     targetPnlBand: { label: "30-60% holder pump scalp", minPercent: 30, maxPercent: 60 },
@@ -359,7 +359,7 @@ export const WORKSPACE_DISCOVERY_LAB_PACK_SEEDS: WorkspacePackSeed[] = [  // ─
   // ─────────────────────────────────────────────────────────────────────────────
   {
     id: "workspace-quality-guard",
-    name: "Workspace - Quality Guard",
+    name: "Scalp 30-60% · Quality Guard",
     description: "Higher-bar discovery for tokens that have proven sustainable five-minute and one-hour trade participation.",
     thesis: "Use when you want quality: higher-liquidity, broader-market-cap names that are still printing one-hour momentum in the 30-60% scalp band.",
     targetPnlBand: { label: "30-60% quality scalp", minPercent: 30, maxPercent: 60 },

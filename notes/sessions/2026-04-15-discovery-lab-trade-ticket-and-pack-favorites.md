@@ -15,7 +15,7 @@ source_files:
   - notes/reference/api-surface.md
   - notes/reference/strategy.md
 graph_checked: 2026-04-15
-next_action: Browser-verify the new full-screen trade ticket and the revised token review layout against a real completed run so sizing defaults, sticky summary rail behavior, and favorite-pack shortcuts are checked outside build-only validation.
+next_action: Browser-verify the slimmer pack-test workflow against a real completed run so the new quick-run cards, trade-ready shortlist, and reduced action bar are checked outside build-only validation.
 ---
 
 # Session - Discovery Lab Trade Ticket And Pack Favorites
@@ -32,6 +32,8 @@ next_action: Browser-verify the new full-screen trade ticket and the revised tok
 - A dedicated recent-graduate 2x lane needs its own created pack. Folding that requirement into `fresh-burst` would blur the difference between broad early continuation recall and selective 2x-first hunting.
 - The graduated 2x hunt now also needs market-cap category ownership. Under-5k and 5k-10k tokens should not share one threshold shell with 25k-plus names when the upside and risk profile are structurally different.
 - Recent-run evidence now favors early-graduated scalp packs over the broader high-value category packs. The latest run summary showed winners for `scalp-tape-structure`, while the recent inline category-pack tests returned zero winners.
+- The results-route `Run` action was still using the current draft editor state instead of the selected completed run snapshot. That let an unrelated invalid draft surface `draft pack is invalid` on `/discovery-lab/results` even while a completed run was open.
+- The strategy-lab client had drifted into too many always-visible controls. Running, reopening, live staging, logs, and trade handoff were all competing in one tall results stack, while the builder action bar exposed every pack mutation all the time.
 
 ## What Changed
 
@@ -70,6 +72,13 @@ next_action: Browser-verify the new full-screen trade ticket and the revised tok
 - Added `npm run lab:pack-bench` (`scripts/discovery-lab-pack-bench.ts`) to run the five created early scalp packs in one pass and print a compact winners/rejects summary for fast threshold iteration.
 - Birdeye CU accounting was corrected for `/defi/token_overview` (30 CU) and mapped to the evaluation lane budget, and token insight responses now use a short in-memory cache to avoid repeat provider spends from repeated panel opens.
 - `discovery-lab-client.tsx` now supports favorite packs with local storage, a favorites group in the library selector, a quick favorite toggle, and favorite chips for faster pack switching.
+- `discovery-lab-client.tsx` now re-runs the selected completed run snapshot from the results route instead of reusing the current working draft, and opening a run clears stale draft-error banners before the results surface renders.
+- `discovery-lab-client.tsx` now favors a slimmer operator loop:
+  - studio keeps `Save package` and `Run` as the primary always-visible actions, while `New`, `Clone`, `Delete`, and `Validate` move under a quieter `More tools` disclosure
+  - results now use one `Pack test workflow` panel that combines pack-under-test context, current review target, live run progress, and recent-run reopen cards instead of separate run center and side-rail surfaces
+  - saved packs now run by `packId` when the draft is unchanged, so the common test path is lighter than re-posting the full draft body each time
+- `discovery-lab-results-board.tsx` now surfaces a compact `Trade-ready now` shortlist above the token board so the best manual-entry candidates are visible before the operator starts drilling through the table.
+- Discovery-lab copy was shortened across the header, run workflow, outputs, and results board so the surface reads as an operator tool instead of a guided explainer.
 
 ## What I Verified
 
@@ -77,8 +86,10 @@ next_action: Browser-verify the new full-screen trade ticket and the revised tok
 - `cd trading_bot/backend && npm run build`
 - `curl http://localhost:3101/api/operator/discovery-lab/token-insight?mint=...` after the compose refresh, including the sample Axiom mint plus a known token with live socials
 - `cd trading_bot/backend && npm run lab:pack-bench -- --sources pump_dot_fun --cache-ttl-seconds 0 --query-concurrency 2 --deep-concurrency 3`
+- `cd trading_bot/dashboard && npm run build` after wiring the results-route rerun path to the selected run snapshot
+- `cd trading_bot/dashboard && npm run build` after collapsing the results workflow into the new pack-test panel and trade-ready shortlist
 
 ## Remaining Risks
 
 - The new workspace packs are seeded at backend-service startup, so a running backend needs a restart before the packs appear in the live catalog.
-- The trade-ticket defaults and full-review modal are build-verified, but the live operator feel still needs a browser pass against a completed run and a live token insight response.
+- The trade-ticket defaults, shortlist, and revised results workflow are build-verified, but the live operator feel still needs a browser pass against a completed run and a live token insight response.

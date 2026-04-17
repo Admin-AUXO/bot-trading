@@ -282,7 +282,20 @@ export class DiscoveryLabService {
     issues: DiscoveryLabValidationIssue[];
     pack: DiscoveryLabPackDraft;
   }> {
-    const parsed = draftSchema.parse(withAutoPackName(input));
+    let parsed: DiscoveryLabPackDraft;
+    try {
+      parsed = draftSchema.parse(withAutoPackName(input));
+    } catch (err) {
+      return {
+        ok: false,
+        issues: [{
+          path: "draft",
+          message: err instanceof Error ? err.message : "Invalid draft structure",
+          level: "error",
+        }],
+        pack: input,
+      };
+    }
     const issues: DiscoveryLabValidationIssue[] = [];
     const recipeNames = new Set<string>();
 

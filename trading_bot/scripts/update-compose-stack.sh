@@ -105,28 +105,46 @@ if [[ ${skip_build} -eq 1 ]]; then
 elif [[ ${#services[@]} -gt 0 ]]; then
   needs_rebuild=()
   touch_marker="${repo_root}/.docker-mtime"
+  marker_exists=0
+  [[ -f "${touch_marker}" ]] && marker_exists=1
 
   for service in "${services[@]}"; do
     case "${service}" in
       dashboard)
-        if find "${repo_root}/dashboard/src" "${repo_root}/dashboard/app" \
+        if [[ ${marker_exists} -eq 0 ]]; then
+          needs_rebuild+=("${service}")
+        elif find \
+               "${repo_root}/dashboard/app" \
+               "${repo_root}/dashboard/components" \
+               "${repo_root}/dashboard/lib" \
+               "${repo_root}/dashboard/public" \
+               "${repo_root}/dashboard/scripts" \
+               "${repo_root}/dashboard/package.json" \
+               "${repo_root}/dashboard/package-lock.json" \
+               "${repo_root}/dashboard/tsconfig.json" \
+               "${repo_root}/dashboard/postcss.config.mjs" \
                -type f -newer "${touch_marker}" 2>/dev/null | grep -q .; then
           needs_rebuild+=("${service}")
         else
-          echo "[compose-refresh] ${service}: no src changes, skipping rebuild"
+          echo "[compose-refresh] ${service}: no dashboard build-input changes, skipping rebuild"
         fi
         ;;
       bot)
-        if find "${repo_root}/backend/src" "${repo_root}/backend/prisma" \
+        if [[ ${marker_exists} -eq 0 ]]; then
+          needs_rebuild+=("${service}")
+        elif find "${repo_root}/backend/src" "${repo_root}/backend/prisma" "${repo_root}/backend/scripts" \
                "${repo_root}/backend/package.json" \
+               "${repo_root}/backend/package-lock.json" \
                -type f -newer "${touch_marker}" 2>/dev/null | grep -q .; then
           needs_rebuild+=("${service}")
         else
-          echo "[compose-refresh] ${service}: no src changes, skipping rebuild"
+          echo "[compose-refresh] ${service}: no backend build-input changes, skipping rebuild"
         fi
         ;;
       db-setup)
-        if find "${repo_root}/backend/prisma" \
+        if [[ ${marker_exists} -eq 0 ]]; then
+          needs_rebuild+=("${service}")
+        elif find "${repo_root}/backend/prisma" \
                -type f -newer "${touch_marker}" 2>/dev/null | grep -q .; then
           needs_rebuild+=("${service}")
         else
