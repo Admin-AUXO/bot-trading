@@ -99,7 +99,7 @@ For repeat refreshes after code or env changes:
 
 ```bash
 cd trading_bot
-./scripts/update-compose-stack.sh
+node ./scripts/update-compose-stack.mjs
 ```
 
 Important:

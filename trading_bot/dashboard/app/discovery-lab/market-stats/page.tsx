@@ -1,5 +1,5 @@
 import { DiscoveryLabMarketStatsClient } from "@/components/discovery-lab-market-stats-client";
-import { serverFetch } from "@/lib/api";
+import { serverFetch } from "@/lib/server-api";
 import type { DiscoveryLabMarketStatsPayload } from "@/lib/types";
 
 export const dynamic = "force-dynamic";

@@ -1,5 +1,5 @@
 import { SettingsClient } from "@/components/settings-client";
-import { serverFetch } from "@/lib/api";
+import { serverFetch } from "@/lib/server-api";
 import { operationalDeskRoutes } from "@/lib/dashboard-routes";
 import { buildGrafanaDashboardLink } from "@/lib/grafana";
 import type { BotSettings } from "@/lib/types";
@@ -14,20 +14,20 @@ export default async function DiscoveryLabConfigPage() {
     <SettingsClient
       initial={settings}
       grafanaHref={grafanaHref}
-      sectionIds={["strategy", "entry", "exit", "advanced"]}
+      sectionIds={["strategy", "entry", "exit"]}
       header={{
         eyebrow: "Discovery lab",
-        title: "Discovery config",
-        description: "Compact direct-edit surface for short sessions, fresh grads, and discovery-owned live guardrails.",
+        title: "Live handoff config",
+        description: "Only the discovery-owned live knobs. Pack editing stays in studio.",
       }}
       contextLink={{
-        href: operationalDeskRoutes.settings,
-        label: "Operational settings",
+        href: "/discovery-lab/studio",
+        label: "Back to studio",
       }}
       strategyLinkHref="/discovery-lab/results"
-      saveBarLabel="Apply discovery-owned settings directly."
+      saveBarLabel="Apply live handoff settings directly."
       emptySectionTitle="No discovery settings in this view"
-      emptySectionDetail="This surface only carries the discovery-owned config groups."
+      emptySectionDetail="Studio owns pack editing. This page only carries live handoff settings."
       editorMode="hot-discovery"
     />
   );

@@ -29,6 +29,7 @@ import type {
   QueryOutcome,
   RankedToken,
   ResolvedPlan,
+  Scalar,
 } from "./types.js";
 
 export async function runDiscoveryLabCli() {
@@ -130,6 +131,7 @@ export async function runDiscoveryLabCli() {
         selectedCount: 0,
         queryCu: 0,
         durationMs: 0,
+        attemptCount: 0,
         status: "skipped",
         skipReason: `filter ceiling exceeded (${plan.filterCount} > 5)`,
         selectedTokens: [],
@@ -139,8 +141,18 @@ export async function runDiscoveryLabCli() {
 
     const startedAt = Date.now();
     try {
-      const response = await getMemeList(plan.params);
-      const ranked = response.items
+      const attempts = buildQueryAttempts(plan);
+      let response: Awaited<ReturnType<typeof getMemeList>> = { items: [], hasNext: false };
+      let attemptCount = 0;
+      for (const params of attempts) {
+        attemptCount += 1;
+        response = await getMemeList(params);
+        if (response.items.length > 0 || attemptCount >= attempts.length) {
+          break;
+        }
+      }
+      const locallyQualified = response.items.filter((token) => passesLocalSelectionGate(token, thresholds, plan, nowUnix));
+      const ranked = locallyQualified
         .map((token) => ({
           token,
           preScore: preScoreToken(token, plan.recipe, nowUnix),
@@ -152,8 +164,9 @@ export async function runDiscoveryLabCli() {
         plan,
         returnedCount: response.items.length,
         selectedCount: selected.length,
-        queryCu: 100,
+        queryCu: attemptCount * 100,
         durationMs: Date.now() - startedAt,
+        attemptCount,
         status: "ok",
         selectedTokens: selected,
         topReturned: ranked.slice(0, 10).map((item) => ({
@@ -173,6 +186,7 @@ export async function runDiscoveryLabCli() {
         selectedCount: 0,
         queryCu: 100,
         durationMs: Date.now() - startedAt,
+        attemptCount: 1,
         status: "error",
         errorMessage: error instanceof Error ? error.message : String(error),
         selectedTokens: [],
@@ -386,4 +400,96 @@ export async function runDiscoveryLabCli() {
     await fs.writeFile(outCsvPath, renderWinnerCsv(winnerSummaries));
     console.log(`Wrote winners CSV to ${outCsvPath}`);
   }
+}
+
+function passesLocalSelectionGate(
+  token: Awaited<ReturnType<typeof getMemeList>>["items"][number],
+  thresholds: ReturnType<typeof buildThresholds>,
+  plan: ResolvedPlan,
+  nowUnix: number,
+) {
+  const liquidityUsd = token.liquidityUsd ?? 0;
+  const volume5mUsd = token.volume5mUsd ?? 0;
+  const holders = token.holders ?? 0;
+  const graduatedAt = token.graduatedAt ?? token.lastTradeAt ?? null;
+  const ageSeconds = graduatedAt ? Math.max(0, nowUnix - graduatedAt) : 0;
+
+  if (liquidityUsd > 0 && liquidityUsd < Math.max(2_000, thresholds.minLiquidityUsd * 0.25)) {
+    return false;
+  }
+  if (volume5mUsd > 0 && volume5mUsd < Math.max(800, thresholds.minVolume5mUsd * 0.35)) {
+    return false;
+  }
+  if (holders > 0 && holders < Math.max(20, Math.floor(thresholds.minHolders * 0.5))) {
+    return false;
+  }
+  if (plan.recipe.mode === "graduated" && ageSeconds > Math.max(thresholds.maxGraduationAgeSeconds * 1.5, 1_200)) {
+    return false;
+  }
+  return true;
+}
+
+function buildQueryAttempts(plan: ResolvedPlan): Array<Record<string, Scalar>> {
+  const attempts: Array<Record<string, Scalar>> = [{ ...plan.params }];
+  if (plan.recipe.mode === "graduated") {
+    const minTrade1mCount = numericParam(plan.params.min_trade_1m_count);
+    const minTrade5mCount = numericParam(plan.params.min_trade_5m_count);
+    const minLastTradeUnixTime = numericParam(plan.params.min_last_trade_unix_time);
+    const minGraduatedTime = numericParam(plan.params.min_graduated_time);
+
+    attempts.push(cleanParams({
+      ...plan.params,
+      sort_by: "trade_1m_count",
+      min_trade_1m_count: minTrade1mCount !== null ? Math.max(8, Math.floor(minTrade1mCount * 0.75)) : 8,
+      min_trade_5m_count: minTrade5mCount !== null ? Math.max(18, Math.floor(minTrade5mCount * 0.7)) : undefined,
+      min_last_trade_unix_time: minLastTradeUnixTime !== null ? minLastTradeUnixTime - 120 : undefined,
+      min_graduated_time: minGraduatedTime !== null ? minGraduatedTime - 300 : undefined,
+      limit: 100,
+    }));
+
+    attempts.push(cleanParams({
+      ...plan.params,
+      sort_by: "trade_1m_count",
+      min_trade_1m_count: minTrade1mCount !== null ? Math.max(6, Math.floor(minTrade1mCount * 0.5)) : 6,
+      min_trade_5m_count: undefined,
+      min_last_trade_unix_time: minLastTradeUnixTime !== null ? minLastTradeUnixTime - 240 : undefined,
+      min_graduated_time: minGraduatedTime !== null ? minGraduatedTime - 900 : undefined,
+      limit: 100,
+    }));
+  } else {
+    const minProgressPercent = numericParam(plan.params.min_progress_percent);
+    const minTrade1mCount = numericParam(plan.params.min_trade_1m_count);
+    const minLastTradeUnixTime = numericParam(plan.params.min_last_trade_unix_time);
+    attempts.push(cleanParams({
+      ...plan.params,
+      min_progress_percent: minProgressPercent !== null ? Math.max(96, minProgressPercent - 1.5) : 97,
+      min_trade_1m_count: minTrade1mCount !== null ? Math.max(8, Math.floor(minTrade1mCount * 0.7)) : 8,
+      min_last_trade_unix_time: minLastTradeUnixTime !== null ? minLastTradeUnixTime - 180 : undefined,
+      limit: 100,
+    }));
+  }
+
+  return dedupeAttempts(attempts);
+}
+
+function cleanParams(params: Record<string, string | number | boolean | undefined>) {
+  return Object.fromEntries(
+    Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== ""),
+  ) as Record<string, Scalar>;
+}
+
+function numericParam(value: Scalar | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function dedupeAttempts(attempts: Array<Record<string, Scalar>>) {
+  const seen = new Set<string>();
+  const unique: Array<Record<string, Scalar>> = [];
+  for (const attempt of attempts) {
+    const key = JSON.stringify(Object.entries(attempt).sort(([left], [right]) => left.localeCompare(right)));
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(attempt);
+  }
+  return unique;
 }

@@ -88,6 +88,7 @@ export type QueryOutcome = {
   selectedCount: number;
   queryCu: number;
   durationMs: number;
+  attemptCount: number;
   status: "ok" | "skipped" | "error";
   skipReason?: string;
   errorMessage?: string;

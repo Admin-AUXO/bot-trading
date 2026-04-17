@@ -98,10 +98,18 @@ N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
 N8N_RUNNERS_ENABLED=${env.N8N_RUNNERS_ENABLED || "true"}
 `;
 
-fs.writeFileSync(dashboardEnvPath, dashboardEnv, "utf8");
-fs.writeFileSync(grafanaEnvPath, grafanaEnv, "utf8");
-fs.writeFileSync(n8nEnvPath, n8nEnv, "utf8");
+function writeIfChanged(targetPath, nextContent) {
+  const normalized = nextContent.trimStart();
+  const current = fs.existsSync(targetPath) ? fs.readFileSync(targetPath, "utf8").replace(/\r/g, "") : null;
+  if (current === normalized) {
+    console.log(`[compose-env] Unchanged ${targetPath}`);
+    return false;
+  }
+  fs.writeFileSync(targetPath, normalized, "utf8");
+  console.log(`[compose-env] Wrote ${targetPath}`);
+  return true;
+}
 
-console.log(`[compose-env] Wrote ${dashboardEnvPath}`);
-console.log(`[compose-env] Wrote ${grafanaEnvPath}`);
-console.log(`[compose-env] Wrote ${n8nEnvPath}`);
+writeIfChanged(dashboardEnvPath, dashboardEnv);
+writeIfChanged(grafanaEnvPath, grafanaEnv);
+writeIfChanged(n8nEnvPath, n8nEnv);

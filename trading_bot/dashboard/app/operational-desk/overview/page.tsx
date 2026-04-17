@@ -1,5 +1,5 @@
 import { DashboardClient } from "@/components/dashboard-client";
-import { serverFetch } from "@/lib/api";
+import { serverFetch } from "@/lib/server-api";
 import { buildGrafanaDashboardLink } from "@/lib/grafana";
 import type { DeskHomePayload, OperatorEvent } from "@/lib/types";
 

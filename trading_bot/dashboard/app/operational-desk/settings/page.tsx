@@ -1,5 +1,5 @@
 import { SettingsClient } from "@/components/settings-client";
-import { serverFetch } from "@/lib/api";
+import { serverFetch } from "@/lib/server-api";
 import { discoveryLabRoutes } from "@/lib/dashboard-routes";
 import { buildGrafanaDashboardLink } from "@/lib/grafana";
 import type { BotSettings } from "@/lib/types";

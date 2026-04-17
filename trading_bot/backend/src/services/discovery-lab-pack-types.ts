@@ -84,14 +84,10 @@ export const KNOWN_SOURCES = [
 ];
 
 export const FILTER_KEYS = new Set([
-  "source",
   "creator",
   "platform_id",
-  "graduated",
   "min_progress_percent",
   "max_progress_percent",
-  "min_graduated_time",
-  "max_graduated_time",
   "min_creation_time",
   "max_creation_time",
   "min_recent_listing_time",

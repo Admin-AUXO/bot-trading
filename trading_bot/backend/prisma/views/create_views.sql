@@ -15,6 +15,9 @@ DROP VIEW IF EXISTS v_fill_performance CASCADE;
 DROP VIEW IF EXISTS v_runtime_overview CASCADE;
 DROP VIEW IF EXISTS v_candidate_funnel_daily CASCADE;
 DROP VIEW IF EXISTS v_api_telemetry_daily CASCADE;
+DROP VIEW IF EXISTS v_api_provider_daily CASCADE;
+DROP VIEW IF EXISTS v_api_endpoint_efficiency CASCADE;
+DROP VIEW IF EXISTS v_position_pnl_daily CASCADE;
 DROP VIEW IF EXISTS v_discovery_lab_run_summary CASCADE;
 DROP VIEW IF EXISTS v_discovery_lab_pack_performance CASCADE;
 DROP VIEW IF EXISTS v_shared_token_fact_cache CASCADE;
@@ -377,6 +380,78 @@ SELECT
   END::numeric(12,4) AS error_rate_pct
 FROM "ApiEvent"
 GROUP BY 1, 2, 3;
+
+CREATE VIEW v_api_provider_daily AS
+SELECT
+  session_date,
+  provider,
+  SUM(call_count)::int AS total_calls,
+  SUM(total_units)::int AS total_units,
+  CASE
+    WHEN SUM(call_count) > 0
+      THEN SUM(avg_latency_ms * call_count)::numeric / SUM(call_count)::numeric
+    ELSE 0
+  END::numeric(12,2) AS avg_latency_ms,
+  SUM(error_count)::int AS error_count
+FROM v_api_telemetry_daily
+GROUP BY 1, 2;
+
+CREATE VIEW v_api_endpoint_efficiency AS
+SELECT
+  DATE_TRUNC('day', "calledAt")::date AS session_date,
+  provider,
+  endpoint,
+  COUNT(*)::int AS total_calls,
+  COALESCE(SUM(units), 0)::int AS total_units,
+  AVG(COALESCE("latencyMs", 0))::numeric(12,2) AS avg_latency_ms,
+  SUM(CASE WHEN success THEN 0 ELSE 1 END)::int AS error_count,
+  MAX("calledAt") AS last_called_at
+FROM "ApiEvent"
+GROUP BY 1, 2, 3;
+
+CREATE VIEW v_position_pnl_daily AS
+WITH closed_positions AS (
+  SELECT
+    p.id,
+    DATE_TRUNC('day', p."closedAt")::date AS session_date,
+    p."amountUsd"::numeric AS entry_amount_usd,
+    EXTRACT(EPOCH FROM (p."closedAt" - p."openedAt")) / 60 AS hold_minutes
+  FROM "Position" p
+  WHERE p.status = 'CLOSED'
+    AND p."closedAt" IS NOT NULL
+),
+sell_fills AS (
+  SELECT
+    f."positionId" AS position_id,
+    COALESCE(SUM(f."pnlUsd"::numeric), 0)::numeric AS realized_pnl_usd
+  FROM "Fill" f
+  WHERE f.side = 'SELL'
+  GROUP BY 1
+)
+SELECT
+  c.session_date,
+  COALESCE(SUM(sf.realized_pnl_usd), 0)::numeric AS realized_pnl_usd,
+  COUNT(*)::int AS closed_count,
+  CASE
+    WHEN COUNT(*) > 0
+      THEN AVG(CASE WHEN COALESCE(sf.realized_pnl_usd, 0) > 0 THEN 1 ELSE 0 END)::numeric * 100
+    ELSE 0
+  END::numeric(12,4) AS win_rate,
+  CASE
+    WHEN COUNT(*) > 0
+      THEN AVG(
+        CASE
+          WHEN c.entry_amount_usd > 0
+            THEN COALESCE(sf.realized_pnl_usd, 0) / c.entry_amount_usd * 100
+          ELSE 0
+        END
+      )
+    ELSE 0
+  END::numeric(12,4) AS avg_return_pct,
+  COALESCE(AVG(c.hold_minutes), 0)::numeric(12,2) AS avg_hold_minutes
+FROM closed_positions c
+LEFT JOIN sell_fills sf ON sf.position_id = c.id
+GROUP BY 1;
 
 
 

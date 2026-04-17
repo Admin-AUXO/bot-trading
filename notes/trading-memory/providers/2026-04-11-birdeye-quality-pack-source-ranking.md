@@ -23,16 +23,16 @@ next_action: Compare the five created packs across another live pump window and 
 
 ## Current Created Pack Set
 
-- `created-fresh-burst-ladder`
-  earliest post-grad burst pack; best for testing the first 12 to 45 minutes
-- `created-early-flow-balance`
-  blends fast 5m flow with wider 30m and 1h participation
-- `created-holder-supported-continuation`
-  raises holder and liquidity support while staying inside continuation windows
-- `created-reclaim-strength-stack`
-  leans on 30m and 1h reclaim strength instead of pure tape urgency
-- `created-late-expansion-quality`
-  latest-window quality pack for deeper liquidity, broader holders, and 1h expansion
+- `created-early-grad-scalp-tape-surge`
+  earliest post-grad scalp pack; best for the freshest tape and the fastest first-rotation windows
+- `created-early-grad-scalp-buyer-stack`
+  keeps the early tape bias but leans harder on 5m buyer participation
+- `created-early-grad-scalp-liquidity-ramp`
+  widens the early scalp ladder toward deeper pools without leaving the fast post-grad window
+- `created-early-grad-scalp-momentum-retest`
+  keeps fresh-tape recency but biases more toward churn persistence after the first retest
+- `created-early-grad-scalp-quality-guard`
+  most selective early scalp pack; strongest holder, liquidity, and drawdown guardrails
 
 ## Shapes To Avoid By Default
 
@@ -59,13 +59,19 @@ The sampled quality pack produced pass-grade names only after relaxing to this r
 
 Use this as a research lens, not as permission to weaken live concentration controls.
 
+## Provider Ceiling Update
+
+- On 2026-04-18 the repo-created scalp packs were trimmed again so the default lab path actually runs under Birdeye's provider ceiling.
+- The redundant per-recipe `min_volume_1m_usd` and `max_market_cap` filters were removed from the created packs because the pack thresholds already enforced the same intent.
+- If a repo-created pack starts failing with `Maximum 5 concurrently filters` again, check the recipe params before touching the backend filter counter.
+
 ## Reuse Rules
 
 - Keep `pump_dot_fun` as the default live and research source until another venue proves it can produce pass-grade names repeatedly.
-- Use `created-fresh-burst-ladder` or `created-early-flow-balance` first when the desk wants very fresh continuation windows.
-- Use `created-holder-supported-continuation` when you want more structural support without jumping all the way to the late pack.
-- Use `created-reclaim-strength-stack` when the desk wants momentum and reclaim bias instead of raw recency.
-- Use `created-late-expansion-quality` when the desk wants the strongest holder and liquidity bias.
+- Use `created-early-grad-scalp-tape-surge` or `created-early-grad-scalp-buyer-stack` first when the desk wants the freshest scalp windows.
+- Use `created-early-grad-scalp-liquidity-ramp` when the desk wants more pool depth without leaving the early scalp regime.
+- Use `created-early-grad-scalp-momentum-retest` when the desk wants a stronger churn-persistence bias instead of pure recency.
+- Use `created-early-grad-scalp-quality-guard` when the desk wants the tightest structural screen and can tolerate lower recall.
 - Do not loosen concentration controls just because raw score or volume looks attractive.
 - Do not spend another default pass on pregrad scouts, `grad_15m_trade5m`, or `grad_20m_trade1m_impulse` unless the desk is explicitly testing a weird churn window.
 

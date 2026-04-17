@@ -112,7 +112,8 @@ Dashboard navigation conventions:
 - `/telemetry` redirects to `/operational-desk/overview`
 - Discovery lab now owns nested routes:
   `/discovery-lab/overview`, `/discovery-lab/market-stats`, `/discovery-lab/studio`, `/discovery-lab/run-lab`, `/discovery-lab/results`, `/discovery-lab/strategy-ideas`, and `/discovery-lab/config`
-- `/discovery-lab` remains a compatibility redirect to `/discovery-lab/overview`
+- `/discovery-lab` now redirects to `/discovery-lab/studio`
+- `/discovery-lab/overview` is compatibility-only and redirects to `/discovery-lab/studio`
 - Discovery-lab route selection now sets the client’s initial workbench section, while recent-run reload still swaps the loaded result set without leaving the selected route
 - Discovery-lab should default to `Runs` when no completed run is loaded and fall back to `Results` only when a completed run is selected
 - Discovery-lab now consumes market-regime data through `/api/operator/discovery-lab/market-regime?runId=<selected-run-id>`; clients should always pass `runId`
@@ -138,24 +139,22 @@ Dashboard navigation conventions:
 
 ## SQL View Allowlist
 
-`GET /api/views/:name` only exposes the views below. If you add a new view, update both the SQL file and this allowlist in `server.ts`.
+`GET /api/views/:name` only exposes the views below. If you add or rename a view, update both the SQL file and this allowlist in `server.ts`.
 
+- `v_token_metrics_latest`
+- `v_token_metrics_aggregation`
+- `v_candidate_lifecycle`
+- `v_candidate_with_metrics`
+- `v_position_entry_analysis`
+- `v_position_monitor`
+- `v_fill_performance`
 - `v_runtime_overview`
 - `v_candidate_funnel_daily`
-- `v_position_snapshot_latest`
-- `v_open_position_monitor`
-- `v_recent_fill_activity`
-- `v_fill_daily`
-- `v_fill_pnl_daily`
-- `v_position_pnl_daily`
-- `v_position_performance`
+- `v_api_telemetry_daily`
 - `v_api_provider_daily`
 - `v_api_endpoint_efficiency`
-- `v_raw_api_payload_recent`
-- `v_runtime_settings_current`
+- `v_position_pnl_daily`
 - `v_candidate_decision_facts`
 - `v_discovery_lab_run_summary`
 - `v_discovery_lab_pack_performance`
-- `v_discovery_lab_recipe_outcomes`
-- `v_discovery_lab_token_outcomes`
 - `v_shared_token_fact_cache`

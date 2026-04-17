@@ -10,7 +10,7 @@ import {
   Radar,
 } from "lucide-react";
 import { dashboardNavGroups, matchesDashboardRoute } from "@/lib/dashboard-navigation";
-import { formatInteger } from "@/lib/format";
+import { formatInteger, formatMinutesAgo } from "@/lib/format";
 import type { DeskShellPayload } from "@/lib/types";
 import { StatusPill } from "@/components/dashboard-primitives";
 import { PinnedItemsSidebar } from "@/components/pinned-items";
@@ -59,22 +59,24 @@ export function Sidebar({ shell, sidebarCollapsed, onToggleCollapse }: SidebarPr
 
         {!sidebarCollapsed ? (
           <div className="mt-3 space-y-2 rounded-[12px] border border-bg-border bg-[var(--panel-raised)] p-3">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between gap-2">
               <StatusPill value={shell?.health ?? "waiting"} />
-              <span className="text-xs text-text-muted">
-                {shell?.primaryBlocker?.label ?? "Desk clear"}
+              <span className="text-[11px] text-text-muted">
+                Sync {formatMinutesAgo(shell?.lastSyncAt)}
               </span>
             </div>
-            <div className="grid grid-cols-3 gap-1.5 text-xs text-text-secondary">
+            <div className="grid grid-cols-4 gap-1.5 text-xs text-text-secondary">
               <ShellMetric label="Mode" value={shortMode(shell?.mode)} />
               <ShellMetric label="Open" value={shell ? formatInteger(shell.statusSummary.openPositions) : "—"} />
               <ShellMetric label="Queue" value={shell ? formatInteger(shell.statusSummary.queuedCandidates) : "—"} />
+              <ShellMetric label="Sync" value={compactSyncLabel(shell?.lastSyncAt)} />
             </div>
           </div>
         ) : (
           <div className="mt-3 flex flex-col items-center gap-2">
             <StatusPill value={shell?.health ?? "waiting"} />
             <CompactShellMetric label="Mode" value={shortMode(shell?.mode)} />
+            <CompactShellMetric label="Sync" value={compactSyncLabel(shell?.lastSyncAt)} />
           </div>
         )}
       </div>
@@ -97,7 +99,7 @@ export function Sidebar({ shell, sidebarCollapsed, onToggleCollapse }: SidebarPr
                   href={item.href}
                   className={clsx(
                     "relative flex items-center rounded-[14px] border transition",
-                    sidebarCollapsed ? "justify-center px-0 py-3" : "justify-between px-3 py-2.5",
+                    sidebarCollapsed ? "justify-center px-0 py-3" : "justify-between gap-3 px-3 py-2.5",
                     active
                       ? "border-[rgba(163,230,53,0.3)] bg-[#121511] text-text-primary"
                       : "border-bg-border/30 text-text-secondary hover:border-bg-border hover:bg-[#141417] hover:text-text-primary",
@@ -105,7 +107,11 @@ export function Sidebar({ shell, sidebarCollapsed, onToggleCollapse }: SidebarPr
                 >
                   <div className={clsx("flex items-center", sidebarCollapsed ? "justify-center" : "gap-3")}>
                     <Icon className="h-4 w-4" />
-                    {!sidebarCollapsed ? <span className="text-sm font-medium">{item.label}</span> : null}
+                    {!sidebarCollapsed ? (
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium">{item.label}</div>
+                      </div>
+                    ) : null}
                   </div>
                   {active && !sidebarCollapsed ? <div className="h-2.5 w-2.5 rounded-full bg-accent" /> : null}
                 </Link>
@@ -166,4 +172,9 @@ function shortMode(value?: string | null) {
   if (normalized.includes("PAPER")) return "PAPR";
   if (normalized.includes("WAIT")) return "WAIT";
   return normalized.replace(/_/g, "").slice(0, 4);
+}
+
+function compactSyncLabel(value?: string | null) {
+  const minutesAgo = formatMinutesAgo(value);
+  return minutesAgo === "awaiting" ? "—" : minutesAgo.replace(" ago", "");
 }

@@ -28,23 +28,3 @@ export async function fetchJson<T>(path: string, init?: RequestInit): Promise<T>
 
   return response.json() as Promise<T>;
 }
-
-const API_URL = process.env.API_URL ?? "http://127.0.0.1:3101";
-const CONTROL_API_SECRET = process.env.CONTROL_API_SECRET ?? "";
-
-export async function serverFetch<T>(path: string): Promise<T> {
-  const headers = new Headers();
-  if (CONTROL_API_SECRET) {
-    headers.set("authorization", `Bearer ${CONTROL_API_SECRET}`);
-  }
-  const response = await fetch(`${API_URL}${path}`, {
-    headers,
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    throw new Error(`${path} failed with ${response.status}`);
-  }
-
-  return response.json() as Promise<T>;
-}

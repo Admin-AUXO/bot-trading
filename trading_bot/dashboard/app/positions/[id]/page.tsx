@@ -5,7 +5,7 @@ import type { Route } from "next";
 import { CopyButton } from "@/components/copy-button";
 import { DataTable, PageHero, Panel, StatusPill } from "@/components/dashboard-primitives";
 import { PositionDetailActions, InterventionPriorityBadge } from "@/components/position-detail-actions";
-import { serverFetch } from "@/lib/api";
+import { serverFetch } from "@/lib/server-api";
 import { operationalDeskRoutes } from "@/lib/dashboard-routes";
 import { formatCurrency, formatNumber, formatTimestamp, humanizeKey, smartFormatValue } from "@/lib/format";
 import { buildGrafanaDashboardLink } from "@/lib/grafana";

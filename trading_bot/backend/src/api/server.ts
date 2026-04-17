@@ -376,24 +376,22 @@ export function createApiServer(deps: {
 
   app.get("/api/views/:name", async (req, res) => {
     const allowed = new Set([
+      "v_token_metrics_latest",
+      "v_token_metrics_aggregation",
+      "v_candidate_lifecycle",
+      "v_candidate_with_metrics",
+      "v_position_entry_analysis",
+      "v_position_monitor",
+      "v_fill_performance",
       "v_runtime_overview",
       "v_candidate_funnel_daily",
-      "v_position_performance",
+      "v_api_telemetry_daily",
       "v_api_provider_daily",
       "v_api_endpoint_efficiency",
-      "v_raw_api_payload_recent",
-      "v_runtime_settings_current",
-      "v_open_position_monitor",
-      "v_recent_fill_activity",
-      "v_position_snapshot_latest",
-      "v_fill_pnl_daily",
-      "v_fill_daily",
       "v_position_pnl_daily",
       "v_candidate_decision_facts",
       "v_discovery_lab_run_summary",
       "v_discovery_lab_pack_performance",
-      "v_discovery_lab_recipe_outcomes",
-      "v_discovery_lab_token_outcomes",
       "v_shared_token_fact_cache",
     ]);
     const viewName = req.params.name;

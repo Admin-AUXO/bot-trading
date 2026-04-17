@@ -1,5 +1,5 @@
 import { DiscoveryLabStrategyIdeasClient } from "@/components/discovery-lab-strategy-ideas-client";
-import { serverFetch } from "@/lib/api";
+import { serverFetch } from "@/lib/server-api";
 import type { DiscoveryLabStrategySuggestionsPayload } from "@/lib/types";
 
 export const dynamic = "force-dynamic";

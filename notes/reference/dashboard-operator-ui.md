@@ -64,6 +64,8 @@ Purpose: document the current UI contract for the Next.js operator desk so later
 - Sidebar owns primary route navigation
 - Sidebar should present two grouped areas:
   `Operational desk` and `Discovery lab`
+- Sidebar item labels should match the route job directly:
+  `Overview`, `Trading`, `Settings`, `Market`, `Studio`, `Results`, `Config`
 - Sidebar active state must follow nested routes, so detail pages keep their parent section selected
 - Sidebar also carries one compact shell-state block:
   mode
@@ -98,9 +100,8 @@ Purpose: document the current UI contract for the Next.js operator desk so later
 - `/operational-desk/overview`: current control desk only, including compact diagnostics and provider fault surfaces
 - `/operational-desk/trading`: unified lifecycle workbench for candidate intake and position management, with compact KPI header and segmented intake and book controls
 - `/operational-desk/settings`: smaller runtime-control surface for desk-facing capital and cadence edits with direct apply
-- `/discovery-lab/overview`: dedicated landing surface for current run posture, pack inventory, and shared workflow language
 - `/discovery-lab/market-stats`: market-wide pulse check plus direct single-mint lookup backed by shared backend provider logic; default route loads stay cache-only and visually distinguish paid Birdeye inputs from free Rugcheck and DexScreener inputs
-- `/discovery-lab/studio`: builder-first discovery workspace for package editing, thresholds, and strategy ladders; keep the page header minimal and avoid a second local hero above the editor
+- `/discovery-lab/studio`: builder-first discovery workspace for package editing, thresholds, strategy ladders, structured package filters, grouped sort options, duplicate/new/delete actions, and direct run launch; keep the page header minimal and avoid a second local hero above the editor
 - `/discovery-lab/run-lab`: compatibility redirect only; the route should forward straight to `/discovery-lab/results`
 - `/discovery-lab/results`: unified run-and-review surface for start, monitor, reopen, and completed-run triage, plus live strategy staging and manual trade ticket flow
 - `/discovery-lab/strategy-ideas`: backend-suggested pack ideas for the current regime; route loads stay read-only and cache-backed, while refresh controls expose the manual-refresh path for confidence, threshold ranges, and session fit
@@ -139,7 +140,9 @@ Purpose: document the current UI contract for the Next.js operator desk so later
   apply subtle heatmap treatment on score-driven metric columns when it improves ranking legibility without turning the table into a chart
 - Discovery lab should feel like a compact research workbench:
   builder is the primary operator surface when there is no active review task
-  route order should read `Strategy studio` -> `Results`, with `run-lab` retained only as a compatibility redirect
+  route order should read `Strategy studio` -> `Results`, with `run-lab` and `overview` retained only as compatibility redirects
+  studio owns pack editing, validation, and run launch
+  results owns monitoring, reopen, manual trade tickets, and live-strategy handoff
   the page header should stay compact and contextual; do not bring back a large local hero or a duplicated score-strip ahead of the builder
   the sticky bar should focus on contextual actions for the active tab so operators do not see build, run, and staging controls all at once
   discovery should not repeat the same pack or run facts in the tab rail, page header, sticky bar, and local cards at the same time; one compact context row plus one active-action bar is enough
@@ -147,14 +150,17 @@ Purpose: document the current UI contract for the Next.js operator desk so later
   the builder should no longer force raw JSON as the primary editing surface for recipes; structured controls with suggested values, selects, and numeric inputs should own the common path, with raw JSON kept as an advanced escape hatch
   the top tab rail should stay terse in its default state; short labels win over always-visible helper copy
   `Builder` combines package and strategy editing in one surface
-  sticky core actions stay visible while scrolling: `New`, `Clone`, `Delete`, `Validate`, `Save`, `Run`, `Load run package`
+  sticky core actions stay visible while scrolling: `New`, `Duplicate`, `Delete`, `Validate`, `Save`, `Run`, `Load run package`
   the sticky action bar should visually separate build/edit controls from run/review controls so the operator can parse intent at a glance
   created packs still need explicit `use`, `clone`, `load run package`, and `delete` actions so operators do not guess how to begin
   created packs may load into editable drafts so the operator can tune them and optionally save a workspace copy without reviving starter-template language
   package selection should use an inline dropdown field instead of a persistent side library rail on desktop
-  package editing remains split into `Basics` and `Thresholds`, with strategy editing directly below in the same builder tab
+  package editing remains split into pack details, thresholds, and strategy editing in one studio surface
+  studio should keep pack selection, primary actions, and a compact summary strip in one operator bar instead of stacking separate rows and explainer cards
   the pack frame should stay compact: one selector row, a small chip summary, and the edit tabs below; avoid a second large workspace explainer card
+  pack details should use shared dashboard form primitives; multiline reasoning belongs in compact textareas instead of pretending every note fits in a one-line input
   strategy filters should use a field-first add-filter flow rather than an always-visible wall of metric inputs
+  all repo-supported package filter fields should be editable from structured controls before the operator has to fall back to JSON, including relative-time fields plus creator, platform, size, volume, price, and trade filters
   strategy `mode` should not be an operator-owned field in the common path; derive it from the active stage filters and keep it as a compact summary instead
   strategy names should auto-generate from the active selections when the draft is validated, saved, or run; do not make the operator hand-maintain a parallel naming field
   builder support surfaces such as validation and regime guidance should sit together as secondary guidance, not as repeated full-width blocks scattered between editing steps
@@ -166,7 +172,7 @@ Purpose: document the current UI contract for the Next.js operator desk so later
   regime guidance should show only the threshold and live-handoff stats that are relevant to the current strategy mix or completed-winner calibration, not the full metric wall every time
   active run progress must be visible while the CLI is still working
   results should avoid duplicating run center, run summary, and output inventory as three separate always-open blocks; secondary run structure belongs behind disclosure or in the support rail
-  results should own run start, live progress, run history reopen, and completed review in one page so the operator does not bounce between sibling routes
+  results should own live progress, run history reopen, and completed review in one page so the operator does not bounce between sibling routes
   the results header should carry the current run context once, ahead of the live strategy pack and token board, instead of repeating the same package and run facts in several stacked panels
   the token board should appear before live-strategy tuning so review remains the first action on the results tab
   result-side secondary synthesis such as cohort rollups and adaptive previews should default behind disclosure instead of sitting above the token board
@@ -174,6 +180,7 @@ Purpose: document the current UI contract for the Next.js operator desk so later
   the primary result surface should be a deduplicated token board keyed by mint, not a repeated per-strategy dump
   results should not spend vertical space on a duplicate outer frame before the token board
   result controls should read in one strip: filters, search, score timestamp, run duration, and a small amount of scan-critical summary
+  token-board row actions should stay inline and compact; stacked vertical buttons in dense tables are wasted motion
   the result table should prioritize decision metrics over prose and include run-relative heatmap cells on selected columns
   desktop token-board tables now run on AG Grid; mobile stays on stacked cards
   token rows should expose direct external pivots that matter during triage: Axiom meme view, DexScreener, Rugcheck, Solscan token, and creator account when known
@@ -183,13 +190,16 @@ Purpose: document the current UI contract for the Next.js operator desk so later
   token details should surface price and structure context plus derived setup, conservative EV, risk, and outcome metrics without bloating base rows
   full-screen token review should also surface provider-backed project links, socials, creator context, live market pulse, and security posture so the operator can make the go/no-go call without leaving the modal
   full-screen token review should scan in this order: setup summary, EV/risk, market structure, timing/liquidity, recipe consensus, then watchouts
+  full-screen token review should keep secondary evidence such as security flags and watchouts collapsed by default so the primary decision path stays above the fold
   the token review modal should keep a persistent summary rail with outcome, overlap, best score, confidence-weighted setup profile, and manual-entry CTA visible while scrolling
   manual entry from results must open a full-screen trade ticket instead of a browser confirm; the ticket should let the operator customize final size and exit settings before sending the managed entry
   the trade ticket should expose quick size presets, exit-profile presets, derived stop and take-profit previews, validation feedback, and current open-slot or cash context so the operator does not edit a raw numeric wall blind
+  the trade ticket should prefer two dense edit sections and one compact final-check rail rather than splitting every numeric field into its own card stack
   result rows and modals should prefer progress bars, colored badges, compact percent deltas, and scan-first metric strips over nested box stacks
   manual entry should refuse duplicate-mint opens and clearly hand the operator into the tracked open position when one already exists
   a compact market-regime strip and refresh timestamp should remain visible above table controls so operators can interpret table scores in context
   the market-stats route should show the overall pulse and the single-token lookup in one scan path instead of burying the lookup inside results modals
+  market-stats should merge lookup, view-switching, and source legend into one compact operator bar before the board
   market-stats and strategy-ideas should surface freshness, stale-vs-empty state, and refresh controls in the header so operators can tell when a paid provider pull is about to happen
   market-stats and strategy-ideas should present their primary boards as horizontal card carousels on desktop so the operator can scan rich cards without pushing the page into long vertical stacks
   desktop market-stats and strategy-ideas carousels should target two cards per viewport, not three or four squeezed cards
@@ -230,7 +240,7 @@ Purpose: document the current UI contract for the Next.js operator desk so later
 - When nothing is pinned yet, collapse the watchlist into a small inline hint instead of a full empty band
 - Homepage diagnostics must surface fresh provider payload failures; a green desk summary while the backend is logging live provider errors is a broken contract
 - Do not reintroduce a filler quick-routes panel if the shell and pinned strip already cover navigation
-- Page headers across the app stay compact: short title, status, actions, and a dense stat strip rather than a large hero void
+- Page headers across the app stay compact: stacked title and description, status, actions, and a dense stat strip rather than a large hero void
 - When a page is empty or degraded, swap broad stat walls and repeated empty cards for one compact warning/context row plus collapsed evidence
 - Results, diagnostics, logs, and other secondary evidence should stay behind disclosure unless the page has active data that requires immediate attention
 

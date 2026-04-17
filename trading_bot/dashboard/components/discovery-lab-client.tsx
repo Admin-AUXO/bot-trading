@@ -3,48 +3,54 @@
 import {
   ChevronDown,
   ChevronUp,
-  CircleDashed,
-  ExternalLink,
+  Copy,
   Play,
-  PlayCircle,
   Plus,
   Save,
   ShieldAlert,
-  SlidersHorizontal,
   Trash2,
-  Trophy,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState, useTransition } from "react";
-import { EmptyState, Panel, ScanStat, StatusPill } from "@/components/dashboard-primitives";
+import { useRouter } from "next/navigation";
+import { useEffect, useState, useTransition } from "react";
+import {
+  CompactPageHeader,
+  CompactStatGrid,
+  ScanStat,
+  StatusPill,
+} from "@/components/dashboard-primitives";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
+import { Select } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  FILTER_FIELDS,
+  getFilterField,
+  groupFilterFields,
+  groupSortOptions,
+  parseStructuredRecipeForm,
+  safeParseParams,
+  SORT_OPTIONS,
+  updateParamText,
+} from "@/components/discovery-lab/recipe-form-schema";
 import { fetchJson } from "@/lib/api";
 import {
   formatCompactCurrency,
   formatInteger,
-  formatNumber,
-  formatPercent,
 } from "@/lib/format";
 import { cn } from "@/components/ui/cn";
 import { ErrorBoundary } from "@/components/error-boundary";
 import type {
-  BotSettings,
-  DiscoveryLabApplyLiveStrategyResponse,
   DiscoveryLabCatalog,
   DiscoveryLabPack,
   DiscoveryLabPackDraft,
   DiscoveryLabRecipe,
-  DiscoveryLabRunDetail,
-  DiscoveryLabRunReport,
   DiscoveryLabRuntimeSnapshot,
   DiscoveryLabThresholdOverrides,
   DiscoveryLabValidationIssue,
   DiscoveryLabValidationResponse,
-  LiveStrategySettings,
 } from "@/lib/types";
 
 const PROFILE_OPTIONS: Array<{ value: DiscoveryLabPackDraft["defaultProfile"]; label: string }> = [
@@ -64,24 +70,12 @@ const THRESHOLD_FIELDS: Array<{ key: keyof DiscoveryLabThresholdOverrides; label
   { key: "maxSingleHolderPercent", label: "Max Single%", unit: "%", step: 1, suggestions: [18, 22, 25] },
 ];
 
-const FILTER_FIELDS = [
-  { key: "graduated", label: "Graduated Only", kind: "boolean" as const },
-  { key: "min_progress_percent", label: "Min Progress", kind: "number" as const, unit: "%", step: 1, suggestions: [50, 75, 90] },
-  { key: "min_liquidity", label: "Min Liquidity", kind: "number" as const, unit: "USD", step: 500, suggestions: [8000, 12000, 16000] },
-  { key: "max_liquidity", label: "Max Liquidity", kind: "number" as const, unit: "USD", step: 500, suggestions: [25000, 50000, 100000] },
-  { key: "min_market_cap", label: "Min Market Cap", kind: "number" as const, unit: "USD", step: 10000, suggestions: [100000, 250000, 500000] },
-  { key: "min_holder", label: "Min Holders", kind: "number" as const, unit: "wallets", step: 1, suggestions: [40, 60, 80] },
-  { key: "min_volume_5m_usd", label: "Min 5m Vol", kind: "number" as const, unit: "USD", step: 250, suggestions: [1500, 2000, 3000] },
-  { key: "creator", label: "Creator", kind: "text" as const, placeholder: "Wallet" },
-];
-
-const FILTER_FIELD_MAP = Object.fromEntries(FILTER_FIELDS.map(f => [f.key, f]));
-
 export function DiscoveryLabClient(props: {
   initialCatalog: DiscoveryLabCatalog;
   initialRuntimeSnapshot: DiscoveryLabRuntimeSnapshot;
 }) {
   const { initialCatalog, initialRuntimeSnapshot } = props;
+  const router = useRouter();
 
   const [catalog, setCatalog] = useState(initialCatalog);
   const [runtimeSnapshot, setRuntimeSnapshot] = useState(initialRuntimeSnapshot);
@@ -90,41 +84,23 @@ export function DiscoveryLabClient(props: {
   const [paramTexts, setParamTexts] = useState<Record<number, string>>(() => buildParamTextsFromRecipes(initialCatalog.packs[0]?.recipes ?? []));
   const [issues, setIssues] = useState<DiscoveryLabValidationIssue[]>([]);
   const [toast, setToast] = useState<{ message: string; error?: boolean } | null>(null);
-  const [selectedRunId, setSelectedRunId] = useState(initialCatalog.activeRun?.id ?? "");
-  const [runDetail, setRunDetail] = useState<DiscoveryLabRunDetail | null>(null);
   const [selectedRecipeIndex, setSelectedRecipeIndex] = useState(0);
-  const [builderOpen, setBuilderOpen] = useState(false);
-  const [liveStrategyDraft, setLiveStrategyDraft] = useState<LiveStrategySettings>(initialRuntimeSnapshot.settings.strategy.liveStrategy);
   const [isPending, startTransition] = useTransition();
-  const [activeTab, setActiveTab] = useState<"config" | "results">("config");
 
   const selectedPack = catalog.packs.find(p => p.id === selectedPackId) ?? null;
-  const activeRun = runDetail?.status === "RUNNING" ? runDetail : catalog.activeRun ?? null;
-  const completedRunDetail = runDetail?.status === "COMPLETED" ? runDetail : null;
+  const activeRun = catalog.activeRun;
+  const latestCompletedRun = catalog.recentRuns.find((run) => run.status === "COMPLETED") ?? null;
   const runBusy = Boolean(isPending || activeRun?.status === "RUNNING");
   const selectedRecipe = draft.recipes[selectedRecipeIndex];
   const selectedForm = selectedRecipe ? parseStructuredRecipeForm(paramTexts[selectedRecipeIndex] ?? "{}") : null;
-  const report = runDetail?.report ?? null;
-  const tokenRows = useMemo(() => buildTokenRows(report), [report]);
   const editorBlocked = draft.recipes.length === 0;
   const dirty = selectedPack && JSON.stringify(draft) !== JSON.stringify(toDraft(selectedPack));
 
-  useEffect(() => { if (!selectedRunId) { setRunDetail(null); return; } void loadRun(selectedRunId); }, [selectedRunId]);
-  useEffect(() => {
-    if (runDetail?.status !== "RUNNING") return;
-    const timer = window.setInterval(() => void loadRun(runDetail.id, true), 3000);
-    return () => window.clearInterval(timer);
-  }, [runDetail?.id, runDetail?.status]);
   useEffect(() => {
     if (!catalog.activeRun) return;
     const timer = window.setInterval(() => void reloadCatalog(), 3000);
     return () => window.clearInterval(timer);
   }, [catalog.activeRun?.id]);
-  useEffect(() => {
-    if (completedRunDetail && activeTab === "config") {
-      setActiveTab("results");
-    }
-  }, [completedRunDetail?.id]);
 
   async function reloadCatalog() {
     const [next, nextRuntime] = await Promise.all([
@@ -133,17 +109,6 @@ export function DiscoveryLabClient(props: {
     ]);
     setCatalog(next);
     setRuntimeSnapshot(nextRuntime);
-    if (next.activeRun && next.activeRun.id !== selectedRunId) setSelectedRunId(next.activeRun.id);
-  }
-
-  async function loadRun(runId: string, silent = false) {
-    try {
-      const next = await fetchJson<DiscoveryLabRunDetail>(`/operator/discovery-lab/runs/${runId}`);
-      setRunDetail(next);
-      if (next.status !== "RUNNING") await reloadCatalog();
-    } catch (err) {
-      if (!silent) setToast({ message: err instanceof Error ? err.message : "Failed to load run", error: true });
-    }
   }
 
   function materializeDraft(): DiscoveryLabPackDraft | null {
@@ -201,15 +166,13 @@ export function DiscoveryLabClient(props: {
     if (!payload) return;
     startTransition(async () => {
       try {
-        const next = await fetchJson<DiscoveryLabRunDetail>("/operator/discovery-lab/run", {
+        const next = await fetchJson<{ id: string }>("/operator/discovery-lab/run", {
           method: "POST",
           body: JSON.stringify({ draft: payload, sources: payload.defaultSources ?? [], profile: payload.defaultProfile ?? "high-value", thresholdOverrides: payload.thresholdOverrides, allowOverfiltered: false }),
         });
-        setRunDetail(next);
-        setSelectedRunId(next.id);
         await reloadCatalog();
-        setActiveTab("results");
         setToast({ message: "Run started" });
+        router.push(`/discovery-lab/results?runId=${encodeURIComponent(next.id)}`);
       } catch (err) {
         setToast({ message: err instanceof Error ? err.message : "Run failed", error: true });
       }
@@ -224,12 +187,58 @@ export function DiscoveryLabClient(props: {
     setSelectedRecipeIndex(0);
   }
 
+  function resetToNewPack(seed?: DiscoveryLabPackDraft) {
+    const nextDraft = seed ? toEditableCopy(seed) : createEmptyDraft();
+    setSelectedPackId("");
+    setDraft(nextDraft);
+    setParamTexts(buildParamTextsFromRecipes(nextDraft.recipes));
+    setIssues([]);
+    setSelectedRecipeIndex(0);
+  }
+
   function addStrategy() {
     const nextRecipe = createBlankRecipe();
     setDraft(d => ({ ...d, recipes: [...d.recipes, nextRecipe] }));
     setParamTexts(pt => { const updated: Record<number, string> = { ...pt }; updated[Object.keys(pt).length] = JSON.stringify(nextRecipe.params, null, 2); return updated; });
     setSelectedRecipeIndex(draft.recipes.length);
-    setBuilderOpen(true);
+  }
+
+  function duplicatePack() {
+    resetToNewPack(draft);
+    setToast({ message: "Pack duplicated into a new editable draft" });
+  }
+
+  function createNewPack() {
+    resetToNewPack();
+    setToast({ message: "Started a new pack draft" });
+  }
+
+  function deletePack() {
+    if (!selectedPack || selectedPack.kind !== "custom") {
+      setToast({ message: "Only custom packs can be deleted", error: true });
+      return;
+    }
+    startTransition(async () => {
+      try {
+        await fetchJson("/operator/discovery-lab/packs/delete", {
+          method: "POST",
+          body: JSON.stringify({ packId: selectedPack.id }),
+        });
+        const next = await fetchJson<DiscoveryLabCatalog>("/operator/discovery-lab/catalog");
+        const nextRuntime = await fetchJson<DiscoveryLabRuntimeSnapshot>("/status");
+        setCatalog(next);
+        setRuntimeSnapshot(nextRuntime);
+        const fallback = next.packs[0] ?? null;
+        setSelectedPackId(fallback?.id ?? "");
+        setDraft(toDraft(fallback));
+        setParamTexts(buildParamTextsFromRecipes(fallback?.recipes ?? []));
+        setIssues([]);
+        setSelectedRecipeIndex(0);
+        setToast({ message: "Pack deleted" });
+      } catch (err) {
+        setToast({ message: err instanceof Error ? err.message : "Delete failed", error: true });
+      }
+    });
   }
 
   function removeStrategy(index: number) {
@@ -253,37 +262,84 @@ export function DiscoveryLabClient(props: {
     setSelectedRecipeIndex(targetIndex);
   }
 
-  function applyLiveStrategy() {
-    if (!runDetail) return;
-    startTransition(async () => {
-      try {
-        const response = await fetchJson<DiscoveryLabApplyLiveStrategyResponse>("/operator/discovery-lab/apply-live-strategy", {
-          method: "POST",
-          body: JSON.stringify({ runId: runDetail.id }),
-        });
-        setLiveStrategyDraft(sanitizeLiveStrategy(response.strategy));
-        const settings = await fetchJson<BotSettings>("/settings");
-        setLiveStrategyDraft(sanitizeLiveStrategy(settings.strategy.liveStrategy));
-        setToast({ message: `Applied ${response.strategy.capitalModifierPercent}% capital` });
-      } catch (err) {
-        setToast({ message: err instanceof Error ? err.message : "Apply failed", error: true });
-      }
-    });
-  }
-
   return (
     <ErrorBoundary>
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="text-[10px] uppercase tracking-wider text-accent">Discovery Lab</div>
-          <h1 className="text-lg font-semibold text-text-primary">{draft.name || "Strategy Lab"}</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          {dirty && <Badge variant="warning">Unsaved</Badge>}
-          <StatusPill value={runBusy ? "RUNNING" : completedRunDetail ? "COMPLETED" : "ready"} />
-        </div>
-      </div>
+      <CompactPageHeader
+        eyebrow="Discovery lab"
+        title="Studio"
+        description={draft.name?.trim() || "Pack editor"}
+        badges={(
+          <>
+            {dirty ? <Badge variant="warning">Unsaved</Badge> : null}
+            <StatusPill value={runBusy ? "RUNNING" : latestCompletedRun ? "COMPLETED" : "ready"} />
+          </>
+        )}
+        actions={(
+          <>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => router.push("/discovery-lab/results")}
+            >
+              Results
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => router.push("/discovery-lab/config")}
+            >
+              Live config
+            </Button>
+          </>
+        )}
+      >
+        <CompactStatGrid
+          className="xl:grid-cols-6"
+          items={[
+            {
+              label: "Pack",
+              value: draft.name?.trim() || "Draft",
+              detail: selectedPack ? displayPackName(selectedPack) : "Unsaved workspace",
+              tone: dirty ? "warning" : "default",
+            },
+            {
+              label: "Strategies",
+              value: formatInteger(draft.recipes.length),
+              detail: `${formatInteger(Object.keys(selectedForm?.filters ?? {}).length)} filters on active recipe`,
+              tone: "accent",
+            },
+            {
+              label: "Sources",
+              value: formatInteger((draft.defaultSources ?? []).length),
+              detail: draft.defaultProfile ? `${draft.defaultProfile} profile` : "No profile",
+              tone: "default",
+            },
+            {
+              label: "Overrides",
+              value: formatInteger(
+                Object.values(draft.thresholdOverrides ?? {}).filter((value) => value !== undefined && value !== null).length,
+              ),
+              detail: "Live handoff edits",
+              tone: "default",
+            },
+            {
+              label: "Run focus",
+              value: activeRun?.packName ?? latestCompletedRun?.packName ?? "Idle",
+              detail: activeRun ? "Polling active run" : latestCompletedRun ? "Latest completed run" : "No recent run",
+              tone: activeRun ? "warning" : latestCompletedRun ? "accent" : "default",
+            },
+            {
+              label: "Desk",
+              value: `${formatInteger(runtimeSnapshot.openPositions)} open`,
+              detail: `${formatCompactCurrency(runtimeSnapshot.botState.cashUsd)} cash · ${runtimeSnapshot.botState.tradeMode}`,
+              tone: runtimeSnapshot.openPositions > 0 ? "warning" : "default",
+            },
+          ]}
+        />
+      </CompactPageHeader>
 
       {toast && (
         <div className={cn(
@@ -294,55 +350,35 @@ export function DiscoveryLabClient(props: {
         </div>
       )}
 
-      <LiveSessionPanel runtimeSnapshot={runtimeSnapshot} />
-
-      <TabNav
-        tabs={[
-          { id: "config", label: "Config" },
-          { id: "results", label: "Results", count: tokenRows.length },
-        ]}
-        value={activeTab}
-        onChange={setActiveTab}
+      <ConfigTab
+        draft={draft}
+        catalog={catalog}
+        activeRun={activeRun}
+        latestCompletedRun={latestCompletedRun}
+        paramTexts={paramTexts}
+        selectedPackId={selectedPackId}
+        selectedRecipeIndex={selectedRecipeIndex}
+        selectedForm={selectedForm}
+        issues={issues}
+        isPending={isPending}
+        runBusy={runBusy}
+        selectedPack={selectedPack}
+        editorBlocked={editorBlocked}
+        onDraftChange={setDraft}
+        onParamTextsChange={setParamTexts}
+        onSelectedRecipeIndexChange={setSelectedRecipeIndex}
+        onSelectPack={selectPack}
+        onCreateNewPack={createNewPack}
+        onDuplicatePack={duplicatePack}
+        onDeletePack={deletePack}
+        onAddStrategy={addStrategy}
+        onRemoveStrategy={removeStrategy}
+        onMoveStrategy={moveStrategy}
+        onStartRun={startRun}
+        onRunValidation={runValidation}
+        onSavePack={savePack}
+        onOpenResults={(runId) => router.push(`/discovery-lab/results?runId=${encodeURIComponent(runId)}`)}
       />
-
-      {activeTab === "config" ? (
-        <ConfigTab
-          draft={draft}
-          catalog={catalog}
-          paramTexts={paramTexts}
-          selectedPackId={selectedPackId}
-          selectedRecipeIndex={selectedRecipeIndex}
-          selectedForm={selectedForm}
-          builderOpen={builderOpen}
-          issues={issues}
-          isPending={isPending}
-          runBusy={runBusy}
-          editorBlocked={editorBlocked}
-          onDraftChange={setDraft}
-          onParamTextsChange={setParamTexts}
-          onSelectedRecipeIndexChange={setSelectedRecipeIndex}
-          onBuilderOpenChange={setBuilderOpen}
-          onSelectPack={selectPack}
-          onAddStrategy={addStrategy}
-          onRemoveStrategy={removeStrategy}
-          onMoveStrategy={moveStrategy}
-          onStartRun={startRun}
-          onRunValidation={runValidation}
-          onSavePack={savePack}
-        />
-      ) : (
-        <ResultsTab
-          report={report}
-          catalog={catalog}
-          completedRunDetail={completedRunDetail}
-          selectedRunId={selectedRunId}
-          isPending={isPending}
-          onSelectRun={setSelectedRunId}
-          onApplyLiveStrategy={applyLiveStrategy}
-          onReloadCatalog={reloadCatalog}
-          onLoadRun={loadRun}
-        />
-      )}
     </div>
     </ErrorBoundary>
   );
@@ -351,114 +387,260 @@ export function DiscoveryLabClient(props: {
 function ConfigTab({
   draft,
   catalog,
+  activeRun,
+  latestCompletedRun,
   paramTexts,
   selectedPackId,
   selectedRecipeIndex,
   selectedForm,
-  builderOpen,
   issues,
   isPending,
   runBusy,
+  selectedPack,
   editorBlocked,
   onDraftChange,
   onParamTextsChange,
   onSelectedRecipeIndexChange,
-  onBuilderOpenChange,
   onSelectPack,
+  onCreateNewPack,
+  onDuplicatePack,
+  onDeletePack,
   onAddStrategy,
   onRemoveStrategy,
   onMoveStrategy,
   onStartRun,
   onRunValidation,
   onSavePack,
+  onOpenResults,
 }: {
   draft: DiscoveryLabPackDraft;
   catalog: DiscoveryLabCatalog;
+  activeRun: DiscoveryLabCatalog["activeRun"];
+  latestCompletedRun: DiscoveryLabCatalog["recentRuns"][number] | null;
   paramTexts: Record<number, string>;
   selectedPackId: string;
   selectedRecipeIndex: number;
   selectedForm: ReturnType<typeof parseStructuredRecipeForm> | null;
-  builderOpen: boolean;
   issues: DiscoveryLabValidationIssue[];
   isPending: boolean;
   runBusy: boolean;
+  selectedPack: DiscoveryLabPack | null;
   editorBlocked: boolean;
   onDraftChange: (d: DiscoveryLabPackDraft) => void;
   onParamTextsChange: (p: Record<number, string>) => void;
   onSelectedRecipeIndexChange: (i: number) => void;
-  onBuilderOpenChange: (o: boolean) => void;
   onSelectPack: (p: DiscoveryLabPack) => void;
+  onCreateNewPack: () => void;
+  onDuplicatePack: () => void;
+  onDeletePack: () => void;
   onAddStrategy: () => void;
   onRemoveStrategy: (i: number) => void;
   onMoveStrategy: (i: number, d: -1 | 1) => void;
   onStartRun: () => void;
   onRunValidation: () => void;
   onSavePack: () => void;
+  onOpenResults: (runId: string) => void;
 }) {
+  const thresholdCount = Object.values(draft.thresholdOverrides ?? {}).filter((value) => value !== undefined && value !== null).length;
+  const focusRun = activeRun ?? latestCompletedRun;
+  const activeFilterEntries = Object.entries(selectedForm?.filters ?? {});
+  const providerFilterCount = activeFilterEntries.filter(([, value]) => value.trim().length > 0).length;
+  const customFilterCount = activeFilterEntries.filter(([key, value]) => key !== "graduated" && value.trim().length > 0).length;
+  const groupedSortOptions = groupSortOptions(SORT_OPTIONS);
+  const groupedFilterFields = groupFilterFields(FILTER_FIELDS);
+
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <Button size="sm" onClick={onStartRun} disabled={runBusy || editorBlocked}>
-          <Play className="h-4 w-4 mr-1" />
-          {runBusy ? "Running..." : "Run Lab"}
-        </Button>
-        <Button size="sm" variant="secondary" onClick={onRunValidation} disabled={isPending || editorBlocked}>
-          <ShieldAlert className="h-4 w-4 mr-1" />
-          Validate
-        </Button>
-        <Button size="sm" variant="secondary" onClick={onSavePack} disabled={isPending || editorBlocked}>
-          <Save className="h-4 w-4 mr-1" />
-          Save
-        </Button>
-        <Separator className="h-6" />
-        <select
-          value={selectedPackId || "__draft__"}
-          onChange={e => {
-            if (e.target.value === "__draft__") return;
-            const pack = catalog.packs.find(p => p.id === e.target.value);
-            if (pack) onSelectPack(pack);
-          }}
-          className="h-8 rounded-md border border-[#2a2a35] bg-[#1a1a1f] px-2 text-xs text-text-primary outline-none"
-        >
-          <option value="__draft__">Draft</option>
-          {catalog.packs.map(p => <option key={p.id} value={p.id}>{displayPackName(p)}</option>)}
-        </select>
-      </div>
+      <Card className="border-[#2a2a35] bg-[#111318]">
+        <CardContent className="grid gap-3 px-4 py-4 xl:grid-cols-[minmax(0,15rem)_minmax(0,1fr)]">
+          <div className="space-y-1.5">
+            <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Pack workspace</div>
+            <Select
+              value={selectedPackId || "__draft__"}
+              onChange={(event) => {
+                if (event.target.value === "__draft__") return;
+                const pack = catalog.packs.find((candidate) => candidate.id === event.target.value);
+                if (pack) onSelectPack(pack);
+              }}
+              className="h-9 text-xs"
+            >
+              <option value="__draft__">Draft workspace</option>
+              {catalog.packs.map((pack) => (
+                <option key={pack.id} value={pack.id}>
+                  {displayPackName(pack)}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-3">
+            <ScanStat label="Strategies" value={formatInteger(draft.recipes.length)} detail="Editable query shapes" />
+            <ScanStat label="Sources" value={formatInteger((draft.defaultSources ?? []).length)} detail="Launch scope" />
+            <ScanStat
+              label={focusRun ? "Run focus" : "Filters"}
+              value={focusRun ? focusRun.packName : formatInteger(providerFilterCount)}
+              detail={
+                focusRun
+                  ? `${focusRun.status.toLowerCase()} · ${focusRun.winnerCount !== null ? `${formatInteger(focusRun.winnerCount)} win` : "running"}`
+                  : `${formatInteger(customFilterCount)} custom + stage`
+              }
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-2 xl:col-span-2 xl:justify-between">
+            <Badge variant={selectedPack?.kind === "custom" ? "warning" : "default"} className="text-[10px] uppercase">
+              {selectedPack?.kind ?? "draft"}
+            </Badge>
+            <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+              <Button size="sm" variant="secondary" onClick={onSavePack} disabled={isPending || editorBlocked}>
+                <Save className="h-4 w-4 mr-1" />
+                Save
+              </Button>
+              <Button size="sm" onClick={onStartRun} disabled={runBusy || editorBlocked}>
+                <Play className="h-4 w-4 mr-1" />
+                {runBusy ? "Running..." : "Run"}
+              </Button>
+              {focusRun ? (
+                <Button size="sm" variant="ghost" onClick={() => onOpenResults(focusRun.id)}>
+                  {activeRun ? "Monitor run" : "Open latest"}
+                </Button>
+              ) : null}
+              <details className="group relative">
+                <summary className="flex h-9 cursor-pointer list-none items-center rounded-[10px] border border-bg-border bg-[#141517] px-3 text-sm font-medium text-text-primary transition hover:border-bg-border/80 hover:bg-[#1a1b1e]">
+                  More tools
+                </summary>
+                <div className="absolute right-0 z-20 mt-2 flex min-w-[11rem] flex-col gap-1 rounded-[12px] border border-bg-border bg-[#101012] p-2 shadow-2xl">
+                  <Button size="sm" variant="ghost" onClick={onCreateNewPack} disabled={isPending} className="justify-start">
+                    <Plus className="h-4 w-4 mr-1" />
+                    New
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={onDuplicatePack} disabled={isPending || editorBlocked} className="justify-start">
+                    <Copy className="h-4 w-4 mr-1" />
+                    Duplicate
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={onRunValidation} disabled={isPending || editorBlocked} className="justify-start">
+                    <ShieldAlert className="h-4 w-4 mr-1" />
+                    Validate
+                  </Button>
+                  {selectedPack?.kind === "custom" ? (
+                    <Button size="sm" variant="ghost" onClick={onDeletePack} disabled={isPending} className="justify-start text-[var(--danger)] hover:text-[var(--danger)]">
+                      <Trash2 className="h-4 w-4 mr-1" />
+                      Delete
+                    </Button>
+                  ) : null}
+                </div>
+              </details>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(22rem,0.8fr)]">
         <Card className="border-[#2a2a35] bg-[#111318]">
           <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-medium text-text-muted">Profile</CardTitle>
+            <CardTitle className="text-sm">Pack Details</CardTitle>
+            <CardDescription className="text-xs">Name, target, thesis.</CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="flex gap-2">
-              {PROFILE_OPTIONS.map(opt => (
-                <ChoiceChip key={opt.value} active={draft.defaultProfile === opt.value}
-                  onClick={() => onDraftChange({ ...draft, defaultProfile: opt.value })}>
-                  {opt.label}
-                </ChoiceChip>
-              ))}
+          <CardContent className="grid gap-3 lg:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-[10px] uppercase tracking-wider text-text-muted">Pack name</label>
+              <Input
+                value={draft.name ?? ""}
+                onChange={(event) => onDraftChange({ ...draft, name: event.target.value })}
+                placeholder="Created - Early Grad Scalp"
+                className="h-9"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[10px] uppercase tracking-wider text-text-muted">Target band</label>
+              <Input
+                value={draft.targetPnlBand?.label ?? ""}
+                onChange={(event) => onDraftChange({
+                  ...draft,
+                  targetPnlBand: {
+                    label: event.target.value,
+                    minPercent: draft.targetPnlBand?.minPercent,
+                    maxPercent: draft.targetPnlBand?.maxPercent,
+                  },
+                })}
+                placeholder="30-60% fast scalp"
+                className="h-9"
+              />
+            </div>
+            <div className="lg:col-span-2">
+              <label className="mb-1 block text-[10px] uppercase tracking-wider text-text-muted">Description</label>
+              <Textarea
+                value={draft.description ?? ""}
+                onChange={(event) => onDraftChange({ ...draft, description: event.target.value })}
+                placeholder="What the pack is trying to find."
+                className="min-h-[88px]"
+              />
+            </div>
+            <div className="lg:col-span-2">
+              <label className="mb-1 block text-[10px] uppercase tracking-wider text-text-muted">Thesis</label>
+              <Textarea
+                value={draft.thesis ?? ""}
+                onChange={(event) => onDraftChange({ ...draft, thesis: event.target.value })}
+                placeholder="Why this shape should survive into manual or automatic trading."
+                className="min-h-[112px]"
+              />
             </div>
           </CardContent>
         </Card>
-        <Card className="border-[#2a2a35] bg-[#111318]">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-medium text-text-muted">Sources</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-1">
-              {catalog.knownSources.map(source => (
-                <ChoiceChip key={source} active={(draft.defaultSources ?? []).includes(source)}
-                  onClick={() => {
-                    const sources = draft.defaultSources ?? [];
-                    onDraftChange({ ...draft, defaultSources: sources.includes(source) ? sources.filter(s => s !== source) : [...sources, source] });
-                  }}>
-                  {humanizeLabel(source)}
-                </ChoiceChip>
-              ))}
+        <div className="grid gap-4">
+          <Card className="border-[#2a2a35] bg-[#111318]">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-xs font-medium text-text-muted">Run Defaults</CardTitle>
+              <CardDescription className="text-xs">Launch posture.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <label className="mb-1 block text-[10px] uppercase tracking-wider text-text-muted">Profile</label>
+                <div className="flex flex-wrap gap-2">
+                  {PROFILE_OPTIONS.map(opt => (
+                    <ChoiceChip key={opt.value} active={draft.defaultProfile === opt.value}
+                      onClick={() => onDraftChange({ ...draft, defaultProfile: opt.value })}>
+                      {opt.label}
+                    </ChoiceChip>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-[10px] uppercase tracking-wider text-text-muted">Sources</label>
+                <div className="flex flex-wrap gap-1">
+                  {catalog.knownSources.map(source => (
+                    <ChoiceChip key={source} active={(draft.defaultSources ?? []).includes(source)}
+                      onClick={() => {
+                        const sources = draft.defaultSources ?? [];
+                        onDraftChange({ ...draft, defaultSources: sources.includes(source) ? sources.filter(s => s !== source) : [...sources, source] });
+                      }}>
+                      {humanizeLabel(source)}
+                    </ChoiceChip>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <details className="group rounded-[16px] border border-[#2a2a35] bg-[#111318]">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-6 py-4">
+              <div>
+                <div className="text-sm font-semibold text-text-primary">Threshold overrides</div>
+                <div className="mt-1 text-xs text-text-secondary">Live handoff gates. Keep closed unless you are tuning.</div>
+              </div>
+              <Badge variant="default">{formatInteger(thresholdCount)}</Badge>
+            </summary>
+            <div className="border-t border-bg-border px-6 py-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                {THRESHOLD_FIELDS.slice(0, 8).map(field => (
+                  <div key={field.key}>
+                    <label className="mb-1 block text-[10px] uppercase tracking-wider text-text-muted">{field.label}</label>
+                    <NumberInput value={draft.thresholdOverrides?.[field.key]} step={field.step} unit={field.unit} suggestions={field.suggestions}
+                      onChange={v => onDraftChange({ ...draft, thresholdOverrides: { ...(draft.thresholdOverrides ?? {}), [field.key]: v ?? undefined } })} />
+                  </div>
+                ))}
+              </div>
             </div>
-          </CardContent>
-        </Card>
+          </details>
+        </div>
       </div>
 
       <Card className="border-[#2a2a35] bg-[#111318]">
@@ -466,28 +648,44 @@ function ConfigTab({
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="text-sm">Strategies ({draft.recipes.length})</CardTitle>
-              <CardDescription className="text-xs">Configure discovery recipes</CardDescription>
+              <CardDescription className="text-xs">Stack on the left. Active recipe on the right.</CardDescription>
             </div>
-            <Button size="sm" variant="secondary" onClick={() => onBuilderOpenChange(!builderOpen)}>
-              <SlidersHorizontal className="h-4 w-4 mr-1" />
-              {builderOpen ? "Hide" : "Edit"}
+            <Button size="sm" variant="secondary" onClick={onAddStrategy} disabled={isPending}>
+              <Plus className="h-4 w-4 mr-1" />
+              Add Strategy
             </Button>
           </div>
         </CardHeader>
-        {builderOpen && (
-          <CardContent className="space-y-4">
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="secondary" onClick={onAddStrategy} disabled={isPending}>
-                <Plus className="h-4 w-4 mr-1" />Add Strategy
-              </Button>
+        <CardContent className="grid gap-4 xl:grid-cols-[17rem_minmax(0,1fr)]">
+            <div className="space-y-2">
+              {draft.recipes.map((recipe, index) => {
+                const form = parseStructuredRecipeForm(paramTexts[index] ?? "{}");
+                const sortLabel = SORT_OPTIONS.find((option) => option.value === form.sort_by)?.label ?? "Sort";
+                return (
+                  <button key={index} type="button" onClick={() => onSelectedRecipeIndexChange(index)}
+                    className={cn(
+                      "w-full rounded-[14px] border px-3 py-2.5 text-left text-xs transition-colors",
+                      selectedRecipeIndex === index ? "border-accent/50 bg-accent/5 text-text-primary" : "border-[#2a2a35] bg-[#1a1a1f] text-text-secondary hover:border-[#3a3a45]"
+                    )}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate font-medium">{recipe.name || `Strategy ${index + 1}`}</span>
+                      <Badge variant="default" className="text-[10px]">{recipe.mode}</Badge>
+                    </div>
+                    <div className="mt-1 text-[10px] text-text-muted">{sortLabel} · limit {form.limit || "100"} · {Object.keys(form.filters).length} filters</div>
+                  </button>
+                );
+              })}
             </div>
 
             {draft.recipes[selectedRecipeIndex] && (
-              <div className="space-y-3 rounded-lg border border-[#2a2a35] bg-[#0d0f14] p-3">
+              <div className="space-y-3 rounded-[16px] border border-[#2a2a35] bg-[#0d0f14] p-3.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-text-primary">
-                    {draft.recipes[selectedRecipeIndex].name || `Strategy ${selectedRecipeIndex + 1}`}
-                  </span>
+                  <div>
+                    <span className="text-sm font-medium text-text-primary">
+                      {draft.recipes[selectedRecipeIndex].name || `Strategy ${selectedRecipeIndex + 1}`}
+                    </span>
+                    <div className="mt-1 text-[11px] text-text-muted">Keep the query tight enough to matter.</div>
+                  </div>
                   <div className="flex gap-1">
                     <button onClick={() => onMoveStrategy(selectedRecipeIndex, -1)} disabled={selectedRecipeIndex === 0}
                       className="p-1 text-text-muted hover:text-text-primary disabled:opacity-50">
@@ -504,9 +702,37 @@ function ConfigTab({
                   </div>
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-3 lg:grid-cols-2">
+                  <div className="lg:col-span-2">
+                    <label className="mb-1 block text-[10px] uppercase tracking-wider text-text-muted">Strategy name</label>
+                    <Input
+                      value={draft.recipes[selectedRecipeIndex].name ?? ""}
+                      onChange={(event) => onDraftChange({
+                        ...draft,
+                        recipes: draft.recipes.map((recipe, index) =>
+                          index === selectedRecipeIndex ? { ...recipe, name: event.target.value } : recipe,
+                        ),
+                      })}
+                      placeholder={`Strategy ${selectedRecipeIndex + 1}`}
+                      className="h-9"
+                    />
+                  </div>
+                  <div className="lg:col-span-2">
+                    <label className="mb-1 block text-[10px] uppercase tracking-wider text-text-muted">Strategy note</label>
+                    <Textarea
+                      value={draft.recipes[selectedRecipeIndex].description ?? ""}
+                      onChange={(event) => onDraftChange({
+                        ...draft,
+                        recipes: draft.recipes.map((recipe, index) =>
+                          index === selectedRecipeIndex ? { ...recipe, description: event.target.value } : recipe,
+                        ),
+                      })}
+                      placeholder="Describe the discovery shape, session fit, or why this belongs in manual or auto follow-through."
+                      className="min-h-[82px]"
+                    />
+                  </div>
                   <div>
-                    <label className="mb-1 block text-[10px] uppercase tracking-wider text-text-muted">Mode</label>
+                    <label className="mb-1 block text-[10px] uppercase tracking-wider text-text-muted">Stage</label>
                     <div className="flex gap-1">
                       <ChoiceChip active={draft.recipes[selectedRecipeIndex].mode === "graduated"}
                         onClick={() => onDraftChange({ ...draft, recipes: draft.recipes.map((r, i) => i === selectedRecipeIndex ? { ...r, mode: "graduated" } : r) })}>Post-grad</ChoiceChip>
@@ -516,26 +742,51 @@ function ConfigTab({
                   </div>
                   <div>
                     <label className="mb-1 block text-[10px] uppercase tracking-wider text-text-muted">Sort</label>
-                    <select value={selectedForm?.sort_by ?? "last_trade_unix_time"} onChange={e => onParamTextsChange(updateParamText(paramTexts, selectedRecipeIndex, f => ({ ...f, sort_by: e.target.value })))}
-                      className="w-full rounded-md border border-[#2a2a35] bg-[#1a1a1f] px-2 py-1 text-xs text-text-primary outline-none">
-                      <option value="last_trade_unix_time">Last Trade</option>
-                      <option value="graduated_time">Graduated</option>
-                      <option value="volume_5m_usd">Volume 5m</option>
-                      <option value="price_change_5m_percent">Price 5m</option>
-                      <option value="liquidity">Liquidity</option>
-                      <option value="market_cap">Market Cap</option>
-                    </select>
+                    <Select value={selectedForm?.sort_by ?? "trade_1m_count"} onChange={e => onParamTextsChange(updateParamText(paramTexts, selectedRecipeIndex, f => ({ ...f, sort_by: e.target.value })))}
+                      className="h-9 text-xs">
+                      {groupedSortOptions.map((group) => (
+                        <optgroup key={group.label} label={group.label}>
+                          {group.values.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[10px] uppercase tracking-wider text-text-muted">Limit</label>
+                    <Select
+                      value={selectedForm?.limit || "100"}
+                      onChange={e => onParamTextsChange(updateParamText(paramTexts, selectedRecipeIndex, f => ({ ...f, limit: e.target.value })))}
+                      className="h-9 text-xs"
+                    >
+                      <option value="50">50</option>
+                      <option value="75">75</option>
+                      <option value="100">100</option>
+                    </Select>
                   </div>
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-[10px] uppercase tracking-wider text-text-muted">
-                    Filters ({Object.keys(selectedForm?.filters ?? {}).length})
-                  </label>
-                  <div className="space-y-1">
-                    {Object.entries(selectedForm?.filters ?? {}).filter(([k]) => !["sort_by", "sort_type", "limit", "source", "graduated"].includes(k)).map(([key, value]) => {
-                      const field = FILTER_FIELD_MAP[key];
-                      if (!field) return null;
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <label className="block text-[10px] uppercase tracking-wider text-text-muted">
+                      Filters ({providerFilterCount})
+                    </label>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Badge variant={customFilterCount >= 4 ? "warning" : "default"} className="text-[10px]">
+                        {formatInteger(customFilterCount)} custom
+                      </Badge>
+                      <Badge variant={providerFilterCount >= 5 ? "warning" : "default"} className="text-[10px]">
+                        {formatInteger(providerFilterCount)}/5 provider-side
+                      </Badge>
+                    </div>
+                  </div>
+                  <div className="mb-2 text-[11px] text-text-muted">
+                    Every repo-supported package filter is editable here. Relative time filters accept values like <code>now-900</code>.
+                  </div>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    {activeFilterEntries.map(([key, value]) => {
+                      const field = getFilterField(key);
                       return (
                         <FilterCard key={key} field={field} value={value}
                           onChange={v => onParamTextsChange(updateParamText(paramTexts, selectedRecipeIndex, f => ({ ...f, filters: { ...f.filters, [key]: v } })))}
@@ -543,369 +794,45 @@ function ConfigTab({
                       );
                     })}
                   </div>
-                  <select value="" onChange={e => {
+                  <Select value="" onChange={e => {
                     if (e.target.value) onParamTextsChange(updateParamText(paramTexts, selectedRecipeIndex, f => ({ ...f, filters: { ...f.filters, [e.target.value]: "" } })));
-                  }} className="mt-2 w-full rounded-md border border-[#2a2a35] bg-[#1a1a1f] px-2 py-1 text-xs text-text-primary outline-none">
+                  }} className="mt-2 h-9 text-xs">
                     <option value="">+ Add filter</option>
-                    {FILTER_FIELDS.filter(f => !["sort_by", "sort_type", "limit", "source", "graduated"].includes(f.key) && !selectedForm?.filters[f.key]).map(f => (
-                      <option key={f.key} value={f.key}>{f.label}</option>
+                    {groupedFilterFields.map((group) => (
+                      <optgroup key={group.label} label={group.label}>
+                        {group.values
+                          .filter((field) => !selectedForm?.filters[field.key])
+                          .map((field) => (
+                            <option key={field.key} value={field.key}>{field.label}</option>
+                          ))}
+                      </optgroup>
                     ))}
-                  </select>
+                  </Select>
                 </div>
               </div>
             )}
-
-            <div className="space-y-1">
-              {draft.recipes.map((recipe, index) => {
-                const form = parseStructuredRecipeForm(paramTexts[index] ?? "{}");
-                const sortLabel = [{ value: "last_trade_unix_time", label: "Last Trade" }, { value: "graduated_time", label: "Graduated" }, { value: "volume_5m_usd", label: "Volume 5m" }, { value: "price_change_5m_percent", label: "Price 5m" }, { value: "liquidity", label: "Liquidity" }, { value: "market_cap", label: "Market Cap" }].find(o => o.value === form.sort_by)?.label ?? "Sort";
-                return (
-                  <button key={index} type="button" onClick={() => onSelectedRecipeIndexChange(index)}
-                    className={cn(
-                      "w-full rounded-md border px-3 py-2 text-left text-xs transition-colors",
-                      selectedRecipeIndex === index ? "border-accent/50 bg-accent/5 text-text-primary" : "border-[#2a2a35] bg-[#1a1a1f] text-text-secondary hover:border-[#3a3a45]"
-                    )}>
-                    <div className="flex items-center justify-between">
-                      <span>{recipe.name || `Strategy ${index + 1}`}</span>
-                      <Badge variant="default" className="text-[10px]">{recipe.mode}</Badge>
-                    </div>
-                    <div className="mt-0.5 text-[10px] text-text-muted">{sortLabel} · {Object.keys(form.filters).length} filters</div>
-                  </button>
-                );
-              })}
-            </div>
-          </CardContent>
-        )}
-      </Card>
-
-      <Card className="border-[#2a2a35] bg-[#111318]">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm">Threshold Overrides</CardTitle>
-          <CardDescription className="text-xs">Fine-tune discovery criteria</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {THRESHOLD_FIELDS.slice(0, 8).map(field => (
-              <div key={field.key}>
-                <label className="mb-1 block text-[10px] uppercase tracking-wider text-text-muted">{field.label}</label>
-                <NumberInput value={draft.thresholdOverrides?.[field.key]} step={field.step} unit={field.unit} suggestions={field.suggestions}
-                  onChange={v => onDraftChange({ ...draft, thresholdOverrides: { ...(draft.thresholdOverrides ?? {}), [field.key]: v ?? undefined } })} />
-              </div>
-            ))}
-          </div>
         </CardContent>
       </Card>
 
       {issues.length > 0 && (
-        <Card className="border-[#2a2a35] bg-[#111318]">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-[#f43f5e]">Issues ({issues.length})</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-1">
-              {issues.slice(0, 5).map((issue, i) => (
-                <div key={i} className="flex items-center gap-2 rounded bg-[#1a1a1f] px-2 py-1 text-xs">
-                  <Badge variant={issue.level === "error" ? "danger" : "warning"} className="text-[10px]">{issue.level}</Badge>
-                  <span className="text-text-secondary">{issue.message}</span>
-                </div>
-              ))}
+        <details className="group rounded-[16px] border border-[#2a2a35] bg-[#111318]">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-6 py-4">
+            <div>
+              <div className="text-sm font-semibold text-[#f43f5e]">Validation issues</div>
+              <div className="mt-1 text-xs text-text-secondary">Keep collapsed unless validation fails.</div>
             </div>
-          </CardContent>
-        </Card>
-      )}
-    </div>
-  );
-}
-
-function ResultsTab({
-  report,
-  catalog,
-  completedRunDetail,
-  selectedRunId,
-  isPending,
-  onSelectRun,
-  onApplyLiveStrategy,
-  onReloadCatalog,
-  onLoadRun,
-}: {
-  report: DiscoveryLabRunReport | null;
-  catalog: DiscoveryLabCatalog;
-  completedRunDetail: DiscoveryLabRunDetail | null;
-  selectedRunId: string;
-  isPending: boolean;
-  onSelectRun: (runId: string) => void;
-  onApplyLiveStrategy: () => void;
-  onReloadCatalog: () => Promise<void>;
-  onLoadRun: (runId: string, silent?: boolean) => Promise<void>;
-}) {
-  const tokenRows = buildTokenRows(report);
-
-  return (
-    <div className="space-y-4">
-      <RunStatusPollerWithData
-        catalog={catalog}
-        selectedRunId={selectedRunId}
-        onCatalogReload={onReloadCatalog}
-        onRunDetailLoad={onLoadRun}
-      />
-      <ResultsTable tokenRows={tokenRows} completedRunDetail={completedRunDetail} isPending={isPending} onApplyLiveStrategy={onApplyLiveStrategy} />
-      <Card className="border-[#2a2a35] bg-[#111318]">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm">Recent Runs</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          <div className="max-h-[200px] overflow-auto">
-            {catalog.recentRuns.slice(0, 10).map(run => (
-              <button key={run.id} type="button" onClick={() => onSelectRun(run.id)}
-                className={cn(
-                  "flex w-full items-center justify-between border-b border-[#1f1f28] px-3 py-2 text-left transition-colors hover:bg-[#1a1a22]",
-                  selectedRunId === run.id && "bg-accent/5"
-                )}>
-                <div className="flex items-center gap-2">
-                  <StatusPill value={run.status} />
-                  <span className="text-xs text-text-primary">{run.packName}</span>
-                </div>
-                <span className="text-[10px] text-text-muted">
-                  {run.evaluationCount !== null ? `${formatInteger(run.evaluationCount)}` : ""} evals
-                  {run.winnerCount !== null ? ` · ${formatInteger(run.winnerCount)} won` : ""}
-                </span>
-              </button>
+            <Badge variant="danger">{issues.length}</Badge>
+          </summary>
+          <div className="space-y-1 border-t border-bg-border px-6 py-4">
+            {issues.slice(0, 5).map((issue, i) => (
+              <div key={i} className="flex items-center gap-2 rounded bg-[#1a1a1f] px-2 py-1 text-xs">
+                <Badge variant={issue.level === "error" ? "danger" : "warning"} className="text-[10px]">{issue.level}</Badge>
+                <span className="text-text-secondary">{issue.message}</span>
+              </div>
             ))}
           </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-function RunStatusPollerWithData({
-  catalog,
-  selectedRunId,
-  onCatalogReload,
-  onRunDetailLoad,
-}: {
-  catalog: DiscoveryLabCatalog;
-  selectedRunId: string;
-  onCatalogReload: () => Promise<void>;
-  onRunDetailLoad: (runId: string, silent?: boolean) => Promise<void>;
-}) {
-  const [runDetail, setRunDetail] = useState<DiscoveryLabCatalog["activeRun"]>(catalog.activeRun ?? null);
-
-  useEffect(() => {
-    if (!selectedRunId) {
-      setRunDetail(null);
-      return;
-    }
-    void loadRun(selectedRunId);
-  }, [selectedRunId]);
-
-  useEffect(() => {
-    if (runDetail?.status !== "RUNNING") return;
-    const timer = window.setInterval(() => void loadRun(runDetail.id, true), 3000);
-    return () => window.clearInterval(timer);
-  }, [runDetail?.id, runDetail?.status]);
-
-  useEffect(() => {
-    if (!catalog.activeRun) return;
-    const timer = window.setInterval(() => void onCatalogReload(), 3000);
-    return () => window.clearInterval(timer);
-  }, [catalog.activeRun?.id]);
-
-  async function loadRun(runId: string, silent = false) {
-    try {
-      const next = await fetchJson<DiscoveryLabCatalog["activeRun"]>(`/operator/discovery-lab/runs/${runId}`);
-      setRunDetail(next);
-      if (next?.status !== "RUNNING") await onCatalogReload();
-    } catch (err) {
-      if (!silent) {
-        console.error("Failed to load run:", err);
-      }
-    }
-  }
-
-  const activeRun = runDetail?.status === "RUNNING" ? runDetail : catalog.activeRun ?? null;
-
-  if (!activeRun) return null;
-
-  return (
-    <div className="rounded-lg border border-[#2a2a35] bg-[#111318] p-3">
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <StatusPill value={activeRun.status} />
-          <span className="text-sm text-text-primary">{activeRun.packName}</span>
-        </div>
-        <span className="text-xs text-text-muted">
-          {activeRun.evaluationCount !== null ? `${formatInteger(activeRun.evaluationCount)} evals` : "Running..."}
-        </span>
-      </div>
-      <div className="flex justify-between mt-1 text-[10px] text-text-muted">
-        <span>{activeRun.queryCount !== null ? `${formatInteger(activeRun.queryCount)} queries` : ""}</span>
-        <span>{activeRun.winnerCount !== null ? `${formatInteger(activeRun.winnerCount)} winners` : ""}</span>
-      </div>
-    </div>
-  );
-}
-
-function ResultsTable({
-  tokenRows,
-  completedRunDetail,
-  isPending,
-  onApplyLiveStrategy,
-}: {
-  tokenRows: ReturnType<typeof buildTokenRows>;
-  completedRunDetail: DiscoveryLabRunDetail | null;
-  isPending: boolean;
-  onApplyLiveStrategy: () => void;
-}) {
-  if (tokenRows.length === 0) {
-    return (
-      <Card className="border-[#2a2a35] bg-[#111318]">
-        <CardContent className="flex flex-col items-center justify-center py-12">
-          <Trophy className="h-12 w-12 text-text-muted mb-4" />
-          <p className="text-text-secondary">No results yet</p>
-          <p className="text-xs text-text-muted mt-1">Run a pack to see token results</p>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  return (
-    <Card className="border-[#2a2a35] bg-[#111318]">
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="text-sm font-medium">{tokenRows.length} Tokens</CardTitle>
-            <CardDescription className="text-xs">
-              {tokenRows.filter(r => r.passed).length} passed · {completedRunDetail?.winnerCount ?? 0} winners
-            </CardDescription>
-          </div>
-          {completedRunDetail?.strategyCalibration && (
-            <Button size="sm" onClick={onApplyLiveStrategy} disabled={isPending}>
-              <PlayCircle className="h-4 w-4 mr-1" />
-              Apply to Live
-            </Button>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent className="p-0">
-        <div className="max-h-[400px] overflow-auto">
-          <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-[#111318]">
-              <tr className="border-b border-[#2a2a35]">
-                <th className="px-3 py-2 text-left text-xs font-medium text-text-muted">Token</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-text-muted">Status</th>
-                <th className="px-3 py-2 text-right text-xs font-medium text-text-muted">Liquidity</th>
-                <th className="px-3 py-2 text-right text-xs font-medium text-text-muted">Vol 5m</th>
-                <th className="px-3 py-2 text-right text-xs font-medium text-text-muted">Chg 5m</th>
-                <th className="px-3 py-2 text-right text-xs font-medium text-text-muted">Score</th>
-                <th className="px-3 py-2 w-8"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {tokenRows.slice(0, 50).map(row => (
-                <tr key={row.mint} className="border-b border-[#1f1f28] hover:bg-[#1a1a22]">
-                  <td className="px-3 py-2">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-text-primary">{row.symbol}</span>
-                      <span className="text-xs text-text-muted">{truncateMiddle(row.mint, 4, 3)}</span>
-                    </div>
-                  </td>
-                  <td className="px-3 py-2">
-                    <div className="flex items-center gap-1">
-                      <Badge variant={row.passed ? "accent" : "danger"} className="text-[10px]">{row.passed ? "PASS" : "FAIL"}</Badge>
-                      <Badge variant="default" className="text-[10px]">{row.grade}</Badge>
-                    </div>
-                  </td>
-                  <td className="px-3 py-2 text-right text-text-secondary">
-                    {row.liquidityUsd !== null ? formatCompactCurrency(row.liquidityUsd) : "—"}
-                  </td>
-                  <td className="px-3 py-2 text-right text-text-secondary">
-                    {row.volume5mUsd !== null ? formatCompactCurrency(row.volume5mUsd) : ""}
-                  </td>
-                  <td className={cn("px-3 py-2 text-right", (row.priceChange5mPercent ?? 0) >= 0 ? "text-[#10b981]" : "text-[#f43f5e]")}>
-                    {row.priceChange5mPercent !== null ? formatPercent(row.priceChange5mPercent) : "—"}
-                  </td>
-                  <td className="px-3 py-2 text-right font-mono text-accent">
-                    {formatNumber(row.playScore)}
-                  </td>
-                  <td className="px-3 py-2">
-                    <a href={`https://dexscreener.com/solana/${row.mint}`} target="_blank" rel="noopener noreferrer"
-                      className="inline-flex p-1 text-text-muted hover:text-text-primary">
-                      <ExternalLink className="h-4 w-4" />
-                    </a>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function LiveSessionPanel({ runtimeSnapshot }: { runtimeSnapshot: DiscoveryLabRuntimeSnapshot }) {
-  return (
-    <Card className="border-accent/30 bg-accent/5">
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="text-sm flex items-center gap-2">
-              <PlayCircle className="h-4 w-4 text-accent" />
-              Live Trading Session
-            </CardTitle>
-            <CardDescription className="text-xs">
-              Capital: ${formatCompactCurrency(runtimeSnapshot.botState.capitalUsd)} · Mode: {runtimeSnapshot.botState.tradeMode}
-            </CardDescription>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="grid gap-2 sm:grid-cols-3">
-          <div className="rounded bg-[#111318] p-2 text-center">
-            <div className="text-lg font-mono text-accent">{runtimeSnapshot.openPositions}</div>
-            <div className="text-[10px] text-text-muted">Open Positions</div>
-          </div>
-          <div className="rounded bg-[#111318] p-2 text-center">
-            <div className="text-lg font-mono text-text-primary">
-              ${formatCompactCurrency(runtimeSnapshot.botState.cashUsd)}
-            </div>
-            <div className="text-[10px] text-text-muted">Available Cash</div>
-          </div>
-          <div className="rounded bg-[#111318] p-2 text-center">
-            <div className={cn("text-lg font-mono", runtimeSnapshot.botState.realizedPnlUsd >= 0 ? "text-[#10b981]" : "text-[#f43f5e]")}>
-              {runtimeSnapshot.botState.realizedPnlUsd >= 0 ? "+" : ""}{formatCompactCurrency(runtimeSnapshot.botState.realizedPnlUsd)}
-            </div>
-            <div className="text-[10px] text-text-muted">Realized P&L</div>
-          </div>
-        </div>
-        <Separator className="my-3" />
-        <p className="text-xs text-text-secondary">
-          Run discovery lab analysis and apply calibration to update live trading parameters.
-        </p>
-      </CardContent>
-    </Card>
-  );
-}
-
-function TabNav({ tabs, value, onChange }: { tabs: { id: string; label: string; count?: number }[]; value: string; onChange: (v: "config" | "results") => void }) {
-  return (
-    <div className="flex items-center gap-1 rounded-lg bg-[#1a1a1f] p-1">
-      {tabs.map(tab => (
-        <button
-          key={tab.id}
-          onClick={() => onChange(tab.id as "config" | "results")}
-          className={cn(
-            "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-            value === tab.id ? "bg-[#111318] text-text-primary" : "text-text-secondary hover:text-text-primary"
-          )}
-        >
-          {tab.label}
-          {tab.count !== undefined && tab.count > 0 && (
-            <Badge variant="default" className="text-[10px]">{tab.count}</Badge>
-          )}
-        </button>
-      ))}
+        </details>
+      )}
     </div>
   );
 }
@@ -925,8 +852,13 @@ function NumberInput({ value, step, unit, suggestions, onChange }: {
 }) {
   return (
     <div className="space-y-1.5">
-      <input type="number" step={step} value={value ?? ""} onChange={e => onChange(e.target.value === "" ? null : Number(e.target.value))}
-        className="w-full rounded-md border border-[#2a2a35] bg-[#111318] px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent/50" />
+      <Input
+        type="number"
+        step={step}
+        value={value ?? ""}
+        onChange={e => onChange(e.target.value === "" ? null : Number(e.target.value))}
+        className="h-9 border-[#2a2a35] bg-[#111318] text-sm"
+      />
       <div className="flex flex-wrap gap-1">
         {suggestions.map(s => (
           <button key={s} type="button" onClick={() => onChange(s)}
@@ -939,9 +871,9 @@ function NumberInput({ value, step, unit, suggestions, onChange }: {
   );
 }
 
-function FilterCard({ field, value, onChange, onRemove }: { field: typeof FILTER_FIELDS[number]; value: string; onChange: (v: string) => void; onRemove: () => void }) {
+function FilterCard({ field, value, onChange, onRemove }: { field: ReturnType<typeof getFilterField>; value: string; onChange: (v: string) => void; onRemove: () => void }) {
   return (
-    <div className="flex items-center gap-2 rounded-md border border-[#2a2a35] bg-[#111318] p-2">
+    <div className="flex items-start gap-2 rounded-[12px] border border-[#2a2a35] bg-[#111318] p-2.5">
       <div className="min-w-0 flex-1">
         <div className="text-xs text-text-secondary">{field.label}</div>
         {field.kind === "boolean" ? (
@@ -949,9 +881,9 @@ function FilterCard({ field, value, onChange, onRemove }: { field: typeof FILTER
             {["true", "false"].map(v => <ChoiceChip key={v} active={value === v} onClick={() => onChange(v)}>{v === "true" ? "Yes" : "No"}</ChoiceChip>)}
           </div>
         ) : field.kind === "text" ? (
-          <Input value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className="mt-1 h-7 text-xs" />
+          <Input value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className="mt-1 h-8 text-xs" />
         ) : (
-          <NumberInput value={value} step={field.step} unit={field.unit ?? ""} suggestions={field.suggestions ?? []}
+          <NumberInput value={value} step={field.step ?? 1} unit={field.unit ?? ""} suggestions={field.suggestions ?? []}
             onChange={v => onChange(v == null ? "" : String(v))} />
         )}
       </div>
@@ -968,7 +900,7 @@ function displayPackName(pack?: Pick<DiscoveryLabPack, "id" | "name"> | null): s
 }
 
 function toDraft(pack?: DiscoveryLabPack | null): DiscoveryLabPackDraft {
-  if (!pack) return { name: "", description: "", defaultSources: ["pump_dot_fun"], defaultProfile: "high-value", thresholdOverrides: {}, recipes: [] };
+  if (!pack) return createEmptyDraft();
   return {
     id: pack.kind === "custom" ? pack.id : undefined,
     name: displayPackName(pack),
@@ -982,133 +914,34 @@ function toDraft(pack?: DiscoveryLabPack | null): DiscoveryLabPackDraft {
   };
 }
 
+function createEmptyDraft(): DiscoveryLabPackDraft {
+  return {
+    name: "",
+    description: "",
+    thesis: "",
+    targetPnlBand: { label: "" },
+    defaultSources: ["pump_dot_fun"],
+    defaultProfile: "high-value",
+    thresholdOverrides: {},
+    recipes: [createBlankRecipe()],
+  };
+}
+
+function toEditableCopy(draft: DiscoveryLabPackDraft): DiscoveryLabPackDraft {
+  return {
+    ...draft,
+    id: undefined,
+    name: draft.name?.trim() ? `${draft.name} Copy` : "",
+    recipes: draft.recipes.length > 0 ? draft.recipes : [createBlankRecipe()],
+  };
+}
+
 function createBlankRecipe(): DiscoveryLabRecipe {
-  return { name: "", mode: "graduated", description: "", params: { graduated: true, sort_by: "last_trade_unix_time", sort_type: "desc", limit: 100 } };
+  return { name: "", mode: "graduated", description: "", params: { graduated: true, sort_by: "trade_1m_count", sort_type: "desc", limit: 100 } };
 }
 
 function buildParamTextsFromRecipes(recipes: DiscoveryLabRecipe[]): Record<number, string> {
   return Object.fromEntries(recipes.map((recipe, index) => [index, JSON.stringify(recipe.params, null, 2)]));
-}
-
-function safeParseParams(value: string): Record<string, string | number | boolean | null> {
-  if (!value?.trim()) return {};
-  try {
-    const parsed = JSON.parse(value);
-    return (parsed && typeof parsed === "object" && !Array.isArray(parsed)) ? parsed : {};
-  } catch { return {}; }
-}
-
-function parseStructuredRecipeForm(value: string): {
-  sort_by: string;
-  sort_type: "asc" | "desc";
-  source: string;
-  limit: string;
-  filters: Record<string, string>;
-} {
-  const params = safeParseParams(value);
-  return {
-    sort_by: typeof params.sort_by === "string" ? params.sort_by : "last_trade_unix_time",
-    sort_type: params.sort_type === "asc" ? "asc" : "desc",
-    source: typeof params.source === "string" ? params.source : "",
-    limit: String(params.limit ?? ""),
-    filters: Object.fromEntries(Object.entries(params).filter(([k]) => k.startsWith("min_") || k.startsWith("max_") || k === "graduated" || k === "creator").map(([k, v]) => [k, String(v ?? "")])),
-  };
-}
-
-function serializeRecipeForm(form: ReturnType<typeof parseStructuredRecipeForm>): Record<string, string | number | boolean | null> {
-  const result: Record<string, string | number | boolean | null> = { sort_by: form.sort_by, sort_type: form.sort_type };
-  if (form.source.trim()) result.source = form.source;
-  if (form.limit.trim()) result.limit = Number(form.limit) || 100;
-  for (const [key, value] of Object.entries(form.filters)) {
-    if (value.trim()) {
-      const field = FILTER_FIELD_MAP[key];
-      if (field?.kind === "number") result[key] = Number(value) || 0;
-      else if (field?.kind === "boolean") result[key] = value === "true";
-      else result[key] = value;
-    }
-  }
-  return result;
-}
-
-function updateParamText(paramTexts: Record<number, string>, index: number, mutator: (form: ReturnType<typeof parseStructuredRecipeForm>) => ReturnType<typeof parseStructuredRecipeForm>): Record<number, string> {
-  const form = parseStructuredRecipeForm(paramTexts[index] ?? "{}");
-  const updated: Record<number, string> = { ...paramTexts };
-  updated[index] = JSON.stringify(serializeRecipeForm(mutator(form)), null, 2);
-  return updated;
-}
-
-function buildTokenRows(report: DiscoveryLabRunReport | null): Array<{
-  mint: string;
-  symbol: string;
-  source: string;
-  recipe: string;
-  passed: boolean;
-  grade: string;
-  playScore: number;
-  entryScore: number;
-  liquidityUsd: number | null;
-  volume5mUsd: number | null;
-  priceChange5mPercent: number | null;
-  top10HolderPercent: number | null;
-  timeSinceGraduationMin: number | null;
-  rejectReason: string | null;
-}> {
-  if (!report) return [];
-  const byMint = new Map<string, {
-    mint: string;
-    symbol: string;
-    source: string;
-    recipe: string;
-    passed: boolean;
-    grade: string;
-    playScore: number;
-    entryScore: number;
-    liquidityUsd: number | null;
-    volume5mUsd: number | null;
-    priceChange5mPercent: number | null;
-    top10HolderPercent: number | null;
-    timeSinceGraduationMin: number | null;
-    rejectReason: string | null;
-  }>();
-  for (const eval_ of report.deepEvaluations) {
-    const existing = byMint.get(eval_.mint);
-    if (!existing || eval_.playScore > existing.playScore) {
-      byMint.set(eval_.mint, {
-        mint: eval_.mint,
-        symbol: eval_.symbol,
-        source: eval_.source,
-        recipe: eval_.recipeName,
-        passed: eval_.pass,
-        grade: eval_.grade,
-        playScore: eval_.playScore,
-        entryScore: eval_.entryScore,
-        liquidityUsd: eval_.liquidityUsd,
-        volume5mUsd: eval_.volume5mUsd,
-        priceChange5mPercent: eval_.priceChange5mPercent,
-        top10HolderPercent: eval_.top10HolderPercent,
-        timeSinceGraduationMin: eval_.timeSinceGraduationMin,
-        rejectReason: eval_.rejectReason,
-      });
-    }
-  }
-  return Array.from(byMint.values());
-}
-
-function sanitizeLiveStrategy(input: LiveStrategySettings): LiveStrategySettings {
-  const exits = input.exitOverrides;
-  return {
-    ...input,
-    capitalModifierPercent: Math.min(180, Math.max(40, input.capitalModifierPercent)),
-    exitOverrides: {
-      ...exits,
-      stopLossPercent: Math.min(35, Math.max(4, exits.stopLossPercent ?? 15)),
-    },
-  };
-}
-
-function truncateMiddle(str: string, start: number, end: number): string {
-  if (str.length <= start + end + 3) return str;
-  return `${str.slice(0, start)}...${str.slice(-end)}`;
 }
 
 function formatSuggestedValue(value: number, unit: string): string {

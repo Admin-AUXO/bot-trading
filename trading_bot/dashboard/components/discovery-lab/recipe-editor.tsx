@@ -15,28 +15,16 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/components/ui/cn";
-
-const SORT_OPTIONS = [
-  { value: "last_trade_unix_time", label: "Last Trade" },
-  { value: "graduated_time", label: "Graduated" },
-  { value: "volume_5m_usd", label: "Volume 5m" },
-  { value: "price_change_5m_percent", label: "Price 5m" },
-  { value: "liquidity", label: "Liquidity" },
-  { value: "market_cap", label: "Market Cap" },
-];
-
-const FILTER_FIELDS = [
-  { key: "graduated", label: "Graduated Only", kind: "boolean" as const },
-  { key: "min_progress_percent", label: "Min Progress", kind: "number" as const, unit: "%", step: 1, suggestions: [50, 75, 90] },
-  { key: "min_liquidity", label: "Min Liquidity", kind: "number" as const, unit: "USD", step: 500, suggestions: [8000, 12000, 16000] },
-  { key: "max_liquidity", label: "Max Liquidity", kind: "number" as const, unit: "USD", step: 500, suggestions: [25000, 50000, 100000] },
-  { key: "min_market_cap", label: "Min Market Cap", kind: "number" as const, unit: "USD", step: 10000, suggestions: [100000, 250000, 500000] },
-  { key: "min_holder", label: "Min Holders", kind: "number" as const, unit: "wallets", step: 1, suggestions: [40, 60, 80] },
-  { key: "min_volume_5m_usd", label: "Min 5m Vol", kind: "number" as const, unit: "USD", step: 250, suggestions: [1500, 2000, 3000] },
-  { key: "creator", label: "Creator", kind: "text" as const, placeholder: "Wallet" },
-];
-
-const FILTER_FIELD_MAP = Object.fromEntries(FILTER_FIELDS.map(f => [f.key, f]));
+import {
+  FILTER_FIELDS,
+  getFilterField,
+  groupFilterFields,
+  groupSortOptions,
+  parseStructuredRecipeForm,
+  safeParseParams,
+  SORT_OPTIONS,
+  updateParamText,
+} from "@/components/discovery-lab/recipe-form-schema";
 
 interface RecipeEditorProps {
   draft: DiscoveryLabPackDraft;
@@ -235,6 +223,8 @@ interface SortSelectorProps {
 }
 
 function SortSelector({ value, onChange }: SortSelectorProps) {
+  const groupedSortOptions = groupSortOptions(SORT_OPTIONS);
+
   return (
     <div>
       <label className="mb-1 block text-[10px] uppercase tracking-wider text-text-muted">Sort</label>
@@ -243,7 +233,13 @@ function SortSelector({ value, onChange }: SortSelectorProps) {
         onChange={e => onChange(e.target.value)}
         className="w-full rounded-md border border-[#2a2a35] bg-[#1a1a1f] px-2 py-1 text-xs text-text-primary outline-none"
       >
-        {SORT_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+        {groupedSortOptions.map((group) => (
+          <optgroup key={group.label} label={group.label}>
+            {group.values.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </optgroup>
+        ))}
       </select>
     </div>
   );
@@ -257,15 +253,16 @@ interface FilterSectionProps {
 }
 
 function FilterSection({ filters, onFilterChange, onAddFilter, onRemoveFilter }: FilterSectionProps) {
+  const groupedFilterFields = groupFilterFields(FILTER_FIELDS);
+
   return (
     <div>
       <label className="mb-1 block text-[10px] uppercase tracking-wider text-text-muted">
         Filters ({Object.keys(filters).length})
       </label>
       <div className="space-y-1">
-        {Object.entries(filters).filter(([k]) => !["sort_by", "sort_type", "limit", "source", "graduated"].includes(k)).map(([key, value]) => {
-          const field = FILTER_FIELD_MAP[key];
-          if (!field) return null;
+        {Object.entries(filters).map(([key, value]) => {
+          const field = getFilterField(key);
           return (
             <FilterCard
               key={key}
@@ -285,8 +282,12 @@ function FilterSection({ filters, onFilterChange, onAddFilter, onRemoveFilter }:
         className="mt-2 w-full rounded-md border border-[#2a2a35] bg-[#1a1a1f] px-2 py-1 text-xs text-text-primary outline-none"
       >
         <option value="">+ Add filter</option>
-        {FILTER_FIELDS.filter(f => !["sort_by", "sort_type", "limit", "source", "graduated"].includes(f.key) && !filters[f.key]).map(f => (
-          <option key={f.key} value={f.key}>{f.label}</option>
+        {groupedFilterFields.map((group) => (
+          <optgroup key={group.label} label={group.label}>
+            {group.values.filter((field) => !filters[field.key]).map((field) => (
+              <option key={field.key} value={field.key}>{field.label}</option>
+            ))}
+          </optgroup>
         ))}
       </select>
     </div>
@@ -305,7 +306,7 @@ function RecipeList({ recipes, paramTexts, selectedIndex, onSelect }: RecipeList
     <div className="space-y-1">
       {recipes.map((recipe, index) => {
         const form = parseStructuredRecipeForm(paramTexts[index] ?? "{}");
-        const sortLabel = SORT_OPTIONS.find(o => o.value === form.sort_by)?.label ?? "Sort";
+        const sortLabel = SORT_OPTIONS.find((option) => option.value === form.sort_by)?.label ?? "Sort";
         return (
           <button
             key={index}
@@ -329,58 +330,11 @@ function RecipeList({ recipes, paramTexts, selectedIndex, onSelect }: RecipeList
 }
 
 export function createBlankRecipe(): DiscoveryLabRecipe {
-  return { name: "", mode: "graduated", description: "", params: { graduated: true, sort_by: "last_trade_unix_time", sort_type: "desc", limit: 100 } };
+  return { name: "", mode: "graduated", description: "", params: { graduated: true, sort_by: "trade_1m_count", sort_type: "desc", limit: 100 } };
 }
 
 export function buildParamTextsFromRecipes(recipes: DiscoveryLabRecipe[]): Record<number, string> {
   return Object.fromEntries(recipes.map((recipe, index) => [index, JSON.stringify(recipe.params, null, 2)]));
-}
-
-function safeParseParams(value: string): Record<string, string | number | boolean | null> {
-  if (!value?.trim()) return {};
-  try {
-    const parsed = JSON.parse(value);
-    return (parsed && typeof parsed === "object" && !Array.isArray(parsed)) ? parsed : {};
-  } catch { return {}; }
-}
-
-export function parseStructuredRecipeForm(value: string): {
-  sort_by: string;
-  sort_type: "asc" | "desc";
-  source: string;
-  limit: string;
-  filters: Record<string, string>;
-} {
-  const params = safeParseParams(value);
-  return {
-    sort_by: typeof params.sort_by === "string" ? params.sort_by : "last_trade_unix_time",
-    sort_type: params.sort_type === "asc" ? "asc" : "desc",
-    source: typeof params.source === "string" ? params.source : "",
-    limit: String(params.limit ?? ""),
-    filters: Object.fromEntries(Object.entries(params).filter(([k]) => k.startsWith("min_") || k.startsWith("max_") || k === "graduated" || k === "creator").map(([k, v]) => [k, String(v ?? "")])),
-  };
-}
-
-function serializeRecipeForm(form: { sort_by: string; sort_type: "asc" | "desc"; source: string; limit: string; filters: Record<string, string> }): Record<string, string | number | boolean | null> {
-  const result: Record<string, string | number | boolean | null> = { sort_by: form.sort_by, sort_type: form.sort_type };
-  if (form.source.trim()) result.source = form.source;
-  if (form.limit.trim()) result.limit = Number(form.limit) || 100;
-  for (const [key, value] of Object.entries(form.filters)) {
-    if (value.trim()) {
-      const field = FILTER_FIELD_MAP[key];
-      if (field?.kind === "number") result[key] = Number(value) || 0;
-      else if (field?.kind === "boolean") result[key] = value === "true";
-      else result[key] = value;
-    }
-  }
-  return result;
-}
-
-export function updateParamText(paramTexts: Record<number, string>, index: number, mutator: (form: ReturnType<typeof parseStructuredRecipeForm>) => ReturnType<typeof parseStructuredRecipeForm>): Record<number, string> {
-  const form = parseStructuredRecipeForm(paramTexts[index] ?? "{}");
-  const updated: Record<number, string> = { ...paramTexts };
-  updated[index] = JSON.stringify(serializeRecipeForm(mutator(form)), null, 2);
-  return updated;
 }
 
 function ChoiceChip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
@@ -411,7 +365,7 @@ function FilterCard({ field, value, onChange, onRemove }: FilterCardProps) {
         ) : field.kind === "text" ? (
           <Input value={value} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} className="mt-1 h-7 text-xs" />
         ) : (
-          <NumberInput value={value} step={field.step} unit={field.unit ?? ""} suggestions={field.suggestions ?? []}
+          <NumberInput value={value} step={field.step ?? 1} unit={field.unit ?? ""} suggestions={field.suggestions ?? []}
             onChange={v => onChange(v == null ? "" : String(v))} />
         )}
       </div>

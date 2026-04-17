@@ -1,5 +1,5 @@
 import { DiscoveryLabClient } from "@/components/discovery-lab-client";
-import { serverFetch } from "@/lib/api";
+import { serverFetch } from "@/lib/server-api";
 import type { DiscoveryLabCatalog, DiscoveryLabRuntimeSnapshot } from "@/lib/types";
 
 export const dynamic = "force-dynamic";

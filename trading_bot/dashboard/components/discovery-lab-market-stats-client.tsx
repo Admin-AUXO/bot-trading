@@ -252,59 +252,83 @@ export function DiscoveryLabMarketStatsClient(props: {
         />
       ) : null}
 
-      {/* Mint lookup */}
       <Panel
-        title="Token lookup"
+        title="Operator bar"
         eyebrow="Quick scan"
-        description="Paste any Solana mint for a one-token refresh. Use sparingly — each lookup is a paid call."
+        description="Refresh, switch views, and hit a one-token lookup without leaving a giant dead control slab on the page."
         tone={payload.meta.cacheState === "degraded" ? "warning" : "default"}
       >
-        <div className="flex items-center gap-3">
-          <Input
-            value={focusMintInput}
-            onChange={(event) => setFocusMintInput(event.target.value)}
-            placeholder="Paste a Solana mint address"
-            className="h-11 flex-1 rounded-full"
-          />
-          <Button
-            onClick={refreshFocusToken}
-            className="h-11 rounded-full px-5"
-            disabled={isPending}
-          >
-            <Search className="h-4 w-4" />
-            {pendingAction === "focus" ? "Loading" : "Lookup"}
-          </Button>
-        </div>
-      </Panel>
-
-      {/* View mode tabs + display mode toggle */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        {/* Left: view mode tabs */}
-        <div className="flex items-center gap-1.5 rounded-full border border-bg-border bg-[#101012] p-1">
-          <ViewTab
-            active={viewMode === "trending" && !watchlistTab}
-            onClick={() => { setViewMode("trending"); setWatchlistTab(false); }}
-            icon={<TrendingUp className="h-3.5 w-3.5" />}
-            label="Trending"
-          />
-          <ViewTab
-            active={viewMode === "newgrads" && !watchlistTab}
-            onClick={() => { setViewMode("newgrads"); setWatchlistTab(false); }}
-            icon={<Clock className="h-3.5 w-3.5" />}
-            label="New grads"
-          />
-          <ViewTab
-            active={watchlistTab}
-            onClick={() => { setWatchlistTab(true); }}
-            icon={<Star className="h-3.5 w-3.5" />}
-            label={`Watchlist`}
-            count={watchlist.size}
-          />
-        </div>
-
-        {/* Right: display mode + source counts */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 text-xs text-text-muted">
+        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+            <div className="flex items-center gap-2 rounded-[14px] border border-bg-border bg-[#0f1012] p-2">
+              <Search className="ml-1 h-4 w-4 text-text-muted" />
+              <Input
+                value={focusMintInput}
+                onChange={(event) => setFocusMintInput(event.target.value)}
+                placeholder="Paste a Solana mint address"
+                className="h-8 flex-1 border-0 bg-transparent px-0 py-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+              />
+              <Button
+                onClick={refreshFocusToken}
+                className="h-8 px-3"
+                disabled={isPending}
+              >
+                {pendingAction === "focus" ? "Loading" : "Lookup"}
+              </Button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1.5 rounded-full border border-bg-border bg-[#101012] p-1">
+                <ViewTab
+                  active={viewMode === "trending" && !watchlistTab}
+                  onClick={() => { setViewMode("trending"); setWatchlistTab(false); }}
+                  icon={<TrendingUp className="h-3.5 w-3.5" />}
+                  label="Trending"
+                />
+                <ViewTab
+                  active={viewMode === "newgrads" && !watchlistTab}
+                  onClick={() => { setViewMode("newgrads"); setWatchlistTab(false); }}
+                  icon={<Clock className="h-3.5 w-3.5" />}
+                  label="New grads"
+                />
+                <ViewTab
+                  active={watchlistTab}
+                  onClick={() => { setWatchlistTab(true); }}
+                  icon={<Star className="h-3.5 w-3.5" />}
+                  label="Watchlist"
+                  count={watchlist.size}
+                />
+              </div>
+              <div className="flex items-center gap-1 rounded-full border border-bg-border bg-[#101012] p-1">
+                <button
+                  type="button"
+                  onClick={() => setDisplayMode("grid")}
+                  title="Grid view"
+                  className={clsx(
+                    "rounded-full p-1.5 transition",
+                    displayMode === "grid"
+                      ? "bg-accent/15 text-accent"
+                      : "text-text-muted hover:text-text-primary"
+                  )}
+                >
+                  <LayoutGrid className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDisplayMode("list")}
+                  title="List view"
+                  className={clsx(
+                    "rounded-full p-1.5 transition",
+                    displayMode === "list"
+                      ? "bg-accent/15 text-accent"
+                      : "text-text-muted hover:text-text-primary"
+                  )}
+                >
+                  <List className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-text-muted xl:justify-end">
             <span
               className={clsx(
                 "rounded-full border px-2 py-0.5",
@@ -322,36 +346,8 @@ export function DiscoveryLabMarketStatsClient(props: {
               {payload.sourceMix.rugcheckRecentCount + payload.sourceMix.rugcheckVerifiedCount} Rugcheck
             </span>
           </div>
-          <div className="flex items-center gap-1 rounded-full border border-bg-border bg-[#101012] p-1">
-            <button
-              type="button"
-              onClick={() => setDisplayMode("grid")}
-              title="Grid view"
-              className={clsx(
-                "rounded-full p-1.5 transition",
-                displayMode === "grid"
-                  ? "bg-accent/15 text-accent"
-                  : "text-text-muted hover:text-text-primary"
-              )}
-            >
-              <LayoutGrid className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setDisplayMode("list")}
-              title="List view"
-              className={clsx(
-                "rounded-full p-1.5 transition",
-                displayMode === "list"
-                  ? "bg-accent/15 text-accent"
-                  : "text-text-muted hover:text-text-primary"
-              )}
-            >
-              <List className="h-4 w-4" />
-            </button>
-          </div>
         </div>
-      </div>
+      </Panel>
 
       {/* Main board */}
       {hasBoardData ? (

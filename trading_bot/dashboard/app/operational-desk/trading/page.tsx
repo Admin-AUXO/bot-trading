@@ -8,7 +8,7 @@ import { buttonVariants, Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Input } from "@/components/ui/input";
 import { WorkflowSection } from "@/components/workflow-ui";
-import { serverFetch } from "@/lib/api";
+import { serverFetch } from "@/lib/server-api";
 import { operationalDeskRoutes } from "@/lib/dashboard-routes";
 import { formatCompactCurrency, formatInteger } from "@/lib/format";
 import { buildGrafanaDashboardLink } from "@/lib/grafana";

@@ -13,21 +13,23 @@ description: "Use when the user wants to rebuild, recreate, or refresh Docker Co
 
 ## Default Path
 
-- Run `cd trading_bot && ./scripts/update-compose-stack.sh`
-- That syncs compose env files, validates compose config, rebuilds `db-setup`, `bot`, and `dashboard`, then force-recreates those services
+- Run `cd trading_bot && node ./scripts/update-compose-stack.mjs`
+- Default scope is now `bot dashboard`; `db-setup` is pulled in only when Prisma changed or you request it explicitly
+- The helper syncs compose env files, rebuilds only changed services, and force-recreates only when the image or container env actually changed
 
 ## Common Variants
 
-- Dashboard only: `cd trading_bot && ./scripts/update-compose-stack.sh --service dashboard`
-- Bot plus dashboard: `cd trading_bot && ./scripts/update-compose-stack.sh --service bot --service dashboard`
-- Include Grafana with the app stack: `cd trading_bot && ./scripts/update-compose-stack.sh --full-stack`
-- n8n sidecar: `cd trading_bot && ./scripts/update-compose-stack.sh --include-automation --service n8n`
-- Obsidian sidecar: `cd trading_bot && ./scripts/update-compose-stack.sh --include-notes --service obsidian`
-- Build without recreation: `cd trading_bot && ./scripts/update-compose-stack.sh --build-only`
+- Dashboard only: `cd trading_bot && node ./scripts/update-compose-stack.mjs --service dashboard`
+- Bot plus dashboard: `cd trading_bot && node ./scripts/update-compose-stack.mjs --service bot --service dashboard`
+- Include Grafana with the app stack: `cd trading_bot && node ./scripts/update-compose-stack.mjs --full-stack`
+- n8n sidecar: `cd trading_bot && node ./scripts/update-compose-stack.mjs --service n8n`
+- Obsidian sidecar: `cd trading_bot && node ./scripts/update-compose-stack.mjs --service obsidian`
+- Build without recreation: `cd trading_bot && node ./scripts/update-compose-stack.mjs --build-only`
+- PowerShell wrapper: `cd trading_bot; .\scripts\update-compose-stack.ps1 --service dashboard`
 
 ## Rules
 
-- Keep the app startup chain intact: `postgres -> db-setup -> bot -> dashboard`
+- Keep the app startup chain intact when Prisma changes: `postgres -> db-setup -> bot -> dashboard`
 - Do not skip compose env sync unless you know container env is already current
 - After refresh, inspect `docker compose ps` and run the smallest health check that matches the changed service
 - If this workflow changes, update `notes/reference/bootstrap-and-docker.md` in the same pass

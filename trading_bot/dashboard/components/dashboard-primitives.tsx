@@ -52,16 +52,14 @@ export function CompactPageHeader(props: {
             <div className="section-kicker text-accent">{props.eyebrow}</div>
             {props.badges}
           </div>
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            <h1 className="font-display text-[1rem] font-semibold tracking-[-0.02em] text-text-primary">
-              {props.title}
-            </h1>
-            {props.description ? (
-              <span className="text-[12px] text-text-secondary">{props.description}</span>
-            ) : null}
-          </div>
+          <h1 className="mt-1 font-display text-[1rem] font-semibold tracking-[-0.02em] text-text-primary">
+            {props.title}
+          </h1>
+          {props.description ? (
+            <div className="mt-0.5 text-[12px] text-text-secondary">{props.description}</div>
+          ) : null}
         </div>
-        {props.actions ? <div className="flex flex-wrap items-center gap-2">{props.actions}</div> : null}
+        {props.actions ? <div className="flex flex-wrap items-center gap-2 sm:justify-end">{props.actions}</div> : null}
       </div>
       {props.children ? <div className="mt-2">{props.children}</div> : null}
     </section>

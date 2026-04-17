@@ -17,6 +17,8 @@ import { CompactPageHeader, CompactStatGrid, EmptyState, Panel, StatusPill } fro
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 
 type SectionId = "capital" | "strategy" | "entry" | "exit" | "advanced";
 type SettingsEditorMode = "default" | "hot-discovery";
@@ -587,15 +589,15 @@ function SectionEditor(props: {
             return (
               <label key={field.path} className={fieldCardClassName(changed)}>
                 <FieldLabel label={field.label} changed={changed} help={help} />
-                <select
+                <Select
                   value={String(value)}
                   onChange={(event) => props.onChange(field.path, event.target.value)}
-                  className="mt-2.5 h-10 w-full rounded-[12px] border border-bg-border bg-[#0f0f10] px-3 py-2 text-sm text-text-primary outline-none transition focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--accent)_65%,transparent)]"
+                  className="mt-2.5"
                 >
                   {field.options?.map((option) => (
                     <option key={option.value} value={option.value}>{option.label}</option>
                   ))}
-                </select>
+                </Select>
                 <FieldDiff path={field.path} activeValue={activeValue} value={value} />
               </label>
             );
@@ -605,12 +607,12 @@ function SectionEditor(props: {
             <label key={field.path} className={fieldCardClassName(changed)}>
               <FieldLabel label={field.label} changed={changed} help={help} />
               <div className="mt-2.5 flex items-center gap-3 rounded-[12px] border border-bg-border bg-bg-primary/65 px-3 py-2.5">
-                <input
+                <Input
                   type="number"
                   step={field.step}
                   value={String(value)}
                   onChange={(event) => props.onChange(field.path, event.target.value)}
-                  className="min-w-0 flex-1 bg-transparent text-sm text-text-primary outline-none"
+                  className="h-auto min-w-0 flex-1 border-0 bg-transparent px-0 py-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
                 />
                 <span className="text-xs uppercase tracking-[0.16em] text-text-muted">{fieldUnit(field.path) || "value"}</span>
               </div>
@@ -654,11 +656,11 @@ function HotParameterRow(props: {
           <div className="rounded-[12px] border border-bg-border bg-bg-primary/65 px-3 py-2">
             <div className="text-[10px] uppercase tracking-[0.16em] text-text-muted">Now</div>
             <div className="mt-1 flex items-center gap-2">
-              <input
+              <Input
                 type="number"
                 value={String(props.value)}
                 onChange={(event) => props.onChange(props.path, event.target.value)}
-                className="min-w-0 flex-1 bg-transparent text-sm text-text-primary outline-none"
+                className="h-auto min-w-0 flex-1 border-0 bg-transparent px-0 py-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
               />
               <span className="text-[10px] uppercase tracking-[0.16em] text-text-muted">{fieldUnit(props.path) || "value"}</span>
             </div>

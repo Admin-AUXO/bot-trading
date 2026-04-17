@@ -26,7 +26,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
-  ReviewSection,
   WorkflowBadge,
   WorkflowSection,
   WorkflowStat,
@@ -582,6 +581,11 @@ export function DiscoveryLabResultsBoard(props: {
   const runDurationLabel = hydrated
     ? formatRunDuration(runDetail)
     : "Syncing...";
+  const hasAnyTokens = boardStats.uniqueTokens > 0;
+  const hasAnyRawHits = Boolean(report?.deepEvaluations.length);
+  const showSecondarySynthesis =
+    hasAnyTokens &&
+    (cohortSummaries.length > 0 || decisionBands.length > 0 || boardStats.overlapTokens > 0);
 
   const columnDefs = useMemo<ColDef<TokenBoardRow>[]>(
     () => [
@@ -879,29 +883,21 @@ export function DiscoveryLabResultsBoard(props: {
                   />
                 </>
               )}
-              <div className="flex flex-col items-end gap-1.5">
-                <Button
-                  type="button"
+              <div className="flex flex-wrap justify-end gap-1.5">
+                <CompactActionButton
+                  label="Details"
+                  icon={<Eye className="h-3.5 w-3.5" />}
                   onClick={() => setSelectedMint(row.mint)}
-                  variant="ghost"
-                  size="sm"
-                >
-                  <Eye className="h-4 w-4" />
-                  View details
-                </Button>
-                <Button
-                  type="button"
+                />
+                <CompactActionButton
+                  label="Ticket"
                   onClick={() => setTradeTicketMint(row.mint)}
                   disabled={
                     Boolean(manualTradeDisabledReason) ||
                     manualEntryPendingMint !== null
                   }
                   title={manualTradeDisabledReason ?? undefined}
-                  variant="ghost"
-                  size="sm"
-                >
-                  Trade ticket
-                </Button>
+                />
               </div>
             </div>
           );
@@ -959,29 +955,31 @@ export function DiscoveryLabResultsBoard(props: {
         >
           {report ? (
             <div className="space-y-5">
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                <WorkflowStat
-                  label="Visible tokens"
-                  value={formatInteger(visibleRows.length)}
-                  detail={`${humanizeFilterLabel(resultFilter)} in view`}
-                  tone="accent"
-                />
-                <WorkflowStat
-                  label="Pass-grade"
-                  value={formatInteger(boardStats.passTokens)}
-                  detail={`${formatInteger(boardStats.winnerTokens)} winner${boardStats.winnerTokens === 1 ? "" : "s"} surfaced`}
-                />
-                <WorkflowStat
-                  label="Tracked open"
-                  value={formatInteger(openPositionRows.length)}
-                  detail={`${formatInteger(Math.max(runtimeSnapshot?.settings.capital.maxOpenPositions ?? 0, openPositionRows.length))} max slots`}
-                />
-                <WorkflowStat
-                  label="Coverage"
-                  value={formatInteger(boardStats.totalEvaluations)}
-                  detail={`${formatInteger(boardStats.uniqueTokens)} unique mints after dedupe`}
-                />
-              </div>
+              {hasAnyTokens ? (
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <WorkflowStat
+                    label="Visible tokens"
+                    value={formatInteger(visibleRows.length)}
+                    detail={`${humanizeFilterLabel(resultFilter)} in view`}
+                    tone="accent"
+                  />
+                  <WorkflowStat
+                    label="Pass-grade"
+                    value={formatInteger(boardStats.passTokens)}
+                    detail={`${formatInteger(boardStats.winnerTokens)} winner${boardStats.winnerTokens === 1 ? "" : "s"} surfaced`}
+                  />
+                  <WorkflowStat
+                    label="Tracked open"
+                    value={formatInteger(openPositionRows.length)}
+                    detail={`${formatInteger(Math.max(runtimeSnapshot?.settings.capital.maxOpenPositions ?? 0, openPositionRows.length))} max slots`}
+                  />
+                  <WorkflowStat
+                    label="Coverage"
+                    value={formatInteger(boardStats.totalEvaluations)}
+                    detail={`${formatInteger(boardStats.uniqueTokens)} unique mints after dedupe`}
+                  />
+                </div>
+              ) : null}
 
               <MarketRegimeStrip
                 regime={marketRegime}
@@ -1003,30 +1001,32 @@ export function DiscoveryLabResultsBoard(props: {
                 </div>
               ) : null}
 
-              <details className="rounded-[16px] border border-bg-border bg-[#101012]">
-                <summary className="cursor-pointer list-none px-4 py-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-semibold text-text-primary">
-                        Secondary synthesis
+              {showSecondarySynthesis ? (
+                <details className="rounded-[16px] border border-bg-border bg-[#101012]">
+                  <summary className="cursor-pointer list-none px-4 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-text-primary">
+                          Secondary synthesis
+                        </div>
+                        <div className="mt-1 text-xs text-text-secondary">
+                          Cohorts and adaptive band previews stay available
+                          without competing with the token board.
+                        </div>
                       </div>
-                      <div className="mt-1 text-xs text-text-secondary">
-                        Cohorts and adaptive band previews stay available
-                        without competing with the token board.
-                      </div>
+                      <span className="meta-chip">
+                        {formatInteger(boardStats.overlapTokens)} overlap tokens
+                      </span>
                     </div>
-                    <span className="meta-chip">
-                      {formatInteger(boardStats.overlapTokens)} overlap tokens
-                    </span>
+                  </summary>
+                  <div className="border-t border-bg-border p-4">
+                    <div className="grid gap-4 2xl:grid-cols-2">
+                      <CohortBoard cohorts={cohortSummaries} />
+                      <AdaptiveStrategyPreview bands={decisionBands} />
+                    </div>
                   </div>
-                </summary>
-                <div className="border-t border-bg-border p-4">
-                  <div className="grid gap-4 2xl:grid-cols-2">
-                    <CohortBoard cohorts={cohortSummaries} />
-                    <AdaptiveStrategyPreview bands={decisionBands} />
-                  </div>
-                </div>
-              </details>
+                </details>
+              ) : null}
 
               {manualEntryError ? (
                 <div className="rounded-[16px] border border-[rgba(248,113,113,0.24)] bg-[#1a1011] px-4 py-3 text-sm text-[#f7c0c0]">
@@ -1034,58 +1034,59 @@ export function DiscoveryLabResultsBoard(props: {
                 </div>
               ) : null}
 
-              <div className="rounded-[16px] border border-bg-border bg-[#0d0f10] p-3">
-                <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                  <div className="flex flex-wrap items-center gap-2">
-                    {RESULT_FILTERS.map((filter) => (
-                      <Button
-                        type="button"
-                        key={filter.id}
-                        onClick={() => setResultFilter(filter.id)}
-                        variant={
-                          resultFilter === filter.id ? "secondary" : "ghost"
-                        }
-                        size="sm"
-                        className="rounded-full"
-                      >
-                        {filter.label}
-                      </Button>
-                    ))}
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    {reportGeneratedAt ? (
-                      <Badge variant="default">
-                        Scored{" "}
-                        {safeClientTimestamp(reportGeneratedAt, hydrated)}
-                      </Badge>
-                    ) : null}
-                    {runDurationLabel ? (
-                      <Badge variant="default">Run {runDurationLabel}</Badge>
-                    ) : null}
-                    <Badge variant="default">
-                      {formatInteger(boardStats.duplicateHitsRemoved)} duplicate
-                      hits removed
-                    </Badge>
+              {hasAnyTokens ? (
+                <div className="rounded-[16px] border border-bg-border bg-[#0d0f10] p-3">
+                  <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)] xl:items-start">
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {RESULT_FILTERS.map((filter) => (
+                          <Button
+                            type="button"
+                            key={filter.id}
+                            onClick={() => setResultFilter(filter.id)}
+                            variant={
+                              resultFilter === filter.id ? "secondary" : "ghost"
+                            }
+                            size="sm"
+                            className="rounded-full"
+                          >
+                            {filter.label}
+                          </Button>
+                        ))}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 text-[11px] text-text-muted">
+                        {reportGeneratedAt ? (
+                          <Badge variant="default">
+                            Scored {safeClientTimestamp(reportGeneratedAt, hydrated)}
+                          </Badge>
+                        ) : null}
+                        {runDurationLabel ? (
+                          <Badge variant="default">Run {runDurationLabel}</Badge>
+                        ) : null}
+                        <Badge variant="default">
+                          {formatInteger(boardStats.duplicateHitsRemoved)} duplicate hits removed
+                        </Badge>
+                        <span>
+                          Search by symbol, mint, source, or strategy without losing board state.
+                        </span>
+                      </div>
+                    </div>
+                    <label className="relative block w-full">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
+                      <Input
+                        value={searchText}
+                        onChange={(event) => setSearchText(event.target.value)}
+                        placeholder="Search symbol, mint, strategy, source"
+                        className="h-10 bg-[#101112] pl-9 pr-3"
+                      />
+                    </label>
                   </div>
                 </div>
-
-                <div className="mt-3 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                  <div className="text-xs text-text-muted">
-                    Search by symbol, mint, source, or strategy to narrow the
-                    current run without losing the full board state.
-                  </div>
-                  <label className="relative block w-full xl:w-[20rem]">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
-                    <Input
-                      value={searchText}
-                      onChange={(event) => setSearchText(event.target.value)}
-                      placeholder="Search symbol, mint, strategy, source"
-                      className="h-9 bg-[#101112] pl-9 pr-3"
-                    />
-                  </label>
+              ) : (
+                <div className="rounded-[16px] border border-bg-border bg-[#0d0f10] px-4 py-3 text-sm text-text-secondary">
+                  No pass-grade tokens surfaced from this run. Use Studio to adjust the pack, then rerun instead of digging through an empty board.
                 </div>
-              </div>
+              )}
 
               {visibleRows.length > 0 ? (
                 <>
@@ -1164,21 +1165,21 @@ export function DiscoveryLabResultsBoard(props: {
                 />
               )}
 
-              <details className="rounded-[16px] border border-bg-border bg-[#101012]">
-                <summary className="cursor-pointer list-none px-4 py-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <div className="section-kicker">Secondary evidence</div>
-                      <div className="mt-1 text-sm font-semibold text-text-primary">
-                        Raw strategy hits (
-                        {formatInteger(report.deepEvaluations.length)})
+              {hasAnyRawHits ? (
+                <details className="rounded-[16px] border border-bg-border bg-[#101012]">
+                  <summary className="cursor-pointer list-none px-4 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <div className="section-kicker">Secondary evidence</div>
+                        <div className="mt-1 text-sm font-semibold text-text-primary">
+                          Raw strategy hits (
+                          {formatInteger(report.deepEvaluations.length)})
+                        </div>
                       </div>
+                      <Badge variant="default">Collapsed by default</Badge>
                     </div>
-                    <Badge variant="default">Collapsed by default</Badge>
-                  </div>
-                </summary>
-                <div className="border-t border-bg-border/80 px-4 py-4">
-                  {report.deepEvaluations.length > 0 ? (
+                  </summary>
+                  <div className="border-t border-bg-border/80 px-4 py-4">
                     <div className="space-y-3">
                       <div className="text-xs text-text-muted">
                         Showing the first 60 raw rows from the current report.
@@ -1261,14 +1262,9 @@ export function DiscoveryLabResultsBoard(props: {
                         </table>
                       </div>
                     </div>
-                  ) : (
-                    <EmptyState
-                      title="No raw rows"
-                      detail="Completed runs expose per-strategy hits here if you need the unmerged view."
-                    />
-                  )}
-                </div>
-              </details>
+                  </div>
+                </details>
+              ) : null}
             </div>
           ) : (
             <EmptyState
@@ -2098,32 +2094,24 @@ function TokenCard(props: {
             </span>
           ))}
         </div>
-        {!props.trackedPosition ? (
-          <Button
-            type="button"
-            onClick={props.onStartManualTrade}
-            disabled={
-              Boolean(props.manualTradeDisabledReason) ||
-              props.manualTradePending
-            }
-            title={props.manualTradeDisabledReason ?? undefined}
-            variant="ghost"
-            size="sm"
-            className="mt-3"
-          >
-            Trade ticket
-          </Button>
-        ) : null}
-        <Button
-          type="button"
-          onClick={props.onViewDetails}
-          variant="ghost"
-          size="sm"
-          className="mt-3"
-        >
-          <Eye className="h-4 w-4" />
-          View details
-        </Button>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {!props.trackedPosition ? (
+            <CompactActionButton
+              label="Trade ticket"
+              onClick={props.onStartManualTrade}
+              disabled={
+                Boolean(props.manualTradeDisabledReason) ||
+                props.manualTradePending
+              }
+              title={props.manualTradeDisabledReason ?? undefined}
+            />
+          ) : null}
+          <CompactActionButton
+            label="View details"
+            icon={<Eye className="h-3.5 w-3.5" />}
+            onClick={props.onViewDetails}
+          />
+        </div>
       </div>
     </div>
   );
@@ -2522,8 +2510,13 @@ function TokenDetailsModal(props: {
                   </section>
 
                   <section className="space-y-3 rounded-[16px] border border-bg-border bg-[#101112] p-4">
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">
-                      Market structure
+                    <div>
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">
+                        Market and timing
+                      </div>
+                      <div className="mt-1 text-xs leading-5 text-text-secondary">
+                        One scan block for structure, liquidity, holder concentration, and pace. No reason to spread this across two fake-important panels.
+                      </div>
                     </div>
                     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                       <MetricTile
@@ -2562,14 +2555,6 @@ function TokenDetailsModal(props: {
                             : "—"
                         }
                       />
-                    </div>
-                  </section>
-
-                  <section className="space-y-3 rounded-[16px] border border-bg-border bg-[#101112] p-4">
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">
-                      Timing and flow
-                    </div>
-                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                       <MetricTile
                         label="5m volume"
                         value={formatCompactCurrency(
@@ -2727,126 +2712,132 @@ function TokenDetailsModal(props: {
                     </div>
                   </section>
 
-                  <section className="space-y-3 rounded-[16px] border border-bg-border bg-[#101112] p-4">
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">
-                      Security posture
+                  <details className="rounded-[16px] border border-bg-border bg-[#101112]">
+                    <summary className="cursor-pointer list-none px-4 py-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">
+                            Secondary evidence
+                          </div>
+                          <div className="mt-1 text-sm font-semibold text-text-primary">
+                            Security posture and watchouts
+                          </div>
+                        </div>
+                        <Badge variant="default">Collapsed by default</Badge>
+                      </div>
+                    </summary>
+                    <div className="space-y-3 border-t border-bg-border px-4 py-4">
+                      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                        <MetricTile
+                          label="Creator balance"
+                          value={formatPercent(security?.creatorBalancePercent)}
+                        />
+                        <MetricTile
+                          label="Owner balance"
+                          value={formatPercent(security?.ownerBalancePercent)}
+                        />
+                        <MetricTile
+                          label="Update auth bal"
+                          value={formatPercent(
+                            security?.updateAuthorityBalancePercent,
+                          )}
+                        />
+                        <MetricTile
+                          label="Top10 user %"
+                          value={formatPercent(security?.top10UserPercent)}
+                        />
+                        <MetricTile
+                          label="Transfer fee"
+                          value={formatTransferFee(
+                            security?.transferFeeEnabled ?? null,
+                            security?.transferFeePercent ?? null,
+                          )}
+                        />
+                        <MetricTile
+                          label="True token"
+                          value={formatBooleanState(
+                            security?.trueToken,
+                            "Verified",
+                            "Unknown",
+                          )}
+                        />
+                        <MetricTile
+                          label="Token 2022"
+                          value={formatBooleanState(
+                            security?.token2022,
+                            "Yes",
+                            "No",
+                          )}
+                        />
+                        <MetricTile
+                          label="Non-transferable"
+                          value={formatBooleanState(
+                            security?.nonTransferable,
+                            "Yes",
+                            "No",
+                          )}
+                        />
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                        <StatusFlagCard
+                          label="Freezeable"
+                          value={security?.freezeable ?? null}
+                          dangerWhenTrue
+                        />
+                        <StatusFlagCard
+                          label="Mint authority enabled"
+                          value={security?.mintAuthorityEnabled ?? null}
+                          dangerWhenTrue
+                        />
+                        <StatusFlagCard
+                          label="Mutable metadata"
+                          value={security?.mutableMetadata ?? null}
+                          dangerWhenTrue
+                        />
+                        <StatusFlagCard
+                          label="Honeypot risk"
+                          value={security?.honeypot ?? null}
+                          dangerWhenTrue
+                        />
+                        <StatusFlagCard
+                          label="Fake token risk"
+                          value={security?.fakeToken ?? null}
+                          dangerWhenTrue
+                        />
+                        <StatusFlagCard
+                          label="Creator account"
+                          value={Boolean(toolLinks.solscanCreator)}
+                          trueLabel="Present"
+                          falseLabel="Unavailable"
+                        />
+                      </div>
+                      <div className="grid gap-3 lg:grid-cols-3">
+                        <WatchoutCard
+                          title="Primary reject pressure"
+                          body={
+                            props.row.topRejectReason ??
+                            "No shared reject pressure captured on the best path."
+                          }
+                        />
+                        <WatchoutCard
+                          title="Soft issues"
+                          body={
+                            props.row.softIssues.length > 0
+                              ? props.row.softIssues.join(", ")
+                              : "None recorded."
+                          }
+                        />
+                        <WatchoutCard
+                          title="Notes"
+                          body={
+                            props.row.notes.length > 0
+                              ? props.row.notes.join(" · ")
+                              : "No extra notes."
+                          }
+                        />
+                      </div>
                     </div>
-                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                      <MetricTile
-                        label="Creator balance"
-                        value={formatPercent(security?.creatorBalancePercent)}
-                      />
-                      <MetricTile
-                        label="Owner balance"
-                        value={formatPercent(security?.ownerBalancePercent)}
-                      />
-                      <MetricTile
-                        label="Update auth bal"
-                        value={formatPercent(
-                          security?.updateAuthorityBalancePercent,
-                        )}
-                      />
-                      <MetricTile
-                        label="Top10 user %"
-                        value={formatPercent(security?.top10UserPercent)}
-                      />
-                      <MetricTile
-                        label="Transfer fee"
-                        value={formatTransferFee(
-                          security?.transferFeeEnabled ?? null,
-                          security?.transferFeePercent ?? null,
-                        )}
-                      />
-                      <MetricTile
-                        label="True token"
-                        value={formatBooleanState(
-                          security?.trueToken,
-                          "Verified",
-                          "Unknown",
-                        )}
-                      />
-                      <MetricTile
-                        label="Token 2022"
-                        value={formatBooleanState(
-                          security?.token2022,
-                          "Yes",
-                          "No",
-                        )}
-                      />
-                      <MetricTile
-                        label="Non-transferable"
-                        value={formatBooleanState(
-                          security?.nonTransferable,
-                          "Yes",
-                          "No",
-                        )}
-                      />
-                    </div>
-                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                      <StatusFlagCard
-                        label="Freezeable"
-                        value={security?.freezeable ?? null}
-                        dangerWhenTrue
-                      />
-                      <StatusFlagCard
-                        label="Mint authority enabled"
-                        value={security?.mintAuthorityEnabled ?? null}
-                        dangerWhenTrue
-                      />
-                      <StatusFlagCard
-                        label="Mutable metadata"
-                        value={security?.mutableMetadata ?? null}
-                        dangerWhenTrue
-                      />
-                      <StatusFlagCard
-                        label="Honeypot risk"
-                        value={security?.honeypot ?? null}
-                        dangerWhenTrue
-                      />
-                      <StatusFlagCard
-                        label="Fake token risk"
-                        value={security?.fakeToken ?? null}
-                        dangerWhenTrue
-                      />
-                      <StatusFlagCard
-                        label="Creator account"
-                        value={Boolean(toolLinks.solscanCreator)}
-                        trueLabel="Present"
-                        falseLabel="Unavailable"
-                      />
-                    </div>
-                  </section>
-
-                  <section className="space-y-3 rounded-[16px] border border-bg-border bg-[#101112] p-4">
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">
-                      Watchouts
-                    </div>
-                    <div className="grid gap-3 lg:grid-cols-3">
-                      <WatchoutCard
-                        title="Primary reject pressure"
-                        body={
-                          props.row.topRejectReason ??
-                          "No shared reject pressure captured on the best path."
-                        }
-                      />
-                      <WatchoutCard
-                        title="Soft issues"
-                        body={
-                          props.row.softIssues.length > 0
-                            ? props.row.softIssues.join(", ")
-                            : "None recorded."
-                        }
-                      />
-                      <WatchoutCard
-                        title="Notes"
-                        body={
-                          props.row.notes.length > 0
-                            ? props.row.notes.join(" · ")
-                            : "No extra notes."
-                        }
-                      />
-                    </div>
-                  </section>
+                  </details>
                 </div>
 
                 <aside className="space-y-4 xl:sticky xl:top-[4.5rem] xl:self-start">
@@ -2854,121 +2845,98 @@ function TokenDetailsModal(props: {
                     <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted">
                       Summary rail
                     </div>
-                    <div className="mt-4 grid gap-3">
-                      <MetricTile
+                    <div className="mt-4 space-y-2 rounded-[14px] border border-bg-border bg-[#0d0f10] p-3">
+                      <MetricLine
                         label="Outcome"
                         value={humanizeLabel(props.row.outcome)}
+                        compact
+                        emphasis
                       />
-                      <MetricTile
+                      <MetricLine
                         label="Profile"
                         value={
                           props.tradeSetup
                             ? humanizeProfile(props.tradeSetup.profile)
                             : "Pending"
                         }
+                        compact
                       />
-                      <MetricTile
+                      <MetricLine
                         label="Capital"
                         value={
                           props.tradeSetup?.suggestedCapitalUsd
-                            ? formatCurrency(
-                                props.tradeSetup.suggestedCapitalUsd,
-                              )
+                            ? formatCurrency(props.tradeSetup.suggestedCapitalUsd)
                             : "—"
                         }
+                        compact
                       />
-                      <MetricTile
+                      <MetricLine
                         label="Conc risk"
-                        value={formatMetricScore(
-                          props.metrics.concentrationRisk,
-                        )}
+                        value={formatMetricScore(props.metrics.concentrationRisk)}
+                        compact
                       />
-                    </div>
-                    {props.trackedPosition ? (
-                      <div className="mt-4 rounded-[14px] border border-[rgba(163,230,53,0.16)] bg-[#0d100d] p-3">
-                        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">
-                          Tracked open position
-                        </div>
-                        <div className="mt-3 grid gap-2">
+                      {props.trackedPosition ? (
+                        <>
                           <MetricLine
-                            label="Return"
-                            value={formatSignedPercent(
-                              props.trackedPosition.returnPct,
-                            )}
+                            label="Open return"
+                            value={formatSignedPercent(props.trackedPosition.returnPct)}
                             compact
                             emphasis={props.trackedPosition.returnPct >= 0}
                           />
                           <MetricLine
                             label="Unrealized"
-                            value={formatSignedCurrency(
-                              props.trackedPosition.unrealizedPnlUsd,
-                            )}
+                            value={formatSignedCurrency(props.trackedPosition.unrealizedPnlUsd)}
                             compact
                           />
-                          <MetricLine
-                            label="Opened"
-                            value={safeClientTimestamp(
-                              props.trackedPosition.openedAt,
-                              hydrated,
-                            )}
-                            compact
-                          />
-                        </div>
-                        <a
-                          href={`/positions/${props.trackedPosition.id}?book=open&focus=${props.trackedPosition.id}`}
-                          className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-[#d6ff78] hover:text-white"
-                        >
-                          Track position
-                          <ExternalLink className="h-3 w-3" />
-                        </a>
-                      </div>
-                    ) : null}
-                    <div className="mt-4 rounded-[14px] border border-bg-border bg-[#0d0f10] p-3">
-                      <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">
-                        Fast links
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {socialEntries.length > 0 ? (
-                          socialEntries.map((entry) => (
-                            <ExternalChipLink
-                              key={entry.label}
-                              href={entry.href}
-                              label={entry.label}
-                            />
-                          ))
-                        ) : (
-                          <span className="text-xs text-text-muted">
-                            No socials returned.
-                          </span>
-                        )}
-                        {toolEntries.map((entry) => (
+                        </>
+                      ) : null}
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {socialEntries.length > 0 ? (
+                        socialEntries.map((entry) => (
                           <ExternalChipLink
                             key={entry.label}
                             href={entry.href}
                             label={entry.label}
                           />
-                        ))}
-                      </div>
-                      <div className="mt-3 text-xs leading-5 text-text-secondary">
-                        {props.insight?.description ??
-                          "No provider description was returned for this mint."}
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-text-muted">
-                        <span>Creator {truncateMiddle(creator)}</span>
-                        <span>•</span>
-                        <span>
-                          {props.insight?.source
-                            ? humanizeLabel(props.insight.source)
-                            : "Run insight"}
-                        </span>
-                        {props.insight?.platformId ? (
-                          <>
-                            <span>•</span>
-                            <span>{props.insight.platformId}</span>
-                          </>
-                        ) : null}
-                      </div>
+                        ))
+                      ) : null}
+                      {toolEntries.map((entry) => (
+                        <ExternalChipLink
+                          key={entry.label}
+                          href={entry.href}
+                          label={entry.label}
+                        />
+                      ))}
                     </div>
+                    <div className="mt-3 text-xs leading-5 text-text-secondary">
+                      {props.insight?.description ??
+                        "No provider description was returned for this mint."}
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-text-muted">
+                      <span>Creator {truncateMiddle(creator)}</span>
+                      <span>•</span>
+                      <span>
+                        {props.insight?.source
+                          ? humanizeLabel(props.insight.source)
+                          : "Run insight"}
+                      </span>
+                      {props.insight?.platformId ? (
+                        <>
+                          <span>•</span>
+                          <span>{props.insight.platformId}</span>
+                        </>
+                      ) : null}
+                    </div>
+                    {props.trackedPosition ? (
+                      <a
+                        href={`/positions/${props.trackedPosition.id}?book=open&focus=${props.trackedPosition.id}`}
+                        className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-[#d6ff78] hover:text-white"
+                      >
+                        Track open position
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    ) : null}
                     <div className="mt-4 text-xs leading-5 text-text-secondary">
                       Use the trade ticket only after structure, flow, and
                       security all hold up. This view is for review first.
@@ -3240,14 +3208,26 @@ function ManualTradeModal(props: {
                           }))
                         }
                       />
-                      <MetricTile
-                        label="Outcome"
-                        value={humanizeLabel(props.row.outcome)}
-                      />
-                      <MetricTile
-                        label="Best play"
-                        value={formatNumber(props.row.bestPlayScore)}
-                      />
+                      <div className="rounded-[12px] border border-bg-border bg-[#0d0f10] px-3 py-3 md:col-span-2">
+                        <div className="space-y-2">
+                          <MetricLine
+                            label="Outcome"
+                            value={humanizeLabel(props.row.outcome)}
+                            compact
+                            emphasis
+                          />
+                          <MetricLine
+                            label="Best play"
+                            value={formatNumber(props.row.bestPlayScore)}
+                            compact
+                          />
+                          <MetricLine
+                            label="Consensus"
+                            value={formatInteger(props.row.overlapCount)}
+                            compact
+                          />
+                        </div>
+                      </div>
                     </div>
                   </section>
 
@@ -3310,13 +3290,11 @@ function ManualTradeModal(props: {
                         value={formatRemainingRunnerPercent(draft)}
                       />
                     </div>
-                  </section>
-
-                  <section className="rounded-[16px] border border-bg-border bg-[#101112] p-4">
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">
-                      Price ladder
-                    </div>
-                    <div className="mt-4 grid gap-3 md:grid-cols-3">
+                    <div className="mt-5 border-t border-bg-border pt-4">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">
+                        Exit rules
+                      </div>
+                      <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-4">
                       <TradeField
                         label="Stop loss %"
                         value={draft.stopLossPercent}
@@ -3383,14 +3361,6 @@ function ManualTradeModal(props: {
                           }))
                         }
                       />
-                    </div>
-                  </section>
-
-                  <section className="rounded-[16px] border border-bg-border bg-[#101112] p-4">
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">
-                      Exit timing
-                    </div>
-                    <div className="mt-4 grid gap-3 md:grid-cols-4">
                       <TradeField
                         label="Trail %"
                         value={draft.trailingStopPercent}
@@ -3436,6 +3406,7 @@ function ManualTradeModal(props: {
                         }
                       />
                     </div>
+                    </div>
                   </section>
                 </div>
 
@@ -3445,62 +3416,64 @@ function ManualTradeModal(props: {
                       <SlidersHorizontal className="h-3.5 w-3.5" />
                       Final check
                     </div>
-                    <div className="mt-4 grid gap-2">
-                      <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">
-                        Desk snapshot
-                      </div>
-                      <MetricTile
+                    <div className="mt-4 space-y-2 rounded-[14px] border border-bg-border bg-[#0d0f10] p-3">
+                      <MetricLine
                         label="Outcome"
                         value={humanizeLabel(props.row.outcome)}
+                        compact
+                        emphasis
                       />
-                      <MetricTile
+                      <MetricLine
                         label="Profile"
                         value={
                           props.tradeSetup
                             ? humanizeProfile(props.tradeSetup.profile)
                             : "Manual"
                         }
+                        compact
                       />
-                      <MetricTile
+                      <MetricLine
                         label="Max hold"
                         value={
                           props.tradeSetup
                             ? formatRelativeMinutes(props.tradeSetup.maxHoldMinutes)
                             : formatDraftMinutes(draft.timeLimitMinutes)
                         }
+                        compact
                       />
-                      <MetricTile
+                      <MetricLine
                         label="Slots left"
                         value={
                           openSlotsRemaining !== null
                             ? formatInteger(openSlotsRemaining)
                             : "—"
                         }
+                        compact
                       />
-                    </div>
-                    <div className="mt-4 grid gap-3">
-                      <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">
-                        Order shape
-                      </div>
-                      <MetricTile
+                      <MetricLine
                         label="Size"
                         value={formatDraftCurrency(draft.positionSizeUsd)}
+                        compact
                       />
-                      <MetricTile
+                      <MetricLine
                         label="Stop"
                         value={formatDraftPercent(draft.stopLossPercent)}
+                        compact
                       />
-                      <MetricTile
+                      <MetricLine
                         label="TP ladder"
                         value={`${formatDraftPercent(draft.tp1Percent)} / ${formatDraftPercent(draft.tp2Percent)}`}
+                        compact
                       />
-                      <MetricTile
+                      <MetricLine
                         label="Sell fractions"
                         value={`${formatDraftPercent(draft.tp1SellFractionPercent)} / ${formatDraftPercent(draft.tp2SellFractionPercent)}`}
+                        compact
                       />
-                      <MetricTile
+                      <MetricLine
                         label="Hold rules"
                         value={`${formatDraftMinutes(draft.timeStopMinutes)} / ${formatDraftMinutes(draft.timeLimitMinutes)}`}
+                        compact
                       />
                     </div>
                     {draftIssues.length > 0 ? (
@@ -3525,24 +3498,15 @@ function ManualTradeModal(props: {
                       </div>
                     ) : null}
                     {props.insight ? (
-                      <div className="mt-4 rounded-[14px] border border-bg-border bg-[#0d0f10] p-3">
-                        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">
-                          External checks
-                        </div>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <ExternalChipLink
-                            href={props.insight.toolLinks.axiom}
-                            label={props.insight.pairAddress ? "Axiom pair" : "Axiom"}
-                          />
-                          <ExternalChipLink
-                            href={props.insight.toolLinks.dexscreener}
-                            label="Dex"
-                          />
-                        </div>
-                      </div>
-                    ) : null}
-                    {props.insight ? (
                       <div className="mt-4 flex flex-wrap gap-2">
+                        <ExternalChipLink
+                          href={props.insight.toolLinks.axiom}
+                          label={props.insight.pairAddress ? "Axiom pair" : "Axiom"}
+                        />
+                        <ExternalChipLink
+                          href={props.insight.toolLinks.dexscreener}
+                          label="Dex"
+                        />
                         {props.insight.socials.website ? (
                           <ExternalChipLink
                             href={props.insight.socials.website}
@@ -5593,6 +5557,29 @@ function MetricLine(props: {
         {props.value}
       </span>
     </div>
+  );
+}
+
+function CompactActionButton(props: {
+  label: string;
+  icon?: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+  title?: string;
+}) {
+  return (
+    <Button
+      type="button"
+      onClick={props.onClick}
+      disabled={props.disabled}
+      title={props.title}
+      variant="ghost"
+      size="sm"
+      className="h-7 rounded-full px-2.5 text-[11px]"
+    >
+      {props.icon}
+      {props.label}
+    </Button>
   );
 }
 

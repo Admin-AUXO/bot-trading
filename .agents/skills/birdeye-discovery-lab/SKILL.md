@@ -24,7 +24,7 @@ Use this for repeatable Birdeye discovery experiments.
 
 ```bash
 cd trading_bot/backend
-npm run lab:discovery -- --pack created-fresh-burst-ladder --profile high-value --sources pump_dot_fun
+npm run lab:discovery -- --pack created-early-grad-scalp-tape-surge --profile scalp --sources pump_dot_fun
 ```
 
 ## Use Cases
@@ -36,17 +36,19 @@ npm run lab:discovery -- --pack created-fresh-burst-ladder --profile high-value 
 - tune one or two recipes with `--recipe-names ...`
 - run the repo-created packs directly with `--pack <id>`
 - start with these current created pack ids:
-  `created-fresh-burst-ladder`
-  `created-early-flow-balance`
-  `created-holder-supported-continuation`
-  `created-reclaim-strength-stack`
-  `created-late-expansion-quality`
-- use the early two packs for fresh continuation windows and the later three when you want stronger holder, liquidity, or 1h participation bias
+  `created-early-grad-scalp-tape-surge`
+  `created-early-grad-scalp-buyer-stack`
+  `created-early-grad-scalp-liquidity-ramp`
+  `created-early-grad-scalp-momentum-retest`
+  `created-early-grad-scalp-quality-guard`
+- use the tape-surge or buyer-stack packs first when you want the fastest fresh-graduate scalp windows
+- use liquidity-ramp when the desk wants deeper pools, momentum-retest when it wants stronger churn persistence, and quality-guard when it wants the tightest structural screen
 
 ## Rules
 
 - Use the script, not one-off curl spam.
 - Keep Birdeye API-side filters at five or fewer.
+- Current repo-created scalp packs were trimmed on 2026-04-18 by dropping redundant per-recipe `max_market_cap` and `min_volume_1m_usd` filters so the default runs stay under the provider ceiling.
 - Keep `pump_dot_fun` as the default and do not spend default lab passes on `moonshot`, `raydium_launchlab`, or `meteora_dynamic_bonding_curve`.
 - The repo no longer uses starter JSON packs. Use repo-created packs or saved workspace packs instead.
 - Deep eval now fetches Helius mint authorities and Helius largest-account concentration once per unique uncached mint across the whole run, then reuses those facts across recipe winners.

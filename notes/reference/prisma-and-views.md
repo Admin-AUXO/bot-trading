@@ -86,6 +86,9 @@ These views are repo-owned and currently exposed through `GET /api/views/:name`.
 **Runtime:**
 - `v_runtime_overview`: Bot state at a glance (capital, positions, config version)
 - `v_api_telemetry_daily`: Daily API usage and error rates by provider/endpoint
+- `v_api_provider_daily`: Compatibility provider rollup derived from `v_api_telemetry_daily`
+- `v_api_endpoint_efficiency`: Compatibility endpoint rollup with latest call timestamp
+- `v_position_pnl_daily`: Compatibility closed-position daily PnL rollup derived from `Position` and `Fill`
 
 **Discovery Lab:**
 - `v_discovery_lab_run_summary`: Run performance summary with computed duration
