@@ -14,16 +14,10 @@ import { logger } from "../utils/logger.js";
 import { recordOperatorEvent } from "../services/operator-events.js";
 import type { TradeDataSnapshot } from "../types/domain.js";
 
-const IN_FLIGHT_TIMEOUT_MS = 90_000; // 90-second hard timeout for hung close attempts
+const IN_FLIGHT_TIMEOUT_MS = 90_000;
 
-/** Tracks when a given position was added to the in-flight set. */
 const inFlightAddedAt = new Map<string, number>();
 
-/**
- * Rolling price history per mint.
- * We store up to ATR_PERIOD + 1 prices (current + N history ticks).
- * On each exit tick the new price is pushed; oldest is evicted.
- */
 const priceHistory = new Map<string, number[]>();
 
 function markInFlight(positionId: string): boolean {
@@ -79,7 +73,6 @@ export class ExitEngine {
       return;
     }
 
-    // Fetch prices + trade data in parallel
     const [prices, tradeDataMap] = await Promise.all([
       this.birdeye.getMultiPrice(openPositions.map((p) => p.mint)),
       this.fetchTradeDataForMints(openPositions.map((p) => p.mint)),
@@ -113,14 +106,12 @@ export class ExitEngine {
 
       this.priceUnavailableCount.delete(position.id);
 
-      // ── Update rolling price history ────────────────────────────────────
       const history = priceHistory.get(position.mint) ?? [];
       history.push(priceUsd);
       if (history.length > ATR_PERIOD + 2) history.shift();
       priceHistory.set(position.mint, history);
       const atrUsd = computeAtrFromPrices(history);
 
-      // ── Build live context ─────────────────────────────────────────────
       const tradeData = tradeDataMap.get(position.mint) ?? null;
       const volume5mAtEntry = extractVolume5mAtEntry(position.metadata);
       const liveContext: LiveExitContext = {
@@ -163,17 +154,29 @@ export class ExitEngine {
 
       try {
         if (exitDecision) {
-          await this.execution.runExclusive(() =>
-            this.execution.closePosition({
-              positionId: position.id,
-              reason: exitDecision.reason,
-              priceUsd,
-              fraction: exitDecision.fraction,
-              peakPriceUsd: exitDecision.peakPriceUsd,
-            }),
-          );
+          try {
+            await this.execution.runExclusive(() =>
+              this.execution.closePosition({
+                positionId: position.id,
+                reason: exitDecision.reason,
+                priceUsd,
+                fraction: exitDecision.fraction,
+                peakPriceUsd: exitDecision.peakPriceUsd,
+              }),
+            );
+          } catch (err) {
+            logger.warn({ err, positionId: position.id }, "closePosition failed in exit check");
+            await recordOperatorEvent({
+              kind: "exit_close_failed",
+              level: "warning",
+              title: `Exit close failed for position ${position.id}`,
+              detail: err instanceof Error ? err.message : String(err),
+              entityType: "position",
+              entityId: position.id,
+              metadata: { mint: position.mint, reason: exitDecision.reason },
+            });
+          }
           clearInFlight(position.id);
-          // Prune history for closed positions to avoid unbounded memory growth
           priceHistory.delete(position.mint);
           continue;
         }
@@ -193,15 +196,10 @@ export class ExitEngine {
     await this.risk.touchActivity("lastExitCheckAt");
   }
 
-  /**
-   * Batch-fetch trade data for all open mint positions.
-   * Uses Birdeye v3 token trade data endpoint per token.
-   */
   private async fetchTradeDataForMints(
     mints: string[],
   ): Promise<Map<string, TradeDataSnapshot>> {
     const result = new Map<string, TradeDataSnapshot>();
-    // Fetch in parallel batches of 10 to avoid overwhelming the API
     const batchSize = 10;
     for (let i = 0; i < mints.length; i += batchSize) {
       const batch = mints.slice(i, i + batchSize);
@@ -221,7 +219,6 @@ export class ExitEngine {
   }
 }
 
-/** Compute buy/sell ratio from trade data snapshot. */
 function computeBuySellRatio(td: TradeDataSnapshot | null): number | null {
   if (!td) return null;
   const buy = td.volumeBuy5mUsd ?? 0;
@@ -230,7 +227,6 @@ function computeBuySellRatio(td: TradeDataSnapshot | null): number | null {
   return buy / sell;
 }
 
-/** Pull the volume5mUsd that was captured when the position was opened. */
 function extractVolume5mAtEntry(metadata: unknown): number | null {
   if (!metadata || typeof metadata !== "object") return null;
   const record = metadata as Record<string, unknown>;

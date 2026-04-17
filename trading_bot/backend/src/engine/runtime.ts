@@ -74,7 +74,6 @@ export class BotRuntime {
     const startupSettings = await this.config.getSettings();
     const startupState = await this.armLiveStartupPause(startupSettings.tradeMode);
 
-    // Reconcile any phantom fills from previous crashed sessions before live trading begins
     if (startupSettings.tradeMode === "LIVE") {
       await this.safeRun("phantom fill reconciliation", async () => { await this.execution.reconcilePhantomFills(); });
     }
@@ -329,7 +328,7 @@ export class BotRuntime {
         detail: `${label} has failed to retrieve its schedule delay ${count} consecutive times. Check DB connectivity and configuration.`,
         metadata: { label, consecutiveFailures: count },
       });
-      this.consecutiveFailures.set(label, 0); // reset after alerting
+      this.consecutiveFailures.set(label, 0);
     }
   }
 

@@ -85,11 +85,7 @@ export function WorkbenchRowActions(props: {
                 <ArrowUpRight className="h-3.5 w-3.5" />
               </a>
             ) : null}
-            <CopyButton
-              value={props.copyValue}
-              label={props.copyLabel}
-              className="w-full justify-center"
-            />
+            <CopyButton value={props.copyValue} label={props.copyLabel} className="w-full justify-center" />
           </div>
         ) : null}
       </div>

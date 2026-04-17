@@ -16,7 +16,6 @@ async function proxy(request: NextRequest, path: string[]) {
   const init: RequestInit = {
     method: request.method,
     headers: {
-      // Inject secret from env if browser hasn't supplied credentials
       ...(authHeader
         ? { authorization: authHeader }
         : CONTROL_API_SECRET
@@ -35,11 +34,9 @@ async function proxy(request: NextRequest, path: string[]) {
 
   const response = await fetch(url, init);
 
-  // Validate response content-type for non-GET methods before setting header
   const responseContentType = response.headers.get("content-type");
   const isJsonResponse = responseContentType?.includes("application/json") ?? false;
 
-  // Pass backend errors through as JSON when possible
   if (!response.ok && isJsonResponse) {
     const errorText = await response.text();
     return new Response(errorText, {

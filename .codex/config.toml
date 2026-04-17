@@ -1,62 +1,43 @@
-# Repo-local Codex default for this repository.
-# Source of truth for the managed MCP block. Refresh MCP with:
-#   node ./.codex/scripts/install-mcp-config.cjs [--profile compact|db|research|dashboard|provider|full]
-# Profiles:
-#   compact  default: lean startup, local files only
-#   db       add postgres for schema/reporting
-#   research add context7, fetch, firecrawl, time for docs/web
-#   dashboard add chrome_devtools and shadcn for UI work
-#   provider  add birdeye, helius for Solana/provider tasks
-#   full      wider stack when a task genuinely needs several surfaces
-# Run "codex --profile mini" or "codex --profile write" for model variants.
-#
-# Philosophy: stay compact by default, reach for profiles only when the task needs it.
-# Keep approval_policy = "on-request" and sandbox = "workspace-write" as baseline.
-
-approval_policy = "on-request"
-model = "gpt5.4"
+approval_policy = "never"
+model = "gpt-5.4"
 model_reasoning_effort = "medium"
-plan_mode_reasoning_effort = "high"
 personality = "pragmatic"
+plan_mode_reasoning_effort = "high"
 project_doc_fallback_filenames = ["AGENTS.md"]
 project_root_markers = [".git"]
-sandbox_mode = "workspace-write"
+sandbox_mode = "danger-full-access"
 web_search = "live"
-
-# Inline tool policy: restrict which tools fire without confirmation.
-# approve_patterns runs first; any match requires approval.
-# deny_patterns is checked after approve_patterns and overrides.
-[inline_tool_policy]
-# deny_file_write outside trading_bot/ and notes/ without explicit approval
-deny_file_write_patterns = ["^(?!trading_bot/|notes/)"]
-# deny destructive shell without explicit approval
-deny_shell_patterns = ["rm -rf", "dropdb", "git push --force"]
-# approve lightweight reads always
-approve_read_patterns = ["Read", "Glob", "Grep", "list_directory"]
-# approve safe state queries
-approve_query_patterns = ["git (status|diff|log|branch)", "git status", "npm run"]
-
-[features]
-codex_hooks = true
-
-[windows]
-sandbox = "elevated"
 
 [agents]
 max_depth = 1
-max_threads = 3
+max_threads = 5
 
-# Shell tool defaults
-[tools.bash]
-timeout_ms = 60000
+[features]
+codex_hooks = false
 
+[inline_tool_policy]
+approve_query_patterns = [
+    "git (status|diff|log|branch)",
+    "git status",
+    "npm run",
+]
+approve_read_patterns = [
+    "Read",
+    "Glob",
+    "Grep",
+    "list_directory",
+]
+deny_file_write_patterns = ["^(?!trading_bot/|notes/)"]
+deny_shell_patterns = [
+    "rm -rf",
+    "dropdb",
+    "git push --force",
+]
 
 [mcp_servers.birdeye-mcp]
 args = [".codex/scripts/start-birdeye-mcp.cjs"]
 command = "node"
-# Disabled in shared repo config. This server needs a local BIRDEYE_API_KEY and a
-# working host launcher; enable it locally after validating it on your machine.
-enabled = false
+enabled = true
 required = false
 startup_timeout_sec = 30
 tool_timeout_sec = 45
@@ -92,7 +73,11 @@ tool_timeout_sec = 120
 approval_mode = "approve"
 
 [mcp_servers.fetch]
-args = [".codex/scripts/start-stdio-command.cjs", "uvx", "mcp-server-fetch"]
+args = [
+    ".codex/scripts/start-stdio-command.cjs",
+    "uvx",
+    "mcp-server-fetch",
+]
 command = "node"
 enabled = false
 required = false
@@ -100,6 +85,18 @@ startup_timeout_ms = 20000
 
 [mcp_servers.firecrawl]
 args = [".codex/scripts/start-firecrawl-mcp.cjs"]
+command = "node"
+enabled = false
+required = false
+startup_timeout_ms = 30000
+
+[mcp_servers.helius]
+args = [
+    ".codex/scripts/start-stdio-command.cjs",
+    "npx",
+    "-y",
+    "helius-mcp@latest",
+]
 command = "node"
 enabled = false
 required = false
@@ -131,47 +128,16 @@ enabled = false
 required = false
 startup_timeout_ms = 30000
 
-[mcp_servers.helius]
+[mcp_servers.time]
 args = [
     ".codex/scripts/start-stdio-command.cjs",
-    "npx",
-    "-y",
-    "helius-mcp@latest",
+    "uvx",
+    "mcp-server-time",
 ]
 command = "node"
 enabled = false
 required = false
-startup_timeout_ms = 30000
-
-[mcp_servers.time]
-args = [".codex/scripts/start-stdio-command.cjs", "uvx", "mcp-server-time"]
-command = "node"
-enabled = false
-required = false
 startup_timeout_ms = 20000
-
-[profiles.fast]
-model_reasoning_effort = "low"
-
-[profiles.mini]
-model = "gpt5.4-mini"
-model_reasoning_effort = "medium"
-
-[profiles.write]
-model = "gpt5.4"
-model_reasoning_effort = "medium"
-
-[profiles.deep]
-model_reasoning_effort = "high"
-
-[profiles.review]
-model = "gpt5.4"
-model_reasoning_effort = "high"
-sandbox_mode = "read-only"
-
-[profiles.full_access]
-approval_policy = "never"
-sandbox_mode = "danger-full-access"
 
 [shell_environment_policy]
 inherit = "all"
@@ -180,8 +146,8 @@ inherit = "all"
 CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = "80"
 MAX_THINKING_TOKENS = "10000"
 
-# Compaction: aggressive early compaction to keep context lean
-[compaction]
-enabled = true
-threshold_messages = 40
-target_messages = 20
+[tools.bash]
+timeout_ms = 60000
+
+[windows]
+sandbox = "elevated"

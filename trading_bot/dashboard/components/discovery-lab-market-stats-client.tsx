@@ -2,7 +2,20 @@
 
 import Link from "next/link";
 import { useRef, useState, useTransition } from "react";
-import { ArrowUpRight, ChevronLeft, ChevronRight, RefreshCcw, Search } from "lucide-react";
+import {
+  ArrowUpRight,
+  ChevronLeft,
+  ChevronRight,
+  RefreshCcw,
+  Search,
+  TrendingUp,
+  Clock,
+  ShieldCheck,
+  Flame,
+  Star,
+  LayoutGrid,
+  List,
+} from "lucide-react";
 import {
   CompactPageHeader,
   CompactStatGrid,
@@ -16,7 +29,6 @@ import { fetchJson } from "@/lib/api";
 import { discoveryLabRoutes } from "@/lib/dashboard-routes";
 import {
   formatCompactCurrency,
-  formatCurrency,
   formatInteger,
   formatMinutesAgo,
   formatPercent,
@@ -28,6 +40,9 @@ import type {
   DiscoveryLabMarketTokenRow,
 } from "@/lib/types";
 
+type ViewMode = "trending" | "newgrads" | "watchlist";
+type DisplayMode = "grid" | "list";
+
 export function DiscoveryLabMarketStatsClient(props: {
   initialPayload: DiscoveryLabMarketStatsPayload;
 }) {
@@ -35,16 +50,27 @@ export function DiscoveryLabMarketStatsClient(props: {
   const [focusMintInput, setFocusMintInput] = useState("");
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<"board" | "focus" | null>(
-    null,
+    null
   );
   const [isPending, startTransition] = useTransition();
+  const [viewMode, setViewMode] = useState<ViewMode>("trending");
+  const [displayMode, setDisplayMode] = useState<DisplayMode>("grid");
+  const [watchlist, setWatchlist] = useState<Set<string>>(() => {
+    try {
+      const stored = window.localStorage.getItem("market-watchlist");
+      return stored ? new Set(JSON.parse(stored)) : new Set<string>();
+    } catch {
+      return new Set<string>();
+    }
+  });
+  const [watchlistTab, setWatchlistTab] = useState(false);
 
   const refreshBoard = () => {
     startTransition(async () => {
       setPendingAction("board");
       try {
         const nextPayload = await fetchJson<DiscoveryLabMarketStatsPayload>(
-          "/operator/discovery-lab/market-stats?limit=18&refresh=true",
+          "/operator/discovery-lab/market-stats?limit=24&refresh=true",
         );
         setPayload(nextPayload);
         setRefreshError(null);
@@ -70,7 +96,7 @@ export function DiscoveryLabMarketStatsClient(props: {
       setPendingAction("focus");
       try {
         const nextPayload = await fetchJson<DiscoveryLabMarketStatsPayload>(
-          `/operator/discovery-lab/market-stats?limit=18&refresh=true&focusOnly=true&mint=${encodeURIComponent(mint)}`,
+          `/operator/discovery-lab/market-stats?limit=24&refresh=true&focusOnly=true&mint=${encodeURIComponent(mint)}`,
         );
         setPayload(nextPayload);
         setRefreshError(null);
@@ -84,6 +110,21 @@ export function DiscoveryLabMarketStatsClient(props: {
     });
   };
 
+  const toggleWatchlist = (mint: string) => {
+    setWatchlist((prev) => {
+      const next = new Set(prev);
+      if (next.has(mint)) {
+        next.delete(mint);
+      } else {
+        next.add(mint);
+      }
+      try {
+        window.localStorage.setItem("market-watchlist", JSON.stringify([...next]));
+      } catch {}
+      return next;
+    });
+  };
+
   const hasBoardData = payload.tokens.length > 0;
   const boardStatus =
     payload.meta.cacheState === "empty"
@@ -91,12 +132,37 @@ export function DiscoveryLabMarketStatsClient(props: {
       : payload.meta.cacheState;
   const boardMessage = refreshError ?? payload.meta.warnings[0] ?? null;
 
+  // Sort tokens by view mode
+  const sortedTokens = [...payload.tokens].sort((a, b) => {
+    if (viewMode === "newgrads") {
+      // Youngest grads first
+      const ageA = a.graduationAgeMinutes ?? 999999;
+      const ageB = b.graduationAgeMinutes ?? 999999;
+      return ageA - ageB;
+    }
+    if (viewMode === "trending") {
+      // Highest 5m change first
+      const moveA = a.priceChange5mPercent ?? -999;
+      const moveB = b.priceChange5mPercent ?? -999;
+      return moveB - moveA;
+    }
+    // Default: watchlist ordering
+    return 0;
+  });
+
+  // Watchlist-filtered tokens
+  const watchlistTokens = payload.tokens.filter((t) => watchlist.has(t.mint));
+
+  const displayedTokens = watchlistTab ? watchlistTokens : sortedTokens;
+
+  const hasPositions = payload.marketPulse.trackedOpenPositions > 0;
+  const advancingTone = payload.marketPulse.advancingSharePercent >= 60 ? "accent" : payload.marketPulse.advancingSharePercent >= 40 ? "warning" : "danger";
+
   return (
     <div className="space-y-5">
       <CompactPageHeader
-        eyebrow="Discovery lab"
-        title="Market stats"
-        description="Manual-refresh market board. Opening this page reads cache only, so paid provider units are only spent when you explicitly refresh."
+        eyebrow="Market watch"
+        title="Live market"
         badges={
           <>
             <StatusPill value={boardStatus} />
@@ -119,8 +185,8 @@ export function DiscoveryLabMarketStatsClient(props: {
               disabled={isPending}
               title="Refresh market board"
             >
-              <RefreshCcw className="h-4 w-4" />
-              {pendingAction === "board" ? "Refreshing" : "Refresh board"}
+              <RefreshCcw className={clsx("h-4 w-4", isPending && "animate-spin")} />
+              {pendingAction === "board" ? "Refreshing" : "Refresh"}
             </Button>
             <Link
               href={discoveryLabRoutes.strategyIdeas}
@@ -136,26 +202,26 @@ export function DiscoveryLabMarketStatsClient(props: {
           className="xl:grid-cols-5"
           items={[
             {
-              label: "Advancing share",
+              label: "Advancing",
               value: formatPercent(payload.marketPulse.advancingSharePercent),
               detail: "5m positive movers",
-              tone: "accent",
+              tone: advancingTone,
             },
             {
-              label: "Caution share",
+              label: "Caution",
               value: formatPercent(payload.marketPulse.cautionSharePercent),
-              detail: "Danger rug read or weak structure",
+              detail: "Rug risk or weak structure",
               tone:
                 payload.marketPulse.cautionSharePercent >= 50
                   ? "danger"
                   : "warning",
             },
             {
-              label: "Median 5m move",
+              label: "Median 5m",
               value: formatPercent(
                 payload.marketPulse.medianPriceChange5mPercent,
               ),
-              detail: "Snapshot breadth pulse",
+              detail: "Snapshot breadth",
               tone:
                 (payload.marketPulse.medianPriceChange5mPercent ?? 0) >= 0
                   ? "accent"
@@ -170,589 +236,576 @@ export function DiscoveryLabMarketStatsClient(props: {
               tone: "default",
             },
             {
-              label: "Tracked open positions",
+              label: "Open positions",
               value: formatInteger(payload.marketPulse.trackedOpenPositions),
-              detail: "Local runtime book",
-              tone:
-                payload.marketPulse.trackedOpenPositions > 0
-                  ? "warning"
-                  : "default",
+              detail: hasPositions ? "In runtime book" : "No active positions",
+              tone: hasPositions ? "warning" : "default",
             },
           ]}
         />
       </CompactPageHeader>
 
-      {boardMessage ? <WarningBanner message={boardMessage} tone={refreshError ? "danger" : "warning"} /> : null}
+      {boardMessage ? (
+        <WarningBanner
+          message={boardMessage}
+          tone={refreshError ? "danger" : "warning"}
+        />
+      ) : null}
 
+      {/* Mint lookup */}
       <Panel
-        title="Refresh"
-        eyebrow="Manual spend"
-        description="Use one board refresh for broad context. Use single-mint refresh only when the board is not enough."
+        title="Token lookup"
+        eyebrow="Quick scan"
+        description="Paste any Solana mint for a one-token refresh. Use sparingly — each lookup is a paid call."
         tone={payload.meta.cacheState === "degraded" ? "warning" : "default"}
       >
-        <div className="grid gap-4">
-          <div className="rounded-[16px] border border-bg-border bg-bg-hover/35 p-3">
-            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto]">
-              <Input
-                value={focusMintInput}
-                onChange={(event) => setFocusMintInput(event.target.value)}
-                placeholder="Paste a Solana mint for one-token refresh"
-                className="h-11 rounded-full"
-              />
-              <Button
-                onClick={refreshFocusToken}
-                className="h-11 rounded-full px-5"
-                disabled={isPending}
-              >
-                <Search className="h-4 w-4" />
-                {pendingAction === "focus" ? "Loading token" : "Load token"}
-              </Button>
-              <Button
-                onClick={refreshBoard}
-                variant="secondary"
-                className="h-11 rounded-full px-5"
-                disabled={isPending}
-              >
-                <RefreshCcw className="h-4 w-4" />
-                Refresh board
-              </Button>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <InlineLabel value="Paid refresh: Birdeye" tone="paid" />
-              <InlineLabel
-                value="Free tape + risk: DexScreener / Rugcheck"
-                tone="free"
-              />
-              <InlineLabel value="Local context: runtime book" tone="local" />
-            </div>
-          </div>
-
-          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-            <SourceMixTile
-              label="Birdeye recent"
-              count={payload.sourceMix.birdeyeRecentCount}
-              tier="paid"
-              detail="Recent paid seed slice"
-            />
-            <SourceMixTile
-              label="Birdeye momentum"
-              count={payload.sourceMix.birdeyeMomentumCount}
-              tier="paid"
-              detail="Momentum paid seed slice"
-            />
-            <SourceMixTile
-              label="Rugcheck recent"
-              count={payload.sourceMix.rugcheckRecentCount}
-              tier="free"
-              detail="Recent free listings"
-            />
-            <SourceMixTile
-              label="Rugcheck verified"
-              count={payload.sourceMix.rugcheckVerifiedCount}
-              tier="free"
-              detail="Verified free names"
-            />
-          </div>
+        <div className="flex items-center gap-3">
+          <Input
+            value={focusMintInput}
+            onChange={(event) => setFocusMintInput(event.target.value)}
+            placeholder="Paste a Solana mint address"
+            className="h-11 flex-1 rounded-full"
+          />
+          <Button
+            onClick={refreshFocusToken}
+            className="h-11 rounded-full px-5"
+            disabled={isPending}
+          >
+            <Search className="h-4 w-4" />
+            {pendingAction === "focus" ? "Loading" : "Lookup"}
+          </Button>
         </div>
       </Panel>
 
-      <Panel
-        title="Trending DEX board"
-        eyebrow={hasBoardData ? "Primary surface" : "Empty but healthy"}
-        description={
-          hasBoardData
-            ? "Cards are ordered for fast scan: freshness, structure, social backing, free security read, then execution links."
-            : "No snapshot is cached yet. The page is healthy, but the board stays empty until you refresh it."
-        }
-        action={
-          <div className="flex flex-wrap items-center gap-2">
-            <InlineLabel
-              value={`${formatInteger(payload.tokens.length)} rows`}
-              tone="neutral"
-            />
-            <InlineLabel
-              value={
-                payload.meta.lastRefreshedAt
-                  ? formatTimestamp(payload.meta.lastRefreshedAt)
-                  : "not refreshed"
-              }
-              tone="neutral"
-            />
-            <InlineLabel value="Paid seeds: Birdeye" tone="paid" />
+      {/* View mode tabs + display mode toggle */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        {/* Left: view mode tabs */}
+        <div className="flex items-center gap-1.5 rounded-full border border-bg-border bg-[#101012] p-1">
+          <ViewTab
+            active={viewMode === "trending" && !watchlistTab}
+            onClick={() => { setViewMode("trending"); setWatchlistTab(false); }}
+            icon={<TrendingUp className="h-3.5 w-3.5" />}
+            label="Trending"
+          />
+          <ViewTab
+            active={viewMode === "newgrads" && !watchlistTab}
+            onClick={() => { setViewMode("newgrads"); setWatchlistTab(false); }}
+            icon={<Clock className="h-3.5 w-3.5" />}
+            label="New grads"
+          />
+          <ViewTab
+            active={watchlistTab}
+            onClick={() => { setWatchlistTab(true); }}
+            icon={<Star className="h-3.5 w-3.5" />}
+            label={`Watchlist`}
+            count={watchlist.size}
+          />
+        </div>
+
+        {/* Right: display mode + source counts */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 text-xs text-text-muted">
+            <span
+              className={clsx(
+                "rounded-full border px-2 py-0.5",
+                `border-[rgba(96,165,250,0.25)] bg-[rgba(96,165,250,0.08)] text-[#93c5fd]`
+              )}
+            >
+              {payload.sourceMix.birdeyeRecentCount + payload.sourceMix.birdeyeMomentumCount} Birdeye
+            </span>
+            <span
+              className={clsx(
+                "rounded-full border px-2 py-0.5",
+                `border-[rgba(163,230,53,0.25)] bg-[rgba(163,230,53,0.08)] text-[var(--success)]`
+              )}
+            >
+              {payload.sourceMix.rugcheckRecentCount + payload.sourceMix.rugcheckVerifiedCount} Rugcheck
+            </span>
           </div>
-        }
-      >
-        {hasBoardData ? (
-          <CardCarousel
-            itemCount={payload.tokens.length}
-            itemLabel="market cards"
-          >
-            {payload.tokens.map((token) => (
-              <MarketTokenCard key={token.mint} token={token} />
+          <div className="flex items-center gap-1 rounded-full border border-bg-border bg-[#101012] p-1">
+            <button
+              type="button"
+              onClick={() => setDisplayMode("grid")}
+              title="Grid view"
+              className={clsx(
+                "rounded-full p-1.5 transition",
+                displayMode === "grid"
+                  ? "bg-accent/15 text-accent"
+                  : "text-text-muted hover:text-text-primary"
+              )}
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setDisplayMode("list")}
+              title="List view"
+              className={clsx(
+                "rounded-full p-1.5 transition",
+                displayMode === "list"
+                  ? "bg-accent/15 text-accent"
+                  : "text-text-muted hover:text-text-primary"
+              )}
+            >
+              <List className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Main board */}
+      {hasBoardData ? (
+        displayMode === "grid" ? (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {displayedTokens.map((token) => (
+              <MarketCard
+                key={token.mint}
+                token={token}
+                starred={watchlist.has(token.mint)}
+                onToggleStar={() => toggleWatchlist(token.mint)}
+              />
             ))}
-          </CardCarousel>
-        ) : (
-          <EmptyState
-            title="No market board cached yet"
-            detail="The page is available. Use Refresh board only when you want to spend provider calls on a new snapshot."
-            compact
-          />
-        )}
-      </Panel>
-
-      <Panel
-        title="Focus token"
-        eyebrow={payload.focusToken ? "Single-token read" : "Idle"}
-        description="Use this only when the board is not enough and you need a one-mint refresh."
-        tone={payload.focusToken ? "default" : "passive"}
-      >
-        <details className="group">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-[14px] border border-bg-border bg-bg-hover/35 px-4 py-3 text-sm font-medium text-text-primary">
-            <span>{payload.focusToken ? "Loaded token detail" : payload.meta.focusMint ? `Retry ${payload.meta.focusMint.slice(0, 8)}` : "No mint loaded"}</span>
-            <span className="text-xs text-text-secondary group-open:hidden">Open</span>
-            <span className="hidden text-xs text-text-secondary group-open:inline">Close</span>
-          </summary>
-          <div className="mt-4">
-        {payload.focusToken ? (
-          <div className="grid gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <StatusPill
-                value={
-                  payload.focusToken.insight.symbol ??
-                  payload.focusToken.insight.mint.slice(0, 8)
-                }
-              />
-              <StatusPill
-                value={
-                  payload.focusToken.trackedPositionStatus ?? "not tracked"
-                }
-              />
-              <StatusPill
-                value={payload.focusToken.rugcheck?.topRiskLevel ?? "unknown"}
-              />
-              <StatusPill
-                value={
-                  payload.focusToken.insight.pairAddress
-                    ? "pair linked"
-                    : "mint fallback"
-                }
-              />
-              <StatusPill
-                value={
-                  payload.meta.focusTokenCachedAt
-                    ? `cached ${formatMinutesAgo(payload.meta.focusTokenCachedAt)}`
-                    : "fresh"
-                }
-              />
-            </div>
-
-            <div className="grid gap-2 md:grid-cols-3">
-              <MetricCard
-                label="Liquidity"
-                value={formatCompactCurrency(
-                  payload.focusToken.insight.market.liquidityUsd,
-                )}
-                detail={`MC ${formatCompactCurrency(payload.focusToken.insight.market.marketCapUsd)}`}
-                tone="accent"
-              />
-              <MetricCard
-                label="5m move"
-                value={formatPercent(
-                  payload.focusToken.insight.market.priceChange5mPercent,
-                )}
-                detail={`24h vol ${formatCompactCurrency(payload.focusToken.insight.market.volume24hUsd)}`}
-                tone={
-                  (payload.focusToken.insight.market.priceChange5mPercent ??
-                    0) >= 0
-                    ? "success"
-                    : "danger"
-                }
-              />
-              <MetricCard
-                label="Rug score"
-                value={formatInteger(
-                  payload.focusToken.rugcheck?.scoreNormalized,
-                )}
-                detail={
-                  payload.focusToken.rugcheck?.topRiskName ??
-                  "No cached summary"
-                }
-                tone={riskTone(
-                  payload.focusToken.rugcheck?.topRiskLevel ?? "unknown",
-                )}
-              />
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <InlineLabel
-                value={`Socials ${countInsightSocials(payload.focusToken.insight)}`}
-                tone={
-                  countInsightSocials(payload.focusToken.insight) >= 2
-                    ? "success"
-                    : "neutral"
-                }
-              />
-              <InlineLabel
-                value={
-                  payload.focusToken.insight.pairCreatedAt
-                    ? `Pair ${formatMinutesAgo(payload.focusToken.insight.pairCreatedAt)}`
-                    : "Pair age unknown"
-                }
-                tone="neutral"
-              />
-            </div>
-
-            <div className="grid gap-2 md:grid-cols-2">
-              <ExternalChip
-                href={payload.focusToken.insight.toolLinks.axiom}
-                label={
-                  payload.focusToken.insight.pairAddress
-                    ? "Axiom pair"
-                    : "Axiom"
-                }
-              />
-              <ExternalChip
-                href={payload.focusToken.insight.toolLinks.dexscreener}
-                label="DexScreener"
-              />
-              <ExternalChip
-                href={payload.focusToken.insight.toolLinks.rugcheck}
-                label="Rugcheck"
-              />
-              <ExternalChip
-                href={payload.focusToken.insight.toolLinks.solscanToken}
-                label="Solscan"
-              />
-            </div>
           </div>
-        ) : payload.meta.focusMint ? (
-          <EmptyState
-            title={`No token detail for ${payload.meta.focusMint.slice(0, 8)}`}
-            detail="The page stayed up, but this mint did not produce a usable response. Retry only if you need another paid one-token lookup."
-            compact
-          />
         ) : (
-          <EmptyState
-            title="No mint loaded"
-            detail="Paste a mint and use Load token only when you need a fresh single-token read."
-            compact
+          <TokenListTable
+            tokens={displayedTokens}
+            watchlist={watchlist}
+            onToggleWatchlist={toggleWatchlist}
           />
-        )}
-          </div>
-        </details>
-      </Panel>
+        )
+      ) : (
+        <EmptyState
+          title="No market board cached"
+          detail="Use Refresh to pull a new snapshot from Birdeye and Rugcheck. The board stays empty until you explicitly refresh."
+          compact
+        />
+      )}
+
+      {hasBoardData && displayedTokens.length === 0 && (
+        <EmptyState
+          title={watchlistTab ? "Watchlist is empty" : "No tokens in this view"}
+          detail={watchlistTab ? "Star tokens from the board to add them to your watchlist." : "Try a different view mode or refresh the board."}
+          compact
+        />
+      )}
+
+      {/* Focus token */}
+      {payload.focusToken && (
+        <Panel
+          title="Focus token"
+          eyebrow="Single-token deep read"
+          description="Loaded from a direct mint lookup. Shows full insight, rug check, and runtime position."
+          tone="default"
+        >
+          <FocusTokenDetail payload={payload} />
+        </Panel>
+      )}
     </div>
   );
 }
 
-function CardCarousel(props: {
-  itemCount: number;
-  itemLabel: string;
-  children: React.ReactNode;
+function ViewTab({
+  active,
+  onClick,
+  icon,
+  label,
+  count,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+  count?: number;
 }) {
-  const railRef = useRef<HTMLDivElement | null>(null);
-
-  function scrollByPage(direction: -1 | 1) {
-    const node = railRef.current;
-    if (!node) {
-      return;
-    }
-    node.scrollBy({
-      left: direction * Math.max(node.clientWidth * 0.85, 280),
-      behavior: "smooth",
-    });
-  }
-
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        <div className="text-xs text-text-secondary">
-          Swipe or use the arrows to move through {props.itemCount} {props.itemLabel}.
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => scrollByPage(-1)}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-bg-border bg-bg-hover/35 text-text-secondary transition hover:text-text-primary"
-            aria-label="Scroll left"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => scrollByPage(1)}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-bg-border bg-bg-hover/35 text-text-secondary transition hover:text-text-primary"
-            aria-label="Scroll right"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
-
-      <div
-        ref={railRef}
-        className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-      >
-        {props.children}
-      </div>
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      className={clsx(
+        "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition",
+        active
+          ? "bg-[rgba(163,230,53,0.12)] text-accent"
+          : "text-text-secondary hover:text-text-primary"
+      )}
+    >
+      {icon}
+      {label}
+      {count !== undefined && count > 0 ? (
+        <span
+          className={clsx(
+            "ml-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
+            active
+              ? "bg-accent/20 text-accent"
+              : "bg-bg-hover text-text-muted"
+          )}
+        >
+          {count}
+        </span>
+      ) : null}
+    </button>
   );
 }
 
-function MarketTokenCard(props: { token: DiscoveryLabMarketTokenRow }) {
-  const { token } = props;
+function MarketCard({
+  token,
+  starred,
+  onToggleStar,
+}: {
+  token: DiscoveryLabMarketTokenRow;
+  starred: boolean;
+  onToggleStar: () => void;
+}) {
   const positiveMove = (token.priceChange5mPercent ?? 0) >= 0;
   const socialCount = token.socials.count;
+  const isBirdeye = token.primarySignal.startsWith("birdeye");
 
   return (
-    <div className="min-w-[19rem] max-w-[22rem] snap-start rounded-[18px] border border-bg-border bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))] p-3.5 md:min-w-[20rem] xl:min-w-[calc((100%-0.75rem)/2)] xl:max-w-[calc((100%-0.75rem)/2)]">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="text-base font-semibold text-text-primary">
+    <div className="group relative rounded-[18px] border border-bg-border/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))] p-4 transition hover:border-accent/20">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="truncate text-base font-semibold text-text-primary">
               {token.symbol}
-            </div>
+            </span>
             <InlineLabel
-              value={describeSeedSource(token)}
-              tone={seedTone(token)}
+              value={isBirdeye ? "paid" : "free"}
+              tone={isBirdeye ? "paid" : "free"}
             />
-            <InlineLabel
-              value={
-                token.trackedPositionStatus === "OPEN"
-                  ? "tracked live"
-                  : "not tracked"
-              }
-              tone={
-                token.trackedPositionStatus === "OPEN" ? "warning" : "neutral"
-              }
-            />
+            {token.trackedPositionStatus === "OPEN" && (
+              <InlineLabel value="tracked" tone="warning" />
+            )}
           </div>
-          <div className="mt-1 truncate text-sm text-text-secondary">
+          <div className="mt-0.5 truncate text-xs text-text-secondary">
             {token.name}
-          </div>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <InlineLabel
-              value={
-                token.graduationAgeMinutes == null
-                  ? "age unknown"
-                  : formatRelativeMinutes(token.graduationAgeMinutes)
-              }
-              tone="neutral"
-            />
-            <InlineLabel
-              value={`socials ${socialCount}`}
-              tone={
-                socialCount >= 2
-                  ? "success"
-                  : socialCount === 1
-                    ? "free"
-                    : "neutral"
-              }
-            />
-            <InlineLabel
-              value={marketCapBand(token.marketCapUsd)}
-              tone="local"
-            />
           </div>
         </div>
 
-        <div
-          className={`rounded-full px-2.5 py-1 text-sm font-semibold ${positiveMove ? "bg-[rgba(163,230,53,0.14)] text-[var(--success)]" : "bg-[rgba(251,113,133,0.14)] text-[var(--danger)]"}`}
+        {/* Star button */}
+        <button
+          type="button"
+          onClick={(e) => { e.preventDefault(); onToggleStar(); }}
+          title={starred ? "Remove from watchlist" : "Add to watchlist"}
+          className={clsx(
+            "rounded-full p-1.5 transition",
+            starred
+              ? "bg-accent/15 text-accent"
+              : "bg-bg-hover/50 text-text-muted opacity-0 hover:bg-bg-hover group-hover:opacity-100"
+          )}
         >
-          {formatPercent(token.priceChange5mPercent)}
+          <Star className={clsx("h-4 w-4", starred && "fill-current")} />
+        </button>
+      </div>
+
+      {/* Price move */}
+      <div className="mt-3 flex items-end justify-between">
+        <div>
+          <div
+            className={clsx(
+              "text-xl font-bold",
+              positiveMove ? "text-[var(--success)]" : "text-[var(--danger)]"
+            )}
+          >
+            {formatPercent(token.priceChange5mPercent)}
+          </div>
+          <div className="mt-1 text-[10px] uppercase tracking-[0.12em] text-text-muted">
+            5-minute move
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="text-sm font-semibold text-text-primary">
+            {formatCompactCurrency(token.liquidityUsd)}
+          </div>
+          <div className="mt-0.5 text-[10px] text-text-muted">
+            MC {formatCompactCurrency(token.marketCapUsd)}
+          </div>
         </div>
       </div>
 
-      <div className="mt-3 grid gap-2 md:grid-cols-3">
-        <MetricCard
-          label="Structure"
-          value={formatCompactCurrency(token.liquidityUsd)}
-          detail={`MC ${formatCompactCurrency(token.marketCapUsd)}`}
+      {/* Stats row */}
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <MiniStat
+          label="Holders"
+          value={
+            token.socials.count > 0
+              ? String(socialCount)
+              : "—"
+          }
         />
-        <MetricCard
-          label="Flow"
+        <MiniStat
+          label="Vol 5m"
           value={formatCompactCurrency(token.volume5mUsd)}
-          detail={`${formatInteger(token.buys5m)} buys / ${formatInteger(token.sells5m)} sells`}
+        />
+        <MiniStat
+          label="B/S"
+          value={token.buys5m != null && token.sells5m != null ? `${token.buys5m}/${token.sells5m}` : "—"}
+          tone={
+            token.buys5m != null && token.sells5m != null && token.buys5m > token.sells5m
+              ? "success"
+              : token.buys5m != null && token.sells5m != null
+              ? "danger"
+              : "default"
+          }
+        />
+      </div>
+
+      {/* Bottom meta */}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <InlineLabel
+          value={
+            token.graduationAgeMinutes == null
+              ? "age unknown"
+              : formatRelativeMinutes(token.graduationAgeMinutes)
+          }
+          tone="neutral"
+        />
+        <InlineLabel
+          value={
+            token.lpLockedPercent != null
+              ? `LP ${formatPercent(token.lpLockedPercent)}`
+              : "no lp data"
+          }
+          tone="neutral"
+        />
+        <InlineLabel
+          value={riskShort(token.rugRiskLevel)}
+          tone={riskShortTone(token.rugRiskLevel)}
+        />
+      </div>
+
+      {/* External links */}
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        <MiniExternal href={token.toolLinks.dexscreener} label="DexScreener" />
+        <MiniExternal href={token.toolLinks.rugcheck} label="Rugcheck" />
+        <MiniExternal
+          href={token.toolLinks.axiom}
+          label={token.pairAddress ? "Axiom" : "Axiom mint"}
+        />
+      </div>
+    </div>
+  );
+}
+
+function MiniStat({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  tone?: "default" | "success" | "danger" | "warning";
+}) {
+  const toneClass = {
+    default: "text-text-primary",
+    success: "text-[var(--success)]",
+    danger: "text-[var(--danger)]",
+    warning: "text-[var(--warning)]",
+  }[tone];
+  return (
+    <div className="rounded-[10px] border border-bg-border bg-bg-hover/35 px-2 py-1.5">
+      <div className="text-[9px] uppercase tracking-[0.12em] text-text-muted">
+        {label}
+      </div>
+      <div className={clsx("mt-0.5 truncate text-sm font-semibold", toneClass)}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function TokenListTable({
+  tokens,
+  watchlist,
+  onToggleWatchlist,
+}: {
+  tokens: DiscoveryLabMarketTokenRow[];
+  watchlist: Set<string>;
+  onToggleWatchlist: (mint: string) => void;
+}) {
+  return (
+    <div className="overflow-hidden rounded-[18px] border border-bg-border/80">
+      <table className="w-full">
+        <thead>
+          <tr className="border-b border-bg-border bg-[#101012]">
+            <th className="px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">Token</th>
+            <th className="px-3 py-2.5 text-right text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">5m %</th>
+            <th className="px-3 py-2.5 text-right text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">Liquidity</th>
+            <th className="px-3 py-2.5 text-right text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">MC</th>
+            <th className="px-3 py-2.5 text-right text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">Vol 5m</th>
+            <th className="px-3 py-2.5 text-right text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">B/S</th>
+            <th className="px-3 py-2.5 text-right text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">Age</th>
+            <th className="px-3 py-2.5 text-right text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">Risk</th>
+            <th className="px-3 py-2.5"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {tokens.map((token) => {
+            const positiveMove = (token.priceChange5mPercent ?? 0) >= 0;
+            return (
+              <tr
+                key={token.mint}
+                className="border-b border-bg-border/50 bg-[#101012] hover:bg-[#111113]"
+              >
+                <td className="px-3 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-text-primary">{token.symbol}</span>
+                    <InlineLabel value={token.primarySignal.startsWith("birdeye") ? "paid" : "free"} tone={token.primarySignal.startsWith("birdeye") ? "paid" : "free"} />
+                    {token.trackedPositionStatus === "OPEN" && <InlineLabel value="tracked" tone="warning" />}
+                  </div>
+                  <div className="mt-0.5 truncate text-xs text-text-secondary">{token.name}</div>
+                </td>
+                <td className="px-3 py-2.5 text-right">
+                  <span className={clsx("text-sm font-semibold", positiveMove ? "text-[var(--success)]" : "text-[var(--danger)]")}>
+                    {formatPercent(token.priceChange5mPercent)}
+                  </span>
+                </td>
+                <td className="px-3 py-2.5 text-right text-sm text-text-primary">
+                  {formatCompactCurrency(token.liquidityUsd)}
+                </td>
+                <td className="px-3 py-2.5 text-right text-sm text-text-primary">
+                  {formatCompactCurrency(token.marketCapUsd)}
+                </td>
+                <td className="px-3 py-2.5 text-right text-sm text-text-primary">
+                  {formatCompactCurrency(token.volume5mUsd)}
+                </td>
+                <td className="px-3 py-2.5 text-right text-sm text-text-primary">
+                  {token.buys5m != null && token.sells5m != null ? `${formatInteger(token.buys5m)}/${formatInteger(token.sells5m)}` : "—"}
+                </td>
+                <td className="px-3 py-2.5 text-right text-xs text-text-muted">
+                  {token.graduationAgeMinutes != null ? formatRelativeMinutes(token.graduationAgeMinutes) : "—"}
+                </td>
+                <td className="px-3 py-2.5 text-right">
+                  <InlineLabel value={riskShort(token.rugRiskLevel)} tone={riskShortTone(token.rugRiskLevel)} />
+                </td>
+                <td className="px-3 py-2.5">
+                  <div className="flex items-center justify-end gap-1">
+                    <a href={token.toolLinks.dexscreener} target="_blank" rel="noreferrer" className="rounded-full border border-bg-border px-2 py-0.5 text-[10px] font-semibold text-text-muted hover:text-text-primary">Dex</a>
+                    <a href={token.toolLinks.rugcheck} target="_blank" rel="noreferrer" className="rounded-full border border-bg-border px-2 py-0.5 text-[10px] font-semibold text-text-muted hover:text-text-primary">Rug</a>
+                    <button
+                      type="button"
+                      onClick={() => onToggleWatchlist(token.mint)}
+                      className={clsx("rounded-full p-1", watchlist.has(token.mint) ? "text-accent" : "text-text-muted hover:text-accent")}
+                    >
+                      <Star className={clsx("h-3.5 w-3.5", watchlist.has(token.mint) && "fill-current")} />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function FocusTokenDetail({ payload }: { payload: DiscoveryLabMarketStatsPayload }) {
+  const ft = payload.focusToken;
+  if (!ft) return null;
+
+  const positiveMove = (ft.insight.market.priceChange5mPercent ?? 0) >= 0;
+  const socialCount = [
+    ft.insight.socials.website,
+    ft.insight.socials.twitter,
+    ft.insight.socials.telegram,
+    ft.insight.socials.discord,
+  ].filter(Boolean).length;
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex flex-wrap items-center gap-2">
+        <StatusPill value={ft.insight.symbol ?? ft.insight.mint.slice(0, 8)} />
+        <StatusPill value={ft.trackedPositionStatus ?? "not tracked"} />
+        <StatusPill value={ft.rugcheck?.topRiskLevel ?? "unknown"} />
+        <StatusPill value={ft.insight.pairAddress ? "pair linked" : "mint fallback"} />
+        {payload.meta.focusTokenCachedAt && (
+          <StatusPill value={`cached ${formatMinutesAgo(payload.meta.focusTokenCachedAt)}`} />
+        )}
+      </div>
+
+      {/* Key metrics */}
+      <div className="grid gap-2 md:grid-cols-3">
+        <MetricCard
+          label="Liquidity"
+          value={formatCompactCurrency(ft.insight.market.liquidityUsd)}
+          detail={`MC ${formatCompactCurrency(ft.insight.market.marketCapUsd)}`}
           tone="accent"
         />
         <MetricCard
-          label="Risk"
-          value={formatInteger(token.rugScoreNormalized)}
-          detail={token.topRiskName ?? "No top risk"}
-          tone={riskTone(token.rugRiskLevel)}
+          label="5m move"
+          value={formatPercent(ft.insight.market.priceChange5mPercent)}
+          detail={`24h vol ${formatCompactCurrency(ft.insight.market.volume24hUsd)}`}
+          tone={positiveMove ? "success" : "danger"}
+        />
+        <MetricCard
+          label="Rug score"
+          value={ft.rugcheck?.scoreNormalized != null ? String(ft.rugcheck.scoreNormalized) : "—"}
+          detail={ft.rugcheck?.topRiskName ?? "No cached summary"}
+          tone={riskTone(ft.rugcheck?.topRiskLevel ?? "unknown")}
         />
       </div>
 
-      <div className="mt-3 grid gap-3 xl:grid-cols-[1fr_auto]">
-        <div className="flex flex-wrap gap-2">
-          {token.rugRiskLevel === "danger" ? (
-            <InlineLabel value="free risk high" tone="danger" />
-          ) : null}
-          {token.rugRiskLevel === "warning" ? (
-            <InlineLabel value="free risk caution" tone="warning" />
-          ) : null}
-          {(token.lpLockedPercent ?? 0) > 0 ? (
-            <InlineLabel
-              value={`lp ${formatPercent(token.lpLockedPercent)}`}
-              tone="neutral"
-            />
-          ) : null}
-          {!token.pairAddress ? (
-            <InlineLabel value="mint fallback axiom" tone="warning" />
-          ) : null}
-        </div>
-
-        <div className="flex flex-wrap justify-start gap-2 xl:justify-end">
-          <MiniExternal href={token.toolLinks.dexscreener} label="Dex" />
-          <MiniExternal href={token.toolLinks.rugcheck} label="Rug" />
-          <MiniExternal
-            href={token.toolLinks.axiom}
-            label={token.pairAddress ? "Axiom pair" : "Axiom"}
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function countInsightSocials(
-  payload: NonNullable<DiscoveryLabMarketStatsPayload["focusToken"]>["insight"],
-) {
-  return [
-    payload.socials.website,
-    payload.socials.twitter,
-    payload.socials.telegram,
-    payload.socials.discord,
-  ].filter(Boolean).length;
-}
-
-function marketCapBand(value: number | null) {
-  if (value === null) {
-    return "cap unknown";
-  }
-  if (value < 400_000) {
-    return "micro cap";
-  }
-  if (value < 1_000_000) {
-    return "sub 1M";
-  }
-  if (value < 3_000_000) {
-    return "1M to 3M";
-  }
-  return "3M+";
-}
-
-function SourceMixTile(props: {
-  label: string;
-  count: number;
-  tier: "paid" | "free";
-  detail: string;
-}) {
-  return (
-    <div className="rounded-[14px] border border-bg-border bg-[#101112] p-3">
-      <div className="flex items-center justify-between gap-2">
-        <div className="text-sm font-semibold text-text-primary">
-          {props.label}
-        </div>
+      {/* Socials + pair age */}
+      <div className="flex flex-wrap gap-2">
         <InlineLabel
-          value={props.tier === "paid" ? "paid api" : "free api"}
-          tone={props.tier}
+          value={`Socials ${socialCount}`}
+          tone={socialCount >= 2 ? "success" : "neutral"}
         />
-      </div>
-      <div className="mt-2 text-[1.15rem] font-semibold text-text-primary">
-        {formatInteger(props.count)}
-      </div>
-      <div className="mt-1 text-xs text-text-secondary">{props.detail}</div>
-    </div>
-  );
-}
-
-function SourceCard(props: {
-  label: string;
-  tier: "paid" | "free" | "local";
-  detail: string;
-}) {
-  return (
-    <div className="rounded-[14px] border border-bg-border bg-[#101112] p-3">
-      <div className="flex items-center justify-between gap-2">
-        <div className="text-sm font-semibold text-text-primary">
-          {props.label}
-        </div>
         <InlineLabel
-          value={props.tier === "local" ? "local" : `${props.tier} api`}
-          tone={props.tier}
+          value={
+            ft.insight.pairCreatedAt
+              ? `Pair ${formatMinutesAgo(ft.insight.pairCreatedAt)}`
+              : "Pair age unknown"
+          }
+          tone="neutral"
+        />
+        <InlineLabel
+          value={
+            ft.insight.market.buy5m != null && ft.insight.market.sell5m != null
+              ? `${formatInteger(ft.insight.market.buy5m)} buys / ${formatInteger(ft.insight.market.sell5m)} sells`
+              : "No flow data"
+          }
+          tone="neutral"
         />
       </div>
-      <div className="mt-2 text-xs leading-5 text-text-secondary">
-        {props.detail}
+
+      {/* Risk details */}
+      {ft.rugcheck && ft.rugcheck.risks.length > 0 && (
+        <div>
+          <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">
+            Rugcheck risks
+          </div>
+          <div className="space-y-1.5">
+            {ft.rugcheck.risks.slice(0, 4).map((risk, i) => (
+              <div
+                key={i}
+                className={clsx(
+                  "flex items-center justify-between rounded-[10px] border px-3 py-2 text-xs",
+                  risk.level === "danger"
+                    ? "border-[rgba(251,113,133,0.25)] bg-[rgba(251,113,133,0.06)]"
+                    : risk.level === "warning"
+                    ? "border-[rgba(250,204,21,0.2)] bg-[rgba(250,204,21,0.05)]"
+                    : "border-bg-border bg-bg-hover/35"
+                )}
+              >
+                <span className="text-text-primary">{risk.name}</span>
+                <span className="font-semibold text-text-muted">{risk.score ?? "—"}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* External links */}
+      <div className="flex flex-wrap gap-2">
+        <ExternalChip href={ft.insight.toolLinks.axiom} label={ft.insight.pairAddress ? "Axiom pair" : "Axiom"} />
+        <ExternalChip href={ft.insight.toolLinks.dexscreener} label="DexScreener" />
+        <ExternalChip href={ft.insight.toolLinks.rugcheck} label="Rugcheck" />
+        <ExternalChip href={ft.insight.toolLinks.solscanToken} label="Solscan" />
       </div>
     </div>
   );
-}
-
-function MetricCard(props: {
-  label: string;
-  value: string;
-  detail: string;
-  tone?: "default" | "accent" | "success" | "warning" | "danger";
-}) {
-  const toneClass = {
-    default: "border-bg-border bg-bg-hover/25",
-    accent: "border-[rgba(96,165,250,0.18)] bg-[rgba(96,165,250,0.08)]",
-    success: "border-[rgba(163,230,53,0.18)] bg-[rgba(163,230,53,0.08)]",
-    warning: "border-[rgba(250,204,21,0.18)] bg-[rgba(250,204,21,0.08)]",
-    danger: "border-[rgba(251,113,133,0.18)] bg-[rgba(251,113,133,0.08)]",
-  }[props.tone ?? "default"];
-
-  return (
-    <div className={`rounded-[14px] border px-3 py-2.5 ${toneClass}`}>
-      <div className="text-[10px] uppercase tracking-[0.12em] text-text-muted">
-        {props.label}
-      </div>
-      <div className="mt-1 text-sm font-semibold text-text-primary">
-        {props.value}
-      </div>
-      <div className="mt-1 text-xs text-text-secondary">{props.detail}</div>
-    </div>
-  );
-}
-
-function WarningBanner(props: {
-  message: string;
-  tone?: "danger" | "warning";
-}) {
-  const toneClass =
-    props.tone === "danger"
-      ? "border-[rgba(251,113,133,0.25)] bg-[rgba(251,113,133,0.08)] text-[var(--danger)]"
-      : "border-[rgba(250,204,21,0.24)] bg-[rgba(250,204,21,0.08)] text-[var(--warning)]";
-  return (
-    <div className={`rounded-[16px] border px-5 py-4 text-sm ${toneClass}`}>
-      {props.message}
-    </div>
-  );
-}
-
-function describeSeedSource(token: DiscoveryLabMarketTokenRow): string {
-  return token.primarySignal.startsWith("birdeye") ? "paid seed" : "free seed";
-}
-
-function seedTone(token: DiscoveryLabMarketTokenRow): "paid" | "free" {
-  return token.primarySignal.startsWith("birdeye") ? "paid" : "free";
-}
-
-function riskTone(
-  level: DiscoveryLabMarketTokenRow["rugRiskLevel"],
-): "default" | "warning" | "danger" | "success" {
-  if (level === "danger") {
-    return "danger";
-  }
-  if (level === "warning") {
-    return "warning";
-  }
-  if (level === "info") {
-    return "success";
-  }
-  return "default";
 }
 
 function InlineLabel(props: {
@@ -780,10 +833,37 @@ function InlineLabel(props: {
   }[props.tone];
   return (
     <span
-      className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${toneClass}`}
+      className={clsx(
+        "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em]",
+        toneClass
+      )}
     >
       {props.value}
     </span>
+  );
+}
+
+function MetricCard(props: {
+  label: string;
+  value: string;
+  detail: string;
+  tone?: "default" | "accent" | "success" | "warning" | "danger";
+}) {
+  const toneClass = {
+    default: "border-bg-border bg-bg-hover/25",
+    accent: "border-[rgba(96,165,250,0.18)] bg-[rgba(96,165,250,0.08)]",
+    success: "border-[rgba(163,230,53,0.18)] bg-[rgba(163,230,53,0.08)]",
+    warning: "border-[rgba(250,204,21,0.18)] bg-[rgba(250,204,21,0.08)]",
+    danger: "border-[rgba(251,113,133,0.18)] bg-[rgba(251,113,133,0.08)]",
+  }[props.tone ?? "default"];
+  return (
+    <div className={clsx("rounded-[14px] border px-3 py-2.5", toneClass)}>
+      <div className="text-[10px] uppercase tracking-[0.12em] text-text-muted">
+        {props.label}
+      </div>
+      <div className="mt-1 text-sm font-bold text-text-primary">{props.value}</div>
+      <div className="mt-1 text-xs text-text-secondary">{props.detail}</div>
+    </div>
   );
 }
 
@@ -807,9 +887,54 @@ function MiniExternal(props: { href: string; label: string }) {
       href={props.href}
       target="_blank"
       rel="noreferrer"
-      className="inline-flex items-center rounded-full border border-bg-border px-2.5 py-1 text-[11px] font-semibold text-text-secondary transition hover:border-[rgba(255,255,255,0.12)] hover:text-text-primary"
+      className="inline-flex items-center rounded-full border border-bg-border px-2 py-1 text-[11px] font-semibold text-text-muted transition hover:border-[rgba(255,255,255,0.12)] hover:text-text-primary"
     >
       {props.label}
     </a>
   );
+}
+
+function WarningBanner(props: {
+  message: string;
+  tone?: "danger" | "warning";
+}) {
+  const toneClass =
+    props.tone === "danger"
+      ? "border-[rgba(251,113,133,0.25)] bg-[rgba(251,113,133,0.08)] text-[var(--danger)]"
+      : "border-[rgba(250,204,21,0.24)] bg-[rgba(250,204,21,0.08)] text-[var(--warning)]";
+  return (
+    <div className={clsx("rounded-[16px] border px-5 py-4 text-sm", toneClass)}>
+      {props.message}
+    </div>
+  );
+}
+
+function riskShort(level: DiscoveryLabMarketTokenRow["rugRiskLevel"]) {
+  if (level === "danger") return "danger";
+  if (level === "warning") return "caution";
+  if (level === "info") return "safe";
+  return "unknown";
+}
+
+function riskShortTone(
+  level: DiscoveryLabMarketTokenRow["rugRiskLevel"]
+): "danger" | "warning" | "success" | "neutral" {
+  if (level === "danger") return "danger";
+  if (level === "warning") return "warning";
+  if (level === "info") return "success";
+  return "neutral";
+}
+
+function riskTone(
+  level: "danger" | "warning" | "info" | "unknown"
+): "default" | "warning" | "danger" | "success" {
+  if (level === "danger") return "danger";
+  if (level === "warning") return "warning";
+  if (level === "info") return "success";
+  return "default";
+}
+
+// Need clsx imported
+function clsx(...args: (string | undefined | null | false)[]) {
+  return args.filter(Boolean).join(" ");
 }

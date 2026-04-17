@@ -2,16 +2,21 @@
 
 import * as Tooltip from "@radix-ui/react-tooltip";
 import clsx from "clsx";
-import { useMemo, useState, useTransition } from "react";
-import { ArrowUpRight, CircleHelp } from "lucide-react";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { ArrowUpRight, CircleHelp, RotateCcw, Save, Zap } from "lucide-react";
 import { fetchJson } from "@/lib/api";
 import { discoveryLabRoutes } from "@/lib/dashboard-routes";
 import { formatInteger, formatTimestamp, smartFormatValue } from "@/lib/format";
 import type { BotSettings } from "@/lib/types";
+
+type DeepPartial<T> = {
+  [P in keyof T]?: T[P] extends object ? DeepPartial<T[P]> : T[P];
+};
 import { useHydrated } from "@/lib/use-hydrated";
 import { CompactPageHeader, CompactStatGrid, EmptyState, Panel, StatusPill } from "@/components/dashboard-primitives";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { cn } from "@/components/ui/cn";
 
 type SectionId = "capital" | "strategy" | "entry" | "exit" | "advanced";
 type SettingsEditorMode = "default" | "hot-discovery";
@@ -119,6 +124,7 @@ const fieldHelp: Partial<Record<string, string>> = {
   "filters.maxGraduationAgeSeconds": "Controls how old a graduated token can be and still qualify.",
   "exits.timeLimitMinutes": "Useful session cap for fast meme trading. Keep this aligned with your intended 5-60 minute workflow.",
 };
+
 
 const hotDiscoveryFields: Array<{
   path: string;
@@ -276,10 +282,26 @@ export function SettingsClient({
   const [serverSettings, setServerSettings] = useState(initial);
   const [values, setValues] = useState(initial);
   const [activeSection, setActiveSection] = useState<SectionId>(() => preferredSection(allowedSectionIds));
+  const [activePresetId, setActivePresetId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const hydrated = useHydrated();
+
+  // Presets loaded from backend
+  const [presets, setPresets] = useState<Array<{ id: string; label: string; description: string; icon: string; values: Partial<BotSettings> }>>([]);
+
+  useEffect(() => {
+    async function loadPresets() {
+      try {
+        const data = await fetchJson<Array<{ id: string; label: string; description: string; icon: string; values: Partial<BotSettings> }>>("/settings/presets");
+        setPresets(data);
+      } catch {
+        // silently ignore - preset buttons will be empty
+      }
+    }
+    void loadPresets();
+  }, []);
 
   const changedPaths = useMemo(
     () => diffPaths(serverSettings as unknown as Record<string, unknown>, values as unknown as Record<string, unknown>),
@@ -318,6 +340,28 @@ export function SettingsClient({
 
   const resetLocal = () => {
     setValues(serverSettings);
+    setActivePresetId(null);
+    setMessage(null);
+    setError(null);
+  };
+
+  const applyPreset = (presetId: string) => {
+    const preset = presets.find((p) => p.id === presetId);
+    if (!preset) return;
+    setValues((current) => {
+      const next = structuredClone(current);
+      for (const [section, fields] of Object.entries(preset.values)) {
+        if (fields && typeof fields === "object") {
+          for (const [key, value] of Object.entries(fields)) {
+            if (value !== undefined) {
+              ((next as Record<string, unknown>)[section] as Record<string, unknown>)[key] = value;
+            }
+          }
+        }
+      }
+      return next;
+    });
+    setActivePresetId(presetId);
     setMessage(null);
     setError(null);
   };
@@ -378,10 +422,11 @@ export function SettingsClient({
         )}
       >
         <CompactStatGrid
-          className="xl:grid-cols-4"
+          className="xl:grid-cols-5"
           items={
             editorMode === "hot-discovery"
               ? [
+                  { label: "Preset", value: activePresetId ? presets.find(p => p.id === activePresetId)?.label ?? activePresetId : "Custom", detail: localDirty ? "Unsaved changes" : "No pending edits", tone: localDirty ? "warning" : "default" },
                   { label: "Changed", value: formatInteger(changedPaths.length), detail: localDirty ? "Ready to apply" : "No local edits", tone: localDirty ? "warning" : "default" },
                   { label: "Graduation window", value: formatMinutesFromSeconds(values.filters.maxGraduationAgeSeconds), detail: "Recent grads only", tone: "accent" },
                   { label: "Session cap", value: `${formatInteger(values.exits.timeLimitMinutes)}m`, detail: "Managed exit ceiling", tone: "default" },
@@ -411,6 +456,40 @@ export function SettingsClient({
 
       {editorMode === "hot-discovery" ? (
         <>
+          {/* Named presets */}
+          <Panel title="Quick presets" eyebrow="One-click configs">
+            <div className="mb-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+              {presets.map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  onClick={() => applyPreset(preset.id)}
+                  className={clsx(
+                    "group relative rounded-[14px] border px-4 py-3 text-left transition",
+                    activePresetId === preset.id
+                      ? "border-accent/40 bg-accent/10"
+                      : "border-bg-border bg-bg-hover/30 hover:border-accent/20 hover:bg-bg-hover/50"
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">{preset.icon}</span>
+                    <span className="text-sm font-semibold text-text-primary">{preset.label}</span>
+                    {activePresetId === preset.id ? (
+                      <span className="ml-auto rounded-full bg-accent/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent">Active</span>
+                    ) : (
+                      <Zap className="ml-auto h-3.5 w-3.5 text-text-muted opacity-0 transition group-hover:opacity-100" />
+                    )}
+                  </div>
+                  <div className="mt-1.5 text-xs leading-4 text-text-secondary">{preset.description}</div>
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2 text-xs text-text-muted">
+              <Zap className="h-3.5 w-3.5" />
+              <span>Presets load values immediately. Apply or reset to activate.</span>
+            </div>
+          </Panel>
+
           <Panel title="Hot parameters" eyebrow="Direct apply">
             <div className="mb-4 rounded-[14px] border border-[rgba(163,230,53,0.18)] bg-[rgba(163,230,53,0.08)] px-4 py-3 text-sm text-text-primary">
               Optimize for pump.fun and recent graduates here. These edits apply directly to active runtime settings, so keep the desk paused if you are changing live-sensitive values mid-session.
@@ -521,10 +600,12 @@ export function SettingsClient({
           </div>
           <div className="flex flex-wrap gap-2">
             <Button onClick={resetLocal} disabled={isPending || !localDirty} variant="ghost" title="Reset local edits back to active settings">
+              <RotateCcw className="h-4 w-4" />
               Reset
             </Button>
             <Button onClick={applySettings} disabled={isPending || !localDirty} variant="default" title="Apply local settings immediately">
-              Apply now
+              <Save className={cn("h-4 w-4", isPending && "animate-spin")} />
+              {isPending ? "Applying…" : "Apply now"}
             </Button>
           </div>
         </div>

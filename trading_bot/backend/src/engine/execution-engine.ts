@@ -126,7 +126,7 @@ export class ExecutionEngine {
 
   private async openDryRunPosition(settings: BotSettings, input: OpenPositionInput): Promise<string> {
     const position = await db.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT 1 FROM "BotState" WHERE id =  FOR UPDATE`;
+      await tx.$queryRaw`SELECT 1 FROM "BotState" WHERE id = ${BOT_STATE_ID} FOR UPDATE`;
 
       const entryScore = this.readEntryScore(input.metrics);
       const confidenceScore = this.readConfidenceScore(input.metrics);
@@ -264,8 +264,6 @@ export class ExecutionEngine {
     amountUsd: number,
     amountToken: number,
   ): Promise<{ id: string }> {
-    // Idempotent recovery: if the fill already exists (partial failure on a previous attempt),
-    // return the existing position rather than creating a duplicate.
     const existing = await db.fill.findFirst({ where: { txSignature: executed.signature } });
     if (existing) {
       logger.warn({ txSignature: executed.signature, fillId: existing.id }, "fill already exists, skipping duplicate persist");
@@ -333,7 +331,7 @@ export class ExecutionEngine {
   private async persistClose(input: PersistCloseInput): Promise<Position | null> {
     return db.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT 1 FROM "Position" WHERE id = ${input.input.positionId} FOR UPDATE`;
-      await tx.$queryRaw`SELECT 1 FROM "BotState" WHERE id =  FOR UPDATE`;
+      await tx.$queryRaw`SELECT 1 FROM "BotState" WHERE id = ${BOT_STATE_ID} FOR UPDATE`;
 
       const position = await tx.position.findUniqueOrThrow({
         where: { id: input.input.positionId },
@@ -820,7 +818,13 @@ export class ExecutionEngine {
    */
   async runExclusive<T>(task: () => Promise<T>): Promise<T> {
     const next = this.executionQueue.then(task, task);
-    this.executionQueue = next.then(() => undefined, () => undefined);
+    this.executionQueue = next.then(
+      () => undefined,
+      (err: unknown) => {
+        logger.warn({ err }, "runExclusive task rejected");
+        return undefined;
+      },
+    );
     return next;
   }
 

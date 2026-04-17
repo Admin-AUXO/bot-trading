@@ -53,8 +53,12 @@ export function CompactPageHeader(props: {
             {props.badges}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-2">
-            <h1 className="font-display text-[1rem] font-semibold tracking-[-0.02em] text-text-primary">{props.title}</h1>
-            {props.description ? <span className="text-[12px] text-text-secondary">{props.description}</span> : null}
+            <h1 className="font-display text-[1rem] font-semibold tracking-[-0.02em] text-text-primary">
+              {props.title}
+            </h1>
+            {props.description ? (
+              <span className="text-[12px] text-text-secondary">{props.description}</span>
+            ) : null}
           </div>
         </div>
         {props.actions ? <div className="flex flex-wrap items-center gap-2">{props.actions}</div> : null}
@@ -108,19 +112,27 @@ export function Panel(props: {
 
   return (
     <section className={clsx("rounded-[14px] p-3 md:p-3.5", toneClass, props.className)}>
-      {(props.eyebrow || props.action) ? (
+      {props.eyebrow || props.action ? (
         <div className="mb-2.5 flex flex-wrap items-start justify-between gap-2.5">
           <div>
             {props.eyebrow ? <p className="section-kicker">{props.eyebrow}</p> : null}
-            <h2 className="mt-1 font-display text-[0.93rem] font-semibold tracking-[-0.02em] text-text-primary md:text-[1rem]">{props.title}</h2>
-            {props.description ? <p className="mt-0.5 max-w-3xl text-xs leading-5 text-text-secondary">{props.description}</p> : null}
+            <h2 className="mt-1 font-display text-[0.93rem] font-semibold tracking-[-0.02em] text-text-primary md:text-[1rem]">
+              {props.title}
+            </h2>
+            {props.description ? (
+              <p className="mt-0.5 max-w-3xl text-xs leading-5 text-text-secondary">{props.description}</p>
+            ) : null}
           </div>
           {props.action}
         </div>
       ) : (
         <div className="mb-2.5">
-          <h2 className="font-display text-[0.93rem] font-semibold tracking-[-0.02em] text-text-primary md:text-[1rem]">{props.title}</h2>
-          {props.description ? <p className="mt-0.5 max-w-3xl text-xs leading-5 text-text-secondary">{props.description}</p> : null}
+          <h2 className="font-display text-[0.93rem] font-semibold tracking-[-0.02em] text-text-primary md:text-[1rem]">
+            {props.title}
+          </h2>
+          {props.description ? (
+            <p className="mt-0.5 max-w-3xl text-xs leading-5 text-text-secondary">{props.description}</p>
+          ) : null}
         </div>
       )}
       {props.children}
@@ -151,7 +163,9 @@ export function StatCard(props: {
           <div className="scorecard-label wrap-anywhere">{props.label}</div>
           {Icon ? <Icon className="h-4 w-4 text-text-secondary" /> : null}
         </div>
-        <div className="scorecard-value wrap-anywhere text-[1.16rem] font-semibold tracking-tight">{props.value}</div>
+        <div className="scorecard-value wrap-anywhere text-[1.16rem] font-semibold tracking-tight">
+          {props.value}
+        </div>
         <div className="scorecard-detail text-[12px]">{props.detail}</div>
       </div>
     </div>
@@ -175,17 +189,35 @@ export function ScanStat(props: {
     <div className={clsx("rounded-[14px] border px-3 py-2.5", toneClass)}>
       <div className="scorecard-grid">
         <div className="scorecard-label wrap-anywhere">{props.label}</div>
-        <div className="scorecard-value wrap-anywhere text-[0.98rem] font-semibold tracking-tight">{props.value}</div>
+        <div className="scorecard-value wrap-anywhere text-[0.98rem] font-semibold tracking-tight">
+          {props.value}
+        </div>
         {props.detail ? <div className="scorecard-detail text-xs">{props.detail}</div> : <div />}
       </div>
     </div>
   );
 }
 
-export function EmptyState(props: { title: string; detail: string; compact?: boolean; className?: string }) {
+export function EmptyState(props: {
+  title: string;
+  detail: string;
+  compact?: boolean;
+  className?: string;
+}) {
   return (
-    <div className={clsx("flex flex-col items-center justify-center text-center", props.compact ? "px-4 py-5" : "px-4 py-8", props.className)}>
-      <div className={clsx("mb-3 flex items-center justify-center rounded-xl border border-bg-border bg-bg-hover text-text-muted", props.compact ? "h-8 w-8" : "h-10 w-10")}>
+    <div
+      className={clsx(
+        "flex flex-col items-center justify-center text-center",
+        props.compact ? "px-4 py-5" : "px-4 py-8",
+        props.className,
+      )}
+    >
+      <div
+        className={clsx(
+          "mb-3 flex items-center justify-center rounded-xl border border-bg-border bg-bg-hover text-text-muted",
+          props.compact ? "h-8 w-8" : "h-10 w-10",
+        )}
+      >
         <AlertCircle className="h-4 w-4" />
       </div>
       <div className="text-sm font-medium text-text-secondary">{props.title}</div>
@@ -196,16 +228,43 @@ export function EmptyState(props: { title: string; detail: string; compact?: boo
 
 export function StatusPill(props: { value: string | null | undefined }) {
   const value = String(props.value ?? "unknown").toUpperCase();
-  const tone = value.includes("REJECT") || value.includes("ERROR") || value.includes("BLOCK") || value.includes("FAIL") || value.includes("DANGER")
-    ? "border-[rgba(251,113,133,0.26)] bg-[rgba(251,113,133,0.12)] text-[var(--danger)]"
-    : value.includes("OPEN") || value.includes("ACCEPT") || value.includes("BOUGHT") || value.includes("READY") || value.includes("PASS") || value.includes("HEALTHY") || value.includes("LIVE") || value.includes("RUNNING") || value.includes("ENABLED") || value === "OK"
-      ? "border-[rgba(163,230,53,0.26)] bg-[rgba(163,230,53,0.12)] text-[var(--success)]"
-      : value.includes("WARNING") || value.includes("PAUSE") || value.includes("WAIT") || value.includes("QUEUE") || value.includes("STALE") || value.includes("DISCOVER") || value.includes("SKIP") || value.includes("CHANGED") || value.includes("DISABLED")
-        ? "border-[rgba(250,204,21,0.24)] bg-[rgba(250,204,21,0.12)] text-[var(--warning)]"
-        : "border-[var(--line)] bg-white/[0.05] text-text-secondary";
+  const tone =
+    value.includes("REJECT") ||
+    value.includes("ERROR") ||
+    value.includes("BLOCK") ||
+    value.includes("FAIL") ||
+    value.includes("DANGER")
+      ? "border-[rgba(251,113,133,0.26)] bg-[rgba(251,113,133,0.12)] text-[var(--danger)]"
+      : value.includes("OPEN") ||
+          value.includes("ACCEPT") ||
+          value.includes("BOUGHT") ||
+          value.includes("READY") ||
+          value.includes("PASS") ||
+          value.includes("HEALTHY") ||
+          value.includes("LIVE") ||
+          value.includes("RUNNING") ||
+          value.includes("ENABLED") ||
+          value === "OK"
+        ? "border-[rgba(163,230,53,0.26)] bg-[rgba(163,230,53,0.12)] text-[var(--success)]"
+        : value.includes("WARNING") ||
+            value.includes("PAUSE") ||
+            value.includes("WAIT") ||
+            value.includes("QUEUE") ||
+            value.includes("STALE") ||
+            value.includes("DISCOVER") ||
+            value.includes("SKIP") ||
+            value.includes("CHANGED") ||
+            value.includes("DISABLED")
+          ? "border-[rgba(250,204,21,0.24)] bg-[rgba(250,204,21,0.12)] text-[var(--warning)]"
+          : "border-[var(--line)] bg-white/[0.05] text-text-secondary";
 
   return (
-    <span className={clsx("inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-semibold tracking-[0.14em]", tone)}>
+    <span
+      className={clsx(
+        "inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-semibold tracking-[0.14em]",
+        tone,
+      )}
+    >
       {value.replace(/_/g, " ")}
     </span>
   );
@@ -254,8 +313,12 @@ export function DataTable(props: {
   const sampleRow = rows[0];
   const keys = sampleRow
     ? props.preferredKeys
-      .filter((key) => key in sampleRow)
-      .concat(Object.keys(sampleRow).filter((key) => !props.preferredKeys.includes(key)).slice(0, Math.max(0, 8 - props.preferredKeys.length)))
+        .filter((key) => key in sampleRow)
+        .concat(
+          Object.keys(sampleRow)
+            .filter((key) => !props.preferredKeys.includes(key))
+            .slice(0, Math.max(0, 8 - props.preferredKeys.length)),
+        )
     : [];
 
   return (
@@ -269,7 +332,10 @@ export function DataTable(props: {
       {rows.length === 0 || keys.length === 0 ? (
         <EmptyState
           title={props.emptyTitle ?? "Nothing to show yet"}
-          detail={props.emptyDetail ?? "The backend returned no rows for this slice, which is still better than lying with placeholder numbers."}
+          detail={
+            props.emptyDetail ??
+            "The backend returned no rows for this slice, which is still better than lying with placeholder numbers."
+          }
         />
       ) : (
         <AgGridTable

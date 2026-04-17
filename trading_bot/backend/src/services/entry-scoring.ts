@@ -22,7 +22,6 @@ export type EntryScoringSignal = {
   top10HolderPercent: number | null | undefined;
   largestHolderPercent: number | null | undefined;
   ageSeconds: number;
-  /** Price change % between discovery and evaluation. Negative = dump since discovery. */
   priceChangeSinceDiscoveryPercent?: number | null | undefined;
   source?: string | null | undefined;
   statusAdjustment?: number;

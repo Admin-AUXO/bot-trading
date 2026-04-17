@@ -161,11 +161,6 @@ export class ProviderBudgetService {
     }
   }
 
-  /**
-   * Returns cached/shared facts when BIRDEYE_BUDGET_EMERGENCY_BYPASS=true.
-   * In bypass mode, callers should treat a { allowed: false } decision as
-   * { allowed: true, snapshot } using the most recent snapshot without a fresh API call.
-   */
   async getBypassSnapshot(): Promise<BirdeyeBudgetSnapshot | null> {
     if (!env.BIRDEYE_BUDGET_EMERGENCY_BYPASS) return null;
     return this.getBirdeyeBudgetSnapshot();

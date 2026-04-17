@@ -869,15 +869,12 @@ export class GraduationEngine {
       return { passed: false, rejectReason: "entry price unavailable", metrics, filterState: baseFilterState };
     }
 
-    // ── FAIR VALUE GATE ─────────────────────────────────────────────────────
-    // Reject if evaluation price is more than 5% (or 7% for runner) above discovery.
     const discoveryPrice = (baseline.priceUsd as number | null | undefined) ?? null;
     let priceDeltaPercent: number | null = null;
     if (discoveryPrice != null && discoveryPrice > 0) {
       priceDeltaPercent = ((entryPriceUsd - discoveryPrice) / discoveryPrice) * 100;
       metrics.priceDeltaSinceDiscoveryPercent = priceDeltaPercent;
 
-      // Hard reject: paying more than 5% above discovery price is a structural disadvantage
       if (priceDeltaPercent > FAIR_VALUE_ENTRY_PREMIUM_CAP * 100) {
         return {
           passed: false,
@@ -887,7 +884,6 @@ export class GraduationEngine {
         };
       }
 
-      // Soft issue: evaluation price notably above discovery — flag it in metrics
       if (priceDeltaPercent > 0) {
         softIssues.push("paying above discovery price");
       }

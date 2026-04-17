@@ -299,6 +299,38 @@ export class OperatorDeskService {
       this.getDeskKpis(),
     ]);
 
+    const positionIds = openPositionRows.map((r) => r.id);
+    const [latestMetricsRows, latestFillsRows] = await Promise.all([
+      db.tokenMetrics.findMany({
+        where: {
+          OR: [
+            { positionId: { in: positionIds } },
+            { mint: { in: openPositionRows.map((r) => r.mint) } },
+          ],
+        },
+        orderBy: { capturedAt: "desc" },
+      }),
+      db.fill.findMany({
+        where: { positionId: { in: positionIds } },
+        orderBy: { createdAt: "desc" },
+      }),
+    ]);
+
+    const latestMetricsMap = new Map<string, { capturedAt: Date }>();
+    for (const metric of latestMetricsRows) {
+      const key = metric.positionId ?? metric.mint;
+      if (!latestMetricsMap.has(key)) {
+        latestMetricsMap.set(key, metric);
+      }
+    }
+
+    const latestFillMap = new Map<string, { createdAt: Date; metadata: unknown }>();
+    for (const fill of latestFillsRows) {
+      if (!latestFillMap.has(fill.positionId)) {
+        latestFillMap.set(fill.positionId, fill);
+      }
+    }
+
     const buckets = this.buildCandidateBucketCounts(candidates);
     const diagnostics = this.buildDiagnostics(botState, budget, latestPayloadFailures);
 
@@ -371,7 +403,12 @@ export class OperatorDeskService {
       adaptiveModel: buildAdaptiveModelState(settings),
       recentFailures: events.filter((event) => event.level !== "info").slice(0, 6).map((event) => this.toEventPayload(event)),
       recentActions: events.filter((event) => event.level === "info").slice(0, 6).map((event) => this.toEventPayload(event)),
-      positions: await Promise.all(openPositionRows.map((row) => this.toPositionBookRow(row, settings.strategy.liveStrategy))),
+      positions: openPositionRows.map((row) => this.toPositionBookRowWithPrefetchedData(
+        row,
+        settings.strategy.liveStrategy,
+        latestMetricsMap.get(row.id)?.capturedAt ?? latestMetricsMap.get(row.mint)?.capturedAt ?? null,
+        latestFillMap.get(row.id) ?? null,
+      )),
     };
   }
 
@@ -454,7 +491,46 @@ export class OperatorDeskService {
       }),
     ]);
 
-    const mapped = await Promise.all(rows.map((row) => this.toPositionBookRow(row, settings.strategy.liveStrategy)));
+    const positionIds = rows.map((r) => r.id);
+    const mints = rows.map((r) => r.mint);
+
+    const [latestMetricsRows, latestFillsRows] = await Promise.all([
+      db.tokenMetrics.findMany({
+        where: {
+          OR: [
+            { positionId: { in: positionIds } },
+            { mint: { in: mints } },
+          ],
+        },
+        orderBy: { capturedAt: "desc" },
+      }),
+      db.fill.findMany({
+        where: { positionId: { in: positionIds } },
+        orderBy: { createdAt: "desc" },
+      }),
+    ]);
+
+    const latestMetricsMap = new Map<string, { capturedAt: Date }>();
+    for (const metric of latestMetricsRows) {
+      const key = metric.positionId ?? metric.mint;
+      if (!latestMetricsMap.has(key)) {
+        latestMetricsMap.set(key, metric);
+      }
+    }
+
+    const latestFillMap = new Map<string, { createdAt: Date; metadata: unknown }>();
+    for (const fill of latestFillsRows) {
+      if (!latestFillMap.has(fill.positionId)) {
+        latestFillMap.set(fill.positionId, fill);
+      }
+    }
+
+    const mapped = rows.map((row) => this.toPositionBookRowWithPrefetchedData(
+      row,
+      settings.strategy.liveStrategy,
+      latestMetricsMap.get(row.id)?.capturedAt ?? latestMetricsMap.get(row.mint)?.capturedAt ?? null,
+      latestFillMap.get(row.id) ?? null,
+    ));
     mapped.sort((left, right) => book === "open"
       ? right.interventionPriority - left.interventionPriority
       : Date.parse(right.closedAt ?? right.openedAt) - Date.parse(left.closedAt ?? left.openedAt));
@@ -492,14 +568,21 @@ export class OperatorDeskService {
     ]);
     if (!position) return null;
 
-    const [snapshots, row] = await Promise.all([
-      db.tokenMetrics.findMany({
-        where: { OR: [{ positionId }, { mint: position.mint }] },
-        orderBy: { capturedAt: "desc" },
-        take: 40,
-      }),
-      this.toPositionBookRow(position, settings.strategy.liveStrategy),
-    ]);
+    const snapshots = await db.tokenMetrics.findMany({
+      where: { OR: [{ positionId }, { mint: position.mint }] },
+      orderBy: { capturedAt: "desc" },
+      take: 40,
+    });
+
+    const latestFill = position.fills.length > 0
+      ? position.fills.reduce((latest, fill) => fill.createdAt > latest.createdAt ? fill : latest)
+      : null;
+    const row = this.toPositionBookRowWithPrefetchedData(
+      position,
+      settings.strategy.liveStrategy,
+      snapshots[0]?.capturedAt ?? null,
+      latestFill ? { createdAt: latestFill.createdAt, metadata: latestFill.metadata } : null,
+    );
 
     const fillRecords = position.fills.map((fill) => this.fillRecord(fill));
 
@@ -737,20 +820,13 @@ export class OperatorDeskService {
     }
   }
 
-  private async toPositionBookRow(row: Position, liveStrategy: LiveStrategySettings) {
-    const [latestSnapshot, latestFill] = await Promise.all([
-      db.tokenMetrics.findFirst({
-        where: { OR: [{ positionId: row.id }, { mint: row.mint }] },
-        orderBy: { capturedAt: "desc" },
-        select: { capturedAt: true },
-      }),
-      db.fill.findFirst({
-        where: { positionId: row.id },
-        orderBy: { createdAt: "desc" },
-        select: { createdAt: true, metadata: true },
-      }),
-    ]);
-    const priority = this.getInterventionPriority(row, latestSnapshot?.capturedAt ?? null);
+  private toPositionBookRowWithPrefetchedData(
+    row: Position,
+    liveStrategy: LiveStrategySettings,
+    latestSnapshotAt: Date | null,
+    latestFill: { createdAt: Date; metadata: unknown } | null,
+  ) {
+    const priority = this.getInterventionPriority(row, latestSnapshotAt);
     const metadata = asRecord(row.metadata);
     const metrics = asRecord(metadata.metrics);
     const entryPriceUsd = Number(row.entryPriceUsd);

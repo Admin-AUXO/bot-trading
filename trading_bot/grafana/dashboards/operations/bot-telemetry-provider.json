@@ -596,7 +596,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT captured_at, provider, endpoint, status_code, error_family, entity_key, latency_ms, error_message FROM v_raw_api_payload_recent WHERE success = FALSE AND captured_at >= $__timeFrom() AND captured_at <= $__timeTo() AND COALESCE(provider::text, '') ~* '^(${provider:regex})$' AND COALESCE(endpoint::text, '') ~* '^(${endpoint:regex})$' AND COALESCE(COALESCE(error_family, 'unknown')::text, '') ~* '^(${errorFamily:regex})$' ORDER BY captured_at DESC LIMIT 100",
+          "rawSql": "SELECT captured_at, provider, endpoint, status_code, error_family, entity_key, latency_ms, error_message FROM v_raw_api_payload_recent WHERE success = FALSE AND captured_at >= $__timeFrom() AND captured_at <= $__timeTo() AND COALESCE(provider::text, '') ~* '^(${provider:regex})$' AND COALESCE(endpoint::text, '') ~* '^(${endpoint:regex})$' AND COALESCE(COALESCE(error_family, 'unknown')::text, '') ~* '^(${errorFamily:regex})$' ORDER BY captured_at DESC LIMIT 1000",
           "refId": "A"
         }
       ],

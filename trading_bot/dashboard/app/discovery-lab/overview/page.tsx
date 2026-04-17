@@ -28,7 +28,6 @@ export default async function DiscoveryLabOverviewPage() {
         title="Lab overview"
         badges={<StatusPill value={runtimeSnapshot.botState.tradeMode} />}
       >
-        {/* Active Run Status - Big and Bold */}
         <div className="mt-3 grid gap-2 md:grid-cols-3">
           <div className="rounded-[14px] border px-4 py-3 md:col-span-2"
             style={{
@@ -67,7 +66,6 @@ export default async function DiscoveryLabOverviewPage() {
         </div>
       </CompactPageHeader>
 
-      {/* Quick Stats */}
       <div className="grid gap-2 md:grid-cols-3">
         <ScanStat
           label="Total runs"
@@ -86,7 +84,6 @@ export default async function DiscoveryLabOverviewPage() {
         />
       </div>
 
-      {/* Clean Nav to Lab sections */}
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <NavCard
           href={discoveryLabRoutes.studio}

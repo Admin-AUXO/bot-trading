@@ -1,7 +1,7 @@
+import crypto from "crypto";
 import express from "express";
 import { ZodError } from "zod";
 import { db } from "../db/client.js";
-import { env } from "../config/env.js";
 import { BOT_STATE_ID } from "../engine/constants.js";
 import type { BotSettings, RuntimeSnapshot } from "../types/domain.js";
 import type {
@@ -18,7 +18,6 @@ function parseLimit(value: unknown, fallback: number, max: number): number {
   if (!Number.isFinite(parsed) || parsed <= 0) {
     return fallback;
   }
-
   return Math.min(Math.floor(parsed), max);
 }
 
@@ -40,7 +39,6 @@ function errorToStatus(error: unknown): number {
   if (message.includes("not found")) {
     return 404;
   }
-
   if (
     message.includes("already active")
     || message.includes("only available")
@@ -49,7 +47,6 @@ function errorToStatus(error: unknown): number {
   ) {
     return 409;
   }
-
   return 500;
 }
 
@@ -63,6 +60,13 @@ function formatErrorMessage(error: unknown): string {
       .join("; ");
   }
   return error instanceof Error ? error.message : "internal server error";
+}
+
+function cryptoTimingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
 }
 
 export function createApiServer(deps: {
@@ -104,15 +108,16 @@ export function createApiServer(deps: {
   const app = express();
   app.use(express.json({ limit: "1mb" }));
 
-  // ── Authentication middleware ─────────────────────────────────────────────────
   function authMiddleware(req: express.Request, res: express.Response, next: express.NextFunction): void {
-    if (!env.CONTROL_API_SECRET) {
-      return next(); // no secret configured — leave endpoints open (dev mode)
+    const secret = process.env.CONTROL_API_SECRET;
+    if (!secret) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
     }
     const headerKey = typeof req.headers.authorization === "string" && req.headers.authorization.startsWith("Bearer ")
       ? req.headers.authorization.slice("Bearer ".length)
       : req.headers["x-api-key"];
-    if (typeof headerKey !== "string" || headerKey !== env.CONTROL_API_SECRET) {
+    if (typeof headerKey !== "string" || !cryptoTimingSafeEqual(headerKey, secret)) {
       res.status(401).json({ error: "unauthorized" });
       return;
     }
@@ -130,7 +135,6 @@ export function createApiServer(deps: {
     res.json({ ok: true, action, shell, home });
   }
 
-  // Public routes — no auth required
   app.get("/health", async (_req, res) => {
     const state = await db.botState.findUnique({ where: { id: BOT_STATE_ID } });
     res.json({
@@ -143,7 +147,6 @@ export function createApiServer(deps: {
     res.json(await deps.getSnapshot());
   });
 
-  // Authenticated routes
   app.use("/api/control", authMiddleware);
   app.use("/api/operator", authMiddleware);
 
@@ -397,7 +400,7 @@ export function createApiServer(deps: {
     if (!allowed.has(viewName)) {
       return res.status(404).json({ error: "view not available" });
     }
-    const rows = await db.$queryRawUnsafe(`SELECT * FROM ${viewName} LIMIT 500`);
+    const rows = await db.$queryRaw<unknown[]>`SELECT * FROM ${viewName} LIMIT 500`;
     return res.json(rows);
   });
 

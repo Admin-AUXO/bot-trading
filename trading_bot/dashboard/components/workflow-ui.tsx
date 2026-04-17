@@ -23,7 +23,8 @@ const workflowStageVariants = cva("rounded-[14px] border p-3 transition", {
   variants: {
     active: {
       true: "border-[rgba(163,230,53,0.28)] bg-[#121511]",
-      false: "border-bg-border bg-bg-hover/35 hover:border-[rgba(255,255,255,0.12)] hover:bg-bg-hover/50",
+      false:
+        "border-bg-border bg-bg-hover/35 hover:border-[rgba(255,255,255,0.12)] hover:bg-bg-hover/50",
     },
     tone: {
       default: "",
@@ -52,12 +53,16 @@ export function WorkflowSection(props: {
           <div>
             {props.eyebrow ? <div className="section-kicker">{props.eyebrow}</div> : null}
             <CardTitle className="mt-1">{props.title}</CardTitle>
-            {props.description ? <CardDescription className="mt-1 max-w-3xl">{props.description}</CardDescription> : null}
+            {props.description ? (
+              <CardDescription className="mt-1 max-w-3xl">{props.description}</CardDescription>
+            ) : null}
           </div>
           {props.action}
         </div>
       </CardHeader>
-      <CardContent className={cn("pt-0", props.density === "dense" && "px-4 pb-4")}>{props.children}</CardContent>
+      <CardContent className={cn("pt-0", props.density === "dense" && "px-4 pb-4")}>
+        {props.children}
+      </CardContent>
     </Card>
   );
 }
@@ -74,8 +79,14 @@ export function WorkflowStat(
     <div className={cn(workflowStatVariants({ tone: props.tone }), props.className)}>
       <div className="scorecard-grid">
         <div className="scorecard-label wrap-anywhere">{props.label}</div>
-        <div className="scorecard-value wrap-anywhere text-[1.05rem] font-semibold tracking-tight">{props.value}</div>
-        {props.detail ? <div className="scorecard-detail text-xs leading-5">{props.detail}</div> : <div />}
+        <div className="scorecard-value wrap-anywhere text-[1.05rem] font-semibold tracking-tight">
+          {props.value}
+        </div>
+        {props.detail ? (
+          <div className="scorecard-detail text-xs leading-5">{props.detail}</div>
+        ) : (
+          <div />
+        )}
       </div>
     </div>
   );
@@ -88,14 +99,17 @@ export function WorkflowStageCard(
     detail?: string;
     active?: boolean;
     className?: string;
-  } & VariantProps<typeof workflowStageVariants> & React.HTMLAttributes<HTMLDivElement>,
+  } & VariantProps<typeof workflowStageVariants> &
+    React.HTMLAttributes<HTMLDivElement>,
 ) {
   const { label, value, detail, active, tone, className, ...rest } = props;
   return (
     <div className={cn(workflowStageVariants({ active, tone }), className)} {...rest}>
       <div className="scorecard-grid">
         <div className="section-kicker wrap-anywhere">{label}</div>
-        <div className="scorecard-value wrap-anywhere text-2xl font-semibold tracking-tight">{value}</div>
+        <div className="scorecard-value wrap-anywhere text-2xl font-semibold tracking-tight">
+          {value}
+        </div>
         {detail ? <div className="scorecard-detail text-xs">{detail}</div> : <div />}
       </div>
     </div>

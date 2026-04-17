@@ -1,10 +1,5 @@
 import type { CandidateBucket, PositionBookPayload } from "@/lib/types";
 
-/**
- * Shared URL state utilities for the trading desk.
- * Replaces duplicated firstParam and build*Href logic across pages.
- */
-
 export type PositionSort = "priority" | "opened" | "pnl" | "latency";
 export type CandidateSort = "recent" | "entry" | "liquidity" | "volume" | "buySell";
 
@@ -20,9 +15,6 @@ export function firstParam(value: string | string[] | undefined): string | undef
   return Array.isArray(value) ? value[0] : value;
 }
 
-/**
- * Parse raw Next.js searchParams into a structured TradingSearchParams object.
- */
 export function parseTradingSearchParams(raw: Record<string, string | string[] | undefined>): TradingSearchParams {
   const bucket = (firstParam(raw.bucket) ?? "ready") as CandidateBucket;
   const sort = firstParam(raw.sort) ?? "recent";
@@ -32,10 +24,6 @@ export function parseTradingSearchParams(raw: Record<string, string | string[] |
   return { bucket, sort, book, psort, pq };
 }
 
-/**
- * Build the href for the positions detail page from filter state.
- * Matches the signature used by positions-grid.tsx.
- */
 export function buildPositionDetailHref(
   id: string,
   book: PositionBookPayload["book"],
@@ -49,10 +37,6 @@ export function buildPositionDetailHref(
   return `/positions/${id}?${params.toString()}`;
 }
 
-/**
- * Build the href for the candidates detail page from filter state.
- * Matches the signature used by candidates-grid.tsx.
- */
 export function buildCandidateDetailHref(
   id: string,
   bucket: CandidateBucket,
@@ -66,9 +50,6 @@ export function buildCandidateDetailHref(
   return `/candidates/${id}?${params.toString()}`;
 }
 
-/**
- * Build the back-href from a position detail page to the trading desk.
- */
 export function buildPositionBackHref(opts: {
   book?: string;
   sort?: string;
@@ -86,9 +67,6 @@ export function buildPositionBackHref(opts: {
   return `/operational-desk/trading${query ? `?${query}` : ""}${hash}`;
 }
 
-/**
- * Build the back-href from a candidate detail page to the trading desk.
- */
 export function buildCandidateBackHref(opts: {
   bucket?: CandidateBucket;
   sort?: string;

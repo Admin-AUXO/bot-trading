@@ -189,6 +189,7 @@ model Candidate {
   @@index([creator])
   @@index([platformId])
   @@index([mint, strategyPresetId, status])
+  @@index([positionId])
 }
 
 
@@ -300,29 +301,12 @@ model Fill {
   @@index([positionId, createdAt])
   @@index([side, createdAt])
   @@index([executionReason, createdAt])
+  @@index([txSignature])
 }
 
 
 
 
-
-model ResearchFill {
-  id            String   @id @default(cuid())
-  mint         String
-  symbol       String  @default("")
-  side         FillSide
-  priceUsd    Decimal @db.Decimal(18, 9)
-  amountUsd   Decimal @db.Decimal(18, 9)
-  amountToken Decimal @db.Decimal(24, 9)
-  txSignature String?
-  slippageBps Int?
-  mintSource   String?
-  score       Decimal?  @db.Decimal(8, 6)
-  createdAt   DateTime @default(now())
-
-  @@index([createdAt])
-  @@index([mint])
-}
 
 model DiscoveryLabPack {
   id             String               @id
@@ -504,6 +488,8 @@ model BotState {
   lastExitCheckAt   DateTime?
   pauseReason       String?
   updatedAt         DateTime  @updatedAt
+
+  @@unique([id])
 }
 
 model RuntimeConfig {
@@ -630,6 +616,7 @@ model SharedTokenFact {
 
   @@index([lastSeenAt])
   @@index([source, lastSeenAt])
+  @@index([mint])
 }
 
 model SharedTokenFactMigrationSignal {

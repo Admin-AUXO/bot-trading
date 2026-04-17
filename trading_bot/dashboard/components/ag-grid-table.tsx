@@ -41,39 +41,45 @@ export function AgGridTable(props: {
   const sampleRow = rowData[0];
   const keys = sampleRow
     ? props.preferredKeys
-      .filter((key) => key in sampleRow)
-      .concat(Object.keys(sampleRow).filter((key) => key !== "__rowId" && !props.preferredKeys.includes(key)).slice(0, Math.max(0, 8 - props.preferredKeys.length)))
+        .filter((key) => key in sampleRow)
+        .concat(
+          Object.keys(sampleRow)
+            .filter((key) => key !== "__rowId" && !props.preferredKeys.includes(key))
+            .slice(0, Math.max(0, 8 - props.preferredKeys.length)),
+        )
     : [];
 
   const columnDefs = useMemo<ColDef<GridTableRow>[]>(() => {
-    const dataColumns: ColDef<GridTableRow>[] = keys.map((key): ColDef<GridTableRow> => ({
-      field: key,
-      headerName: humanizeKey(key),
-      minWidth: isLikelyIdentifierKey(key) ? 170 : isLikelyNumericKey(key) ? 116 : 130,
-      flex: key.includes("reason") ? 1.45 : 1,
-      wrapText: key.includes("reason"),
-      autoHeight: key.includes("reason"),
-      headerClass: clsx(isLikelyNumericKey(key) && "ag-grid-header-center"),
-      cellClass: clsx(
-        "ag-grid-cell-base",
-        isLikelyNumericKey(key) && "ag-grid-cell-metric",
-        !isLikelyIdentifierKey(key) && !isLikelyNumericKey(key) && "ag-grid-cell-center",
-        isLikelyIdentifierKey(key) && "ag-grid-cell-identifier",
-        key.includes("reason") && "ag-grid-cell-reason",
-        key.includes("reason") && "ag-grid-cell-wrap",
-      ),
-      cellRenderer: (params: ICellRendererParams<GridTableRow>) => {
-        const value = params.data?.[key];
-        if (key === "status" || key.endsWith("_status")) {
-          return <GridStatusBadge value={String(value ?? "unknown")} />;
-        }
-        return (
-          <span className={clsx("inline-block", key.includes("reason") && "line-clamp-2")}>
-            {formatGridValue(key, value)}
-          </span>
-        );
-      },
-    }));
+    const dataColumns: ColDef<GridTableRow>[] = keys.map(
+      (key): ColDef<GridTableRow> => ({
+        field: key,
+        headerName: humanizeKey(key),
+        minWidth: isLikelyIdentifierKey(key) ? 170 : isLikelyNumericKey(key) ? 116 : 130,
+        flex: key.includes("reason") ? 1.45 : 1,
+        wrapText: key.includes("reason"),
+        autoHeight: key.includes("reason"),
+        headerClass: clsx(isLikelyNumericKey(key) && "ag-grid-header-center"),
+        cellClass: clsx(
+          "ag-grid-cell-base",
+          isLikelyNumericKey(key) && "ag-grid-cell-metric",
+          !isLikelyIdentifierKey(key) && !isLikelyNumericKey(key) && "ag-grid-cell-center",
+          isLikelyIdentifierKey(key) && "ag-grid-cell-identifier",
+          key.includes("reason") && "ag-grid-cell-reason",
+          key.includes("reason") && "ag-grid-cell-wrap",
+        ),
+        cellRenderer: (params: ICellRendererParams<GridTableRow>) => {
+          const value = params.data?.[key];
+          if (key === "status" || key.endsWith("_status")) {
+            return <GridStatusBadge value={String(value ?? "unknown")} />;
+          }
+          return (
+            <span className={clsx("inline-block", key.includes("reason") && "line-clamp-2")}>
+              {formatGridValue(key, value)}
+            </span>
+          );
+        },
+      }),
+    );
 
     dataColumns.push({
       colId: "__view",
@@ -125,7 +131,8 @@ export function AgGridTable(props: {
       <div className="rounded-[14px] border border-bg-border bg-bg-hover/40 px-4 py-4 text-sm text-text-secondary">
         <div className="font-semibold text-text-primary">{props.emptyTitle ?? "Nothing to show yet"}</div>
         <div className="mt-1">
-          {props.emptyDetail ?? "The backend returned no rows for this slice, which is still better than lying with placeholder numbers."}
+          {props.emptyDetail ??
+            "The backend returned no rows for this slice, which is still better than lying with placeholder numbers."}
         </div>
       </div>
     );
@@ -133,7 +140,12 @@ export function AgGridTable(props: {
 
   return (
     <>
-      <div className={clsx("ag-theme-quartz-dark ag-grid-desk w-full rounded-[14px] border border-bg-border/80 bg-bg-card/45", props.heightClassName ?? "h-[21rem]")}>
+      <div
+        className={clsx(
+          "ag-theme-quartz-dark ag-grid-desk w-full rounded-[14px] border border-bg-border/80 bg-bg-card/45",
+          props.heightClassName ?? "h-[21rem]",
+        )}
+      >
         <AgGridReact<GridTableRow>
           theme="legacy"
           rowData={rowData}

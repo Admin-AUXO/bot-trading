@@ -46,8 +46,8 @@ async function parseResponseBody(response: Response): Promise<unknown> {
 
   try {
     return JSON.parse(text) as unknown;
-  } catch {
-    return text;
+  } catch (parseErr) {
+    throw new Error(`Birdeye response body parse error: ${parseErr instanceof Error ? parseErr.message : String(parseErr)} (status=${response.status}, body=${text.slice(0, 200)})`);
   }
 }
 
@@ -183,62 +183,79 @@ export class BirdeyeClient {
     const startedAt = Date.now();
     let rawPayloadCaptured = false;
     let apiEventRecorded = false;
+    let lastError: Error | null = null;
 
-    try {
-      const response = await fetch(url, {
-        headers: {
-          "X-API-KEY": this.apiKey,
-          "x-chain": "solana",
-        },
-      });
+    const retryDelaysMs = [500, 1000, 2000];
+    let attempts = 0;
 
-      const latencyMs = Date.now() - startedAt;
-      const payload = await parseResponseBody(response);
+    while (attempts <= retryDelaysMs.length) {
+      try {
+        const response = await fetch(url, {
+          headers: {
+            "X-API-KEY": this.apiKey,
+            "x-chain": "solana",
+          },
+        });
 
-      recordRawApiPayload({
-        provider: "BIRDEYE",
-        endpoint,
-        requestMethod: "GET",
-        entityKey: typeof params?.address === "string" ? params.address : null,
-        success: response.ok,
-        statusCode: response.status,
-        latencyMs,
-        requestParams: params,
-        responseBody: payload,
-        errorMessage: response.ok ? null : `Birdeye ${endpoint} failed with ${response.status}`,
-      });
-      rawPayloadCaptured = true;
+        const latencyMs = Date.now() - startedAt;
 
-      if (!response.ok) {
-        this.record(endpoint, units, false, latencyMs, { status: response.status });
-        apiEventRecorded = true;
-        throw new Error(`Birdeye ${endpoint} failed with ${response.status}`);
-      }
+        if (response.status === 429 && attempts < retryDelaysMs.length) {
+          attempts++;
+          const delayMs = retryDelaysMs[attempts - 1];
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          continue;
+        }
 
-      this.record(endpoint, units, true, latencyMs);
-      apiEventRecorded = true;
-      return payload as T;
-    } catch (error) {
-      const latencyMs = Date.now() - startedAt;
-      if (!rawPayloadCaptured) {
+        const payload = await parseResponseBody(response);
+
         recordRawApiPayload({
           provider: "BIRDEYE",
           endpoint,
           requestMethod: "GET",
           entityKey: typeof params?.address === "string" ? params.address : null,
-          success: false,
+          success: response.ok,
+          statusCode: response.status,
           latencyMs,
           requestParams: params,
-          errorMessage: error instanceof Error ? error.message : String(error),
+          responseBody: payload,
+          errorMessage: response.ok ? null : `Birdeye ${endpoint} failed with ${response.status}`,
         });
+        rawPayloadCaptured = true;
+
+        if (!response.ok) {
+          this.record(endpoint, units, false, latencyMs, { status: response.status });
+          apiEventRecorded = true;
+          throw new Error(`Birdeye ${endpoint} failed with ${response.status}`);
+        }
+
+        this.record(endpoint, units, true, latencyMs);
+        apiEventRecorded = true;
+        return payload as T;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        break;
       }
-      if (!apiEventRecorded) {
-        this.record(endpoint, units, false, latencyMs, {
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-      throw error;
     }
+
+    const latencyMs = Date.now() - startedAt;
+    if (!rawPayloadCaptured) {
+      recordRawApiPayload({
+        provider: "BIRDEYE",
+        endpoint,
+        requestMethod: "GET",
+        entityKey: typeof params?.address === "string" ? params.address : null,
+        success: false,
+        latencyMs,
+        requestParams: params,
+        errorMessage: lastError instanceof Error ? lastError.message : String(lastError),
+      });
+    }
+    if (!apiEventRecorded) {
+      this.record(endpoint, units, false, latencyMs, {
+        error: lastError instanceof Error ? lastError.message : String(lastError),
+      });
+    }
+    throw lastError;
   }
 
   async getMemeTokens(params: {
