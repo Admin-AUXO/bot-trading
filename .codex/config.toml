@@ -34,6 +34,36 @@ deny_shell_patterns = [
     "git push --force",
 ]
 
+# --- Custom model providers ---------------------------------------------------
+# MiniMax M2.7 (Token Plan). Set MINIMAX_API_KEY in your shell. Endpoint is
+# OpenAI-compatible — see https://platform.minimax.io/docs/guides/text-ai-coding-tools
+[model_providers.minimax]
+name = "MiniMax M2.7 (Token Plan)"
+base_url = "https://api.minimax.io/v1"
+env_key = "MINIMAX_API_KEY"
+wire_api = "chat"
+requires_openai_auth = false
+stream_idle_timeout_ms = 600000
+
+# --- Profiles -----------------------------------------------------------------
+# Opt-in cheap-research profile: route the whole session through MiniMax
+# M2.7-highspeed for one-off research/analysis. Invoke with:
+#   codex --profile minimax-research
+[profiles.minimax-research]
+model_provider = "minimax"
+model = "MiniMax-M2.7-highspeed"
+model_reasoning_effort = "low"
+plan_mode_reasoning_effort = "medium"
+web_search = "live"
+
+# Tighter, review-grade profile (Anthropic-default model, on-request approvals,
+# workspace-write only). Use when shipping or auditing safety-critical work:
+#   codex --profile review
+[profiles.review]
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+plan_mode_reasoning_effort = "high"
+
 [mcp_servers.birdeye-mcp]
 args = [".codex/scripts/start-birdeye-mcp.cjs"]
 command = "node"

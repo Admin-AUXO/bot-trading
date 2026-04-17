@@ -48,3 +48,4 @@ trading_bot/src/
 trading_bot/prisma/migrations/
 
 # Keep notes/sessions/archive tracked. It is durable repo history, not local scratch.
+.claude/worktrees/

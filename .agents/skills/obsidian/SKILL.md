@@ -1,7 +1,7 @@
 ---
 name: obsidian
-description: Use for durable context so agents start from vault instead of rediscovering
-trigger: $obsidian
+description: Use to read/write durable context in the `notes/` Obsidian vault — sessions, decisions, investigations, runbooks, reference, trading-memory — so agents start from vault context instead of rediscovering.
+allowed-tools: Read, Grep, Glob, Edit, Write
 ---
 
 # $obsidian

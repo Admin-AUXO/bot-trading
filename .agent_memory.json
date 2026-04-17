@@ -1,7 +1,0 @@
-[
-  {
-    "timestamp": "2026-04-17T12:48:41.524350",
-    "category": "project_info",
-    "content": "MCP setup for MiniMax agent in bot-trading project. Desktop commander is enabled. Available profiles: compact, db, research, dashboard, provider, full. API keys configured for Helius, Birdeye, Jupiter."
-  }
-]

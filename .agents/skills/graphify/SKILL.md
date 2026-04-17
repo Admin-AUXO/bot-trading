@@ -1,7 +1,7 @@
 ---
 name: graphify
-description: project-local code graph workflow for this repo using .codex/scripts wrappers, graphify-out outputs, and repo-scoped ignore rules
-trigger: $graphify
+description: Use for the project-local code-graph workflow — `.codex/scripts/graphify*` wrappers, `graphify-out/` outputs, repo-scoped ignore rules. Run only when architecture or ownership context matters.
+allowed-tools: Read, Grep, Glob, Bash
 ---
 
 # $graphify

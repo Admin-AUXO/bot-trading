@@ -1,76 +1,19 @@
-# Bot Trading Project
+# bot-trading — Claude Code Guide
 
-Solana meme coin scalping bot with discovery lab, dashboard, and real-time execution.
+This is a thin pointer. The authoritative project guide is [`AGENTS.md`](AGENTS.md) — read it first. It is harness-agnostic and applies equally to Claude Code, Codex, and other agents.
 
-## Architecture
+## Claude Code specifics
 
-```
-trading_bot/
-├── backend/           # Node.js + Prisma + Express API
-│   ├── src/engine/   # Runtime: execution, graduation, exit engines
-│   ├── src/services/ # Birdeye, Helius, operator desk, strategy
-│   └── prisma/       # Schema + SQL views
-├── dashboard/        # Next.js 14 (App Router)
-├── grafana/          # Grafana dashboard configs
-├── firecrawl/        # Firecrawl MCP integration
-└── scripts/          # Dev helper scripts
+- **Project settings**: [`.claude/settings.json`](.claude/settings.json) (committed) — permissions, hooks, MCP allowlist.
+- **Local overrides**: `.claude/settings.local.json` (gitignored).
+- **Skills**: [`.agents/skills/`](.agents/skills/) — repo-owned, surface via `Skill` tool when names match.
+- **MCP servers**: [`.mcp.json`](.mcp.json) — declarations mirror `.codex/config.toml`. Toggle which load via `enabledMcpjsonServers` in settings.
+- **Hooks**: `SessionStart` runs `.codex/scripts/session-start-hook.cjs` (shared with Codex).
 
-notes/                # Obsidian vault
-├── sessions/         # Session handoffs
-├── decisions/        # Architecture decisions
-├── investigations/   # Research findings
-├── runbooks/         # Procedures
-├── reference/        # Canonical documentation
-└── trading-memory/   # Provider and strategy notes
-```
+## Sub-package guides
 
-## Tech Stack
+- `trading_bot/` → [`trading_bot/CLAUDE.md`](trading_bot/CLAUDE.md) → [`trading_bot/AGENTS.md`](trading_bot/AGENTS.md)
 
-| Layer | Tech |
-|-------|------|
-| Blockchain | Solana (Jupiter, Birdeye, Helius) |
-| Backend | Node.js, TypeScript, Prisma, Express |
-| Frontend | Next.js 14, Tailwind CSS, AG Grid |
-| Database | PostgreSQL 16 |
-| Monitoring | Grafana + Prometheus |
+## Maintenance
 
-## Local Development
-
-```bash
-# Start everything
-cd trading_bot && docker compose up -d
-
-# Backend (separate terminal)
-cd trading_bot/backend && npm run dev
-
-# Dashboard (separate terminal)
-cd trading_bot/dashboard && npm run dev
-
-# Database tools
-npx prisma migrate dev
-npx prisma studio
-```
-
-## Key Rules
-
-1. **Schema changes** → `backend/prisma/schema.prisma`, run `npm run db:generate`
-2. **View changes** → `backend/prisma/views/create_views.sql`
-3. **Provider logic** → `backend/src/services/` only
-4. **Dashboard writes** → `dashboard/app/api/[...path]/route.ts`
-5. **Safety-critical** → entries, exits, capital checks
-
-## MCP Servers
-
-| Server | Purpose |
-|--------|---------|
-| `desktop_commander` | File operations |
-| `birdeye-mcp` | Token data, prices |
-| `helius` | RPC, smart money |
-| `firecrawl` | Web scraping |
-
-## Obsidian Vault
-
-Use `notes/` for all project memory:
-- Session handoffs in `sessions/`
-- Decisions in `decisions/`
-- Reference docs in `reference/`
+Run `bash scripts/claude-harness/run-all.sh` to lint skills, codex agents, MCP configs, and hooks.

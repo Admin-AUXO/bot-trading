@@ -1,7 +1,7 @@
 ---
 name: birdeye-discovery-lab
-description: use when you need to compare Birdeye meme-list discovery shapes quickly with the repo lab script, source-specific runs, and Helius-backed grading instead of ad hoc curls
-trigger: $birdeye-discovery-lab
+description: Use to compare Birdeye meme-list discovery shapes via the repo lab script — source-specific runs and Helius-backed grading, instead of ad-hoc curls.
+allowed-tools: Read, Grep, Glob, Bash
 ---
 
 # $birdeye-discovery-lab
