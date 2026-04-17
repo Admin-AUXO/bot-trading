@@ -3,19 +3,14 @@
 import * as Tooltip from "@radix-ui/react-tooltip";
 import clsx from "clsx";
 import { useRouter } from "next/navigation";
-import type { Route } from "next";
 import { useEffect, useEffectEvent, useRef, useState, useTransition } from "react";
 import {
-  Activity,
-  FlaskConical,
   PauseCircle,
   PlayCircle,
   RefreshCcw,
-  Settings2,
-  Sparkles,
 } from "lucide-react";
 import { fetchJson } from "@/lib/api";
-import { discoveryLabRoutes } from "@/lib/dashboard-routes";
+import { dashboardNavItems } from "@/lib/dashboard-navigation";
 import type { ActionResponse, DeskShellPayload } from "@/lib/types";
 import { StatusPill } from "@/components/dashboard-primitives";
 import { PinnedItemsProvider } from "@/components/pinned-items";
@@ -119,7 +114,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   const commandItems = [
-    ...navItems.map((item) => ({
+    ...dashboardNavItems.map((item) => ({
       id: item.href,
       label: item.label,
       hint: item.href,
@@ -200,12 +195,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <Tooltip.Provider delayDuration={120}>
       <PinnedItemsProvider>
         <div className="min-h-screen overflow-x-hidden bg-bg-primary">
-          <Sidebar
-            shell={shell}
-            sidebarCollapsed={sidebarCollapsed}
-            sidebarReady={sidebarReady}
-            onToggleCollapse={() => setSidebarCollapsed((current) => !current)}
-          />
+          <Sidebar shell={shell} sidebarCollapsed={sidebarCollapsed} onToggleCollapse={() => setSidebarCollapsed((current) => !current)} />
 
           <div
             className={clsx(
@@ -248,7 +238,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
           <CommandPalette
             open={commandOpen}
-            commandOpen={commandOpen}
             commandQuery={commandQuery}
             selectedCommandIndex={selectedCommandIndex}
             commandItems={commandItems}
@@ -261,56 +250,3 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     </Tooltip.Provider>
   );
 }
-
-type NavItem = {
-  id: string;
-  href: Route;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  matchPrefixes: string[];
-};
-
-const navItems: NavItem[] = [
-  {
-    id: "desk",
-    href: "/operational-desk/overview" as Route,
-    label: "Desk",
-    icon: Activity,
-    matchPrefixes: ["/operational-desk/overview", "/operational-desk", "/"],
-  },
-  {
-    id: "lifecycle",
-    href: "/operational-desk/trading" as Route,
-    label: "Lifecycle",
-    icon: Sparkles,
-    matchPrefixes: ["/operational-desk/trading", "/trading", "/candidates", "/positions"],
-  },
-  {
-    id: "settings",
-    href: "/operational-desk/settings" as Route,
-    label: "Settings",
-    icon: Settings2,
-    matchPrefixes: ["/operational-desk/settings", "/settings"],
-  },
-  {
-    id: "lab",
-    href: discoveryLabRoutes.overview,
-    label: "Lab",
-    icon: FlaskConical,
-    matchPrefixes: [discoveryLabRoutes.overview, discoveryLabRoutes.root],
-  },
-  {
-    id: "studio",
-    href: discoveryLabRoutes.studio,
-    label: "Studio",
-    icon: FlaskConical,
-    matchPrefixes: [discoveryLabRoutes.studio],
-  },
-  {
-    id: "results",
-    href: discoveryLabRoutes.results,
-    label: "Results",
-    icon: Activity,
-    matchPrefixes: [discoveryLabRoutes.results],
-  },
-];

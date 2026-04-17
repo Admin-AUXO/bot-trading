@@ -145,7 +145,7 @@ Compose contract:
 - `db-setup` applies Prisma schema and SQL views before the bot starts
 - `db-setup` and `bot` each override `DATABASE_URL` to the container-safe `postgres` hostname in Compose, so a host-local `backend/.env` can still point at `localhost` without breaking the stack
 - `bot` health checks `GET /health`
-- repo-local discovery-lab seed packs under `backend/.local/discovery-lab/packs/` are copied into the bot runner image at build time, so adding or changing those files requires a bot image rebuild before the dashboard catalog can see them
+- repo-local discovery-lab seed packs under `backend/.local/discovery-lab/packs/` are copied into the bot runner image when that optional directory exists; if it is absent, the bot image now creates an empty `.local/` so first-run builds do not fail. Adding or changing those files still requires a bot image rebuild before the dashboard catalog can see them
 - `dashboard` waits for backend health, injects `API_URL=http://bot:3101`, and reads only `dashboard/compose.env` for its control secret and Grafana deep-link contract
 - `dashboard` now starts through `node ./scripts/run-next.mjs start`, so the runner image must include `dashboard/scripts/` along with `.next`, `public`, `node_modules`, and `package.json`
 - `grafana` waits for Postgres and `db-setup`, mounts provisioning from `trading_bot/grafana/`, and binds locally on `127.0.0.1:${GRAFANA_PORT:-3400}`

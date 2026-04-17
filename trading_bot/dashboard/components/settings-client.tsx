@@ -282,26 +282,10 @@ export function SettingsClient({
   const [serverSettings, setServerSettings] = useState(initial);
   const [values, setValues] = useState(initial);
   const [activeSection, setActiveSection] = useState<SectionId>(() => preferredSection(allowedSectionIds));
-  const [activePresetId, setActivePresetId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const hydrated = useHydrated();
-
-  // Presets loaded from backend
-  const [presets, setPresets] = useState<Array<{ id: string; label: string; description: string; icon: string; values: Partial<BotSettings> }>>([]);
-
-  useEffect(() => {
-    async function loadPresets() {
-      try {
-        const data = await fetchJson<Array<{ id: string; label: string; description: string; icon: string; values: Partial<BotSettings> }>>("/settings/presets");
-        setPresets(data);
-      } catch {
-        // silently ignore - preset buttons will be empty
-      }
-    }
-    void loadPresets();
-  }, []);
 
   const changedPaths = useMemo(
     () => diffPaths(serverSettings as unknown as Record<string, unknown>, values as unknown as Record<string, unknown>),
@@ -340,28 +324,6 @@ export function SettingsClient({
 
   const resetLocal = () => {
     setValues(serverSettings);
-    setActivePresetId(null);
-    setMessage(null);
-    setError(null);
-  };
-
-  const applyPreset = (presetId: string) => {
-    const preset = presets.find((p) => p.id === presetId);
-    if (!preset) return;
-    setValues((current) => {
-      const next = structuredClone(current);
-      for (const [section, fields] of Object.entries(preset.values)) {
-        if (fields && typeof fields === "object") {
-          for (const [key, value] of Object.entries(fields)) {
-            if (value !== undefined) {
-              ((next as Record<string, unknown>)[section] as Record<string, unknown>)[key] = value;
-            }
-          }
-        }
-      }
-      return next;
-    });
-    setActivePresetId(presetId);
     setMessage(null);
     setError(null);
   };
@@ -426,7 +388,7 @@ export function SettingsClient({
           items={
             editorMode === "hot-discovery"
               ? [
-                  { label: "Preset", value: activePresetId ? presets.find(p => p.id === activePresetId)?.label ?? activePresetId : "Custom", detail: localDirty ? "Unsaved changes" : "No pending edits", tone: localDirty ? "warning" : "default" },
+                  { label: "Scope", value: "Discovery", detail: localDirty ? "Unsaved changes" : "No pending edits", tone: localDirty ? "warning" : "default" },
                   { label: "Changed", value: formatInteger(changedPaths.length), detail: localDirty ? "Ready to apply" : "No local edits", tone: localDirty ? "warning" : "default" },
                   { label: "Graduation window", value: formatMinutesFromSeconds(values.filters.maxGraduationAgeSeconds), detail: "Recent grads only", tone: "accent" },
                   { label: "Session cap", value: `${formatInteger(values.exits.timeLimitMinutes)}m`, detail: "Managed exit ceiling", tone: "default" },
@@ -456,40 +418,6 @@ export function SettingsClient({
 
       {editorMode === "hot-discovery" ? (
         <>
-          {/* Named presets */}
-          <Panel title="Quick presets" eyebrow="One-click configs">
-            <div className="mb-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-              {presets.map((preset) => (
-                <button
-                  key={preset.id}
-                  type="button"
-                  onClick={() => applyPreset(preset.id)}
-                  className={clsx(
-                    "group relative rounded-[14px] border px-4 py-3 text-left transition",
-                    activePresetId === preset.id
-                      ? "border-accent/40 bg-accent/10"
-                      : "border-bg-border bg-bg-hover/30 hover:border-accent/20 hover:bg-bg-hover/50"
-                  )}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-base">{preset.icon}</span>
-                    <span className="text-sm font-semibold text-text-primary">{preset.label}</span>
-                    {activePresetId === preset.id ? (
-                      <span className="ml-auto rounded-full bg-accent/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent">Active</span>
-                    ) : (
-                      <Zap className="ml-auto h-3.5 w-3.5 text-text-muted opacity-0 transition group-hover:opacity-100" />
-                    )}
-                  </div>
-                  <div className="mt-1.5 text-xs leading-4 text-text-secondary">{preset.description}</div>
-                </button>
-              ))}
-            </div>
-            <div className="flex items-center gap-2 text-xs text-text-muted">
-              <Zap className="h-3.5 w-3.5" />
-              <span>Presets load values immediately. Apply or reset to activate.</span>
-            </div>
-          </Panel>
-
           <Panel title="Hot parameters" eyebrow="Direct apply">
             <div className="mb-4 rounded-[14px] border border-[rgba(163,230,53,0.18)] bg-[rgba(163,230,53,0.08)] px-4 py-3 text-sm text-text-primary">
               Optimize for pump.fun and recent graduates here. These edits apply directly to active runtime settings, so keep the desk paused if you are changing live-sensitive values mid-session.

@@ -93,7 +93,6 @@ export type DeskHomePayload = {
   adaptiveModel: AdaptiveModelState;
   recentFailures: OperatorEventPayload[];
   recentActions: OperatorEventPayload[];
-  /** Lightweight open-position rows for the dashboard overview strip. */
   positions?: PositionBookRow[];
 };
 
@@ -290,46 +289,14 @@ export class OperatorDeskService {
       }),
       this.providerBudget.getBirdeyeBudgetSnapshot(),
       listOperatorEvents(25),
-      db.rawApiPayload.count({
-        where: {
-          success: false,
-          capturedAt: { gte: new Date(Date.now() - 6 * 60 * 60 * 1000) },
-        },
-      }),
+      this.countRecentPayloadFailures(),
       this.getDeskKpis(),
     ]);
 
-    const positionIds = openPositionRows.map((r) => r.id);
-    const [latestMetricsRows, latestFillsRows] = await Promise.all([
-      db.tokenMetrics.findMany({
-        where: {
-          OR: [
-            { positionId: { in: positionIds } },
-            { mint: { in: openPositionRows.map((r) => r.mint) } },
-          ],
-        },
-        orderBy: { capturedAt: "desc" },
-      }),
-      db.fill.findMany({
-        where: { positionId: { in: positionIds } },
-        orderBy: { createdAt: "desc" },
-      }),
-    ]);
-
-    const latestMetricsMap = new Map<string, { capturedAt: Date }>();
-    for (const metric of latestMetricsRows) {
-      const key = metric.positionId ?? metric.mint;
-      if (!latestMetricsMap.has(key)) {
-        latestMetricsMap.set(key, metric);
-      }
-    }
-
-    const latestFillMap = new Map<string, { createdAt: Date; metadata: unknown }>();
-    for (const fill of latestFillsRows) {
-      if (!latestFillMap.has(fill.positionId)) {
-        latestFillMap.set(fill.positionId, fill);
-      }
-    }
+    const { latestMetricsMap, latestFillMap } = await this.getLatestPositionSupport(
+      openPositionRows.map((row) => row.id),
+      openPositionRows.map((row) => row.mint),
+    );
 
     const buckets = this.buildCandidateBucketCounts(candidates);
     const diagnostics = this.buildDiagnostics(botState, budget, latestPayloadFailures);
@@ -491,39 +458,10 @@ export class OperatorDeskService {
       }),
     ]);
 
-    const positionIds = rows.map((r) => r.id);
-    const mints = rows.map((r) => r.mint);
-
-    const [latestMetricsRows, latestFillsRows] = await Promise.all([
-      db.tokenMetrics.findMany({
-        where: {
-          OR: [
-            { positionId: { in: positionIds } },
-            { mint: { in: mints } },
-          ],
-        },
-        orderBy: { capturedAt: "desc" },
-      }),
-      db.fill.findMany({
-        where: { positionId: { in: positionIds } },
-        orderBy: { createdAt: "desc" },
-      }),
-    ]);
-
-    const latestMetricsMap = new Map<string, { capturedAt: Date }>();
-    for (const metric of latestMetricsRows) {
-      const key = metric.positionId ?? metric.mint;
-      if (!latestMetricsMap.has(key)) {
-        latestMetricsMap.set(key, metric);
-      }
-    }
-
-    const latestFillMap = new Map<string, { createdAt: Date; metadata: unknown }>();
-    for (const fill of latestFillsRows) {
-      if (!latestFillMap.has(fill.positionId)) {
-        latestFillMap.set(fill.positionId, fill);
-      }
-    }
+    const { latestMetricsMap, latestFillMap } = await this.getLatestPositionSupport(
+      rows.map((row) => row.id),
+      rows.map((row) => row.mint),
+    );
 
     const mapped = rows.map((row) => this.toPositionBookRowWithPrefetchedData(
       row,
@@ -618,12 +556,7 @@ export class OperatorDeskService {
         ORDER BY total_units DESC, total_calls DESC
         LIMIT 12
       `),
-      db.rawApiPayload.count({
-        where: {
-          success: false,
-          capturedAt: { gte: new Date(Date.now() - 6 * 60 * 60 * 1000) },
-        },
-      }),
+      this.countRecentPayloadFailures(),
       this.risk.getSnapshot(),
       this.providerBudget.getBirdeyeBudgetSnapshot(),
     ]);
@@ -729,6 +662,48 @@ export class OperatorDeskService {
         : "healthy";
 
     return { status, staleComponents, issues };
+  }
+
+  private async getLatestPositionSupport(positionIds: string[], mints: string[]) {
+    if (positionIds.length === 0 && mints.length === 0) {
+      return {
+        latestMetricsMap: new Map<string, { capturedAt: Date }>(),
+        latestFillMap: new Map<string, { createdAt: Date; metadata: unknown }>(),
+      };
+    }
+
+    const [latestMetricsRows, latestFillsRows] = await Promise.all([
+      db.tokenMetrics.findMany({
+        where: {
+          OR: [
+            { positionId: { in: positionIds } },
+            { mint: { in: mints } },
+          ],
+        },
+        orderBy: { capturedAt: "desc" },
+      }),
+      db.fill.findMany({
+        where: { positionId: { in: positionIds } },
+        orderBy: { createdAt: "desc" },
+      }),
+    ]);
+
+    const latestMetricsMap = new Map<string, { capturedAt: Date }>();
+    for (const metric of latestMetricsRows) {
+      const key = metric.positionId ?? metric.mint;
+      if (!latestMetricsMap.has(key)) {
+        latestMetricsMap.set(key, metric);
+      }
+    }
+
+    const latestFillMap = new Map<string, { createdAt: Date; metadata: unknown }>();
+    for (const fill of latestFillsRows) {
+      if (!latestFillMap.has(fill.positionId)) {
+        latestFillMap.set(fill.positionId, fill);
+      }
+    }
+
+    return { latestMetricsMap, latestFillMap };
   }
 
   private buildCandidateBucketCounts(rows: Candidate[]) {
@@ -1067,6 +1042,15 @@ export class OperatorDeskService {
         : null,
       lastExecutionLatencyMs: fills.length > 0 ? maybeNumber(fills[fills.length - 1]?.totalLatencyMs) : null,
     };
+  }
+
+  private countRecentPayloadFailures() {
+    return db.rawApiPayload.count({
+      where: {
+        success: false,
+        capturedAt: { gte: new Date(Date.now() - 6 * 60 * 60 * 1000) },
+      },
+    });
   }
 }
 

@@ -63,7 +63,7 @@ export function PositionsGrid(props: {
 
   const rowClassRules = useMemo<RowClassRules<PositionRow>>(
     () => ({
-      "ag-grid-warning-row":
+      "ag-grid-warning-row": (params) =>
         props.book === "open" && (params.node.rowIndex ?? Number.MAX_SAFE_INTEGER) < 4,
       "ag-grid-focus-row": (params) => params.data?.id === focusedRowId,
     }),

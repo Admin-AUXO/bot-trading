@@ -28,6 +28,19 @@ type SearchParamsInput = Promise<{
 const candidateBucketOrder: CandidateBucket[] = ["ready", "risk", "provider", "data"];
 const candidateSortOrder = ["recent", "entry", "liquidity", "volume", "buySell"] as const;
 const positionSortOrder = ["priority", "opened", "pnl", "latency"] as const;
+const candidateSortLinks = [
+  ["recent", "Recent"],
+  ["entry", "Entry"],
+  ["liquidity", "Liquidity"],
+  ["volume", "5m volume"],
+  ["buySell", "Buy/sell"],
+] as const;
+const positionSortLinks = [
+  ["priority", "Priority"],
+  ["opened", "Opened"],
+  ["pnl", "PnL"],
+  ["latency", "Latency"],
+] as const;
 type CandidateSort = typeof candidateSortOrder[number];
 type PositionSort = typeof positionSortOrder[number];
 
@@ -111,7 +124,7 @@ export default async function OperationalDeskTradingPage(props: { searchParams?:
         <div className="space-y-4">
           <div className="flex flex-wrap gap-2">
             {candidatePayload.buckets.map((item) => (
-              <Link
+              <CountChipLink
                 key={item.bucket}
                 href={buildTradingHref({
                   bucket: item.bucket,
@@ -121,78 +134,42 @@ export default async function OperationalDeskTradingPage(props: { searchParams?:
                   psort: positionSort,
                   pq: positionQuery,
                 }) as Route}
-                title={`Open ${item.label}`}
-                className={cn(
-                  "inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm transition",
-                  item.bucket === candidatePayload.bucket
-                    ? "border-[rgba(163,230,53,0.28)] bg-[#121511] text-text-primary"
-                    : "border-bg-border bg-bg-hover/35 text-text-secondary hover:border-[rgba(255,255,255,0.12)] hover:bg-bg-hover/50 hover:text-text-primary",
-                )}
-              >
-                <span>{item.label}</span>
-                <span className="rounded-full border border-bg-border bg-bg-primary/50 px-2 py-0.5 text-[11px] font-semibold text-text-primary">{formatInteger(item.count)}</span>
-              </Link>
+                label={item.label}
+                count={item.count}
+                active={item.bucket === candidatePayload.bucket}
+              />
             ))}
           </div>
 
-          <section className="workbench-controls sticky top-[calc(var(--shell-header-height)+0.75rem)] z-20">
-            <div className="flex flex-1 flex-wrap items-center gap-2">
-              {([
-                ["recent", "Recent"],
-                ["entry", "Entry"],
-                ["liquidity", "Liquidity"],
-                ["volume", "5m volume"],
-                ["buySell", "Buy/sell"],
-              ] as const).map(([value, label]) => (
-                <Link
-                  key={value}
-                  href={buildTradingHref({
-                    bucket: candidateBucket,
-                    sort: value,
-                    q: candidateQuery,
-                    book: positionBook,
-                    psort: positionSort,
-                    pq: positionQuery,
-                  }) as Route}
-                  title={`Sort candidates by ${label.toLowerCase()}`}
-                  className={cn(
-                    buttonVariants({
-                      variant: candidateSort === value ? "secondary" : "ghost",
-                      size: "sm",
-                    }),
-                    "rounded-full",
-                  )}
-                >
-                  {label}
-                </Link>
-              ))}
-            </div>
-            <form action={operationalDeskRoutes.trading} className="flex w-full max-w-[30rem] items-center gap-2">
-              <input type="hidden" name="bucket" value={candidateBucket} />
-              <input type="hidden" name="sort" value={candidateSort} />
-              <input type="hidden" name="book" value={positionBook} />
-              <input type="hidden" name="psort" value={positionSort} />
-              <input type="hidden" name="pq" value={positionQuery} />
-              <div className="relative flex-1">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
-                <Input
-                  name="q"
-                  defaultValue={candidateQuery}
-                  placeholder="Filter symbol, mint, blocker"
-                  className="h-9 bg-bg-primary/70 pl-9"
-                />
-              </div>
-              <Button type="submit" variant="ghost" size="sm">Search</Button>
-              {candidateQuery ? (
-                <Link
-                  href={buildTradingHref({ bucket: candidateBucket, sort: candidateSort, book: positionBook, psort: positionSort, pq: positionQuery }) as Route}
-                  className={buttonVariants({ variant: "ghost", size: "sm" })}
-                >
-                  Clear
-                </Link>
-              ) : null}
-            </form>
-          </section>
+          <WorkbenchControls
+            links={candidateSortLinks.map(([value, label]) => ({
+              key: value,
+              label,
+              href: buildTradingHref({
+                bucket: candidateBucket,
+                sort: value,
+                q: candidateQuery,
+                book: positionBook,
+                psort: positionSort,
+                pq: positionQuery,
+              }) as Route,
+              active: candidateSort === value,
+            }))}
+            action={operationalDeskRoutes.trading}
+            hiddenInputs={[
+              { name: "bucket", value: candidateBucket },
+              { name: "sort", value: candidateSort },
+              { name: "book", value: positionBook },
+              { name: "psort", value: positionSort },
+              { name: "pq", value: positionQuery },
+            ]}
+            searchName="q"
+            searchValue={candidateQuery}
+            searchPlaceholder="Filter symbol, mint, blocker"
+            clearHref={candidateQuery
+              ? buildTradingHref({ bucket: candidateBucket, sort: candidateSort, book: positionBook, psort: positionSort, pq: positionQuery }) as Route
+              : null}
+          />
 
           <CandidatesGrid rows={candidateRows} bucket={candidatePayload.bucket} sort={candidateSort} query={candidateQuery} />
         </div>
@@ -201,77 +178,49 @@ export default async function OperationalDeskTradingPage(props: { searchParams?:
       <WorkflowSection title="Position lifecycle" eyebrow="Open risk and outcomes" description="Book view centered on PnL, return, and execution timing." density="dense">
         <div className="space-y-4">
           <div className="flex flex-wrap gap-2">
-            <Link href={buildTradingHref({ bucket: candidateBucket, sort: candidateSort, q: candidateQuery, book: "open", psort: positionSort, pq: positionQuery }) as Route} title="Open active positions" className={cn("min-w-[10rem] rounded-full border px-3 py-2.5 transition", positionBook === "open" ? "border-[rgba(163,230,53,0.28)] bg-[#121511]" : "border-bg-border bg-bg-hover/35 hover:border-[rgba(255,255,255,0.12)] hover:bg-bg-hover/50")}>
-              <div className="flex items-center gap-2 text-sm">
-                <span>Open book</span>
-                <span className="rounded-full border border-bg-border bg-bg-primary/50 px-2 py-0.5 text-[11px] font-semibold text-text-primary">{formatInteger(positionPayload.totals.openCount)}</span>
-              </div>
-            </Link>
-            <Link href={buildTradingHref({ bucket: candidateBucket, sort: candidateSort, q: candidateQuery, book: "closed", psort: positionSort, pq: positionQuery }) as Route} title="Open closed positions" className={cn("min-w-[10rem] rounded-full border px-3 py-2.5 transition", positionBook === "closed" ? "border-[rgba(163,230,53,0.28)] bg-[#121511]" : "border-bg-border bg-bg-hover/35 hover:border-[rgba(255,255,255,0.12)] hover:bg-bg-hover/50")}>
-              <div className="flex items-center gap-2 text-sm">
-                <span>Closed book</span>
-                <span className="rounded-full border border-bg-border bg-bg-primary/50 px-2 py-0.5 text-[11px] font-semibold text-text-primary">{formatInteger(positionPayload.totals.closedCount)}</span>
-              </div>
-            </Link>
+            <CountChipLink
+              href={buildTradingHref({ bucket: candidateBucket, sort: candidateSort, q: candidateQuery, book: "open", psort: positionSort, pq: positionQuery }) as Route}
+              label="Open book"
+              count={positionPayload.totals.openCount}
+              active={positionBook === "open"}
+            />
+            <CountChipLink
+              href={buildTradingHref({ bucket: candidateBucket, sort: candidateSort, q: candidateQuery, book: "closed", psort: positionSort, pq: positionQuery }) as Route}
+              label="Closed book"
+              count={positionPayload.totals.closedCount}
+              active={positionBook === "closed"}
+            />
           </div>
 
-          <section className="workbench-controls sticky top-[calc(var(--shell-header-height)+0.75rem)] z-20">
-            <div className="flex flex-1 flex-wrap gap-2">
-              {([
-                ["priority", "Priority"],
-                ["opened", "Opened"],
-                ["pnl", "PnL"],
-                ["latency", "Latency"],
-              ] as const).map(([value, label]) => (
-                <Link
-                  key={value}
-                  href={buildTradingHref({
-                    bucket: candidateBucket,
-                    sort: candidateSort,
-                    q: candidateQuery,
-                    book: positionBook,
-                    psort: value,
-                    pq: positionQuery,
-                  }) as Route}
-                  title={`Sort positions by ${label.toLowerCase()}`}
-                  className={cn(
-                    buttonVariants({
-                      variant: positionSort === value ? "secondary" : "ghost",
-                      size: "sm",
-                    }),
-                    "rounded-full",
-                  )}
-                >
-                  {label}
-                </Link>
-              ))}
-            </div>
-            <form action={operationalDeskRoutes.trading} className="flex w-full max-w-[30rem] items-center gap-2">
-              <input type="hidden" name="bucket" value={candidateBucket} />
-              <input type="hidden" name="sort" value={candidateSort} />
-              <input type="hidden" name="q" value={candidateQuery} />
-              <input type="hidden" name="book" value={positionBook} />
-              <input type="hidden" name="psort" value={positionSort} />
-              <div className="relative flex-1">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
-                <Input
-                  name="pq"
-                  defaultValue={positionQuery}
-                  placeholder="Filter symbol, mint, exit phrase"
-                  className="h-9 bg-bg-primary/70 pl-9"
-                />
-              </div>
-              <Button type="submit" variant="ghost" size="sm">Search</Button>
-              {positionQuery ? (
-                <Link
-                  href={buildTradingHref({ bucket: candidateBucket, sort: candidateSort, q: candidateQuery, book: positionBook, psort: positionSort }) as Route}
-                  className={buttonVariants({ variant: "ghost", size: "sm" })}
-                >
-                  Clear
-                </Link>
-              ) : null}
-            </form>
-          </section>
+          <WorkbenchControls
+            links={positionSortLinks.map(([value, label]) => ({
+              key: value,
+              label,
+              href: buildTradingHref({
+                bucket: candidateBucket,
+                sort: candidateSort,
+                q: candidateQuery,
+                book: positionBook,
+                psort: value,
+                pq: positionQuery,
+              }) as Route,
+              active: positionSort === value,
+            }))}
+            action={operationalDeskRoutes.trading}
+            hiddenInputs={[
+              { name: "bucket", value: candidateBucket },
+              { name: "sort", value: candidateSort },
+              { name: "q", value: candidateQuery },
+              { name: "book", value: positionBook },
+              { name: "psort", value: positionSort },
+            ]}
+            searchName="pq"
+            searchValue={positionQuery}
+            searchPlaceholder="Filter symbol, mint, exit phrase"
+            clearHref={positionQuery
+              ? buildTradingHref({ bucket: candidateBucket, sort: candidateSort, q: candidateQuery, book: positionBook, psort: positionSort }) as Route
+              : null}
+          />
 
           <PositionsGrid rows={positionRows} book={positionBook} sort={positionSort} query={positionQuery} />
         </div>
@@ -286,6 +235,79 @@ function firstParam(value: string | string[] | undefined) {
 
 function normalizeSearchQuery(value: string | undefined) {
   return value?.trim() ?? "";
+}
+
+function CountChipLink(props: {
+  href: Route;
+  label: string;
+  count: number;
+  active: boolean;
+}) {
+  return (
+    <Link
+      href={props.href}
+      className={cn(
+        "inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm transition",
+        props.active
+          ? "border-[rgba(163,230,53,0.28)] bg-[#121511] text-text-primary"
+          : "border-bg-border bg-bg-hover/35 text-text-secondary hover:border-[rgba(255,255,255,0.12)] hover:bg-bg-hover/50 hover:text-text-primary",
+      )}
+    >
+      <span>{props.label}</span>
+      <span className="rounded-full border border-bg-border bg-bg-primary/50 px-2 py-0.5 text-[11px] font-semibold text-text-primary">
+        {formatInteger(props.count)}
+      </span>
+    </Link>
+  );
+}
+
+function WorkbenchControls(props: {
+  links: Array<{ key: string; label: string; href: Route; active: boolean }>;
+  action: string;
+  hiddenInputs: Array<{ name: string; value: string }>;
+  searchName: string;
+  searchValue: string;
+  searchPlaceholder: string;
+  clearHref: Route | null;
+}) {
+  return (
+    <section className="workbench-controls sticky top-[calc(var(--shell-header-height)+0.75rem)] z-20">
+      <div className="flex flex-1 flex-wrap items-center gap-2">
+        {props.links.map((link) => (
+          <Link
+            key={link.key}
+            href={link.href}
+            className={cn(
+              buttonVariants({ variant: link.active ? "secondary" : "ghost", size: "sm" }),
+              "rounded-full",
+            )}
+          >
+            {link.label}
+          </Link>
+        ))}
+      </div>
+      <form action={props.action} className="flex w-full max-w-[30rem] items-center gap-2">
+        {props.hiddenInputs.map((input) => (
+          <input key={input.name} type="hidden" name={input.name} value={input.value} />
+        ))}
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
+          <Input
+            name={props.searchName}
+            defaultValue={props.searchValue}
+            placeholder={props.searchPlaceholder}
+            className="h-9 bg-bg-primary/70 pl-9"
+          />
+        </div>
+        <Button type="submit" variant="ghost" size="sm">Search</Button>
+        {props.clearHref ? (
+          <Link href={props.clearHref} className={buttonVariants({ variant: "ghost", size: "sm" })}>
+            Clear
+          </Link>
+        ) : null}
+      </form>
+    </section>
+  );
 }
 
 function buildTradingHref(params: {

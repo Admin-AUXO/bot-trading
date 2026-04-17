@@ -61,8 +61,56 @@ export function RecipeEditor({
   onSelectedRecipeIndexChange,
   onBuilderOpenChange,
 }: RecipeEditorProps) {
-  const selectedRecipe = draft.recipes[selectedRecipeIndex];
+  const syncedRecipes = draft.recipes.map((recipe, index) => ({
+    ...recipe,
+    params: safeParseParams(paramTexts[index] ?? JSON.stringify(recipe.params ?? {})),
+  }));
+  const selectedRecipe = syncedRecipes[selectedRecipeIndex];
   const selectedForm = selectedRecipe ? parseStructuredRecipeForm(paramTexts[selectedRecipeIndex] ?? "{}") : null;
+
+  const syncRecipes = (recipes: DiscoveryLabRecipe[], nextSelectedIndex = selectedRecipeIndex) => {
+    onDraftChange({ ...draft, recipes });
+    onParamTextsChange(buildParamTextsFromRecipes(recipes));
+    onSelectedRecipeIndexChange(Math.max(0, Math.min(nextSelectedIndex, recipes.length - 1)));
+  };
+
+  const addStrategy = () => {
+    const recipes = [...syncedRecipes, createBlankRecipe()];
+    syncRecipes(recipes, recipes.length - 1);
+  };
+
+  const removeStrategy = (index: number) => {
+    const recipes = syncedRecipes.filter((_, recipeIndex) => recipeIndex !== index);
+    syncRecipes(recipes.length > 0 ? recipes : [createBlankRecipe()], Math.max(0, index - 1));
+  };
+
+  const moveStrategy = (index: number, delta: number) => {
+    const targetIndex = index + delta;
+    if (targetIndex < 0 || targetIndex >= syncedRecipes.length) return;
+    const recipes = [...syncedRecipes];
+    const [recipe] = recipes.splice(index, 1);
+    recipes.splice(targetIndex, 0, recipe);
+    syncRecipes(recipes, targetIndex);
+  };
+
+  const updateRecipeMode = (index: number, mode: "graduated" | "pregrad") => {
+    const recipes = syncedRecipes.map((recipe, recipeIndex) => (
+      recipeIndex === index ? { ...recipe, mode } : recipe
+    ));
+    syncRecipes(recipes, index);
+  };
+
+  const updateParamTextFn = (
+    index: number,
+    mutator: (form: ReturnType<typeof parseStructuredRecipeForm>) => ReturnType<typeof parseStructuredRecipeForm>,
+  ) => {
+    const nextParamTexts = updateParamText(paramTexts, index, mutator);
+    const recipes = syncedRecipes.map((recipe, recipeIndex) => (
+      recipeIndex === index ? { ...recipe, params: safeParseParams(nextParamTexts[index] ?? "{}") } : recipe
+    ));
+    onDraftChange({ ...draft, recipes });
+    onParamTextsChange(nextParamTexts);
+  };
 
   return (
     <Card className="border-[#2a2a35] bg-[#111318]">

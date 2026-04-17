@@ -58,9 +58,7 @@ export default async function PositionDetailPage(props: {
             <CopyButton value={detail.summary.id} label="Copy id" />
             <CopyButton value={detail.summary.mint} label="Copy mint" />
             <PositionDetailActions
-              positionId={detail.summary.id}
               mint={detail.summary.mint}
-              stopLossPriceUsd={detail.summary.stopLossPriceUsd}
             />
             {grafanaHref ? (
               <a

@@ -219,19 +219,6 @@ export type PositionDetailPayload = {
   linkedCandidate: Record<string, unknown> | null;
 };
 
-export type DiagnosticsPayload = {
-  summary: {
-    providerErrors: number;
-    totalCalls: number;
-    totalUnits: number;
-    latestPayloadFailures: number;
-  };
-  providerRows: Array<Record<string, unknown>>;
-  endpointRows: Array<Record<string, unknown>>;
-  staleComponents: string[];
-  issues: Array<{ id: string; label: string; detail: string; level: "warning" | "danger" }>;
-};
-
 export type ActionResponse = {
   ok: boolean;
   action: string;

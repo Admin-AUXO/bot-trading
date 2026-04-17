@@ -192,7 +192,6 @@ export function ResultsPageClient({
       <RunSummaryCard run={runDetailForCard} />
 
       {compareMode && (
-      {compareMode && (
         <div className="rounded-[14px] border border-[rgba(163,230,53,0.25)] bg-[rgba(163,230,53,0.05)] px-4 py-3">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">

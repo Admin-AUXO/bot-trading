@@ -32,7 +32,6 @@ ENV NODE_ENV=production
 COPY --chown=node:node --from=builder /app/dist ./dist
 COPY --chown=node:node --from=builder /app/src ./src
 COPY --chown=node:node --from=builder /app/scripts ./scripts
-COPY --chown=node:node --from=builder /app/.local ./.local
 COPY --chown=node:node --from=builder /app/prisma ./prisma
 COPY --chown=node:node --from=prod-deps /app/node_modules ./node_modules
 COPY --chown=node:node --from=builder /app/package.json ./

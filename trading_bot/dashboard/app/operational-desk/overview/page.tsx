@@ -1,24 +1,20 @@
 import { DashboardClient } from "@/components/dashboard-client";
 import { serverFetch } from "@/lib/api";
 import { buildGrafanaDashboardLink } from "@/lib/grafana";
-import type { DeskHomePayload, DiagnosticsPayload, OperatorEvent } from "@/lib/types";
+import type { DeskHomePayload, OperatorEvent } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 export default async function OperationalDeskOverviewPage() {
-  const [homeResult, eventsResult, diagnosticsResult] = await Promise.allSettled([
+  const [homeResult, eventsResult] = await Promise.allSettled([
     serverFetch<DeskHomePayload>("/api/desk/home"),
     serverFetch<OperatorEvent[]>("/api/desk/events?limit=20"),
-    serverFetch<DiagnosticsPayload>("/api/operator/diagnostics"),
   ]);
   const home = homeResult.status === "fulfilled" ? homeResult.value : degradedHomePayload(homeResult.reason);
   const events = eventsResult.status === "fulfilled" ? eventsResult.value : [];
-  const diagnostics = diagnosticsResult.status === "fulfilled"
-    ? diagnosticsResult.value
-    : degradedDiagnosticsPayload(diagnosticsResult.status === "rejected" ? diagnosticsResult.reason : null);
   const grafanaHref = buildGrafanaDashboardLink("control");
 
-  return <DashboardClient initialHome={home} initialEvents={events} initialDiagnostics={diagnostics} grafanaHref={grafanaHref} />;
+  return <DashboardClient initialHome={home} initialEvents={events} grafanaHref={grafanaHref} />;
 }
 
 function degradedHomePayload(error: unknown): DeskHomePayload {
@@ -122,28 +118,5 @@ function degradedHomePayload(error: unknown): DeskHomePayload {
       },
     ],
     recentActions: [],
-  };
-}
-
-function degradedDiagnosticsPayload(error: unknown): DiagnosticsPayload {
-  const detail = error instanceof Error ? error.message : "diagnostics fetch failed";
-  return {
-    summary: {
-      providerErrors: 0,
-      totalCalls: 0,
-      totalUnits: 0,
-      latestPayloadFailures: 0,
-    },
-    providerRows: [],
-    endpointRows: [],
-    staleComponents: ["diagnostics"],
-    issues: [
-      {
-        id: "diagnostics-unavailable",
-        label: "Diagnostics unavailable",
-        detail,
-        level: "danger",
-      },
-    ],
   };
 }

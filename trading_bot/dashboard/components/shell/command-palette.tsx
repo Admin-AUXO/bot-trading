@@ -26,7 +26,6 @@ interface CommandPaletteProps {
 
 export function CommandPalette({
   open,
-  commandOpen,
   commandQuery,
   selectedCommandIndex,
   commandItems,
@@ -37,13 +36,13 @@ export function CommandPalette({
   const commandInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    if (!commandOpen) {
+    if (!open) {
       onCommandQueryChange("");
       onSelectedCommandIndexChange(0);
       return;
     }
     commandInputRef.current?.focus();
-  }, [commandOpen]);
+  }, [open, onCommandQueryChange, onSelectedCommandIndexChange]);
 
   if (!open) return null;
 

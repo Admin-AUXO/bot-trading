@@ -50,7 +50,6 @@ export default async function CandidateDetailPage(props: {
             </Link>
             <CopyButton value={detail.summary.mint} label="Copy mint" />
             <CandidateDetailActions
-              candidateId={detail.summary.id}
               mint={detail.summary.mint}
             />
             {grafanaHref ? (

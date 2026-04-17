@@ -3,110 +3,26 @@
 import * as Tooltip from "@radix-ui/react-tooltip";
 import clsx from "clsx";
 import Link from "next/link";
-import type { Route } from "next";
 import { usePathname } from "next/navigation";
 import {
-  Activity,
-  FlaskConical,
   PanelLeftClose,
   PanelLeftOpen,
   Radar,
-  Settings2,
-  Sparkles,
 } from "lucide-react";
-import { discoveryLabRoutes } from "@/lib/dashboard-routes";
+import { dashboardNavGroups, matchesDashboardRoute } from "@/lib/dashboard-navigation";
 import { formatInteger } from "@/lib/format";
 import type { DeskShellPayload } from "@/lib/types";
 import { StatusPill } from "@/components/dashboard-primitives";
 import { PinnedItemsSidebar } from "@/components/pinned-items";
 import { Button } from "@/components/ui/button";
 
-const SIDEBAR_STORAGE_KEY = "graduation-control-sidebar-collapsed";
-
-type NavItem = {
-  id: string;
-  href: Route;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  matchPrefixes: string[];
-};
-
-type NavGroup = {
-  id: string;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  items: NavItem[];
-};
-
-const navGroups: NavGroup[] = [
-  {
-    id: "control",
-    label: "Control",
-    icon: Activity,
-    items: [
-      {
-        id: "desk",
-        href: "/operational-desk/overview" as Route,
-        label: "Desk",
-        icon: Activity,
-        matchPrefixes: ["/operational-desk/overview", "/operational-desk", "/"],
-      },
-      {
-        id: "lifecycle",
-        href: "/operational-desk/trading" as Route,
-        label: "Lifecycle",
-        icon: Sparkles,
-        matchPrefixes: ["/operational-desk/trading", "/trading", "/candidates", "/positions"],
-      },
-      {
-        id: "settings",
-        href: "/operational-desk/settings" as Route,
-        label: "Settings",
-        icon: Settings2,
-        matchPrefixes: ["/operational-desk/settings", "/settings"],
-      },
-    ],
-  },
-  {
-    id: "lab",
-    label: "Lab",
-    icon: FlaskConical,
-    items: [
-      {
-        id: "lab",
-        href: discoveryLabRoutes.overview,
-        label: "Lab",
-        icon: FlaskConical,
-        matchPrefixes: [discoveryLabRoutes.overview, discoveryLabRoutes.root],
-      },
-      {
-        id: "studio",
-        href: discoveryLabRoutes.studio,
-        label: "Studio",
-        icon: FlaskConical,
-        matchPrefixes: [discoveryLabRoutes.studio],
-      },
-      {
-        id: "results",
-        href: discoveryLabRoutes.results,
-        label: "Results",
-        icon: Activity,
-        matchPrefixes: [discoveryLabRoutes.results],
-      },
-    ],
-  },
-];
-
-const navItems = navGroups.flatMap((group) => group.items);
-
 interface SidebarProps {
   shell: DeskShellPayload | null;
   sidebarCollapsed: boolean;
-  sidebarReady: boolean;
   onToggleCollapse: () => void;
 }
 
-export function Sidebar({ shell, sidebarCollapsed, sidebarReady, onToggleCollapse }: SidebarProps) {
+export function Sidebar({ shell, sidebarCollapsed, onToggleCollapse }: SidebarProps) {
   const pathname = usePathname();
   const currentPath = pathname ?? "/";
 
@@ -164,7 +80,7 @@ export function Sidebar({ shell, sidebarCollapsed, sidebarReady, onToggleCollaps
       </div>
 
       <nav className={clsx("space-y-3 py-3", sidebarCollapsed ? "px-2.5" : "px-3")}>
-        {navGroups.map((group) => (
+        {dashboardNavGroups.map((group) => (
           <div key={group.id} className="space-y-1.5">
             {!sidebarCollapsed ? (
               <div className="flex items-center gap-2 px-1">
@@ -174,7 +90,7 @@ export function Sidebar({ shell, sidebarCollapsed, sidebarReady, onToggleCollaps
             ) : null}
             {group.items.map((item) => {
               const Icon = item.icon;
-              const active = matchesRoute(currentPath, item);
+              const active = matchesDashboardRoute(currentPath, item);
               const link = (
                 <Link
                   key={item.id}
@@ -240,10 +156,6 @@ function CompactShellMetric(props: { label: string; value: string }) {
       <div className="text-xs font-semibold text-text-primary">{props.value}</div>
     </div>
   );
-}
-
-function matchesRoute(pathname: string, item: NavItem) {
-  return item.matchPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
 function shortMode(value?: string | null) {

@@ -4,6 +4,7 @@ Active workstream summaries. Keep short. Archive when done.
 
 ## Active
 
+- [2026-04-18 Dashboard Backend Simplification Pass](2026-04-18-dashboard-backend-simplification-pass.md)
 - [2026-04-17 Audit Fix Session](2026-04-17-audit-fix-session.md) ← comprehensive backend+dashboard audit, Docker rebuild, all fixes applied
 - [2026-04-16 Firecrawl Sidecar](2026-04-16-firecrawl-sidecar.md)
 - [2026-04-16 Direct Apply Settings](2026-04-16-direct-apply-settings-and-live-strategy.md)
