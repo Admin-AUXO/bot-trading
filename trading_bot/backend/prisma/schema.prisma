@@ -81,6 +81,52 @@ enum ProviderName {
   HELIUS
 }
 
+enum ProviderSource {
+  BIRDEYE
+  HELIUS
+  TRENCH
+  BUBBLEMAPS
+  SOLSNIFFER
+  JUPITER
+  GECKOTERMINAL
+  CIELO
+  PUMPFUN
+  RUGCHECK
+  DEFILLAMA
+  DEXSCREENER
+}
+
+enum ProviderPurpose {
+  DISCOVERY
+  EVALUATE
+  ENRICH
+  EXIT
+  WEBHOOK
+  PRIORITY_FEE
+  SMART_MONEY
+  MANUAL
+  ADMIN
+}
+
+enum SubmitLane {
+  REGULAR
+  JITO_BUNDLE
+}
+
+enum MutatorVerdict {
+  HELPED
+  HURT
+  NEUTRAL
+}
+
+enum WalletFundingSource {
+  CEX
+  FRESH
+  BRIDGE
+  MIXER
+  UNKNOWN
+}
+
 
 
 
@@ -636,6 +682,84 @@ model TradingSession {
   @@index([stoppedAt, startedAt])
   @@index([packId, startedAt])
   @@index([sourceRunId, startedAt])
+}
+
+model ProviderCreditLog {
+  id            BigInt          @id @default(autoincrement())
+  provider      ProviderSource
+  endpoint      String
+  purpose       ProviderPurpose
+  creditsUsed   Int
+  sessionId     String?
+  packId        String?
+  configVersion Int?
+  mint          String?
+  candidateId   String?
+  positionId    String?
+  httpStatus    Int
+  latencyMs     Int
+  errorCode     String?
+  recordedAt    DateTime        @default(now())
+
+  @@index([provider, recordedAt])
+  @@index([purpose, recordedAt])
+  @@index([sessionId])
+  @@index([packId, recordedAt])
+}
+
+model FillAttempt {
+  id                   BigInt     @id @default(autoincrement())
+  positionId           String?
+  candidateId          String?
+  side                 FillSide
+  packId               String?
+  packVersion          Int?
+  sessionId            String?
+  mint                 String
+  mcUsdAtQuote         Float?
+  tierBucket           String?
+  slippageCapBps       Int?
+  slippageUsedBps      Int?
+  priceImpactBps       Int?
+  cuPriceMicroLamports BigInt?
+  tipLamports          BigInt?
+  lane                 SubmitLane @default(REGULAR)
+  bundleLanded         Boolean?
+  quoteLatencyMs       Int?
+  signLatencyMs        Int?
+  submitLatencyMs      Int?
+  confirmLatencyMs     Int?
+  retries              Int        @default(0)
+  failureCode          String?
+  txSig                String?
+  createdAt            DateTime   @default(now())
+
+  @@index([mint, createdAt])
+  @@index([sessionId])
+  @@index([packId, createdAt])
+}
+
+model MutatorOutcome {
+  id                  BigInt          @id @default(autoincrement())
+  positionId          String
+  mutatorCode         String
+  axis                String
+  beforeValue         Float
+  afterValue          Float
+  exitPnlUsd          Float?
+  counterfactualPnlUsd Float?
+  verdict             MutatorVerdict
+  recordedAt          DateTime        @default(now())
+
+  @@index([mutatorCode, recordedAt])
+  @@index([positionId])
+}
+
+model SmartWalletFunding {
+  address       String              @id
+  source        WalletFundingSource
+  firstFundedAt DateTime?
+  lastCheckedAt DateTime            @default(now())
 }
 
 model AdaptiveThresholdLog {

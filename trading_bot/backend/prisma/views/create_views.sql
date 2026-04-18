@@ -15,8 +15,11 @@ DROP VIEW IF EXISTS v_fill_performance CASCADE;
 DROP VIEW IF EXISTS v_runtime_overview CASCADE;
 DROP VIEW IF EXISTS v_candidate_funnel_daily CASCADE;
 DROP VIEW IF EXISTS v_api_telemetry_daily CASCADE;
+DROP VIEW IF EXISTS v_api_provider_hourly CASCADE;
 DROP VIEW IF EXISTS v_api_provider_daily CASCADE;
+DROP VIEW IF EXISTS v_api_purpose_daily CASCADE;
 DROP VIEW IF EXISTS v_api_endpoint_efficiency CASCADE;
+DROP VIEW IF EXISTS v_api_session_cost CASCADE;
 DROP VIEW IF EXISTS v_position_pnl_daily CASCADE;
 DROP VIEW IF EXISTS v_discovery_lab_run_summary CASCADE;
 DROP VIEW IF EXISTS v_discovery_lab_pack_performance CASCADE;
@@ -386,31 +389,83 @@ GROUP BY 1, 2, 3;
 
 CREATE VIEW v_api_provider_daily AS
 SELECT
-  session_date,
+  DATE_TRUNC('day', "recordedAt") AS day,
   provider,
-  SUM(call_count)::int AS total_calls,
-  SUM(total_units)::int AS total_units,
+  SUM("creditsUsed") AS credits,
+  COUNT(*) AS calls,
+  SUM("creditsUsed") FILTER (WHERE "httpStatus" >= 400) AS failed_credits,
+  COUNT(*) FILTER (WHERE "httpStatus" >= 400) AS failed_calls,
+  DATE_TRUNC('day', "recordedAt")::date AS session_date,
+  COUNT(*)::int AS total_calls,
+  SUM("creditsUsed")::int AS total_units,
   CASE
-    WHEN SUM(call_count) > 0
-      THEN SUM(avg_latency_ms * call_count)::numeric / SUM(call_count)::numeric
+    WHEN COUNT(*) > 0
+      THEN AVG("latencyMs")::numeric(12, 2)
     ELSE 0
   END::numeric(12,2) AS avg_latency_ms,
-  SUM(error_count)::int AS error_count
-FROM v_api_telemetry_daily
+  COUNT(*) FILTER (WHERE "httpStatus" >= 400)::int AS error_count
+FROM "ProviderCreditLog"
 GROUP BY 1, 2;
+
+CREATE VIEW v_api_provider_hourly AS
+SELECT
+  DATE_TRUNC('hour', "recordedAt") AS hour,
+  provider,
+  SUM("creditsUsed") AS credits,
+  DATE_TRUNC('hour', "recordedAt") AS bucket_at,
+  COUNT(*)::int AS total_calls,
+  SUM("creditsUsed")::int AS total_units,
+  AVG("latencyMs")::numeric(12, 2) AS avg_latency_ms,
+  COUNT(*) FILTER (WHERE "httpStatus" >= 400)::int AS error_count
+FROM "ProviderCreditLog"
+WHERE "recordedAt" >= NOW() - INTERVAL '48 hours'
+GROUP BY 1, 2;
+
+CREATE VIEW v_api_purpose_daily AS
+SELECT
+  DATE_TRUNC('day', "recordedAt") AS day,
+  provider,
+  purpose,
+  SUM("creditsUsed") AS credits,
+  COUNT(*) AS calls
+FROM "ProviderCreditLog"
+GROUP BY 1, 2, 3;
 
 CREATE VIEW v_api_endpoint_efficiency AS
 SELECT
-  DATE_TRUNC('day', "calledAt")::date AS session_date,
   provider,
   endpoint,
+  COUNT(*) AS calls_7d,
+  SUM("creditsUsed") AS credits_7d,
+  AVG("latencyMs")::int AS avg_latency_ms,
+  SUM(CASE WHEN "httpStatus" >= 400 THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*), 0) AS fail_rate,
   COUNT(*)::int AS total_calls,
-  COALESCE(SUM(units), 0)::int AS total_units,
-  AVG(COALESCE("latencyMs", 0))::numeric(12,2) AS avg_latency_ms,
-  SUM(CASE WHEN success THEN 0 ELSE 1 END)::int AS error_count,
-  MAX("calledAt") AS last_called_at
-FROM "ApiEvent"
-GROUP BY 1, 2, 3;
+  SUM("creditsUsed")::int AS total_units,
+  SUM(CASE WHEN "httpStatus" >= 400 THEN 1 ELSE 0 END)::int AS error_count,
+  (
+    SUM(CASE WHEN "httpStatus" >= 400 THEN 1 ELSE 0 END)::numeric
+    / NULLIF(COUNT(*), 0)::numeric
+    * 100
+  )::numeric(12, 4) AS error_rate_pct,
+  MAX("recordedAt") AS last_called_at
+FROM "ProviderCreditLog"
+WHERE "recordedAt" >= NOW() - INTERVAL '7 days'
+GROUP BY 1, 2;
+
+CREATE VIEW v_api_session_cost AS
+SELECT
+  s.id AS session_id,
+  s."packId",
+  s."packVersion",
+  s.mode,
+  s."startedAt",
+  s."stoppedAt",
+  COALESCE(SUM(l."creditsUsed") FILTER (WHERE l.provider = 'BIRDEYE'), 0) AS birdeye_credits,
+  COALESCE(SUM(l."creditsUsed") FILTER (WHERE l.provider = 'HELIUS'), 0) AS helius_credits,
+  COALESCE(SUM(l."creditsUsed"), 0) AS total_credits
+FROM "TradingSession" s
+LEFT JOIN "ProviderCreditLog" l ON l."sessionId" = s.id
+GROUP BY s.id;
 
 CREATE VIEW v_position_pnl_daily AS
 WITH closed_positions AS (
