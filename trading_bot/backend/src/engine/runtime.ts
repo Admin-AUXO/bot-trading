@@ -280,6 +280,9 @@ export class BotRuntime {
       getDiscoveryLabMarketRegime: (runId: string) => this.strategyRunResults.getMarketRegime(runId),
       getMarketTrending: (input: Parameters<MarketIntelService["getTrending"]>[0]) =>
         this.marketIntel.getTrending(input),
+      getMarketTokenStats: (mint: string) => this.marketIntel.getTokenStats(mint),
+      getRecentSmartWalletActivity: (mints: string[], limit?: number) =>
+        this.marketIntel.getRecentSmartWalletActivity(mints, limit),
       getMarketStrategySuggestions: (input: Parameters<MarketStrategyIdeasService["getSuggestions"]>[0]) =>
         this.marketStrategyIdeas.getSuggestions(input),
       getEnrichment: (mint: string) => this.tokenEnrichment.getEnrichment(mint),

@@ -1048,3 +1048,25 @@ export type DiscoveryLabStrategySuggestionsPayload = {
     packDraft: DiscoveryLabPackDraft;
   }>;
 };
+
+export type MarketTokenStatsPayload = {
+  mint: string;
+  price24h: number | null;
+  mc: number | null;
+  liq: number | null;
+  buyers5m: number | null;
+  sellCount5m: number | null;
+  rugScore: number | null;
+  ageMinutes: number | null;
+};
+
+export type SmartWalletActivityPayload = {
+  id: string;
+  mint: string;
+  walletAddress: string;
+  walletLabel: string | null;
+  side: "BUY" | "SELL";
+  amountUsd: number;
+  txSignature: string;
+  receivedAt: string;
+};

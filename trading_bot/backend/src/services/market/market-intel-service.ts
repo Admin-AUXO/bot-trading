@@ -47,6 +47,28 @@ type MarketStatsFocusCache = {
   refreshedAt: string;
 };
 
+export type MarketTokenStatsPayload = {
+  mint: string;
+  price24h: number | null;
+  mc: number | null;
+  liq: number | null;
+  buyers5m: number | null;
+  sellCount5m: number | null;
+  rugScore: number | null;
+  ageMinutes: number | null;
+};
+
+export type SmartWalletActivityPayload = {
+  id: string;
+  mint: string;
+  walletAddress: string;
+  walletLabel: string | null;
+  side: "BUY" | "SELL";
+  amountUsd: number;
+  txSignature: string;
+  receivedAt: string;
+};
+
 const DEFAULT_LIMIT = 18;
 const RECENT_WINDOW_SECONDS = 4 * 60 * 60;
 const MARKET_STATS_SOURCES: DiscoveryLabDataSource[] = [
@@ -71,6 +93,19 @@ function round(value: number | null, decimals = 2): number | null {
   if (value === null || !Number.isFinite(value)) return null;
   const factor = 10 ** decimals;
   return Math.round(value * factor) / factor;
+}
+
+function getNumeric(record: Record<string, unknown> | null, ...keys: string[]): number | null {
+  if (!record) return null;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim().length > 0) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return null;
 }
 
 function buildAxiomHref(target: string): string {
@@ -162,6 +197,68 @@ export class MarketIntelService {
   private readonly focusTokenCache = new Map<string, MarketStatsFocusCache>();
 
   constructor(private readonly deps: MarketIntelDeps) {}
+
+  async getTokenStats(mint: string): Promise<MarketTokenStatsPayload> {
+    const normalizedMint = mint.trim();
+    if (normalizedMint.length === 0) {
+      throw new Error("mint is required");
+    }
+
+    const [overview, rugSummary, graduation] = await Promise.all([
+      this.deps.birdeye.getTokenOverview(normalizedMint),
+      this.rugcheck.getTokenReportSummary(normalizedMint).catch(() => null),
+      db.candidate.findFirst({
+        where: { mint: normalizedMint, graduatedAt: { not: null } },
+        orderBy: { graduatedAt: "asc" },
+        select: { graduatedAt: true },
+      }),
+    ]);
+
+    const overviewRecord = (overview ?? null) as Record<string, unknown> | null;
+    const graduatedAt = graduation?.graduatedAt?.getTime() ?? null;
+    const ageMinutes = graduatedAt === null
+      ? null
+      : Math.max(0, Math.round((Date.now() - graduatedAt) / 60_000));
+
+    return {
+      mint: normalizedMint,
+      price24h: getNumeric(overviewRecord, "price"),
+      mc: getNumeric(overviewRecord, "marketCap", "market_cap"),
+      liq: getNumeric(overviewRecord, "liquidity"),
+      buyers5m: getNumeric(overviewRecord, "buy5m", "buy_5m"),
+      sellCount5m: getNumeric(overviewRecord, "sell5m", "sell_5m"),
+      rugScore: rugSummary?.scoreNormalized ?? rugSummary?.score ?? null,
+      ageMinutes,
+    };
+  }
+
+  async getRecentSmartWalletActivity(mints: string[], limit = 10): Promise<SmartWalletActivityPayload[]> {
+    const normalizedMints = [...new Set(
+      mints.map((mint) => mint.trim()).filter((mint) => mint.length > 0),
+    )];
+    if (normalizedMints.length === 0) {
+      return [];
+    }
+
+    const cappedLimit = Math.min(Math.max(Math.floor(limit), 1), 50);
+    const events = await db.smartWalletEvent.findMany({
+      where: { mint: { in: normalizedMints } },
+      orderBy: { receivedAt: "desc" },
+      take: cappedLimit,
+      include: { wallet: { select: { label: true } } },
+    });
+
+    return events.map((event) => ({
+      id: event.id,
+      mint: event.mint,
+      walletAddress: event.walletAddress,
+      walletLabel: event.wallet?.label ?? null,
+      side: event.side,
+      amountUsd: Number(event.amountUsd),
+      txSignature: event.txSignature,
+      receivedAt: event.receivedAt.toISOString(),
+    }));
+  }
 
   async getTrending(input?: { mint?: string; limit?: number; refresh?: boolean; focusOnly?: boolean }): Promise<DiscoveryLabMarketStatsPayload> {
     const limit = Math.min(Math.max(Math.floor(input?.limit ?? DEFAULT_LIMIT), 8), 30);

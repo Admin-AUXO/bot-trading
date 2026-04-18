@@ -11,6 +11,18 @@ export function registerMarketRoutes(app: express.Express, { deps }: RouteRegist
     return res.json(await deps.getMarketTrending({ mint, limit, refresh, focusOnly }));
   });
 
+  app.get("/api/operator/market/stats/:mint", async (req, res) => {
+    return res.json(await deps.getMarketTokenStats(req.params.mint));
+  });
+
+  app.get("/api/operator/market/smart-wallet-events", async (req, res) => {
+    const limit = parseLimit(req.query.limit, 10, 50);
+    const mints = typeof req.query.mints === "string"
+      ? req.query.mints.split(",").map((mint) => mint.trim()).filter((mint) => mint.length > 0)
+      : [];
+    return res.json(await deps.getRecentSmartWalletActivity(mints, limit));
+  });
+
   app.get("/api/operator/market/strategy-suggestions", async (req, res) => {
     const refresh = parseBooleanFlag(req.query.refresh);
     return res.json(await deps.getMarketStrategySuggestions({ refresh }));

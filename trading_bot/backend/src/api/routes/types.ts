@@ -10,6 +10,10 @@ import type { DiscoveryLabMarketStatsPayload } from "../../services/discovery-la
 import type { DiscoveryLabStrategySuggestionsPayload } from "../../services/discovery-lab-strategy-suggestion-service.js";
 import type { TokenEnrichmentPayload } from "../../services/enrichment/token-enrichment-service.js";
 import type {
+  MarketTokenStatsPayload,
+  SmartWalletActivityPayload,
+} from "../../services/market/market-intel-service.js";
+import type {
   AdaptiveActivityPayload,
   OperatorPackDetailPayload,
   OperatorPackListPayload,
@@ -90,6 +94,8 @@ export type ApiServerDeps = {
   getDiscoveryLabRun: (runId: string) => Promise<unknown | null>;
   getDiscoveryLabMarketRegime: (runId: string) => Promise<DiscoveryLabMarketRegimeResponse>;
   getMarketTrending: (input?: { mint?: string; limit?: number; refresh?: boolean; focusOnly?: boolean }) => Promise<DiscoveryLabMarketStatsPayload>;
+  getMarketTokenStats: (mint: string) => Promise<MarketTokenStatsPayload>;
+  getRecentSmartWalletActivity: (mints: string[], limit?: number) => Promise<SmartWalletActivityPayload[]>;
   getMarketStrategySuggestions: (input?: { refresh?: boolean }) => Promise<DiscoveryLabStrategySuggestionsPayload>;
   getEnrichment: (mint: string) => Promise<TokenEnrichmentPayload>;
   getDiscoveryLabTokenInsight: (input: { runId?: string; mint?: string }) => Promise<unknown>;
