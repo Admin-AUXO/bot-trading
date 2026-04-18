@@ -1,6 +1,8 @@
 import type { DiscoveryToken, TokenSecuritySnapshot, TradeDataSnapshot } from "../types/domain.js";
 import { recordApiEvent, recordRawApiPayload } from "./provider-telemetry.js";
 import { asRecord, asNumber, asString, asBoolean } from "../utils/types.js";
+import { ProviderBudgetService } from "./provider-budget-service.js";
+import type { ProviderPurpose } from "@prisma/client";
 
 function getByPath(source: Record<string, unknown>, path: string): unknown {
   let current: unknown = source;
@@ -149,7 +151,10 @@ function parseTradeData(row: Record<string, unknown>): TradeDataSnapshot {
 }
 
 export class BirdeyeClient {
-  constructor(private readonly apiKey: string) {}
+  constructor(
+    private readonly apiKey: string,
+    private readonly providerBudget: ProviderBudgetService = new ProviderBudgetService(),
+  ) {}
 
   private record(
     endpoint: string,
@@ -189,6 +194,14 @@ export class BirdeyeClient {
     let attempts = 0;
 
     while (attempts <= retryDelaysMs.length) {
+      const purpose = this.resolvePurpose(endpoint);
+      const slot = this.providerBudget.requestSlot("BIRDEYE", purpose, {
+        endpoint,
+        mint: typeof params?.address === "string" ? params.address : undefined,
+      });
+      let responseStatus = 599;
+      let observedCredits = units;
+
       try {
         const response = await fetch(url, {
           headers: {
@@ -198,8 +211,17 @@ export class BirdeyeClient {
         });
 
         const latencyMs = Date.now() - startedAt;
+        responseStatus = response.status;
+        observedCredits = this.parseCreditsUsed(response.headers.get("x-credits-used"));
 
         if (response.status === 429 && attempts < retryDelaysMs.length) {
+          this.providerBudget.releaseSlot(slot.id, {
+            endpoint,
+            creditsUsed: observedCredits,
+            httpStatus: response.status,
+            latencyMs,
+            errorCode: "HTTP_429",
+          });
           attempts++;
           const delayMs = retryDelaysMs[attempts - 1];
           await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -223,15 +245,35 @@ export class BirdeyeClient {
         rawPayloadCaptured = true;
 
         if (!response.ok) {
+          this.providerBudget.releaseSlot(slot.id, {
+            endpoint,
+            creditsUsed: observedCredits,
+            httpStatus: response.status,
+            latencyMs,
+            errorCode: `HTTP_${response.status}`,
+          });
           this.record(endpoint, units, false, latencyMs, { status: response.status });
           apiEventRecorded = true;
           throw new Error(`Birdeye ${endpoint} failed with ${response.status}`);
         }
 
+        this.providerBudget.releaseSlot(slot.id, {
+          endpoint,
+          creditsUsed: observedCredits,
+          httpStatus: response.status,
+          latencyMs,
+        });
         this.record(endpoint, units, true, latencyMs);
         apiEventRecorded = true;
         return payload as T;
       } catch (error) {
+        this.providerBudget.releaseSlot(slot.id, {
+          endpoint,
+          creditsUsed: observedCredits,
+          httpStatus: responseStatus,
+          latencyMs: Date.now() - startedAt,
+          errorCode: error instanceof Error ? error.name : "REQUEST_ERROR",
+        });
         lastError = error instanceof Error ? error : new Error(String(error));
         break;
       }
@@ -256,6 +298,18 @@ export class BirdeyeClient {
       });
     }
     throw lastError;
+  }
+
+  private parseCreditsUsed(value: string | null): number {
+    if (!value) return 0;
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+  }
+
+  private resolvePurpose(endpoint: string): ProviderPurpose {
+    if (endpoint === "/defi/v3/token/meme/list") return "DISCOVERY";
+    if (endpoint === "/defi/token_security") return "ENRICH";
+    return "EVALUATE";
   }
 
   async getMemeTokens(params: {

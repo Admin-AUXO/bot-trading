@@ -1,4 +1,4 @@
-import { ProviderName } from "@prisma/client";
+import { Prisma, ProviderName, type ProviderPurpose, type ProviderSource } from "@prisma/client";
 import { env } from "../config/env.js";
 import { db } from "../db/client.js";
 import { logger } from "../utils/logger.js";
@@ -32,6 +32,28 @@ export type BirdeyeSpendDecision = {
   snapshot: BirdeyeBudgetSnapshot;
 };
 
+export type ProviderSlotContext = {
+  endpoint?: string;
+  sessionId?: string;
+  packId?: string;
+  configVersion?: number;
+  mint?: string;
+  candidateId?: string;
+  positionId?: string;
+};
+
+export type ProviderSlotResult = {
+  endpoint?: string;
+  httpStatus: number;
+  latencyMs: number;
+  errorCode?: string;
+  creditsUsed?: number;
+};
+
+export type ProviderSlot = {
+  id: string;
+};
+
 const LANE_SHARES: Record<BirdeyeBudgetLane, number> = {
   discovery: env.BIRDEYE_DISCOVERY_BUDGET_SHARE,
   evaluation: env.BIRDEYE_EVALUATION_BUDGET_SHARE,
@@ -49,7 +71,43 @@ const ENDPOINT_LANE: Record<string, BirdeyeBudgetLane> = {
   "/defi/multi_price": "reserve",
 };
 
+const PROVIDER_CREDIT_LOG_BATCH_SIZE = 100;
+const PROVIDER_CREDIT_LOG_FLUSH_MS = 500;
+
+const HELIUS_CREDIT_TABLE: Record<string, number> = {
+  getBalance: 1,
+  getAccountInfo: 1,
+  getTokenLargestAccounts: 1,
+  getTokenAccounts: 10,
+  getTokenBalances: 10,
+  getAsset: 10,
+  searchAssets: 10,
+  getAssetsByOwner: 10,
+  getSignaturesForAsset: 10,
+  getTokenHolders: 20,
+  parseTransactions: 100,
+  getWalletHistory: 100,
+  getWalletTransfers: 100,
+  getWalletBalances: 100,
+  getWalletFundedBy: 100,
+  getTransactionHistory: 110,
+  getPriorityFeeEstimate: 1,
+};
+
+type ActiveSlot = {
+  provider: ProviderSource;
+  purpose: ProviderPurpose;
+  ctx?: ProviderSlotContext;
+  startedAt: number;
+};
+
 export class ProviderBudgetService {
+  private readonly activeSlots = new Map<string, ActiveSlot>();
+
+  private readonly pendingCreditRows: Prisma.ProviderCreditLogCreateManyInput[] = [];
+
+  private flushTimer: NodeJS.Timeout | null = null;
+
   async getBirdeyeBudgetSnapshot(now = new Date()): Promise<BirdeyeBudgetSnapshot> {
     const monthStartedAt = new Date(now.getFullYear(), now.getMonth(), 1);
     const monthEndsAt = new Date(now.getFullYear(), now.getMonth() + 1, 1);
@@ -164,6 +222,107 @@ export class ProviderBudgetService {
   async getBypassSnapshot(): Promise<BirdeyeBudgetSnapshot | null> {
     if (!env.BIRDEYE_BUDGET_EMERGENCY_BYPASS) return null;
     return this.getBirdeyeBudgetSnapshot();
+  }
+
+  requestSlot(provider: ProviderSource, purpose: ProviderPurpose, ctx?: ProviderSlotContext): ProviderSlot {
+    try {
+      const id = crypto.randomUUID();
+      this.activeSlots.set(id, {
+        provider,
+        purpose,
+        ctx,
+        startedAt: Date.now(),
+      });
+      return { id };
+    } catch (error) {
+      logger.warn(
+        {
+          provider,
+          purpose,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "Provider budget requestSlot failed open",
+      );
+      return { id: "slot-untracked" };
+    }
+  }
+
+  releaseSlot(id: string, result: ProviderSlotResult): void {
+    try {
+      const slot = this.activeSlots.get(id);
+      if (!slot) {
+        return;
+      }
+      this.activeSlots.delete(id);
+
+      const endpoint = result.endpoint ?? slot.ctx?.endpoint ?? "unknown";
+      const creditsUsed = this.resolveCredits(slot.provider, endpoint, result.creditsUsed);
+      const latencyMs = Number.isFinite(result.latencyMs) ? Math.max(Math.trunc(result.latencyMs), 0) : 0;
+
+      this.pendingCreditRows.push({
+        provider: slot.provider,
+        endpoint,
+        purpose: slot.purpose,
+        creditsUsed,
+        sessionId: slot.ctx?.sessionId ?? null,
+        packId: slot.ctx?.packId ?? null,
+        configVersion: slot.ctx?.configVersion ?? null,
+        mint: slot.ctx?.mint ?? null,
+        candidateId: slot.ctx?.candidateId ?? null,
+        positionId: slot.ctx?.positionId ?? null,
+        httpStatus: Math.trunc(result.httpStatus),
+        latencyMs,
+        errorCode: result.errorCode ?? null,
+      });
+
+      if (this.pendingCreditRows.length >= PROVIDER_CREDIT_LOG_BATCH_SIZE) {
+        this.flushCreditRowsNow();
+        return;
+      }
+
+      if (!this.flushTimer) {
+        this.flushTimer = setTimeout(() => {
+          this.flushTimer = null;
+          this.flushCreditRowsNow();
+        }, PROVIDER_CREDIT_LOG_FLUSH_MS);
+      }
+    } catch (error) {
+      logger.warn(
+        {
+          slotId: id,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "Provider budget releaseSlot failed open",
+      );
+    }
+  }
+
+  private resolveCredits(provider: ProviderSource, endpoint: string, observedCredits?: number): number {
+    if (provider === "BIRDEYE") {
+      if (typeof observedCredits === "number" && Number.isFinite(observedCredits)) {
+        return Math.max(Math.trunc(observedCredits), 0);
+      }
+      return 0;
+    }
+
+    if (provider === "HELIUS") {
+      return HELIUS_CREDIT_TABLE[endpoint] ?? 0;
+    }
+
+    return 0;
+  }
+
+  private flushCreditRowsNow(): void {
+    if (this.pendingCreditRows.length === 0) {
+      return;
+    }
+    const rows = this.pendingCreditRows.splice(0, this.pendingCreditRows.length);
+    void db.providerCreditLog.createMany({ data: rows }).catch((error) => {
+      logger.warn(
+        { error: error instanceof Error ? error.message : String(error), rows: rows.length },
+        "Failed to flush ProviderCreditLog rows",
+      );
+    });
   }
 
   private clamp(value: number, min: number, max: number): number {

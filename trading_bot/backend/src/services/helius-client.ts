@@ -1,5 +1,7 @@
 import { recordApiEvent, recordRawApiPayload } from "./provider-telemetry.js";
 import type { HolderConcentration, MintAuthoritySnapshot } from "../types/domain.js";
+import { ProviderBudgetService } from "./provider-budget-service.js";
+import type { ProviderPurpose } from "@prisma/client";
 
 function asBigInt(value: unknown): bigint {
   if (typeof value === "bigint") return value;
@@ -20,7 +22,10 @@ async function parseResponseBody(response: Response): Promise<unknown> {
 }
 
 export class HeliusClient {
-  constructor(private readonly rpcUrl: string) {}
+  constructor(
+    private readonly rpcUrl: string,
+    private readonly providerBudget: ProviderBudgetService = new ProviderBudgetService(),
+  ) {}
 
   private record(
     endpoint: string,
@@ -42,6 +47,11 @@ export class HeliusClient {
   private async rpc<T>(method: string, params: unknown[], units: number): Promise<T> {
     const startedAt = Date.now();
     let rawPayloadCaptured = false;
+    const slot = this.providerBudget.requestSlot("HELIUS", this.resolvePurpose(method), {
+      endpoint: method,
+      mint: typeof params[0] === "string" ? params[0] : undefined,
+    });
+    let responseStatus = 599;
 
     try {
       const response = await fetch(this.rpcUrl, {
@@ -57,6 +67,7 @@ export class HeliusClient {
         }),
       });
 
+      responseStatus = response.status;
       const latencyMs = Date.now() - startedAt;
       const payload = await parseResponseBody(response) as { result?: T; error?: { message?: string } } | string | null;
       const rpcError = payload && typeof payload === "object" && "error" in payload
@@ -81,6 +92,12 @@ export class HeliusClient {
       rawPayloadCaptured = true;
 
       if (!response.ok || rpcError) {
+        this.providerBudget.releaseSlot(slot.id, {
+          endpoint: method,
+          httpStatus: response.status,
+          latencyMs,
+          errorCode: rpcError ?? `HTTP_${response.status}`,
+        });
         this.record(method, units, false, latencyMs, {
           status: response.status,
           error: rpcError ?? "unknown rpc error",
@@ -88,10 +105,21 @@ export class HeliusClient {
         throw new Error(`Helius ${method} failed: ${rpcError ?? response.status}`);
       }
 
+      this.providerBudget.releaseSlot(slot.id, {
+        endpoint: method,
+        httpStatus: response.status,
+        latencyMs,
+      });
       this.record(method, units, true, latencyMs);
       return (payload as { result?: T }).result as T;
     } catch (error) {
       const latencyMs = Date.now() - startedAt;
+      this.providerBudget.releaseSlot(slot.id, {
+        endpoint: method,
+        httpStatus: responseStatus,
+        latencyMs,
+        errorCode: error instanceof Error ? error.name : "REQUEST_ERROR",
+      });
       if (!rawPayloadCaptured) {
         recordRawApiPayload({
           provider: "HELIUS",
@@ -109,6 +137,13 @@ export class HeliusClient {
       });
       throw error;
     }
+  }
+
+  private resolvePurpose(method: string): ProviderPurpose {
+    if (method === "getPriorityFeeEstimate") return "PRIORITY_FEE";
+    if (method === "parseTransactions") return "SMART_MONEY";
+    if (method === "getTokenLargestAccounts") return "ENRICH";
+    return "EVALUATE";
   }
 
   async getMintAuthorities(mint: string): Promise<MintAuthoritySnapshot | null> {
