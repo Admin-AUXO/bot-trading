@@ -26,6 +26,10 @@ const PAIRS = {
   "grafana": "grafana_agent",
   "screenshot-analysis": "screenshot_reviewer",
   "obsidian": "obsidian_tender",
+  "strategy-pack-authoring": "strategy_pack_author",
+  "adaptive-thresholds": "adaptive_engine_builder",
+  "token-enrichment": "enrichment_integrator",
+  "smart-money-watcher": "smart_money_builder",
 };
 
 // Codex agents that intentionally have no skill counterpart.

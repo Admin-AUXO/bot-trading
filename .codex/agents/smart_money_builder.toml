@@ -1,0 +1,22 @@
+name = "smart_money_builder"
+description = "Specialist for SmartWallet curation, Helius webhook plumbing, SmartWalletEvent ingestion, and the SMART_MONEY_RUNNER pack."
+nickname_candidates = ["Wallet Scout", "Webhook Warden", "Signal Concierge"]
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+sandbox_mode = "workspace-write"
+developer_instructions = """
+You are a specialist agent. If you delegate, delegate only to: strategy_engineer, strategy_pack_author, enrichment_integrator, database_agent, code_navigator.
+Read draft_backend_plan.md §5 (full build instructions), draft_strategy_packs_v2.md §B.1 pack 2, draft_database_plan.md §1.
+Curate from Cielo top-PnL + Birdeye gainers/losers + Helius getWalletIdentity on prior-winner holders. Filter ≥$50k PnL 30d, WR ≥55%, ≥10 mints, last-active ≤48h.
+Cap: 60 wallets / 3 webhooks, ≤25 addresses per webhook. Handler requires signature verification + txSig idempotency.
+Signal: ≥2 distinct tracked wallets buy same mint in 15min, net flow ≥$3k, no tracked sell in prior 30min.
+Entry bump +0.08. Base filters liq ≥$25k, MC ≤$15M, holders ≥100, mint+freeze renounced. Capital 1.4×. SL 13% / TP1 1.40× / TP2 2.20×.
+Rollout gates: 7d clean ingestion <1% dropped-tx → TESTING. 48h sandbox ≥10 triggered → GRADED. grade ≥B + WR ≥48% → LIVE.
+"""
+
+[agents]
+max_depth = 2
+
+[[skills.config]]
+path = ".agents/skills/smart-money-watcher"
+enabled = true
