@@ -66,6 +66,7 @@ Evidence and telemetry:
 - `SharedTokenFactMigrationSignal`: append-only Helius watcher signal log keyed by signature so duplicate websocket events do not multiply
 - `ResearchFill`: research-mode fill records with mint, side, price, amount, slippage, mint source, and score. Used for backtesting and research analysis.
 - `ExitEvent`: audit trail for position exits with positionId, reason (TP1_HIT, TP2_HIT, STOP_LOSS, TRAILING_STOP, TIME_STOP, MANUAL), optional profile, price, and PnL.
+- `AdaptiveThresholdLog`: append-only adaptive-threshold mutation log backing operator telemetry and the adaptive Grafana surfaces
 - `BundleStats`: cache of bundle and sniper telemetry per mint, currently fed by Trench and reused by enrichment/UI reads
 - `EnrichmentFact`: per-mint, per-provider, per-fact cache row with payload JSON, fetch time, and expiry. `TokenEnrichmentService` owns writes.
 - `CreatorLineage`: cached creator launch-rate, rug-rate, and funding-source facts for market/detail views and future entry gating
@@ -112,6 +113,8 @@ These views are repo-owned and currently exposed through `GET /api/views/:name`.
 - `v_mutator_outcome_daily`: Daily adaptive mutator verdict and PnL rollup
 - `v_enrichment_freshness`: Per-provider cache freshness and staleness summary from `EnrichmentFact`
 - `v_enrichment_quality_daily`: Daily enrichment success/latency/coverage rollup
+- `v_adaptive_threshold_activity`: Adaptive threshold mutation activity grouped for operator/Grafana telemetry
+- `v_smart_wallet_mint_activity`: Mint-level smart-wallet activity summary for market operator surfaces
 
 **Shared:**
 - `v_shared_token_fact_cache`: Token fact cache with freshness metrics
@@ -139,11 +142,10 @@ These views are repo-owned and currently exposed through `GET /api/views/:name`.
 - Inline `DiscoveryLabRun` records backed by the synthetic `__inline__` pack id are still allowed for transition-time execution, but the session seam now rejects deploying them live. Save the draft into a real pack first, then apply from that persisted pack/run contract.
 - The phase-3 market/enrichment ownership pass also stayed additive-free. `MarketIntelService`, `MarketStrategyIdeasService`, and `TokenEnrichmentService` are service/API cuts over existing providers and cached facts; no Prisma table, SQL view, or allowlist change was required to ship that ownership move.
 - The pack-grading/tuning ownership pass also stayed additive-free. `PackGradingService` grades persisted `DiscoveryLabRun` evidence and clones tuned drafts through `PackRepo`; no `StrategyRun`, `StrategyRunGrade`, schema, or SQL-view churn was justified for that slice.
-- The database draft remains intentionally incomplete after the market/enrichment pass:
+- The database draft remains intentionally incomplete after the phase-6 pass:
   no `StrategyRun` or `StrategyRunGrade`,
-  no dedicated enrichment/adaptive tables,
-  no promoted metadata-column sweep beyond `ExitPlan`,
-  and no new market/enrichment reporting views.
+  no broad promoted metadata-column sweep beyond `ExitPlan`,
+  and no final strategy-pack/run grading tables yet.
 - Discovery-lab compatibility reads for market stats, strategy ideas, and token insight no longer justify their own storage layer. They now sit over the dedicated market/enrichment service map, so any future schema churn should be driven by measured query or retention needs instead of preserving monolith-owned route behavior.
 - Keep reporting grounded in candidates, positions, fills, snapshots, or provider telemetry. `BotState` and `RuntimeConfig` are operational singletons, not historical fact tables.
 - `OperatorEvent` is an operational support table. It exists for desk auditability and control flow, not for primary Grafana trend reporting.

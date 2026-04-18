@@ -61,7 +61,10 @@ Transport model:
 - `GET /api/operator/runs/:id/market-regime`: run-owned market-regime surface for results and sandbox consumers; discovery-lab market-regime is now a compatibility alias over this seam
 - `GET /api/operator/runs/:id/token-insight?mint=`: run-owned token-insight surface for results consumers. `StrategyRunResultsService` now resolves this through the dedicated enrichment seam, and discovery-lab token-insight is a compatibility alias over that path.
 - `POST /api/operator/runs/:id/manual-entry`: run-owned trade-ticket/manual-entry route for discovery-lab results and future sandbox consumers; discovery-lab manual-entry is now a compatibility alias over this seam
+- `GET /api/operator/adaptive/activity?limit=`: backend-owned adaptive telemetry activity surface used by workbench and Grafana-adjacent operator views
 - `GET /api/operator/market/trending?mint=&limit=&refresh=&focusOnly=`: dedicated market-intel surface for ranked market pulse plus optional single-token focus payload. `refresh=true` performs the provider pull, while default reads stay cache-backed. This is now the production owner for market-wide discovery pulse.
+- `GET /api/operator/market/stats/:mint`: backend-owned per-mint market stats surface for token detail pages, composed from Birdeye and Rugcheck-backed market intel
+- `GET /api/operator/market/smart-wallet-events?mints=&limit=`: backend-owned recent smart-wallet activity strip for trending, watchlist, and token detail surfaces
 - `GET /api/operator/market/strategy-suggestions?refresh=`: dedicated market-owned strategy-ideas surface built from the market-intel snapshot. `refresh=true` refreshes the market snapshot first, then recomputes the suggestion set.
 - `GET /api/operator/enrichment/:mint`: dedicated enrichment surface for one mint's token-intel payload, including socials, creator/tool links, market pulse, Birdeye security flags, per-source enrichment states (`trench`, `bubblemaps`, `solsniffer`, `pumpfun`, `jupiter`, `geckoterminal`, `defillama`, `cielo`), creator-lineage cache, and a cache-aware `compositeScore`
 - `GET /api/operator/candidates?bucket=ready|risk|provider|data`: backend-assigned candidate workbench buckets
@@ -77,7 +80,7 @@ Transport model:
 - `GET /api/operator/discovery-lab/token-insight?mint=`: compatibility adapter over the dedicated enrichment-backed run/result seam
 - `GET /api/operator/discovery-lab/runs`: recent discovery-lab run summaries, newest first
 - `GET /api/operator/discovery-lab/runs/:id`: full persisted discovery-lab run detail, including pack snapshot, thresholds, calibrated live-strategy payload (`strategyCalibration`), backend-owned adaptive winner cohorts and decision bands, report, and captured stdout or stderr
-- Compatibility aliases: `/api/operator/workbench-market/*` and `/api/workbench-market/*` currently mirror the discovery-lab catalog, market, strategy-suggestion, token-insight, and run endpoints so the new dashboard route groups can land without breaking the old backend seam.
+- Compatibility aliases: `/api/operator/workbench-market/*` and `/api/workbench-market/*` currently mirror the broader discovery-lab compatibility surface, including catalog, validate, pack save/delete, run start, manual-entry, apply-live-strategy, market, strategy-suggestions, token-insight, and run detail endpoints, so the new dashboard route groups can land without breaking the old backend seam.
 - `GET /api/candidates?limit=`: candidates ordered by `discoveredAt DESC`, max `200`
 - `GET /api/positions?limit=`: positions with fills included, ordered by `openedAt DESC`, max `200`
 - `GET /api/fills?limit=`: fills ordered by `createdAt DESC`, max `500`
@@ -179,7 +182,8 @@ Dashboard navigation conventions:
 - `/workbench/sessions` now starts sessions through `POST /api/operator/sessions` and controls active deployments through `PATCH /api/operator/sessions/:id`. The page is no longer a read-only history pane.
 - `/discovery-lab/studio` now also consumes the dedicated operator pack/run routes under the hood while preserving the existing discovery-lab studio chrome and draft behavior.
 - `/market/trending` now reads the dedicated operator market seam directly through `/api/operator/market/trending`.
-- `/market/token/:mint` now reads the dedicated operator market seam directly with `focusOnly=true`; the page still reuses the ranked-market payload for its focus-token card, so the route group is not the final UI contract even though backend ownership has moved.
+- `/market/token/:mint` now reads `/api/operator/enrichment/:mint`, `/api/operator/market/stats/:mint`, and `/api/operator/market/smart-wallet-events`, rendering backend-owned provider cards instead of reusing the `focusOnly=true` trending payload.
+- `/market/watchlist` is now a real compatibility page over the market seam, using the same trending and smart-wallet backend routes as `/market/trending` while watchlist membership remains browser-local.
 - `/discovery-lab/market-stats` now reads `/api/operator/market/trending` directly and uses the retained discovery-lab route only as a compatibility alias.
 - `/discovery-lab/strategy-ideas` now reads `/api/operator/market/strategy-suggestions` directly and keeps the old discovery-lab route only as a compatibility alias.
 - Discovery-lab route selection now sets the client’s initial workbench section, while recent-run reload still swaps the loaded result set without leaving the selected route
