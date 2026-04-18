@@ -125,6 +125,7 @@ These views are repo-owned and currently exposed through `GET /api/views/:name`.
 - `DiscoveryLabRun` is now the authoritative persisted read surface for run detail polling too, not just finished run history. While a run is active, stdout and stderr are written back into the row so database-backed readers stop drifting behind the file copy.
 - Inline `DiscoveryLabRun` records backed by the synthetic `__inline__` pack id are still allowed for transition-time execution, but the session seam now rejects deploying them live. Save the draft into a real pack first, then apply from that persisted pack/run contract.
 - The phase-3 market/enrichment ownership pass also stayed additive-free. `MarketIntelService`, `MarketStrategyIdeasService`, and `TokenEnrichmentService` are service/API cuts over existing providers and cached facts; no Prisma table, SQL view, or allowlist change was required to ship that ownership move.
+- The pack-grading/tuning ownership pass also stayed additive-free. `PackGradingService` grades persisted `DiscoveryLabRun` evidence and clones tuned drafts through `PackRepo`; no `StrategyRun`, `StrategyRunGrade`, schema, or SQL-view churn was justified for that slice.
 - The database draft remains intentionally incomplete after the market/enrichment pass:
   no `StrategyRun` or `StrategyRunGrade`,
   no dedicated enrichment/adaptive tables,

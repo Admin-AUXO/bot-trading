@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { CompactPageHeader, EmptyState, Panel, ScanStat, StatusPill } from "@/components/dashboard-primitives";
 import { ApplyRunLiveButton } from "@/components/workbench/workbench-actions";
+import { WorkbenchGraderActions } from "@/components/workbench/workbench-grader-actions";
 import { buttonVariants } from "@/components/ui/button";
 import { workbenchRoutes } from "@/lib/dashboard-routes";
 import { serverFetch } from "@/lib/server-api";
@@ -107,7 +108,7 @@ export async function WorkbenchGraderSurface(props: { selectedRunId?: string | n
       <Panel
         title={selectedRun ? `Run ${truncate(selectedRun.id)}` : "Run detail"}
         eyebrow="Selected run"
-        description="Read from `/api/operator/runs/:id`; apply-to-live writes through `/api/operator/runs/:id/apply-live`."
+        description="Read from `/api/operator/runs/:id`; grading and tuning now run through dedicated `/api/operator/runs/:id/{grade,suggest-tuning}` routes."
       >
         {selectedRun ? (
           <div className="space-y-3">
@@ -153,6 +154,8 @@ export async function WorkbenchGraderSurface(props: { selectedRunId?: string | n
                 </div>
               ) : null}
             </div>
+
+            <WorkbenchGraderActions runId={selectedRun.id} runStatus={selectedRun.status} />
           </div>
         ) : (
           <EmptyState compact title="No run selected" detail="Pick a run from the queue first." />

@@ -16,6 +16,20 @@ export function registerRunRoutes(app: express.Express, { deps }: RouteRegistrar
     return res.json(run);
   });
 
+  app.post("/api/operator/runs/:id/grade", async (req, res) => {
+    const body = req.body ?? {};
+    return res.json(await deps.gradeRun(req.params.id, {
+      persist: body.persist === true,
+    }));
+  });
+
+  app.post("/api/operator/runs/:id/suggest-tuning", async (req, res) => {
+    const body = req.body ?? {};
+    return res.json(await deps.suggestRunTuning(req.params.id, {
+      apply: body.apply === true,
+    }));
+  });
+
   app.post("/api/operator/runs/:id/apply-live", async (req, res) => {
     const body = req.body ?? {};
     return res.json(await deps.applyRunToLive({

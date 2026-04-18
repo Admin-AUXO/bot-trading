@@ -329,6 +329,54 @@ export type WorkbenchRunDetailPayload = {
   currentSession?: TradingSessionSnapshot | null;
 };
 
+export type WorkbenchRunGradeSummary = {
+  grade: "A" | "B" | "C" | "D" | "F";
+  overallScorePercent: number;
+  evaluationCount: number;
+  passCount: number;
+  winnerCount: number;
+  passRatePercent: number;
+  winnerRatePercent: number;
+  falsePositiveRatePercent: number;
+  avgPassPlayScore: number | null;
+  avgWinnerPlayScore: number | null;
+  avgRejectedPlayScore: number | null;
+  calibrationConfidencePercent: number | null;
+};
+
+export type WorkbenchRunTuningDelta = {
+  field: keyof StrategyThresholdOverrides;
+  label: string;
+  direction: "tighten" | "loosen";
+  currentValue: number | null;
+  suggestedValue: number;
+  reason: string;
+};
+
+export type WorkbenchRunGradePayload = {
+  runId: string;
+  packId: string;
+  packName: string;
+  generatedAt: string;
+  summary: WorkbenchRunGradeSummary;
+  persisted: {
+    packStatus: "DRAFT" | "TESTING" | "GRADED" | "LIVE" | "RETIRED";
+    packGrade: "A" | "B" | "C" | "D" | "F";
+  } | null;
+};
+
+export type WorkbenchRunTuningPayload = {
+  runId: string;
+  packId: string;
+  packName: string;
+  generatedAt: string;
+  summary: WorkbenchRunGradeSummary;
+  deltas: WorkbenchRunTuningDelta[];
+  suggestedDraft: DiscoveryLabPackDraft | null;
+  appliedPackId: string | null;
+  appliedPackName: string | null;
+};
+
 export type WorkbenchCreateRunResponse = {
   id?: string;
   runId?: string;

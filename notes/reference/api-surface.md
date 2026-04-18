@@ -232,3 +232,9 @@ Dashboard navigation conventions:
 - `v_discovery_lab_pack_performance`
 - `v_strategy_pack_performance_daily`
 - `v_shared_token_fact_cache`
+
+## Run Grading And Tuning
+
+- `POST /api/operator/runs/:id/grade` is now a real backend-owned grader route. `PackGradingService` computes the rubric from the persisted run report and can optionally persist the resulting pack grade/status onto `StrategyPack`.
+- `POST /api/operator/runs/:id/suggest-tuning` is now a real backend-owned tuning route. `PackGradingService` computes threshold deltas from the persisted run evidence, returns a suggested draft, and can optionally clone that draft through `PackRepo`.
+- `/workbench/grader` now consumes those dedicated routes directly. Discovery-lab strategy ideas remain a separate market-intel read surface and should not regain pack-grading ownership.

@@ -1,0 +1,6 @@
+{
+  "sandboxUrl": "http://127.0.0.1:3213/workbench/sandbox/phase4-session-verify-a",
+  "sessionsUrl": "http://127.0.0.1:3213/workbench/sessions",
+  "containsCurrentDeployment": true,
+  "containsSessionHistory": true
+}

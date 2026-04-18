@@ -18,6 +18,7 @@ import { MarketStrategyIdeasService } from "../services/market/market-strategy-i
 import { TradingSessionService } from "../services/session/trading-session-service.js";
 import { DISCOVERY_LAB_KNOWN_SOURCES, DISCOVERY_LAB_PROFILES } from "../services/workbench/discovery-lab-shared.js";
 import { PackRepo } from "../services/workbench/pack-repo.js";
+import { PackGradingService } from "../services/workbench/pack-grading-service.js";
 import { RunRunner } from "../services/workbench/run-runner.js";
 import { StrategyPackDraftValidator } from "../services/workbench/strategy-pack-draft-validator.js";
 import { StrategyPackService } from "../services/workbench/strategy-pack-service.js";
@@ -50,6 +51,10 @@ export class BotRuntime {
   private readonly runRunner = new RunRunner({
     packs: this.packRepo,
     validator: this.packDraftValidator,
+  });
+  private readonly packGrading = new PackGradingService({
+    runReads: this.strategyRunReads,
+    packs: this.packRepo,
   });
   private readonly discoveryLabMarketRegime = new DiscoveryLabMarketRegimeService({
     getRun: (runId) => this.strategyRunReads.getRun(runId),
@@ -210,6 +215,8 @@ export class BotRuntime {
     return {
       listRuns: (limit?: number, packId?: string) => this.strategyRuns.listRuns(limit, packId),
       getRunDetail: (runId: string) => this.strategyRuns.getRunDetail(runId),
+      gradeRun: (runId: string, input?: { persist?: boolean }) => this.packGrading.gradeRun(runId, input),
+      suggestRunTuning: (runId: string, input?: { apply?: boolean }) => this.packGrading.suggestTuning(runId, input),
       startRunFromPack: (
         packId: string,
         input: Omit<Parameters<StrategyRunService["startRun"]>[0], "packId">,

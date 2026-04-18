@@ -352,6 +352,54 @@ export interface OperatorRunDetailPayload {
   run: unknown;
 }
 
+export interface OperatorRunGradeSummary {
+  grade: "A" | "B" | "C" | "D" | "F";
+  overallScorePercent: number;
+  evaluationCount: number;
+  passCount: number;
+  winnerCount: number;
+  passRatePercent: number;
+  winnerRatePercent: number;
+  falsePositiveRatePercent: number;
+  avgPassPlayScore: number | null;
+  avgWinnerPlayScore: number | null;
+  avgRejectedPlayScore: number | null;
+  calibrationConfidencePercent: number | null;
+}
+
+export interface OperatorRunTuningDelta {
+  field: keyof StrategyThresholdOverrides;
+  label: string;
+  direction: "tighten" | "loosen";
+  currentValue: number | null;
+  suggestedValue: number;
+  reason: string;
+}
+
+export interface OperatorRunGradePayload {
+  runId: string;
+  packId: string;
+  packName: string;
+  generatedAt: string;
+  summary: OperatorRunGradeSummary;
+  persisted: {
+    packStatus: "DRAFT" | "TESTING" | "GRADED" | "LIVE" | "RETIRED";
+    packGrade: "A" | "B" | "C" | "D" | "F";
+  } | null;
+}
+
+export interface OperatorRunTuningPayload {
+  runId: string;
+  packId: string;
+  packName: string;
+  generatedAt: string;
+  summary: OperatorRunGradeSummary;
+  deltas: OperatorRunTuningDelta[];
+  suggestedDraft: DiscoveryLabPackDraft | null;
+  appliedPackId: string | null;
+  appliedPackName: string | null;
+}
+
 export type StrategyPresetId =
   | "FIRST_MINUTE_POSTGRAD_CONTINUATION"
   | "LATE_CURVE_MIGRATION_SNIPE"

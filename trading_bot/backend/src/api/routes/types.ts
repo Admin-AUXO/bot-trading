@@ -12,8 +12,10 @@ import type { TokenEnrichmentPayload } from "../../services/enrichment/token-enr
 import type {
   OperatorPackDetailPayload,
   OperatorPackListPayload,
+  OperatorRunGradePayload,
   OperatorRunDetailPayload,
   OperatorRunListPayload,
+  OperatorRunTuningPayload,
 } from "../../types/domain.js";
 
 export type ApiServerDeps = {
@@ -28,6 +30,8 @@ export type ApiServerDeps = {
   deletePack: (packId: string) => Promise<{ ok: true }>;
   listRuns: (limit?: number, packId?: string) => Promise<OperatorRunListPayload>;
   getRunDetail: (runId: string) => Promise<OperatorRunDetailPayload | null>;
+  gradeRun: (runId: string, input?: { persist?: boolean }) => Promise<OperatorRunGradePayload>;
+  suggestRunTuning: (runId: string, input?: { apply?: boolean }) => Promise<OperatorRunTuningPayload>;
   startRunFromPack: (packId: string, input: Omit<DiscoveryLabRunRequest, "packId">) => Promise<unknown>;
   applyRunToLive: (input: {
     runId: string;

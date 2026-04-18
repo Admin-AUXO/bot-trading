@@ -1,0 +1,13 @@
+{
+  "url": "http://127.0.0.1:3223/workbench/grader?runId=e6fbc2d4-f327-4786-865c-3a3751a1e9e5",
+  "ok": true,
+  "markers": [
+    "Grader",
+    "Refresh grade",
+    "Suggested tuning",
+    "Grade",
+    "Pass rate"
+  ],
+  "errors": [],
+  "status": 200
+}

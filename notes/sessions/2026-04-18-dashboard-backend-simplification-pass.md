@@ -15,7 +15,7 @@ source_files:
   - trading_bot/dashboard/app/market/token/[mint]/page.tsx
   - trading_bot/dashboard/components/discovery-lab-client.tsx
   - trading_bot/dashboard/components/discovery-lab-results-board.tsx
-next_action: Browser-check `/workbench/packs`, `/workbench/sandbox`, `/workbench/sandbox/[runId]`, and `/workbench/sessions` against a live backend, then keep shrinking discovery-lab-only ownership from editor/grader and the old results/studio surfaces.
+next_action: Finish the next major phase-5 backend ownership slice: webhook/watch ownership plus smart-wallet/Helius ingest, then re-check whether adaptive service-map work can land without inventing storage churn.
 ---
 
 # Session - Dashboard Backend Simplification Pass
@@ -595,3 +595,109 @@ next_action: Browser-check `/workbench/packs`, `/workbench/sandbox`, `/workbench
   smart-wallet ingest,
   adaptive service-map work,
   and the broader database draft beyond the already-landed transition slices.
+
+## Follow-up - Phase-4 Grader Ownership And Phase-5 Tuning Slice
+
+### What Phase 4 Means Now
+
+- The original draft phase 4 was "workbench UI." That is stale. The route groups already exist.
+- At the start of this pass, the real phase-4 hole was grader ownership:
+  `/workbench/grader` was still a read-only run picker with a deploy button,
+  no dedicated backend grading route existed,
+  no dedicated backend tuning route existed,
+  and discovery-lab strategy-idea chrome still implicitly owned the notion of tuning.
+- So phase 4 now means:
+  the workbench pages that already exist must gain real production ownership for operator decisions.
+  This pass treated grader/tuning as that missing phase-4 production seam.
+
+### Major Draft-Plan Items Still Missing At The Start Of This Pass
+
+- No `PackGradingService`.
+- No `POST /api/operator/runs/:id/grade`.
+- No `POST /api/operator/runs/:id/suggest-tuning`.
+- `/workbench/grader` still could not grade or tune anything for real.
+- The larger draft phase-5 backlog was still untouched:
+  webhook/watch ownership,
+  smart-wallet / Helius ingest ownership,
+  and adaptive service-map work.
+
+### What Changed
+
+- Added the real grader/tuning backend seam:
+  `trading_bot/backend/src/services/workbench/pack-grading-service.ts`
+- Added dedicated operator run routes:
+  `POST /api/operator/runs/:id/grade`
+  `POST /api/operator/runs/:id/suggest-tuning`
+  in
+  `trading_bot/backend/src/api/routes/run-routes.ts`
+- Wired the new service in
+  `trading_bot/backend/src/engine/runtime.ts`
+  so the route ownership is runtime-owned and does not fall back to discovery-lab glue.
+- Kept the storage story honest:
+  no `StrategyRun`,
+  no `StrategyRunGrade`,
+  no schema churn,
+  no fake persistence contract added just to satisfy the old draft.
+- `PackGradingService` now grades from persisted run evidence, deduped by mint instead of double-counting recipe echoes, and can optionally persist the pack grade/status onto `StrategyPack`.
+- `PackGradingService` also now owns threshold-delta suggestion output and can optionally clone a tuned DRAFT pack through `PackRepo`.
+- `/workbench/grader` is no longer just another "apply live" screen.
+  `trading_bot/dashboard/components/workbench/workbench-grader-actions.tsx`
+  now calls the dedicated grade and tuning routes, renders rubric stats, and surfaces tuned-draft creation when the backend has enough evidence.
+
+### What I Verified
+
+- Builds:
+  `cd trading_bot/backend && npm run build`
+  `cd trading_bot/dashboard && npm run build`
+- Direct backend route proof on an isolated backend at `http://127.0.0.1:3221` with bearer auth:
+  `POST /api/operator/runs/e6fbc2d4-f327-4786-865c-3a3751a1e9e5/grade`
+  `POST /api/operator/runs/e6fbc2d4-f327-4786-865c-3a3751a1e9e5/suggest-tuning`
+  `POST /api/operator/runs/26a3f309-e0d1-4da4-9177-0c63f3f53c64/grade`
+- Direct dashboard-proxy proof on an isolated dashboard at `http://127.0.0.1:3223` behind basic auth:
+  `POST /api/operator/runs/e6fbc2d4-f327-4786-865c-3a3751a1e9e5/suggest-tuning`
+  returned `200` through the proxy too.
+- Browser verification was attempted and succeeded against the live isolated dashboard:
+  `/workbench/grader?runId=e6fbc2d4-f327-4786-865c-3a3751a1e9e5`
+  loaded with `200`,
+  rendered the new grader controls,
+  and showed the client-side grader sections after hydration.
+  Artifacts:
+  `output/playwright/phase45-workbench-grader.png`
+  `output/playwright/phase45-workbench-grader.json`
+
+### Verification Limits
+
+- Local data is still thin.
+  Only one completed run in this database had non-zero evaluation evidence, and that run produced no threshold deltas worth applying.
+- So the grading seam is directly proved,
+  the tuning route is directly proved,
+  and the browser surface is directly proved,
+  but a non-empty tuned-draft clone path was blocked by the local evidence set instead of guessed into existence.
+- The dashboard `npm run start` wrapper on Windows still hits `spawn EINVAL`.
+  Browser verification used `npx next start --port 3223` as a temporary launch path, which proves the page and proxy behavior but also confirms that the Windows launcher bug still exists outside this slice.
+
+### What Major Pieces This Pass Completed
+
+- The biggest still-missing production-grade phase-4 ownership slice at the start:
+  grader/tuning ownership and routes.
+- Another real reduction in discovery-lab implied authority:
+  `/workbench/grader` no longer has to pretend discovery-lab strategy ideas own tuning.
+- A real phase-5-adjacent production slice:
+  persisted pack grading and pack-tuning ownership now exist without inventing the deferred `StrategyRun*` database family.
+
+### Major Phase-4/Phase-5 Pieces Still Incomplete After This Pass
+
+- The next major backend ownership slices from the original drafts are still open:
+  webhook/watch ownership,
+  smart-wallet / Helius ingest ownership,
+  and adaptive service-map work.
+- Discovery-lab is still too large as retained compatibility code even though its production ownership keeps shrinking.
+- The old discovery-lab route family and chrome are still in the tree:
+  `discovery-lab/config`,
+  `discovery-lab/strategy-ideas`,
+  and the retained results/studio surfaces were not deleted in this pass.
+- The draft database plan is still intentionally incomplete:
+  no `StrategyRun`,
+  no `StrategyRunGrade`,
+  no enrichment/adaptive tables,
+  and no broader metadata-column promotion sweep beyond the already-landed transition slices.
