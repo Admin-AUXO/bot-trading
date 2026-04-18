@@ -9,13 +9,21 @@ import { recordOperatorEvent } from "../services/operator-events.js";
 import { ProviderBudgetService } from "../services/provider-budget-service.js";
 import { RuntimeConfigService } from "../services/runtime-config.js";
 import { SharedTokenFactsService } from "../services/shared-token-facts.js";
-import { DiscoveryLabService } from "../services/discovery-lab-service.js";
 import { DiscoveryLabMarketRegimeService } from "../services/discovery-lab-market-regime-service.js";
-import { DiscoveryLabMarketStatsService } from "../services/discovery-lab-market-stats-service.js";
 import { DiscoveryLabManualEntryService } from "../services/discovery-lab-manual-entry.js";
-import { DiscoveryLabStrategySuggestionService } from "../services/discovery-lab-strategy-suggestion-service.js";
-import { DiscoveryLabTokenInsightService } from "../services/discovery-lab-token-insight-service.js";
 import { buildAdaptiveModelState } from "../services/adaptive-model.js";
+import { TokenEnrichmentService } from "../services/enrichment/token-enrichment-service.js";
+import { MarketIntelService } from "../services/market/market-intel-service.js";
+import { MarketStrategyIdeasService } from "../services/market/market-strategy-ideas-service.js";
+import { TradingSessionService } from "../services/session/trading-session-service.js";
+import { DISCOVERY_LAB_KNOWN_SOURCES, DISCOVERY_LAB_PROFILES } from "../services/workbench/discovery-lab-shared.js";
+import { PackRepo } from "../services/workbench/pack-repo.js";
+import { RunRunner } from "../services/workbench/run-runner.js";
+import { StrategyPackDraftValidator } from "../services/workbench/strategy-pack-draft-validator.js";
+import { StrategyPackService } from "../services/workbench/strategy-pack-service.js";
+import { StrategyRunReadService } from "../services/workbench/strategy-run-read-service.js";
+import { StrategyRunResultsService } from "../services/workbench/strategy-run-results-service.js";
+import { StrategyRunService } from "../services/workbench/strategy-run-service.js";
 import { getStrategyPreset } from "../services/strategy-presets.js";
 import { RiskEngine } from "./risk-engine.js";
 import { ExecutionEngine } from "./execution-engine.js";
@@ -23,6 +31,7 @@ import { ExitEngine } from "./exit-engine.js";
 import { GraduationEngine } from "./graduation-engine.js";
 import { createApiServer } from "../api/server.js";
 import { BOT_STATE_ID } from "./constants.js";
+import type { DiscoveryLabCatalog, DiscoveryLabRunRequest } from "../services/discovery-lab-service.js";
 
 const QUEUED_CANDIDATE_STATUSES = ["DISCOVERED", "SKIPPED", "ERROR"] as const;
 const LIVE_STARTUP_PAUSE_REASON = "live mode is paused on startup; resume from the dashboard to begin trading";
@@ -35,22 +44,48 @@ export class BotRuntime {
   private readonly helius = new HeliusClient(env.HELIUS_RPC_URL);
   private readonly providerBudget = new ProviderBudgetService();
   private readonly sharedFacts = new SharedTokenFactsService();
-  private readonly discoveryLab = new DiscoveryLabService();
+  private readonly packDraftValidator = new StrategyPackDraftValidator();
+  private readonly packRepo = new PackRepo();
+  private readonly strategyRunReads = new StrategyRunReadService();
+  private readonly runRunner = new RunRunner({
+    packs: this.packRepo,
+    validator: this.packDraftValidator,
+  });
   private readonly discoveryLabMarketRegime = new DiscoveryLabMarketRegimeService({
-    getRun: (runId) => this.discoveryLab.getRun(runId),
+    getRun: (runId) => this.strategyRunReads.getRun(runId),
   });
-  private readonly discoveryLabTokenInsight = new DiscoveryLabTokenInsightService(this.birdeye);
-  private readonly discoveryLabMarketStats = new DiscoveryLabMarketStatsService({
+  private readonly tokenEnrichment = new TokenEnrichmentService(this.birdeye);
+  private readonly marketIntel = new MarketIntelService({
     birdeye: this.birdeye,
-    tokenInsight: this.discoveryLabTokenInsight,
+    enrichment: this.tokenEnrichment,
     getSettings: () => this.config.getSettings(),
   });
-  private readonly discoveryLabStrategySuggestions = new DiscoveryLabStrategySuggestionService({
+  private readonly marketStrategyIdeas = new MarketStrategyIdeasService({
     getSettings: () => this.config.getSettings(),
-    getMarketStats: (input) => this.discoveryLabMarketStats.getMarketStats(input),
+    marketIntel: this.marketIntel,
+  });
+  private readonly tradingSessions = new TradingSessionService({
+    config: this.config,
+    getDiscoveryLabRun: (runId) => this.strategyRunReads.getRun(runId),
+  });
+  private readonly strategyPacks = new StrategyPackService({
+    packs: this.packRepo,
+    validator: this.packDraftValidator,
+    getCurrentSession: () => this.tradingSessions.getCurrentSession(),
+  });
+  private readonly strategyRuns = new StrategyRunService({
+    runRunner: this.runRunner,
+    sessions: this.tradingSessions,
+    runReads: this.strategyRunReads,
   });
   private readonly execution = new ExecutionEngine(this.risk, this.config);
-  private readonly discoveryLabManualEntry = new DiscoveryLabManualEntryService(this.discoveryLab, this.execution);
+  private readonly discoveryLabManualEntry = new DiscoveryLabManualEntryService(this.strategyRunReads, this.execution);
+  private readonly strategyRunResults = new StrategyRunResultsService({
+    runReads: this.strategyRunReads,
+    marketRegime: this.discoveryLabMarketRegime,
+    tokenInsight: this.tokenEnrichment,
+    manualEntry: this.discoveryLabManualEntry,
+  });
   private readonly exits = new ExitEngine(this.birdeye, this.execution, this.config, this.risk);
   private readonly graduation = new GraduationEngine(this.birdeye, this.helius, this.execution, this.risk, this.config);
   private readonly desk = new OperatorDeskService(this.config, this.risk, this.providerBudget);
@@ -68,7 +103,8 @@ export class BotRuntime {
   async start(): Promise<void> {
     await this.config.ensure();
     await this.risk.ensureState();
-    await this.discoveryLab.ensure();
+    await this.packRepo.ensure();
+    await this.runRunner.ensure();
     await this.migrationWatcher.start();
 
     const startupSettings = await this.config.getSettings();
@@ -79,34 +115,12 @@ export class BotRuntime {
     }
     const app = createApiServer({
       getSnapshot: () => this.getSnapshot(),
-      getDeskShell: () => this.desk.getShell(),
-      getDeskHome: () => this.desk.getHome(),
-      listDeskEvents: (limit) => this.desk.getEvents(limit),
-      listCandidateQueue: (bucket) => this.desk.getCandidateQueue(bucket),
-      getCandidateDetail: (candidateId) => this.desk.getCandidateDetail(candidateId),
-      listPositionBook: (book) => this.desk.getPositionBook(book),
-      getPositionDetail: (positionId) => this.desk.getPositionDetail(positionId),
-      getDiagnostics: () => this.desk.getDiagnostics(),
-      getSettings: () => this.config.getSettings(),
-      patchSettings: (input) => this.config.patchSettings(input),
-      pause: (reason) => this.pause(reason),
-      resume: () => this.resume(),
-      triggerDiscovery: () => this.runDiscoveryNow(),
-      triggerEvaluation: () => this.runEvaluationNow(),
-      triggerExitCheck: () => this.runExitCheckNow(),
-      getDiscoveryLabCatalog: () => this.discoveryLab.getCatalog(),
-      validateDiscoveryLabDraft: (input, allowOverfiltered) => this.discoveryLab.validateDraft(input, allowOverfiltered),
-      saveDiscoveryLabPack: (input) => this.discoveryLab.savePack(input),
-      deleteDiscoveryLabPack: (packId) => this.discoveryLab.deletePack(packId),
-      startDiscoveryLabRun: (input) => this.discoveryLab.startRun(input),
-      listDiscoveryLabRuns: () => this.discoveryLab.listRunSummaries(),
-      getDiscoveryLabRun: (runId) => this.discoveryLab.getRun(runId),
-      getDiscoveryLabMarketRegime: (runId) => this.discoveryLabMarketRegime.getMarketRegime(runId),
-      getDiscoveryLabMarketStats: (input) => this.discoveryLabMarketStats.getMarketStats(input),
-      getDiscoveryLabStrategySuggestions: (input) => this.discoveryLabStrategySuggestions.getSuggestions(input),
-      getDiscoveryLabTokenInsight: (input) => this.getDiscoveryLabTokenInsight(input),
-      enterDiscoveryLabManualTrade: (input) => this.enterDiscoveryLabManualTrade(input),
-      applyDiscoveryLabLiveStrategy: (input) => this.applyDiscoveryLabLiveStrategy(input),
+      ...this.createDeskApiHandlers(),
+      ...this.createPackApiHandlers(),
+      ...this.createRunApiHandlers(),
+      ...this.createSessionApiHandlers(),
+      ...this.createControlApiHandlers(),
+      ...this.createDiscoveryLabApiHandlers(),
     });
 
     app.listen(env.BOT_PORT, () => {
@@ -147,6 +161,127 @@ export class BotRuntime {
 
     process.on("SIGINT", shutdown);
     process.on("SIGTERM", shutdown);
+  }
+
+  private createDeskApiHandlers() {
+    return {
+      getDeskShell: () => this.desk.getShell(),
+      getDeskHome: () => this.desk.getHome(),
+      listDeskEvents: (limit?: number) => this.desk.getEvents(limit),
+      listCandidateQueue: (bucket: "ready" | "risk" | "provider" | "data") => this.desk.getCandidateQueue(bucket),
+      getCandidateDetail: (candidateId: string) => this.desk.getCandidateDetail(candidateId),
+      listPositionBook: (book: "open" | "closed") => this.desk.getPositionBook(book),
+      getPositionDetail: (positionId: string) => this.desk.getPositionDetail(positionId),
+      getDiagnostics: () => this.desk.getDiagnostics(),
+    };
+  }
+
+  private createSessionApiHandlers() {
+    return {
+      listSessions: (limit?: number) => this.tradingSessions.listSessions(limit),
+      getCurrentSession: () => this.tradingSessions.getCurrentSession(),
+      stopSession: (sessionId: string, reason?: string) => this.tradingSessions.stopSession(sessionId, reason),
+    };
+  }
+
+  private createPackApiHandlers() {
+    return {
+      listPacks: (limit?: number) => this.strategyPacks.listPacks(limit),
+      validatePack: (
+        input: Parameters<StrategyPackService["validatePack"]>[0],
+        allowOverfiltered?: boolean,
+      ) => this.strategyPacks.validatePack(input, allowOverfiltered),
+      getPack: (packId: string) => this.strategyPacks.getPack(packId),
+      savePack: (input: Parameters<StrategyPackService["savePack"]>[0]) => this.strategyPacks.savePack(input),
+      deletePack: (packId: string) => this.strategyPacks.deletePack(packId),
+    };
+  }
+
+  private createRunApiHandlers() {
+    return {
+      listRuns: (limit?: number, packId?: string) => this.strategyRuns.listRuns(limit, packId),
+      getRunDetail: (runId: string) => this.strategyRuns.getRunDetail(runId),
+      startRunFromPack: (
+        packId: string,
+        input: Omit<Parameters<StrategyRunService["startRun"]>[0], "packId">,
+      ) => this.strategyRuns.startRunForPack(packId, input),
+      applyRunToLive: (runId: string) => this.strategyRuns.applyRunToLive(runId),
+      getRunMarketRegime: (runId: string) => this.strategyRunResults.getMarketRegime(runId),
+      getRunTokenInsight: (input: { runId?: string; mint?: string }) => this.strategyRunResults.getTokenInsight(input),
+      enterRunManualTrade: (input: {
+        runId?: string;
+        mint?: string;
+        positionSizeUsd?: number;
+        exitOverrides?: Record<string, number>;
+      }) => this.enterDiscoveryLabManualTrade(input),
+    };
+  }
+
+  private createControlApiHandlers() {
+    return {
+      getSettings: () => this.config.getSettings(),
+      patchSettings: (input: Parameters<RuntimeConfigService["patchSettings"]>[0]) => this.config.patchSettings(input),
+      pause: (reason?: string) => this.pause(reason),
+      resume: () => this.resume(),
+      triggerDiscovery: () => this.runDiscoveryNow(),
+      triggerEvaluation: () => this.runEvaluationNow(),
+      triggerExitCheck: () => this.runExitCheckNow(),
+    };
+  }
+
+  private createDiscoveryLabApiHandlers() {
+    return {
+      getDiscoveryLabCatalog: () => this.getDiscoveryLabCatalog(),
+      validateDiscoveryLabDraft: (input: Parameters<DiscoveryLabService["validateDraft"]>[0], allowOverfiltered?: boolean) =>
+        this.strategyPacks.validatePack(input, allowOverfiltered),
+      saveDiscoveryLabPack: async (input: Parameters<DiscoveryLabService["savePack"]>[0]) => {
+        const detail = await this.strategyPacks.savePack(input);
+        return detail.pack.draft;
+      },
+      deleteDiscoveryLabPack: (packId: string) => this.strategyPacks.deletePack(packId),
+      startDiscoveryLabRun: (input: DiscoveryLabRunRequest) => this.startDiscoveryLabRun(input),
+      listDiscoveryLabRuns: () => this.strategyRuns.listDiscoverySummaries(),
+      getDiscoveryLabRun: (runId: string) => this.strategyRuns.getDiscoveryRun(runId),
+      getDiscoveryLabMarketRegime: (runId: string) => this.strategyRunResults.getMarketRegime(runId),
+      getMarketTrending: (input: Parameters<MarketIntelService["getTrending"]>[0]) =>
+        this.marketIntel.getTrending(input),
+      getMarketStrategySuggestions: (input: Parameters<MarketStrategyIdeasService["getSuggestions"]>[0]) =>
+        this.marketStrategyIdeas.getSuggestions(input),
+      getEnrichment: (mint: string) => this.tokenEnrichment.getEnrichment(mint),
+      getDiscoveryLabTokenInsight: (input: { runId?: string; mint?: string }) => this.strategyRunResults.getTokenInsight(input),
+      enterDiscoveryLabManualTrade: (
+        input: {
+          runId?: string;
+          mint?: string;
+          positionSizeUsd?: number;
+          exitOverrides?: Record<string, number>;
+        },
+      ) => this.enterDiscoveryLabManualTrade(input),
+      applyDiscoveryLabLiveStrategy: (input: { runId?: string }) => this.applyDiscoveryLabLiveStrategy(input),
+    };
+  }
+
+  private async getDiscoveryLabCatalog(): Promise<DiscoveryLabCatalog> {
+    const [packs, recentRuns] = await Promise.all([
+      this.strategyPacks.listDiscoveryLabPacks(),
+      this.strategyRuns.listDiscoverySummaries(),
+    ]);
+    return {
+      packs,
+      activeRun: recentRuns.find((run) => run.status === "RUNNING") ?? null,
+      recentRuns,
+      profiles: [...DISCOVERY_LAB_PROFILES],
+      knownSources: [...DISCOVERY_LAB_KNOWN_SOURCES],
+    };
+  }
+
+  private async startDiscoveryLabRun(input: DiscoveryLabRunRequest) {
+    const packId = typeof input.packId === "string" ? input.packId.trim() : "";
+    if (packId) {
+      const { packId: _ignoredPackId, ...rest } = input;
+      return this.strategyRuns.startRunForPack(packId, rest);
+    }
+    return this.strategyRuns.startRun(input);
   }
 
   private async safeRun(label: string, fn: () => Promise<void>): Promise<void> {
@@ -202,6 +337,7 @@ export class BotRuntime {
       providerSummary,
       providerBudget,
       adaptiveModel: buildAdaptiveModelState(settings),
+      currentSession: await this.tradingSessions.getCurrentSession(),
     };
   }
 
@@ -303,6 +439,7 @@ export class BotRuntime {
     let delayMs: number;
     try {
       delayMs = await getDelayMs();
+      this.consecutiveFailures.delete(label);
     } catch (err) {
       logger.error({ err, label }, "scheduleLoop getDelayMs failed; using 30s fallback");
       delayMs = 30_000;
@@ -399,14 +536,29 @@ export class BotRuntime {
       exitOverrides?: Record<string, number>;
     },
   ) {
-    const result = await this.discoveryLabManualEntry.enterFromRun({
-      runId: input.runId ?? "",
-      mint: input.mint ?? "",
-      positionSizeUsd: input.positionSizeUsd,
-      exitOverrides: input.exitOverrides,
-    });
-    await this.ensureExitMonitoringArmed();
-    await this.exits.run();
+    const result = await this.strategyRunResults.enterManualTrade(input);
+    try {
+      await this.ensureExitMonitoringArmed();
+      await this.exits.run();
+    } catch (error) {
+      logger.error({ err: error, positionId: result.positionId }, "manual discovery-lab entry opened but exit refresh failed");
+      await recordOperatorEvent({
+        kind: "runtime_failure",
+        level: "warning",
+        title: "Discovery-lab entry needs exit refresh follow-up",
+        detail: `Position ${result.symbol} opened, but the immediate exit-monitoring refresh failed. Run exit checks now and inspect the position.`,
+        entityType: "position",
+        entityId: result.positionId,
+        metadata: {
+          candidateId: result.candidateId,
+          positionId: result.positionId,
+          symbol: result.symbol,
+          runId: input.runId ?? null,
+          mint: input.mint ?? null,
+          entryOrigin: "discovery_lab_manual_entry",
+        },
+      });
+    }
     await recordOperatorEvent({
       kind: "manual_action",
       title: "Discovery-lab trade entered",
@@ -427,66 +579,9 @@ export class BotRuntime {
     return result;
   }
 
-  private async getDiscoveryLabTokenInsight(input: { mint?: string }) {
-    return this.discoveryLabTokenInsight.getInsight(input.mint ?? "");
-  }
-
   private async applyDiscoveryLabLiveStrategy(input: { runId?: string }) {
     const runId = typeof input.runId === "string" ? input.runId.trim() : "";
-    if (!runId) {
-      throw new Error("runId is required");
-    }
-
-    const run = await this.discoveryLab.getRun(runId);
-    if (!run || !run.report) {
-      throw new Error("discovery-lab run not found or not completed");
-    }
-    const calibration = run.strategyCalibration;
-    if (!calibration) {
-      throw new Error("strategy calibration is unavailable for this run");
-    }
-    if ((calibration.calibrationSummary?.winnerCount ?? 0) <= 0) {
-      throw new Error("cannot apply a live strategy from a run with no winners");
-    }
-    if ((calibration.calibrationSummary?.calibrationConfidence ?? 0) < 0.56) {
-      throw new Error("strategy calibration confidence is too weak to apply safely");
-    }
-    if (
-      (calibration.calibrationSummary?.avgWinnerTimeSinceGraduationMin ?? Number.POSITIVE_INFINITY) <= 30
-      && (calibration.calibrationSummary?.winnerCount ?? 0) < 3
-    ) {
-      throw new Error("sub-30m winner sample is too thin; rerun or widen the pack before applying");
-    }
-
-    const currentSettings = await this.config.getSettings();
-    await this.config.patchSettings({
-      strategy: {
-        dryRunPresetId: currentSettings.strategy.dryRunPresetId,
-        heliusWatcherEnabled: currentSettings.strategy.heliusWatcherEnabled,
-        livePresetId: calibration.dominantPresetId ?? "FIRST_MINUTE_POSTGRAD_CONTINUATION",
-        liveStrategy: calibration,
-      },
-    });
-
-    await recordOperatorEvent({
-      kind: "settings_apply",
-      title: "Discovery-lab live strategy applied",
-      detail: `Run ${run.packName} updated the active live strategy with pack discovery, calibrated exits, and a ${calibration.capitalModifierPercent}% capital modifier.`,
-      metadata: {
-        runId,
-        packId: calibration.packId,
-        packName: calibration.packName,
-        dominantMode: calibration.dominantMode,
-        dominantPresetId: calibration.dominantPresetId,
-        winnerCount: calibration.calibrationSummary?.winnerCount ?? 0,
-        capitalModifierPercent: calibration.capitalModifierPercent,
-      },
-    });
-
-    return {
-      ok: true as const,
-      strategy: calibration,
-    };
+    return this.strategyRuns.applyRunToLive(runId);
   }
 
   private async pause(reason?: string): Promise<void> {
@@ -546,10 +641,14 @@ export class BotRuntime {
   private async handleMigrationSignal(programId: string, signature: string): Promise<void> {
     await this.sharedFacts.rememberMigrationSignal({ programId, signature });
 
-    const settings = await this.config.getSettings();
+    const [settings, state] = await Promise.all([
+      this.config.getSettings(),
+      this.risk.getSnapshot(),
+    ]);
     const livePreset = getStrategyPreset(settings.strategy.livePresetId);
     if (
       settings.tradeMode !== "LIVE"
+      || Boolean(state.pauseReason)
       || !settings.strategy.heliusWatcherEnabled
       || !livePreset.requiresHeliusWatcher
     ) {

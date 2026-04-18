@@ -1,4 +1,5 @@
-import type { Position, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import type { Position } from "@prisma/client";
 import { db } from "../db/client.js";
 import { RuntimeConfigService } from "../services/runtime-config.js";
 import { BOT_STATE_ID } from "./constants.js";
@@ -83,6 +84,38 @@ type PersistCloseInput = {
   txSignature?: string;
   fillMetadata?: Record<string, unknown>;
 };
+
+function buildExitPlanRecord(input: {
+  positionId: string;
+  exitPlan: ExitPlan;
+  entryScore: number;
+  metrics: Record<string, unknown>;
+}): Prisma.ExitPlanUncheckedCreateInput {
+  const strategyPackId = toTrimmedString(input.metrics.liveStrategyPackId)
+    ?? toTrimmedString(input.metrics.discoveryLabPackId);
+
+  return {
+    positionId: input.positionId,
+    profile: input.exitPlan.profile,
+    stopLossPercent: input.exitPlan.stopLossPercent,
+    tp1Multiplier: input.exitPlan.tp1Multiplier,
+    tp2Multiplier: input.exitPlan.tp2Multiplier,
+    tp1SellFraction: input.exitPlan.tp1SellFraction,
+    tp2SellFraction: input.exitPlan.tp2SellFraction,
+    postTp1RetracePercent: input.exitPlan.postTp1RetracePercent,
+    trailingStopPercent: input.exitPlan.trailingStopPercent,
+    timeStopMinutes: input.exitPlan.timeStopMinutes,
+    timeStopMinReturnPercent: input.exitPlan.timeStopMinReturnPercent,
+    timeLimitMinutes: input.exitPlan.timeLimitMinutes,
+    partialStopLossEnabled: input.exitPlan.partialStopLossEnabled,
+    partialSlThresholdPercent: input.exitPlan.partialSlThresholdPercent,
+    partialSlSellFraction: input.exitPlan.partialSlSellFraction,
+    momentumTpExtensionEnabled: input.exitPlan.momentumTpExtensionEnabled,
+    recalibrateIntervalMinutes: input.exitPlan.recalibrateIntervalMinutes,
+    derivedFromScore: input.entryScore,
+    strategyPackId,
+  };
+}
 
 export class ExecutionEngine {
   private readonly live = new LiveTradeExecutor();
@@ -264,7 +297,7 @@ export class ExecutionEngine {
     amountUsd: number,
     amountToken: number,
   ): Promise<{ id: string }> {
-    const existing = await db.fill.findFirst({ where: { txSignature: executed.signature } });
+    const existing = await this.findBySignature(executed.signature);
     if (existing) {
       logger.warn({ txSignature: executed.signature, fillId: existing.id }, "fill already exists, skipping duplicate persist");
       return { id: existing.positionId };
@@ -298,6 +331,13 @@ export class ExecutionEngine {
         });
       });
     } catch (error) {
+      if (this.isTxSignatureConflict(error)) {
+        const duplicate = await this.findBySignature(executed.signature);
+        if (duplicate) {
+          logger.warn({ txSignature: executed.signature, fillId: duplicate.id }, "duplicate live buy signature resolved to existing fill");
+          return { id: duplicate.positionId };
+        }
+      }
       await this.pauseForPersistenceFailure("buy", input.mint, executed.signature, error);
       throw error;
     }
@@ -311,6 +351,11 @@ export class ExecutionEngine {
     amountToken: number,
   ): Promise<Position | null> {
     try {
+      const existing = executed.signature ? await this.findPositionBySignature(executed.signature) : null;
+      if (existing) {
+        logger.warn({ txSignature: executed.signature, positionId: existing.id }, "fill already exists, skipping duplicate live sell persist");
+        return existing;
+      }
       return await this.persistClose({
         settings,
         input,
@@ -323,6 +368,13 @@ export class ExecutionEngine {
         },
       });
     } catch (error) {
+      if (this.isTxSignatureConflict(error)) {
+        const duplicate = await this.findPositionBySignature(executed.signature);
+        if (duplicate) {
+          logger.warn({ txSignature: executed.signature, positionId: duplicate.id }, "duplicate live sell signature resolved to existing position");
+          return duplicate;
+        }
+      }
       await this.pauseForPersistenceFailure("sell", input.positionId, executed.signature, error);
       throw error;
     }
@@ -330,6 +382,16 @@ export class ExecutionEngine {
 
   private async persistClose(input: PersistCloseInput): Promise<Position | null> {
     return db.$transaction(async (tx) => {
+      if (input.txSignature) {
+        const existingFill = await tx.fill.findUnique({
+          where: { txSignature: input.txSignature },
+          select: { positionId: true },
+        });
+        if (existingFill) {
+          return tx.position.findUnique({ where: { id: existingFill.positionId } });
+        }
+      }
+
       await tx.$queryRaw`SELECT 1 FROM "Position" WHERE id = ${input.input.positionId} FOR UPDATE`;
       await tx.$queryRaw`SELECT 1 FROM "BotState" WHERE id = ${BOT_STATE_ID} FOR UPDATE`;
 
@@ -440,6 +502,19 @@ export class ExecutionEngine {
       : 100;
     const liveFill = asRecord(input.fillMetadata?.live);
     const liveTiming = asRecord(liveFill?.timing);
+
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${input.input.mint}))`;
+    const existingOpenPosition = await tx.position.findFirst({
+      where: {
+        mint: input.input.mint,
+        status: "OPEN",
+      },
+      select: { id: true },
+    });
+    if (existingOpenPosition) {
+      throw new Error(`open position already exists for ${input.input.mint}`);
+    }
+
     const created = await tx.position.create({
       data: {
         mint: input.input.mint,
@@ -486,6 +561,15 @@ export class ExecutionEngine {
         liveStrategyPackId: toTrimmedString(input.input.metrics.liveStrategyPackId),
         reportAgeMsAtEntry: discoveryLabReportAgeMsAtEntry,
       },
+    });
+
+    await tx.exitPlan.create({
+      data: buildExitPlanRecord({
+        positionId: created.id,
+        exitPlan,
+        entryScore,
+        metrics: input.input.metrics,
+      }),
     });
 
     await tx.fill.create({
@@ -719,7 +803,15 @@ export class ExecutionEngine {
    * Used for idempotent recovery when a live trade lands but persistence fails mid-transaction.
    */
   async findBySignature(txSignature: string) {
-    return db.fill.findFirst({ where: { txSignature } });
+    return db.fill.findUnique({ where: { txSignature } });
+  }
+
+  private async findPositionBySignature(txSignature: string): Promise<Position | null> {
+    const fill = await this.findBySignature(txSignature);
+    if (!fill) {
+      return null;
+    }
+    return db.position.findUnique({ where: { id: fill.positionId } });
   }
 
   /**
@@ -826,6 +918,21 @@ export class ExecutionEngine {
       },
     );
     return next;
+  }
+
+  private isTxSignatureConflict(error: unknown): boolean {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
+      return false;
+    }
+    const target = error.meta?.target;
+    if (Array.isArray(target)) {
+      return target.includes("txSignature");
+    }
+    return typeof target === "string" && target.includes("txSignature");
+  }
+
+  static isOpenPositionConflict(error: unknown): boolean {
+    return error instanceof Error && error.message.startsWith("open position already exists for ");
   }
 
   private readEntryScore(metrics: Record<string, unknown>): number {

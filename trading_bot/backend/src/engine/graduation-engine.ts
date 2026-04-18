@@ -518,10 +518,11 @@ export class GraduationEngine {
 
           logger.info({ mint: candidate.mint, positionId, tradeMode: settings.tradeMode }, "candidate promoted to position");
         } catch (error) {
+          const isOpenConflict = ExecutionEngine.isOpenPositionConflict(error);
           await db.candidate.update({
             where: { id: candidate.id },
             data: {
-              status: "ERROR",
+              status: isOpenConflict ? "SKIPPED" : "ERROR",
               rejectReason: error instanceof Error ? error.message : String(error),
               lastEvaluatedAt: new Date(),
               scheduledEvaluationAt: new Date(Date.now() + settings.cadence.evaluationIntervalMs),

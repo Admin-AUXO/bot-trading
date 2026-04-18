@@ -20,6 +20,7 @@ DROP VIEW IF EXISTS v_api_endpoint_efficiency CASCADE;
 DROP VIEW IF EXISTS v_position_pnl_daily CASCADE;
 DROP VIEW IF EXISTS v_discovery_lab_run_summary CASCADE;
 DROP VIEW IF EXISTS v_discovery_lab_pack_performance CASCADE;
+DROP VIEW IF EXISTS v_strategy_pack_performance_daily CASCADE;
 DROP VIEW IF EXISTS v_shared_token_fact_cache CASCADE;
 DROP VIEW IF EXISTS v_candidate_decision_facts CASCADE;
 
@@ -496,10 +497,45 @@ SELECT
 FROM "DiscoveryLabRun" d
 GROUP BY 1, 2, 3;
 
-
-
-
-
+CREATE VIEW v_strategy_pack_performance_daily AS
+WITH run_rows AS (
+  SELECT
+    DATE_TRUNC('day', COALESCE(d."completedAt", d."startedAt"))::date AS session_date,
+    d."packId" AS strategy_pack_id,
+    COALESCE(sp.name, d."packName") AS pack_name,
+    sp.status AS pack_status,
+    sp.grade AS pack_grade,
+    sp.version AS pack_version,
+    d.status AS run_status,
+    COALESCE(d."queryCount", 0) AS query_count,
+    COALESCE(d."evaluationCount", 0) AS evaluation_count,
+    COALESCE(d."winnerCount", 0) AS winner_count,
+    d."appliedConfigVersionId" AS config_version
+  FROM "DiscoveryLabRun" d
+  LEFT JOIN "StrategyPack" sp ON sp.id = d."packId"
+)
+SELECT
+  session_date,
+  strategy_pack_id,
+  pack_name,
+  pack_status,
+  pack_grade,
+  MAX(pack_version)::int AS pack_version,
+  COUNT(*)::int AS run_count,
+  COUNT(*) FILTER (WHERE run_status = 'COMPLETED')::int AS completed_run_count,
+  SUM(query_count)::int AS query_count,
+  SUM(evaluation_count)::int AS evaluation_count,
+  SUM(winner_count)::int AS winner_count,
+  AVG(
+    CASE
+      WHEN evaluation_count > 0
+        THEN winner_count::numeric / evaluation_count::numeric * 100
+      ELSE NULL
+    END
+  )::numeric(12,4) AS winner_rate_pct,
+  MAX(config_version)::int AS config_version
+FROM run_rows
+GROUP BY 1, 2, 3, 4, 5;
 
 CREATE VIEW v_shared_token_fact_cache AS
 SELECT
@@ -571,3 +607,11 @@ FROM "Candidate" c
 LEFT JOIN "Position" p ON p.id = c."positionId"
 LEFT JOIN sell_summary s ON s."positionId" = p.id
 LEFT JOIN "TokenMetrics" tm ON tm.id = c."latestMetricsId";
+
+CREATE UNIQUE INDEX IF NOT EXISTS position_one_open_per_mint_idx
+  ON "Position" ("mint")
+  WHERE "status" = 'OPEN';
+
+CREATE UNIQUE INDEX IF NOT EXISTS trading_session_one_active_idx
+  ON "TradingSession" ((true))
+  WHERE "stoppedAt" IS NULL;

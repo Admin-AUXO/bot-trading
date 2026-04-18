@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 
 const API_URL = process.env.API_URL ?? "http://127.0.0.1:3101";
-const CONTROL_API_SECRET = process.env.CONTROL_API_SECRET ?? "";
+const CONTROL_API_SECRET = process.env.CONTROL_API_SECRET ?? process.env.CONTROL_SECRET ?? "";
 
 async function proxy(request: NextRequest, path: string[]) {
   const url = new URL(`${API_URL}/api/${path.join("/")}`);
@@ -12,12 +12,13 @@ async function proxy(request: NextRequest, path: string[]) {
   const authHeader = request.headers.get("authorization");
   const apiKeyHeader = request.headers.get("x-api-key");
   const contentType = request.headers.get("content-type");
+  const forwardedAuthHeader = authHeader?.startsWith("Bearer ") ? authHeader : null;
 
   const init: RequestInit = {
     method: request.method,
     headers: {
-      ...(authHeader
-        ? { authorization: authHeader }
+      ...(forwardedAuthHeader
+        ? { authorization: forwardedAuthHeader }
         : CONTROL_API_SECRET
           ? { authorization: `Bearer ${CONTROL_API_SECRET}` }
           : {}),

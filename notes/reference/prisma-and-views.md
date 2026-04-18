@@ -2,7 +2,7 @@
 type: reference
 status: active
 area: db
-date: 2026-04-10
+date: 2026-04-18
 source_files:
   - trading_bot/backend/prisma/schema.prisma
   - trading_bot/backend/prisma/views/create_views.sql
@@ -29,6 +29,7 @@ Purpose: define the database ownership model and the reporting surfaces agents a
 - Canonical rollout: `cd trading_bot/backend && npm run db:setup`
 
 This workflow treats Prisma schema and SQL views as hand-maintained source, not migration output.
+`create_views.sql` also owns repo-managed database objects Prisma cannot express cleanly, such as the partial unique index that enforces one open position per mint.
 
 ## Table Roles
 
@@ -40,7 +41,11 @@ Operational state:
 
 Discovery-lab state:
 
-- `DiscoveryLabPack`: saved pack definition, pack kind, threshold overrides, recipe payload, and source path
+- `StrategyPack`: first-class pack contract mirrored from the current discovery-lab pack catalog so backend and dashboard work can stop depending on free-form pack ids alone
+- `StrategyPackVersion`: append-only pack snapshot history generated during discovery-lab pack sync or save flows
+- `ExitPlan`: normalized managed-exit contract for one open position. This now dual-writes alongside `Position.metadata.exitPlan` so exit logic can move off metadata without a big-bang cutover.
+- `TradingSession`: backend-owned record of the currently deployed live-strategy pack or a past deployed pack window, including source run, previous-pack linkage, config-version attribution, stop reason, and rolled-up trade outcomes
+- `DiscoveryLabPack`: retained discovery-lab pack source-of-editing while the pack service rewrite is still pending
 - `DiscoveryLabRun`: persisted run summary, pack snapshot, report blob, strategy calibration, market-regime snapshot, stats snapshot, and apply-to-live linkage
 - `DiscoveryLabRunQuery`: normalized per-query summary facts for recipe-source combinations
 - `DiscoveryLabRunToken`: normalized per-token result facts for winners, passes, rejects, and score analysis
@@ -93,6 +98,7 @@ These views are repo-owned and currently exposed through `GET /api/views/:name`.
 **Discovery Lab:**
 - `v_discovery_lab_run_summary`: Run performance summary with computed duration
 - `v_discovery_lab_pack_performance`: Pack-level aggregated stats
+- `v_strategy_pack_performance_daily`: Daily rollup by `StrategyPack` id with run counts, winner counts, evaluation totals, winner-rate percentage, and latest applied config version when present
 
 **Shared:**
 - `v_shared_token_fact_cache`: Token fact cache with freshness metrics
@@ -104,7 +110,27 @@ These views are repo-owned and currently exposed through `GET /api/views/:name`.
 - If schema or view behavior changes, run `npm run db:setup`.
 - `SharedTokenFact` cache additions must land in both Prisma schema and the live table. `db:setup` can report synced while the runtime table still lacks new columns, so if token-insight or discovery code errors on missing fields, reconcile the live table before trusting the compose result.
 - `db:push` may require a host-local `DATABASE_URL` override outside Docker because the checked-in `.env` defaults to the Compose hostname `postgres`.
-- If a view is added or renamed, update both `create_views.sql` and the API allowlist in [`../../trading_bot/backend/src/api/server.ts`](../../trading_bot/backend/src/api/server.ts).
+- If a view is added or renamed, update both `create_views.sql` and the API allowlist in [`../../trading_bot/backend/src/api/routes/utils.ts`](../../trading_bot/backend/src/api/routes/utils.ts).
+- `StrategyPack` is the new database-backed pack contract. During the transition, `DiscoveryLabService` dual-writes discovery-lab pack saves and catalog sync into both `DiscoveryLabPack` and `StrategyPack` plus `StrategyPackVersion`.
+- `ExitPlan` is now the normalized database contract for managed exits. `ExecutionEngine` dual-writes it on position open, while `strategy-exit.ts` still preserves the metadata fallback until the later cutover slice removes `Position.metadata.exitPlan`.
+- `TradingSession` is now the first session contract slice. `TradingSessionService` starts a row from the existing discovery-lab apply-live-strategy flow, closes any prior active session as `REPLACED`, lists bounded session history, and now also owns explicit stop semantics through the backend seam.
+- `TradingSession` rollups are bounded by `startedAt` and `stoppedAt`. Re-applying the same discovery-lab run creates a new session window instead of smearing trade counts or realized PnL across every later reuse of that run id.
+- `StrategyPack.status` deployment ownership now lives under the session seam. `DiscoveryLabService` still syncs pack snapshots and versions, but it no longer decides which pack is `LIVE` by reading runtime settings directly.
+- `create_views.sql` now also owns the partial unique index that enforces at most one active `TradingSession` row with `stoppedAt IS NULL`, alongside the existing one-open-position-per-mint index.
+- No new reporting view was needed for the `TradingSession` slice. The `/api/views/:name` allowlist is unchanged in this pass.
+- The first dedicated operator pack/run routes in this phase still read from the existing transition tables. No new schema or view was required for that pass because `DiscoveryLabPack`, `DiscoveryLabRun`, `StrategyPack`, `StrategyPackVersion`, and `TradingSession` already carry the facts those routes need.
+- `DiscoveryLabRun.appliedToLiveAt` and `appliedConfigVersionId` are now part of the operator run contract too, not just an internal session/apply detail, so pack/run operator surfaces can show deployment state without guessing from settings.
+- No schema or view change was required for the follow-up ownership pass either. The next plausible database-only change is additive indexing to support `TradingSession` rollups on `Position.liveStrategyRunId`, but that index was not forced into this pass.
+- The follow-up run-ownership pass still did not justify schema churn. `TradingSession` rollups still read through `Position.liveStrategyRunId` plus `openedAt`, but the pass stayed additive-free until a measured query problem appears.
+- `DiscoveryLabRun` is now the authoritative persisted read surface for run detail polling too, not just finished run history. While a run is active, stdout and stderr are written back into the row so database-backed readers stop drifting behind the file copy.
+- Inline `DiscoveryLabRun` records backed by the synthetic `__inline__` pack id are still allowed for transition-time execution, but the session seam now rejects deploying them live. Save the draft into a real pack first, then apply from that persisted pack/run contract.
+- The phase-3 market/enrichment ownership pass also stayed additive-free. `MarketIntelService`, `MarketStrategyIdeasService`, and `TokenEnrichmentService` are service/API cuts over existing providers and cached facts; no Prisma table, SQL view, or allowlist change was required to ship that ownership move.
+- The database draft remains intentionally incomplete after the market/enrichment pass:
+  no `StrategyRun` or `StrategyRunGrade`,
+  no dedicated enrichment/adaptive tables,
+  no promoted metadata-column sweep beyond `ExitPlan`,
+  and no new market/enrichment reporting views.
+- Discovery-lab compatibility reads for market stats, strategy ideas, and token insight no longer justify their own storage layer. They now sit over the dedicated market/enrichment service map, so any future schema churn should be driven by measured query or retention needs instead of preserving monolith-owned route behavior.
 - Keep reporting grounded in candidates, positions, fills, snapshots, or provider telemetry. `BotState` and `RuntimeConfig` are operational singletons, not historical fact tables.
 - `OperatorEvent` is an operational support table. It exists for desk auditability and control flow, not for primary Grafana trend reporting.
 

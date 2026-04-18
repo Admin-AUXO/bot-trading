@@ -197,6 +197,8 @@ export type DiscoveryLabRunSummary = {
   createdAt: string;
   startedAt: string;
   completedAt: string | null;
+  appliedToLiveAt: string | null;
+  appliedConfigVersionId: number | null;
   packId: string;
   packName: string;
   packKind: DiscoveryLabPackKind;
@@ -255,7 +257,7 @@ export class DiscoveryLabService {
     await fs.mkdir(this.runsDir, { recursive: true });
     await this.seedWorkspacePacks();
     await this.reconcileInterruptedRuns();
-    await this.syncKnownPacksToDb();
+    await this.syncPacksToDb(await this.listPacks());
   }
 
   async getCatalog(): Promise<DiscoveryLabCatalog> {
@@ -269,6 +271,13 @@ export class DiscoveryLabService {
       packs,
       activeRun,
       recentRuns,
+      profiles: ["runtime", "high-value", "scalp"],
+      knownSources: KNOWN_SOURCES,
+    };
+  }
+
+  getCatalogMetadata(): Pick<DiscoveryLabCatalog, "profiles" | "knownSources"> {
+    return {
       profiles: ["runtime", "high-value", "scalp"],
       knownSources: KNOWN_SOURCES,
     };
@@ -350,7 +359,19 @@ export class DiscoveryLabService {
       throw new Error("pack validation failed");
     }
     const normalized = validation.pack;
+    if (normalized.id && isWorkspacePackId(normalized.id)) {
+      throw new Error("workspace packs are read-only");
+    }
+    if (normalized.id) {
+      const existing = (await this.listPacks()).find((pack) => pack.id === normalized.id);
+      if (existing && existing.kind !== "custom") {
+        throw new Error("only custom packs can be updated");
+      }
+    }
     const id = normalized.id ?? (await this.allocatePackId(normalized.name));
+    if (isWorkspacePackId(id)) {
+      throw new Error("workspace-* ids are reserved");
+    }
     const record = {
       id,
       name: normalized.name,
@@ -372,9 +393,24 @@ export class DiscoveryLabService {
   }
 
   async deletePack(packId: string): Promise<{ ok: true }> {
+    if (!packId.trim()) {
+      throw new Error("packId is required");
+    }
+    if (isWorkspacePackId(packId)) {
+      throw new Error("workspace packs are read-only");
+    }
+    const existing = (await this.listPacks()).find((pack) => pack.id === packId);
+    if (!existing) {
+      throw new Error("pack not found");
+    }
+    if (existing.kind !== "custom") {
+      throw new Error("only custom packs can be deleted");
+    }
     const filePath = this.packFilePath(packId);
     await fs.rm(filePath, { force: true });
     await db.discoveryLabPack.deleteMany({ where: { id: packId } });
+    await db.strategyPackVersion.deleteMany({ where: { packId } });
+    await db.strategyPack.deleteMany({ where: { id: packId } });
     return { ok: true };
   }
 
@@ -618,7 +654,6 @@ export class DiscoveryLabService {
       }
       return left.name.localeCompare(right.name);
     });
-    await this.syncPacksToDb(packs);
     return packs;
   }
 
@@ -703,6 +738,10 @@ export class DiscoveryLabService {
     current.stdout = stdout;
     current.stderr = stderr;
     await writeJsonFileAtomic(this.runFilePath(runId), current);
+    await db.discoveryLabRun.update({
+      where: { id: runId },
+      data: { stdout, stderr },
+    }).catch(() => undefined);
   }
 
   private async finalizeRun(
@@ -893,51 +932,117 @@ export class DiscoveryLabService {
       : { report, changed: false };
   }
 
-  private async syncKnownPacksToDb(): Promise<void> {
-    await this.syncPacksToDb(await this.listPacks());
-  }
-
   private async syncPacksToDb(packs: DiscoveryLabPack[]): Promise<void> {
-    await Promise.all(packs.map((pack) => this.upsertPackRecord(pack)));
+    await Promise.all(
+      packs.map((pack) => this.upsertPackRecord(pack)),
+    );
   }
 
-  private async upsertPackRecord(pack: DiscoveryLabPack): Promise<void> {
+  private async upsertPackRecord(
+    pack: DiscoveryLabPack,
+  ): Promise<void> {
+    const discoveryLabPackData = {
+      kind: mapPackKindForDb(pack),
+      name: pack.name,
+      description: pack.description,
+      thesis: pack.thesis ?? null,
+      targetPnlBand: pack.targetPnlBand
+        ? toJsonValue(pack.targetPnlBand)
+        : Prisma.DbNull,
+      defaultProfile: pack.defaultProfile,
+      defaultSources: toJsonValue(pack.defaultSources),
+      thresholdOverrides: toJsonValue(pack.thresholdOverrides ?? {}),
+      recipes: toJsonValue(pack.recipes),
+      sourcePath: pack.sourcePath,
+    } satisfies Prisma.DiscoveryLabPackUncheckedCreateInput;
+
     await db.discoveryLabPack.upsert({
       where: { id: pack.id },
-      update: {
-        kind: mapPackKindForDb(pack),
-        name: pack.name,
-        description: pack.description,
-        thesis: pack.thesis ?? null,
-        targetPnlBand: pack.targetPnlBand
-          ? toJsonValue(pack.targetPnlBand)
-          : Prisma.DbNull,
-        defaultProfile: pack.defaultProfile,
-        defaultSources: toJsonValue(pack.defaultSources),
-        thresholdOverrides: toJsonValue(pack.thresholdOverrides ?? {}),
-        recipes: toJsonValue(pack.recipes),
-        sourcePath: pack.sourcePath,
-      },
+      update: discoveryLabPackData,
       create: {
         id: pack.id,
-        kind: mapPackKindForDb(pack),
-        name: pack.name,
-        description: pack.description,
-        thesis: pack.thesis ?? null,
-        targetPnlBand: pack.targetPnlBand
-          ? toJsonValue(pack.targetPnlBand)
-          : Prisma.DbNull,
-        defaultProfile: pack.defaultProfile,
-        defaultSources: toJsonValue(pack.defaultSources),
-        thresholdOverrides: toJsonValue(pack.thresholdOverrides ?? {}),
-        recipes: toJsonValue(pack.recipes),
-        sourcePath: pack.sourcePath,
+        ...discoveryLabPackData,
       },
+    });
+
+    await this.upsertStrategyPackRecord(pack);
+  }
+
+  private async upsertStrategyPackRecord(
+    pack: DiscoveryLabPack,
+  ): Promise<void> {
+    const snapshot = buildStrategyPackSnapshot(pack);
+    const snapshotJson = toJsonValue(snapshot);
+    const snapshotFingerprint = JSON.stringify(snapshotJson);
+
+    await db.$transaction(async (tx) => {
+      const existingPack = await tx.strategyPack.findUnique({
+        where: { id: pack.id },
+        select: { status: true, publishedAt: true },
+      });
+      const latestVersion = await tx.strategyPackVersion.findFirst({
+        where: { packId: pack.id },
+        orderBy: { version: "desc" },
+        select: { version: true, configSnapshot: true },
+      });
+      const currentVersion = latestVersion?.version ?? 1;
+      const latestFingerprint = latestVersion
+        ? JSON.stringify(latestVersion.configSnapshot)
+        : null;
+      const nextVersion = latestFingerprint === snapshotFingerprint
+        ? currentVersion
+        : latestVersion
+          ? latestVersion.version + 1
+          : 1;
+
+      await tx.strategyPack.upsert({
+        where: { id: pack.id },
+        update: {
+          name: pack.name,
+          version: nextVersion,
+          recipe: toJsonValue(snapshot.recipe),
+          baseFilters: toJsonValue(snapshot.baseFilters),
+          baseExits: toJsonValue(snapshot.baseExits),
+          adaptiveAxes: toJsonValue(snapshot.adaptiveAxes),
+          capitalModifier: snapshot.capitalModifier,
+          sortColumn: snapshot.sortColumn,
+          sortOrder: snapshot.sortOrder,
+          createdBy: snapshot.createdBy,
+        },
+        create: {
+          id: pack.id,
+          name: pack.name,
+          version: nextVersion,
+          status: existingPack?.status ?? "DRAFT",
+          recipe: toJsonValue(snapshot.recipe),
+          baseFilters: toJsonValue(snapshot.baseFilters),
+          baseExits: toJsonValue(snapshot.baseExits),
+          adaptiveAxes: toJsonValue(snapshot.adaptiveAxes),
+          capitalModifier: snapshot.capitalModifier,
+          sortColumn: snapshot.sortColumn,
+          sortOrder: snapshot.sortOrder,
+          publishedAt: existingPack?.publishedAt ?? null,
+          createdBy: snapshot.createdBy,
+        },
+      });
+
+      if (latestFingerprint !== snapshotFingerprint) {
+        await tx.strategyPackVersion.create({
+          data: {
+            packId: pack.id,
+            version: nextVersion,
+            configSnapshot: snapshotJson,
+            parentVersion: latestVersion?.version ?? null,
+            notes: `discovery-lab ${pack.kind} sync`,
+          },
+        });
+      }
     });
   }
 
   private async upsertRunRecord(detail: DiscoveryLabRunDetail): Promise<void> {
     const settings = await this.config.getSettings();
+    await this.upsertStrategyPackRecord(detail.packSnapshot);
     await db.discoveryLabRun.upsert({
       where: { id: detail.id },
       update: {
@@ -1093,6 +1198,8 @@ export class DiscoveryLabService {
     createdAt: Date;
     startedAt: Date;
     completedAt: Date | null;
+    appliedToLiveAt: Date | null;
+    appliedConfigVersionId: number | null;
     packId: string;
     packName: string;
     packKind: string;
@@ -1116,6 +1223,8 @@ export class DiscoveryLabService {
       createdAt: row.createdAt.toISOString(),
       startedAt: row.startedAt.toISOString(),
       completedAt: row.completedAt?.toISOString() ?? null,
+      appliedToLiveAt: row.appliedToLiveAt?.toISOString() ?? null,
+      appliedConfigVersionId: row.appliedConfigVersionId ?? null,
       packId: row.packId,
       packName: row.packName,
       packKind: mapPackKindFromDb(row.packKind),
@@ -1151,6 +1260,7 @@ export class DiscoveryLabService {
       detail.errorMessage =
         detail.errorMessage ?? "run interrupted before completion";
       await writeJsonFileAtomic(this.runFilePath(detail.id), detail);
+      await this.upsertRunRecord(detail);
     }
   }
 
@@ -1219,6 +1329,8 @@ function toRunSummary(detail: DiscoveryLabRunDetail): DiscoveryLabRunSummary {
     createdAt: detail.createdAt,
     startedAt: detail.startedAt,
     completedAt: detail.completedAt,
+    appliedToLiveAt: detail.appliedToLiveAt,
+    appliedConfigVersionId: detail.appliedConfigVersionId,
     packId: detail.packId,
     packName: detail.packName,
     packKind: detail.packKind,
@@ -1318,4 +1430,26 @@ function mapPackKindFromDb(kind: string): DiscoveryLabPackKind {
     return "created";
   }
   return "custom";
+}
+
+function buildStrategyPackSnapshot(pack: DiscoveryLabPack) {
+  return {
+    recipe: {
+      profile: pack.defaultProfile,
+      sources: pack.defaultSources,
+      recipes: pack.recipes,
+      targetPnlBand: pack.targetPnlBand ?? null,
+    },
+    baseFilters: pack.thresholdOverrides ?? {},
+    baseExits: {},
+    adaptiveAxes: {},
+    capitalModifier: new Prisma.Decimal(100),
+    sortColumn: null,
+    sortOrder: null,
+    createdBy: `${pack.kind}:${pack.sourcePath ?? "local"}`,
+  };
+}
+
+function isWorkspacePackId(packId: string): boolean {
+  return packId.startsWith("workspace-");
 }

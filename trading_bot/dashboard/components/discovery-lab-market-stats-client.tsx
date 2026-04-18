@@ -70,7 +70,7 @@ export function DiscoveryLabMarketStatsClient(props: {
       setPendingAction("board");
       try {
         const nextPayload = await fetchJson<DiscoveryLabMarketStatsPayload>(
-          "/operator/discovery-lab/market-stats?limit=24&refresh=true",
+          "/operator/market/trending?limit=24&refresh=true",
         );
         setPayload(nextPayload);
         setRefreshError(null);
@@ -96,7 +96,7 @@ export function DiscoveryLabMarketStatsClient(props: {
       setPendingAction("focus");
       try {
         const nextPayload = await fetchJson<DiscoveryLabMarketStatsPayload>(
-          `/operator/discovery-lab/market-stats?limit=24&refresh=true&focusOnly=true&mint=${encodeURIComponent(mint)}`,
+          `/operator/market/trending?limit=24&refresh=true&focusOnly=true&mint=${encodeURIComponent(mint)}`,
         );
         setPayload(nextPayload);
         setRefreshError(null);

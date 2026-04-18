@@ -1,0 +1,81 @@
+{
+  "generatedAt": "2026-04-18T03:10:48.564Z",
+  "results": [
+    {
+      "name": "workbench-editor",
+      "url": "http://127.0.0.1:3203/workbench/editor?pack=workspace-pump-holder",
+      "expect": [
+        "Pack selector",
+        "Pack detail",
+        "Scalp 30-60% · Pump Holder"
+      ],
+      "ok": false,
+      "found": [
+        "Pack selector",
+        "Scalp 30-60% · Pump Holder"
+      ],
+      "missing": [
+        "Pack detail"
+      ],
+      "title": "Graduation Control",
+      "error": null
+    },
+    {
+      "name": "workbench-sandbox-run",
+      "url": "http://127.0.0.1:3203/workbench/sandbox/e6fbc2d4-f327-4786-865c-3a3751a1e9e5",
+      "expect": [
+        "Sandbox",
+        "Early Grad Scalp Buyer Stack",
+        "winner"
+      ],
+      "ok": false,
+      "found": [
+        "Sandbox",
+        "Early Grad Scalp Buyer Stack"
+      ],
+      "missing": [
+        "winner"
+      ],
+      "title": "Graduation Control",
+      "error": null
+    },
+    {
+      "name": "discovery-lab-studio",
+      "url": "http://127.0.0.1:3203/discovery-lab/studio",
+      "expect": [
+        "Discovery lab",
+        "Studio",
+        "Pack library"
+      ],
+      "ok": false,
+      "found": [
+        "Studio"
+      ],
+      "missing": [
+        "Discovery lab",
+        "Pack library"
+      ],
+      "title": "Graduation Control",
+      "error": null
+    },
+    {
+      "name": "discovery-lab-results",
+      "url": "http://127.0.0.1:3203/discovery-lab/results?runId=e6fbc2d4-f327-4786-865c-3a3751a1e9e5",
+      "expect": [
+        "Results",
+        "Run summary",
+        "Early Grad Scalp Buyer Stack"
+      ],
+      "ok": false,
+      "found": [
+        "Results",
+        "Early Grad Scalp Buyer Stack"
+      ],
+      "missing": [
+        "Run summary"
+      ],
+      "title": "Graduation Control",
+      "error": null
+    }
+  ]
+}

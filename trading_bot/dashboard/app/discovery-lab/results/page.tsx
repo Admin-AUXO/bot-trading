@@ -2,8 +2,8 @@ import { DiscoveryLabResultsRoute } from "@/components/discovery-lab-results-rou
 import { serverFetch } from "@/lib/server-api";
 import type {
   DiscoveryLabCatalog,
-  DiscoveryLabRunDetail,
   DiscoveryLabRuntimeSnapshot,
+  WorkbenchRunDetailPayload,
 } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -30,12 +30,13 @@ export default async function DiscoveryLabResultsPage({
     || catalog.recentRuns.find((run) => run.status === "COMPLETED")?.id
     || "";
 
-  let initialRunDetail: DiscoveryLabRunDetail | null = null;
+  let initialRunDetail: WorkbenchRunDetailPayload["run"] | null = null;
   if (fallbackRunId) {
     try {
-      initialRunDetail = await serverFetch<DiscoveryLabRunDetail>(
-        `/api/operator/discovery-lab/runs/${encodeURIComponent(fallbackRunId)}`,
+      const payload = await serverFetch<WorkbenchRunDetailPayload>(
+        `/api/operator/runs/${encodeURIComponent(fallbackRunId)}`,
       );
+      initialRunDetail = payload.run;
     } catch {
       initialRunDetail = null;
     }

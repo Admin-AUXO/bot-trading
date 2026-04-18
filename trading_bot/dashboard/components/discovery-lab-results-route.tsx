@@ -21,6 +21,7 @@ import type {
   DiscoveryLabRunDetail,
   DiscoveryLabRunSummary,
   DiscoveryLabRuntimeSnapshot,
+  WorkbenchRunDetailPayload,
 } from "@/lib/types";
 
 type DiscoveryLabResultsRouteProps = {
@@ -233,9 +234,10 @@ export function DiscoveryLabResultsRoute({
 }
 
 async function loadRunDetail(runId: string) {
-  return fetchJson<DiscoveryLabRunDetail>(
-    `/operator/discovery-lab/runs/${encodeURIComponent(runId)}`,
+  const payload = await fetchJson<WorkbenchRunDetailPayload>(
+    `/operator/runs/${encodeURIComponent(runId)}`,
   );
+  return payload.run;
 }
 
 function RunHistoryButton({

@@ -99,6 +99,11 @@ export type ManagedExitPosition = {
   tp1Done: boolean;
   tp2Done: boolean;
   metadata: unknown;
+  exitPlan?: unknown;
+};
+
+type PersistedExitPlanRecord = Partial<ExitPlan> & {
+  profile?: string | null;
 };
 
 export function buildExitPlan(
@@ -184,7 +189,26 @@ export function buildExitPlan(
 export function readExitPlan(
   metadata: unknown,
   fallback: RuntimeExitPlan,
+  persisted?: PersistedExitPlanRecord | null,
 ): RuntimeExitPlan {
+  const storedPlan = readPersistedExitPlan(persisted);
+  if (storedPlan) {
+    return {
+      tp1SellFraction: storedPlan.tp1SellFraction,
+      tp2SellFraction: storedPlan.tp2SellFraction,
+      postTp1RetracePercent: storedPlan.postTp1RetracePercent,
+      trailingStopPercent: storedPlan.trailingStopPercent,
+      timeStopMinutes: storedPlan.timeStopMinutes,
+      timeStopMinReturnPercent: storedPlan.timeStopMinReturnPercent,
+      timeLimitMinutes: storedPlan.timeLimitMinutes,
+      partialStopLossEnabled: storedPlan.partialStopLossEnabled,
+      partialSlThresholdPercent: storedPlan.partialSlThresholdPercent,
+      partialSlSellFraction: storedPlan.partialSlSellFraction,
+      momentumTpExtensionEnabled: storedPlan.momentumTpExtensionEnabled,
+      recalibrateIntervalMinutes: storedPlan.recalibrateIntervalMinutes,
+    };
+  }
+
   const record = asRecord(metadata);
   const exitPlan = asRecord(record?.exitPlan);
 
@@ -201,6 +225,66 @@ export function readExitPlan(
     partialSlSellFraction: asNumber(exitPlan?.partialSlSellFraction) ?? fallback.partialSlSellFraction ?? 0.5,
     momentumTpExtensionEnabled: asBoolean(exitPlan?.momentumTpExtensionEnabled) ?? fallback.momentumTpExtensionEnabled ?? false,
     recalibrateIntervalMinutes: asNumber(exitPlan?.recalibrateIntervalMinutes) ?? fallback.recalibrateIntervalMinutes ?? 0,
+  };
+}
+
+function readPersistedExitPlan(
+  persisted: PersistedExitPlanRecord | null | undefined,
+): ExitPlan | null {
+  if (!persisted) {
+    return null;
+  }
+
+  const profile = persisted.profile;
+  if (profile !== "scalp" && profile !== "balanced" && profile !== "runner") {
+    return null;
+  }
+
+  const fields = [
+    "stopLossPercent",
+    "tp1Multiplier",
+    "tp2Multiplier",
+    "tp1SellFraction",
+    "tp2SellFraction",
+    "postTp1RetracePercent",
+    "trailingStopPercent",
+    "timeStopMinutes",
+    "timeStopMinReturnPercent",
+    "timeLimitMinutes",
+    "partialSlThresholdPercent",
+    "partialSlSellFraction",
+    "recalibrateIntervalMinutes",
+  ] as const;
+
+  for (const field of fields) {
+    if (typeof persisted[field] !== "number") {
+      return null;
+    }
+  }
+  if (
+    typeof persisted.partialStopLossEnabled !== "boolean"
+    || typeof persisted.momentumTpExtensionEnabled !== "boolean"
+  ) {
+    return null;
+  }
+
+  return {
+    profile,
+    stopLossPercent: persisted.stopLossPercent,
+    tp1Multiplier: persisted.tp1Multiplier,
+    tp2Multiplier: persisted.tp2Multiplier,
+    tp1SellFraction: persisted.tp1SellFraction,
+    tp2SellFraction: persisted.tp2SellFraction,
+    postTp1RetracePercent: persisted.postTp1RetracePercent,
+    trailingStopPercent: persisted.trailingStopPercent,
+    timeStopMinutes: persisted.timeStopMinutes,
+    timeStopMinReturnPercent: persisted.timeStopMinReturnPercent,
+    timeLimitMinutes: persisted.timeLimitMinutes,
+    partialStopLossEnabled: persisted.partialStopLossEnabled,
+    partialSlThresholdPercent: persisted.partialSlThresholdPercent,
+    partialSlSellFraction: persisted.partialSlSellFraction,
+    momentumTpExtensionEnabled: persisted.momentumTpExtensionEnabled,
+    recalibrateIntervalMinutes: persisted.recalibrateIntervalMinutes,
   };
 }
 
@@ -237,13 +321,15 @@ export function getExitDecision(
 ): ExitDecision | null {
   if (!Number.isFinite(priceUsd) || priceUsd <= 0) return null;
 
-  const exitPlan = readExitPlan(position.metadata, fallback);
+  const exitPlan = readExitPlan(position.metadata, fallback, position.exitPlan);
   const peakPriceUsd = Math.max(position.peakPriceUsd, priceUsd);
   const pnlPercent = ((priceUsd - position.entryPriceUsd) / position.entryPriceUsd) * 100;
   const ageMinutes = (now.getTime() - position.openedAt.getTime()) / 60_000;
   const atr = liveContext?.atrUsd ?? 0;
 
-  const profile = (asRecord(position.metadata)?.exitProfile as ExitProfile) ?? "balanced";
+  const profile = (readPersistedExitPlan(position.exitPlan)?.profile)
+    ?? (asRecord(position.metadata)?.exitProfile as ExitProfile)
+    ?? "balanced";
 
   let effectiveTp1Multiplier = peakPriceUsd > 0
     ? (position.takeProfit1PriceUsd / position.entryPriceUsd)

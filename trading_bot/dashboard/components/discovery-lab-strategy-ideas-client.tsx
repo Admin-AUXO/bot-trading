@@ -38,7 +38,7 @@ export function DiscoveryLabStrategyIdeasClient(props: {
       try {
         const nextPayload =
           await fetchJson<DiscoveryLabStrategySuggestionsPayload>(
-            "/operator/discovery-lab/strategy-suggestions?refresh=true",
+            "/operator/market/strategy-suggestions?refresh=true",
           );
         setPayload(nextPayload);
         setRefreshError(null);

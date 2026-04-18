@@ -51,6 +51,12 @@ import type {
   DiscoveryLabThresholdOverrides,
   DiscoveryLabValidationIssue,
   DiscoveryLabValidationResponse,
+  WorkbenchCreateRunResponse,
+  WorkbenchPackDetailPayload,
+  WorkbenchPackListPayload,
+  WorkbenchPackSummary,
+  WorkbenchRunListPayload,
+  WorkbenchRunSummary,
 } from "@/lib/types";
 
 const PROFILE_OPTIONS: Array<{ value: DiscoveryLabPackDraft["defaultProfile"]; label: string }> = [
@@ -104,7 +110,7 @@ export function DiscoveryLabClient(props: {
 
   async function reloadCatalog() {
     const [next, nextRuntime] = await Promise.all([
-      fetchJson<DiscoveryLabCatalog>("/operator/discovery-lab/catalog"),
+      fetchStudioCatalog(),
       fetchJson<DiscoveryLabRuntimeSnapshot>("/status"),
     ]);
     setCatalog(next);
@@ -127,7 +133,7 @@ export function DiscoveryLabClient(props: {
     if (!payload) return;
     startTransition(async () => {
       try {
-        const response = await fetchJson<DiscoveryLabValidationResponse>("/operator/discovery-lab/validate", {
+        const response = await fetchJson<DiscoveryLabValidationResponse>("/operator/packs/validate", {
           method: "POST",
           body: JSON.stringify({ draft: payload, allowOverfiltered: false }),
         });
@@ -146,11 +152,26 @@ export function DiscoveryLabClient(props: {
     if (!payload) return;
     startTransition(async () => {
       try {
-        const saved = await fetchJson<DiscoveryLabPack>("/operator/discovery-lab/packs/save", {
-          method: "POST",
-          body: JSON.stringify(payload),
-        });
-        await reloadCatalog();
+        const existingId = normalizeId(payload.id);
+        const detail = await fetchJson<WorkbenchPackDetailPayload>(
+          existingId
+            ? `/operator/packs/${encodeURIComponent(existingId)}`
+            : "/operator/packs",
+          {
+            method: existingId ? "PATCH" : "POST",
+            body: JSON.stringify(payload),
+          },
+        );
+        const saved = detail.pack;
+        if (!saved) {
+          throw new Error("Saved pack is missing from response");
+        }
+        const [nextCatalog, nextRuntime] = await Promise.all([
+          fetchStudioCatalog(),
+          fetchJson<DiscoveryLabRuntimeSnapshot>("/status"),
+        ]);
+        setCatalog(nextCatalog);
+        setRuntimeSnapshot(nextRuntime);
         setSelectedPackId(saved.id);
         setDraft(toDraft(saved));
         setParamTexts(buildParamTextsFromRecipes(saved.recipes));
@@ -166,17 +187,48 @@ export function DiscoveryLabClient(props: {
     if (!payload) return;
     startTransition(async () => {
       try {
-        const next = await fetchJson<{ id: string }>("/operator/discovery-lab/run", {
+        const packId = await ensurePackIdForRun(payload);
+        const next = await fetchJson<WorkbenchCreateRunResponse>(`/operator/packs/${encodeURIComponent(packId)}/runs`, {
           method: "POST",
-          body: JSON.stringify({ draft: payload, sources: payload.defaultSources ?? [], profile: payload.defaultProfile ?? "high-value", thresholdOverrides: payload.thresholdOverrides, allowOverfiltered: false }),
+          body: JSON.stringify({
+            sources: payload.defaultSources ?? [],
+            profile: payload.defaultProfile ?? "high-value",
+            thresholdOverrides: payload.thresholdOverrides,
+            allowOverfiltered: false,
+          }),
         });
+        const runId = next.runId ?? next.id ?? next.run?.id ?? null;
+        if (!runId) {
+          throw new Error("Run started but id is missing");
+        }
         await reloadCatalog();
         setToast({ message: "Run started" });
-        router.push(`/discovery-lab/results?runId=${encodeURIComponent(next.id)}`);
+        router.push(`/discovery-lab/results?runId=${encodeURIComponent(runId)}`);
       } catch (err) {
         setToast({ message: err instanceof Error ? err.message : "Run failed", error: true });
       }
     });
+  }
+
+  async function ensurePackIdForRun(payload: DiscoveryLabPackDraft): Promise<string> {
+    const existingId = normalizeId(payload.id);
+    if (existingId) {
+      return existingId;
+    }
+
+    const detail = await fetchJson<WorkbenchPackDetailPayload>("/operator/packs", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    const createdPack = detail.pack;
+    if (!createdPack) {
+      throw new Error("Pack save failed before run start");
+    }
+
+    setSelectedPackId(createdPack.id);
+    setDraft(toDraft(createdPack));
+    setParamTexts(buildParamTextsFromRecipes(createdPack.recipes));
+    return createdPack.id;
   }
 
   function selectPack(pack: DiscoveryLabPack) {
@@ -220,12 +272,13 @@ export function DiscoveryLabClient(props: {
     }
     startTransition(async () => {
       try {
-        await fetchJson("/operator/discovery-lab/packs/delete", {
-          method: "POST",
-          body: JSON.stringify({ packId: selectedPack.id }),
+        await fetchJson<{ ok: true }>(`/operator/packs/${encodeURIComponent(selectedPack.id)}`, {
+          method: "DELETE",
         });
-        const next = await fetchJson<DiscoveryLabCatalog>("/operator/discovery-lab/catalog");
-        const nextRuntime = await fetchJson<DiscoveryLabRuntimeSnapshot>("/status");
+        const [next, nextRuntime] = await Promise.all([
+          fetchStudioCatalog(),
+          fetchJson<DiscoveryLabRuntimeSnapshot>("/status"),
+        ]);
         setCatalog(next);
         setRuntimeSnapshot(nextRuntime);
         const fallback = next.packs[0] ?? null;
@@ -835,6 +888,111 @@ function ConfigTab({
       )}
     </div>
   );
+}
+
+async function fetchStudioCatalog(): Promise<DiscoveryLabCatalog> {
+  const [packsPayload, runsPayload] = await Promise.all([
+    fetchJson<WorkbenchPackListPayload | WorkbenchPackSummary[]>("/operator/packs?limit=100"),
+    fetchJson<WorkbenchRunListPayload | WorkbenchRunSummary[]>("/operator/runs?limit=30"),
+  ]);
+  const packSummaries = normalizePackListPayload(packsPayload);
+  const runSummaries = normalizeRunListPayload(runsPayload);
+  const packs = await Promise.all(packSummaries.map((pack) => fetchPackForStudio(pack)));
+  const packKindById = new Map(packs.map((pack) => [pack.id, pack.kind]));
+  const runs = runSummaries.map((run) => toDiscoveryRunSummary(run, packKindById.get(run.packId)));
+  const knownSourceSet = new Set<string>(["pump_dot_fun"]);
+
+  for (const pack of packs) {
+    for (const source of pack.defaultSources ?? []) {
+      const normalized = normalizeId(source);
+      if (normalized) knownSourceSet.add(normalized);
+    }
+  }
+  for (const run of runs) {
+    for (const source of run.sources ?? []) {
+      const normalized = normalizeId(source);
+      if (normalized) knownSourceSet.add(normalized);
+    }
+  }
+
+  return {
+    packs,
+    activeRun: runs.find((run) => run.status === "RUNNING") ?? null,
+    recentRuns: runs,
+    profiles: ["runtime", "high-value", "scalp"],
+    knownSources: [...knownSourceSet],
+  };
+}
+
+async function fetchPackForStudio(summary: WorkbenchPackSummary): Promise<DiscoveryLabPack> {
+  try {
+    const detail = await fetchJson<WorkbenchPackDetailPayload>(`/operator/packs/${encodeURIComponent(summary.id)}`);
+    if (detail.pack) {
+      return detail.pack;
+    }
+  } catch {
+  }
+
+  return {
+    id: summary.id,
+    kind: summary.kind,
+    name: summary.name,
+    description: summary.description ?? "",
+    thesis: summary.thesis ?? undefined,
+    defaultProfile: summary.defaultProfile ?? "high-value",
+    defaultSources: summary.defaultSources ?? [],
+    thresholdOverrides: {},
+    recipes: [],
+    updatedAt: summary.updatedAt,
+    sourcePath: summary.sourcePath ?? "db://discovery-lab-pack",
+  };
+}
+
+function normalizePackListPayload(payload: WorkbenchPackListPayload | WorkbenchPackSummary[]): WorkbenchPackSummary[] {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  return Array.isArray(payload.packs) ? payload.packs : [];
+}
+
+function normalizeRunListPayload(payload: WorkbenchRunListPayload | WorkbenchRunSummary[]): WorkbenchRunSummary[] {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  return Array.isArray(payload.runs) ? payload.runs : [];
+}
+
+function toDiscoveryRunSummary(
+  run: WorkbenchRunSummary,
+  packKind: DiscoveryLabPack["kind"] | undefined,
+): DiscoveryLabCatalog["recentRuns"][number] {
+  return {
+    id: run.id,
+    status: run.status,
+    createdAt: run.createdAt,
+    startedAt: run.startedAt ?? run.createdAt,
+    completedAt: run.completedAt ?? null,
+    appliedToLiveAt: run.appliedToLiveAt ?? null,
+    appliedConfigVersionId: run.appliedConfigVersionId ?? null,
+    packId: run.packId,
+    packName: run.packName,
+    packKind: packKind ?? "custom",
+    profile: run.profile ?? "high-value",
+    sources: run.sources ?? [],
+    allowOverfiltered: run.allowOverfiltered ?? false,
+    queryCount: null,
+    winnerCount: run.winnerCount ?? null,
+    evaluationCount: run.evaluationCount ?? null,
+    errorMessage: run.errorMessage ?? null,
+  };
+}
+
+function normalizeId(value: string | null | undefined): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 function ChoiceChip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {

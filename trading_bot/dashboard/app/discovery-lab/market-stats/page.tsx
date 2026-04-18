@@ -5,6 +5,6 @@ import type { DiscoveryLabMarketStatsPayload } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 export default async function DiscoveryLabMarketStatsPage() {
-  const initialPayload = await serverFetch<DiscoveryLabMarketStatsPayload>("/api/operator/discovery-lab/market-stats?limit=18");
+  const initialPayload = await serverFetch<DiscoveryLabMarketStatsPayload>("/api/operator/market/trending?limit=18");
   return <DiscoveryLabMarketStatsClient initialPayload={initialPayload} />;
 }

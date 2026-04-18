@@ -1,0 +1,444 @@
+import { Prisma, type TradingSession } from "@prisma/client";
+import { db } from "../../db/client.js";
+import type {
+  LiveStrategySettings,
+  TradingSessionHistoryPayload,
+  TradingSessionSnapshot,
+} from "../../types/domain.js";
+import { recordOperatorEvent } from "../operator-events.js";
+import type { DiscoveryLabRunDetail } from "../discovery-lab-service.js";
+import {
+  buildDefaultLiveStrategy,
+  RuntimeConfigService,
+} from "../runtime-config.js";
+
+type TradingSessionServiceDeps = {
+  config: RuntimeConfigService;
+  getDiscoveryLabRun: (runId: string) => Promise<DiscoveryLabRunDetail | null>;
+};
+
+type SessionSummary = {
+  tradeCount: number;
+  openPositionCount: number;
+  closedPositionCount: number;
+  realizedPnlUsd: Prisma.Decimal;
+};
+
+type SessionRecordWithSummary = {
+  row: TradingSession;
+  summary: SessionSummary;
+};
+
+const ACTIVE_SESSION_ORDER = [{ startedAt: "desc" }, { createdAt: "desc" }] as const;
+const DEFAULT_SESSION_LIMIT = 25;
+const MAX_SESSION_LIMIT = 100;
+const SESSION_STOP_PAUSE_REASON = "trading session stopped; apply or resume a live strategy before reopening entries";
+const SESSION_STOPPED_REASON = "STOPPED";
+const SESSION_REPLACED_REASON = "REPLACED";
+
+export class TradingSessionService {
+  constructor(private readonly deps: TradingSessionServiceDeps) {}
+
+  async getCurrentSession(): Promise<TradingSessionSnapshot | null> {
+    const activeSession = await this.getActiveSessionRecord(db);
+    if (!activeSession) {
+      return null;
+    }
+    return this.mapSessionRecord(activeSession);
+  }
+
+  async listSessions(limit = DEFAULT_SESSION_LIMIT): Promise<TradingSessionHistoryPayload> {
+    const rows = await db.tradingSession.findMany({
+      take: normalizeSessionLimit(limit),
+      orderBy: ACTIVE_SESSION_ORDER,
+    });
+    const sessions = await Promise.all(rows.map((row) => this.mapSession(row)));
+    return {
+      currentSession: sessions.find((session) => session.stoppedAt == null) ?? null,
+      sessions,
+    };
+  }
+
+  async stopSession(sessionId: string, reason?: string): Promise<TradingSessionSnapshot> {
+    const normalizedSessionId = sessionId.trim();
+    if (!normalizedSessionId) {
+      throw new Error("sessionId is required");
+    }
+
+    const prepared = await this.deps.config.preparePatch({
+      strategy: {
+        liveStrategy: buildDefaultLiveStrategy(),
+      },
+    });
+    const stoppedAt = new Date();
+    const stoppedReason = normalizeStopReason(reason);
+
+    const stopped = await db.$transaction(async (tx) => {
+      const activeSession = await this.getActiveSessionRecord(tx);
+      if (!activeSession || activeSession.row.id !== normalizedSessionId) {
+        const existing = await tx.tradingSession.findUnique({
+          where: { id: normalizedSessionId },
+        });
+        if (!existing) {
+          throw new Error("trading session not found");
+        }
+        if (existing.stoppedAt) {
+          throw new Error("cannot stop an already closed trading session");
+        }
+        throw new Error("cannot stop a non-active trading session");
+      }
+
+      const configResult = await this.deps.config.applyPreparedPatch(tx, prepared, {
+        appliedBy: "direct_patch",
+        changedPaths: prepared.changedPaths,
+        liveAffectingPaths: prepared.liveAffectingPaths,
+      });
+
+      await tx.botState.update({
+        where: { id: "singleton" },
+        data: { pauseReason: SESSION_STOP_PAUSE_REASON },
+      });
+
+      await this.syncPackDeploymentState(tx, null);
+      return this.closeSession(tx, activeSession, {
+        stoppedAt,
+        stoppedReason,
+        stoppedConfigVersionId: configResult.configVersionId,
+      });
+    });
+
+    this.deps.config.cacheSettings(prepared.next);
+
+    await recordOperatorEvent({
+      kind: "control_state",
+      level: "warning",
+      title: "Trading session stopped",
+      detail: `Session ${stopped.packName} was closed and live strategy deployment was cleared.`,
+      entityType: "trading_session",
+      entityId: stopped.id,
+      metadata: {
+        sessionId: stopped.id,
+        packId: stopped.packId,
+        packName: stopped.packName,
+        packVersion: stopped.packVersion,
+        stoppedReason: stopped.stoppedReason,
+      },
+    });
+
+    return stopped;
+  }
+
+  async startFromDiscoveryLabRun(runId: string): Promise<{
+    ok: true;
+    session: TradingSessionSnapshot;
+    strategy: LiveStrategySettings;
+  }> {
+    const normalizedRunId = runId.trim();
+    if (!normalizedRunId) {
+      throw new Error("runId is required");
+    }
+
+    const run = await this.deps.getDiscoveryLabRun(normalizedRunId);
+    if (!run || !run.report) {
+      throw new Error("discovery-lab run not found or not completed");
+    }
+    const calibration = this.requireReadyCalibration(run);
+    const prepared = await this.deps.config.preparePatch({
+      strategy: {
+        livePresetId: calibration.dominantPresetId ?? "FIRST_MINUTE_POSTGRAD_CONTINUATION",
+        liveStrategy: calibration,
+      },
+    });
+    const appliedAt = new Date();
+
+    const result = await db.$transaction(async (tx) => {
+      const activeSession = await this.getActiveSessionRecord(tx);
+      const nextPack = calibration.packId
+        ? await tx.strategyPack.findUnique({
+            where: { id: calibration.packId },
+            select: { id: true, name: true, version: true },
+          })
+        : null;
+      const previousPackId = activeSession?.row.packId ?? prepared.current.strategy.liveStrategy.packId ?? null;
+      const previousPack = previousPackId
+        ? await tx.strategyPack.findUnique({
+            where: { id: previousPackId },
+            select: { name: true, version: true },
+          })
+        : null;
+
+      const configResult = await this.deps.config.applyPreparedPatch(tx, prepared, {
+        appliedBy: "direct_patch",
+        changedPaths: prepared.changedPaths,
+        liveAffectingPaths: prepared.liveAffectingPaths,
+      });
+
+      if (activeSession) {
+        await this.closeSession(tx, activeSession, {
+          stoppedAt: appliedAt,
+          stoppedReason: SESSION_REPLACED_REASON,
+          stoppedConfigVersionId: configResult.configVersionId,
+        });
+      }
+
+      await this.syncPackDeploymentState(tx, nextPack?.id ?? null);
+
+      const createdSession = await tx.tradingSession.create({
+        data: {
+          mode: prepared.next.tradeMode,
+          packId: nextPack?.id ?? null,
+          packName: calibration.packName ?? nextPack?.name ?? run.packName,
+          packVersion: nextPack?.version ?? null,
+          sourceRunId: normalizedRunId,
+          previousPackId,
+          previousPackName: activeSession?.row.packName
+            ?? prepared.current.strategy.liveStrategy.packName
+            ?? previousPack?.name
+            ?? null,
+          previousPackVersion: activeSession?.row.packVersion ?? previousPack?.version ?? null,
+          startedConfigVersionId: configResult.configVersionId,
+          startedAt: appliedAt,
+        },
+      });
+
+      await tx.discoveryLabRun.update({
+        where: { id: normalizedRunId },
+        data: {
+          appliedToLiveAt: appliedAt,
+          appliedConfigVersionId: configResult.configVersionId,
+        },
+      });
+
+      return createdSession;
+    });
+
+    this.deps.config.cacheSettings(prepared.next);
+    const session = await this.mapSession(result);
+
+    await recordOperatorEvent({
+      kind: "settings_apply",
+      title: "Discovery-lab live strategy applied",
+      detail: `Run ${run.packName} started a trading session with ${session.packName} and a ${calibration.capitalModifierPercent}% capital modifier.`,
+      entityType: "trading_session",
+      entityId: session.id,
+      metadata: {
+        runId: normalizedRunId,
+        sessionId: session.id,
+        packId: session.packId,
+        packName: session.packName,
+        packVersion: session.packVersion,
+        dominantMode: calibration.dominantMode,
+        dominantPresetId: calibration.dominantPresetId,
+        winnerCount: calibration.calibrationSummary?.winnerCount ?? 0,
+        capitalModifierPercent: calibration.capitalModifierPercent,
+      },
+    });
+
+    return {
+      ok: true,
+      session,
+      strategy: calibration,
+    };
+  }
+
+  private requireReadyCalibration(run: DiscoveryLabRunDetail): LiveStrategySettings {
+    const calibration = run.strategyCalibration;
+    if (!calibration) {
+      throw new Error("strategy calibration is unavailable for this run");
+    }
+    if (run.packId === "__inline__" || calibration.packId === "__inline__") {
+      throw new Error("inline discovery-lab drafts must be saved as packs before applying live");
+    }
+    if (!calibration.packId?.trim()) {
+      throw new Error("strategy calibration is missing a deployable pack id");
+    }
+    if ((calibration.calibrationSummary?.winnerCount ?? 0) <= 0) {
+      throw new Error("cannot apply a live strategy from a run with no winners");
+    }
+    if ((calibration.calibrationSummary?.calibrationConfidence ?? 0) < 0.56) {
+      throw new Error("strategy calibration confidence is too weak to apply safely");
+    }
+    if (
+      (calibration.calibrationSummary?.avgWinnerTimeSinceGraduationMin ?? Number.POSITIVE_INFINITY) <= 30
+      && (calibration.calibrationSummary?.winnerCount ?? 0) < 3
+    ) {
+      throw new Error("sub-30m winner sample is too thin; rerun or widen the pack before applying");
+    }
+
+    return calibration;
+  }
+
+  private async getActiveSessionRecord(
+    client: Prisma.TransactionClient | typeof db,
+  ): Promise<SessionRecordWithSummary | null> {
+    const row = await client.tradingSession.findFirst({
+      where: { stoppedAt: null },
+      orderBy: ACTIVE_SESSION_ORDER,
+    });
+    if (!row) {
+      return null;
+    }
+
+    return {
+      row,
+      summary: await this.getSessionSummary(client, row),
+    };
+  }
+
+  private async closeSession(
+    tx: Prisma.TransactionClient,
+    session: SessionRecordWithSummary,
+    input: {
+      stoppedAt: Date;
+      stoppedReason: string;
+      stoppedConfigVersionId: number;
+    },
+  ): Promise<TradingSessionSnapshot> {
+    const summary = await this.getSessionSummary(tx, {
+      sourceRunId: session.row.sourceRunId,
+      startedAt: session.row.startedAt,
+      stoppedAt: input.stoppedAt,
+    });
+    const closed = await tx.tradingSession.update({
+      where: { id: session.row.id },
+      data: {
+        stoppedAt: input.stoppedAt,
+        stoppedReason: input.stoppedReason,
+        stoppedConfigVersionId: input.stoppedConfigVersionId,
+        realizedPnlUsd: summary.realizedPnlUsd,
+        tradeCount: summary.tradeCount,
+      },
+    });
+
+    return this.mapSessionRecord({ row: closed, summary });
+  }
+
+  private async syncPackDeploymentState(
+    tx: Prisma.TransactionClient,
+    activePackId: string | null,
+  ): Promise<void> {
+    await tx.strategyPack.updateMany({
+      where: { status: "LIVE" },
+      data: {
+        status: "DRAFT",
+        publishedAt: null,
+      },
+    });
+
+    if (!activePackId) {
+      return;
+    }
+
+    await tx.strategyPack.update({
+      where: { id: activePackId },
+      data: {
+        status: "LIVE",
+        publishedAt: new Date(),
+      },
+    });
+  }
+
+  private async mapSession(row: TradingSession): Promise<TradingSessionSnapshot> {
+    return this.mapSessionRecord({
+      row,
+      summary: await this.getSessionSummary(db, row),
+    });
+  }
+
+  private mapSessionRecord(record: SessionRecordWithSummary): TradingSessionSnapshot {
+    const { row, summary } = record;
+    return {
+      id: row.id,
+      mode: row.mode,
+      packId: row.packId,
+      packName: row.packName,
+      packVersion: row.packVersion,
+      sourceRunId: row.sourceRunId,
+      previousPackId: row.previousPackId,
+      previousPackName: row.previousPackName,
+      previousPackVersion: row.previousPackVersion,
+      startedConfigVersionId: row.startedConfigVersionId,
+      stoppedConfigVersionId: row.stoppedConfigVersionId,
+      startedAt: row.startedAt.toISOString(),
+      stoppedAt: row.stoppedAt?.toISOString() ?? null,
+      stoppedReason: row.stoppedReason,
+      tradeCount: summary.tradeCount,
+      openPositionCount: summary.openPositionCount,
+      closedPositionCount: summary.closedPositionCount,
+      realizedPnlUsd: Number(summary.realizedPnlUsd),
+    };
+  }
+
+  private async getSessionSummary(
+    client: Prisma.TransactionClient | typeof db,
+    session: Pick<TradingSession, "sourceRunId" | "startedAt" | "stoppedAt">,
+  ): Promise<SessionSummary> {
+    if (!session.sourceRunId) {
+      return {
+        tradeCount: 0,
+        openPositionCount: 0,
+        closedPositionCount: 0,
+        realizedPnlUsd: new Prisma.Decimal(0),
+      };
+    }
+
+    const openedAtWindow = session.stoppedAt == null
+      ? { gte: session.startedAt }
+      : { gte: session.startedAt, lt: session.stoppedAt };
+
+    const [tradeCount, openPositionCount, closedPositionCount, realized] = await Promise.all([
+      client.position.count({
+        where: {
+          liveStrategyRunId: session.sourceRunId,
+          openedAt: openedAtWindow,
+        },
+      }),
+      client.position.count({
+        where: {
+          liveStrategyRunId: session.sourceRunId,
+          status: "OPEN",
+          openedAt: openedAtWindow,
+        },
+      }),
+      client.position.count({
+        where: {
+          liveStrategyRunId: session.sourceRunId,
+          status: "CLOSED",
+          openedAt: openedAtWindow,
+        },
+      }),
+      client.fill.aggregate({
+        _sum: { pnlUsd: true },
+        where: {
+          side: "SELL",
+          position: {
+            liveStrategyRunId: session.sourceRunId,
+            openedAt: openedAtWindow,
+          },
+        },
+      }),
+    ]);
+
+    return {
+      tradeCount,
+      openPositionCount,
+      closedPositionCount,
+      realizedPnlUsd: realized._sum.pnlUsd ?? new Prisma.Decimal(0),
+    };
+  }
+}
+
+function normalizeSessionLimit(limit: number): number {
+  if (!Number.isFinite(limit) || limit <= 0) {
+    return DEFAULT_SESSION_LIMIT;
+  }
+  return Math.min(Math.floor(limit), MAX_SESSION_LIMIT);
+}
+
+function normalizeStopReason(reason: string | undefined): string {
+  if (typeof reason !== "string") {
+    return SESSION_STOPPED_REASON;
+  }
+  const trimmed = reason.trim();
+  return trimmed.length > 0 ? trimmed : SESSION_STOPPED_REASON;
+}

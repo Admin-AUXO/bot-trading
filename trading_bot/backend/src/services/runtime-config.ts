@@ -5,7 +5,7 @@ import { env } from "../config/env.js";
 import type { BotSettings } from "../types/domain.js";
 import { toJsonValue } from "../utils/json.js";
 
-function buildDefaultLiveStrategy() {
+export function buildDefaultLiveStrategy() {
   return {
     enabled: false,
     sourceRunId: null,
@@ -29,6 +29,13 @@ type ApplySettingsMetadata = {
   appliedBy: "bootstrap" | "backfill" | "direct_patch";
   changedPaths?: string[];
   liveAffectingPaths?: string[];
+};
+
+export type PreparedSettingsPatch = {
+  current: BotSettings;
+  next: BotSettings;
+  changedPaths: string[];
+  liveAffectingPaths: string[];
 };
 
 const LIVE_AFFECTING_PREFIXES = ["tradeMode", "capital.", "strategy.", "filters.", "exits."];
@@ -406,32 +413,59 @@ export class RuntimeConfigService {
     return this.cachedSettings;
   }
 
-  async patchSettings(input: Partial<BotSettings>): Promise<BotSettings> {
+  async preparePatch(input: Partial<BotSettings>): Promise<PreparedSettingsPatch> {
     const current = await this.getSettings();
     const next = validateSettings(mergeSettings(current, input));
     const changedPaths = getChangedPaths(current, next);
-    await this.applySettings(next, {
-      appliedBy: "direct_patch",
+    return {
+      current,
+      next,
       changedPaths,
       liveAffectingPaths: getLiveAffectingPaths(changedPaths),
-    });
-    return next;
+    };
   }
 
-  private async applySettings(next: BotSettings, metadata: ApplySettingsMetadata): Promise<void> {
-    const current = await this.getSettings();
-    const changedPaths = metadata.changedPaths ?? getChangedPaths(current, next);
+  async patchSettings(input: Partial<BotSettings>): Promise<BotSettings> {
+    const prepared = await this.preparePatch(input);
+    if (prepared.changedPaths.some((path) => path === "strategy.liveStrategy" || path.startsWith("strategy.liveStrategy."))) {
+      throw new Error("cannot patch live strategy directly; use the session seam");
+    }
+    const result = await db.$transaction((tx) => this.applyPreparedPatch(tx, prepared, {
+      appliedBy: "direct_patch",
+      changedPaths: prepared.changedPaths,
+      liveAffectingPaths: prepared.liveAffectingPaths,
+    }));
+    this.cacheSettings(result.settings);
+    return result.settings;
+  }
+
+  cacheSettings(settings: BotSettings): void {
+    this.cachedSettings = settings;
+  }
+
+  async applyPreparedPatch(
+    tx: Prisma.TransactionClient,
+    prepared: PreparedSettingsPatch,
+    metadata: ApplySettingsMetadata,
+  ): Promise<{ settings: BotSettings; configVersionId: number }> {
+    const changedPaths = metadata.changedPaths ?? prepared.changedPaths;
+    const liveAffectingPaths = metadata.liveAffectingPaths ?? prepared.liveAffectingPaths;
     if (changedPaths.length === 0) {
-      this.cachedSettings = next;
-      return;
+      const latestVersion = await tx.runtimeConfigVersion.findFirst({
+        orderBy: [{ activatedAt: "desc" }, { id: "desc" }],
+        select: { id: true },
+      });
+      return {
+        settings: prepared.next,
+        configVersionId: latestVersion?.id ?? 0,
+      };
     }
 
-    const liveAffectingPaths = metadata.liveAffectingPaths ?? getLiveAffectingPaths(changedPaths);
-    const tradeModeChanged = next.tradeMode !== current.tradeMode;
-    const capitalChanged = next.capital.capitalUsd !== current.capital.capitalUsd;
+    const tradeModeChanged = prepared.next.tradeMode !== prepared.current.tradeMode;
+    const capitalChanged = prepared.next.capital.capitalUsd !== prepared.current.capital.capitalUsd;
     const [openPositions, botState] = await Promise.all([
-      db.position.count({ where: { status: "OPEN" } }),
-      db.botState.findUnique({ where: { id: "singleton" } }),
+      tx.position.count({ where: { status: "OPEN" } }),
+      tx.botState.findUnique({ where: { id: "singleton" } }),
     ]);
 
     if (tradeModeChanged && openPositions > 0) {
@@ -442,36 +476,38 @@ export class RuntimeConfigService {
       throw new Error("cannot change capital baseline while positions are still open");
     }
 
-    await db.$transaction(async (tx) => {
-      await tx.runtimeConfig.upsert({
-        where: { id: "singleton" },
-        update: { settings: toJsonValue(next) },
-        create: { id: "singleton", settings: toJsonValue(next) },
-      });
-
-      await tx.runtimeConfigVersion.create({
-        data: {
-          settings: toJsonValue(next),
-          changedPaths: toJsonValue(changedPaths),
-          liveAffectingPaths: toJsonValue(liveAffectingPaths),
-          appliedBy: metadata.appliedBy,
-        },
-      });
-
-      if (botState) {
-        await tx.botState.update({
-          where: { id: "singleton" },
-          data: {
-            tradeMode: next.tradeMode,
-            capitalUsd: next.capital.capitalUsd,
-            cashUsd: capitalChanged && openPositions === 0
-              ? next.capital.capitalUsd
-              : undefined,
-          },
-        });
-      }
+    await tx.runtimeConfig.upsert({
+      where: { id: "singleton" },
+      update: { settings: toJsonValue(prepared.next) },
+      create: { id: "singleton", settings: toJsonValue(prepared.next) },
     });
 
-    this.cachedSettings = next;
+    const version = await tx.runtimeConfigVersion.create({
+      data: {
+        settings: toJsonValue(prepared.next),
+        changedPaths: toJsonValue(changedPaths),
+        liveAffectingPaths: toJsonValue(liveAffectingPaths),
+        appliedBy: metadata.appliedBy,
+      },
+      select: { id: true },
+    });
+
+    if (botState) {
+      await tx.botState.update({
+        where: { id: "singleton" },
+        data: {
+          tradeMode: prepared.next.tradeMode,
+          capitalUsd: prepared.next.capital.capitalUsd,
+          cashUsd: capitalChanged && openPositions === 0
+            ? prepared.next.capital.capitalUsd
+            : undefined,
+        },
+      });
+    }
+
+    return {
+      settings: prepared.next,
+      configVersionId: version.id,
+    };
   }
 }

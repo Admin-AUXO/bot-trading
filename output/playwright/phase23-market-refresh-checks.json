@@ -1,0 +1,12 @@
+[
+  {
+    "page": "market-trending-refreshed",
+    "hasSoulana": false,
+    "hasSnapshotEmpty": true
+  },
+  {
+    "page": "strategy-ideas-refreshed",
+    "hasSurvivalScalp": false,
+    "hasNoSnapshot": true
+  }
+]

@@ -15,3 +15,22 @@ export const discoveryLabRoutes = {
   strategyIdeas: "/discovery-lab/strategy-ideas",
   config: "/discovery-lab/config",
 } as const;
+
+export const workbenchRoutes = {
+  root: "/workbench",
+  packs: "/workbench/packs",
+  editor: "/workbench/editor",
+  editorByIdPrefix: "/workbench/editor",
+  sandbox: "/workbench/sandbox",
+  sandboxByRunPrefix: "/workbench/sandbox",
+  grader: "/workbench/grader",
+  graderByRunPrefix: "/workbench/grader",
+  sessions: "/workbench/sessions",
+} as const;
+
+export const marketRoutes = {
+  root: "/market",
+  trending: "/market/trending",
+  tokenByMintPrefix: "/market/token",
+  watchlist: "/market/watchlist",
+} as const;

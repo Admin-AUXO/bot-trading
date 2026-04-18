@@ -254,7 +254,8 @@ Notes:
 - Generate the service env files with `./scripts/sync-compose-env.sh` after you change `backend/.env`
 - `node ./scripts/sync-compose-env.mjs` strips carriage returns while parsing `backend/.env`, so a Windows-edited env file can still fan out cleanly into the compose-only env files
 - If credentials change, keep `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, and `DATABASE_URL` aligned
-- `CONTROL_API_SECRET` is still the backend source of truth; the sync script maps it into `dashboard/compose.env` as `CONTROL_SECRET`
+- `CONTROL_API_SECRET` is still the backend source of truth; the sync script maps it into `dashboard/compose.env` as `CONTROL_API_SECRET` and also keeps `CONTROL_SECRET` as a compatibility fallback
+- `DASHBOARD_AUTH_USERNAME` and `DASHBOARD_AUTH_PASSWORD` can be set in `backend/.env`; if the password is left blank, the compose sync falls back to `CONTROL_API_SECRET` so the dashboard is not left public by default
 - `GRAFANA_BASE_URL`, `GRAFANA_ADMIN_USER`, `GRAFANA_ADMIN_PASSWORD`, and the dashboard UID envs stay in `backend/.env` as the single editable source; the sync script fans them out into the service env files
 
 ## Verification

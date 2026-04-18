@@ -63,9 +63,9 @@ Purpose: document the current UI contract for the Next.js operator desk so later
 
 - Sidebar owns primary route navigation
 - Sidebar should present two grouped areas:
-  `Operational desk` and `Discovery lab`
+  `Operational desk`, `Strategy workbench`, and `Market intel`
 - Sidebar item labels should match the route job directly:
-  `Overview`, `Trading`, `Settings`, `Market`, `Studio`, `Results`, `Config`
+  `Overview`, `Trading`, `Settings`, `Packs`, `Editor`, `Sandbox`, `Grader`, `Sessions`, `Trending`, `Watchlist`
 - Sidebar active state must follow nested routes, so detail pages keep their parent section selected
 - Sidebar also carries one compact shell-state block:
   mode
@@ -106,6 +106,7 @@ Purpose: document the current UI contract for the Next.js operator desk so later
 - `/discovery-lab/results`: unified run-and-review surface for start, monitor, reopen, and completed-run triage, plus live strategy staging and manual trade ticket flow
 - `/discovery-lab/strategy-ideas`: backend-suggested pack ideas for the current regime; route loads stay read-only and cache-backed, while refresh controls expose the manual-refresh path for confidence, threshold ranges, and session fit
 - `/discovery-lab/config`: discovery-owned config surface for strategy, discovery filters, exits, and hot runtime parameters
+- `/workbench/*` and `/market/*`: compatibility route layer for the draft IA. These pages may delegate to the current discovery-lab implementation until first-class replacements land, but the URL contract should stay stable.
 - compatibility routes:
   `/`, `/trading`, `/settings`, `/discovery-lab`, `/candidates`, `/positions`, and `/telemetry` remain as redirects so old links keep working while primary navigation stays compact
 

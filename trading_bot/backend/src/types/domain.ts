@@ -244,6 +244,111 @@ export interface RuntimeSnapshot {
   providerSummary?: unknown[];
   providerBudget?: unknown;
   adaptiveModel?: AdaptiveModelState;
+  currentSession?: TradingSessionSnapshot | null;
+}
+
+export interface TradingSessionSnapshot {
+  id: string;
+  mode: "DRY_RUN" | "LIVE";
+  packId: string | null;
+  packName: string;
+  packVersion: number | null;
+  sourceRunId: string | null;
+  previousPackId: string | null;
+  previousPackName: string | null;
+  previousPackVersion: number | null;
+  startedConfigVersionId: number | null;
+  stoppedConfigVersionId: number | null;
+  startedAt: string;
+  stoppedAt: string | null;
+  stoppedReason: string | null;
+  tradeCount: number;
+  openPositionCount: number;
+  closedPositionCount: number;
+  realizedPnlUsd: number;
+}
+
+export interface TradingSessionHistoryPayload {
+  currentSession: TradingSessionSnapshot | null;
+  sessions: TradingSessionSnapshot[];
+}
+
+export interface OperatorPackSummary {
+  id: string;
+  kind: "created" | "custom";
+  name: string;
+  description: string;
+  thesis: string | null;
+  defaultProfile: DiscoveryLabProfile;
+  defaultSources: string[];
+  recipeCount: number;
+  thresholdOverrideCount: number;
+  updatedAt: string;
+  sourcePath: string | null;
+  status: "DRAFT" | "TESTING" | "GRADED" | "LIVE" | "RETIRED" | null;
+  grade: "A" | "B" | "C" | "D" | "F" | null;
+  version: number | null;
+  publishedAt: string | null;
+  runCount: number;
+  completedRunCount: number;
+  winnerCount: number;
+  lastRunStartedAt: string | null;
+  lastRunAt: string | null;
+  lastRunStatus: DiscoveryLabRunStatus | null;
+  latestRunStatus: DiscoveryLabRunStatus | null;
+  latestAppliedAt: string | null;
+  currentSessionId: string | null;
+  isDeployed: boolean;
+}
+
+export interface OperatorPackListPayload {
+  currentSession: TradingSessionSnapshot | null;
+  packs: OperatorPackSummary[];
+}
+
+export interface OperatorRunSummary {
+  id: string;
+  status: DiscoveryLabRunStatus;
+  createdAt: string;
+  startedAt: string;
+  completedAt: string | null;
+  appliedToLiveAt: string | null;
+  appliedConfigVersionId: number | null;
+  packId: string;
+  packName: string;
+  packKind: DiscoveryLabPackKind;
+  profile: DiscoveryLabProfile;
+  sources: string[];
+  allowOverfiltered: boolean;
+  queryCount: number | null;
+  winnerCount: number | null;
+  evaluationCount: number | null;
+  errorMessage: string | null;
+  canApplyLive: boolean;
+  isCurrentSessionSource: boolean;
+}
+
+export interface OperatorRunListPayload {
+  currentSession: TradingSessionSnapshot | null;
+  runs: OperatorRunSummary[];
+}
+
+export interface OperatorPackDetailPayload {
+  currentSession: TradingSessionSnapshot | null;
+  pack: OperatorPackSummary & DiscoveryLabPack & {
+    draft: DiscoveryLabPack;
+    latestVersionId: string | null;
+    latestVersionNumber: number | null;
+    latestVersionCreatedAt: string | null;
+    latestVersionNotes: string | null;
+  };
+  recentRuns: OperatorRunSummary[];
+}
+
+export interface OperatorRunDetailPayload {
+  currentSession: TradingSessionSnapshot | null;
+  summary: OperatorRunSummary;
+  run: unknown;
 }
 
 export type StrategyPresetId =

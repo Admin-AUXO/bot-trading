@@ -1,0 +1,24 @@
+[
+  {
+    "urlPath": "/discovery-lab/results",
+    "status": 200,
+    "title": "Graduation Control",
+    "consoleErrors": [],
+    "bodySnippet": "GRADUATION CONTROL\nHEALTHY\nSync now\nMODE\nDRY\nOPEN\n0\nQUEUE\n0\nSYNC\nnow\nOPERATIONAL DESK\nOverview\nTrading\nSettings\nSTRATEGY WORKBENCH\nPacks\nEditor\nSandbox\nGrader\nSessions\nMARKET INTEL\nTrending\nWatchlist\nDRY RUN\nHEALTHY\nK\nPause\nDiscover\nEvaluate\nExit Check\nDISCOVERY LAB\nCOMPLETED\nResults\nRefresh\nOpen studio\nPACK\nScalp 30-60% · Deep Liquidity\nscalp\nQUERIES\n3\nRequests\nEVALUATIONS\n0\nDeep checks\nWINNERS\n0\nManual-entry candidates\nRUN STATE\n18 Apr 2026, 08:09\nLatest completed run\nDEDUPLICATED RESULTS\nToke",
+    "apiRuns": {
+      "status": 200,
+      "text": "{\"currentSession\":null,\"runs\":[{\"id\":\"63a304ec-5b9e-48e2-a080-39aba7fdfd52\",\"status\":\"COMPLETED\",\"createdAt\":\"2026-04-18T02:39:13.465Z\",\"startedAt\":\"2026-04-18T02:39:13.465Z\",\"completedAt\":\"2026-04-18T02:39:38.748Z\",\"appliedToLiveAt\":null,\"appliedConfigVersionId\":null,\"packId\":\"workspace-scalp-30pct-deep-liquidity\",\"packName\":\"Scalp 30-60% · Deep Liquidity\",\"packKind\":\"custom\",\"profile\":\"scalp\",\"s"
+    }
+  },
+  {
+    "urlPath": "/workbench/sandbox",
+    "status": 200,
+    "title": "Graduation Control",
+    "consoleErrors": [],
+    "bodySnippet": "GRADUATION CONTROL\nHEALTHY\nSync now\nMODE\nDRY\nOPEN\n0\nQUEUE\n0\nSYNC\nnow\nOPERATIONAL DESK\nOverview\nTrading\nSettings\nSTRATEGY WORKBENCH\nPacks\nEditor\nSandbox\nGrader\nSessions\nMARKET INTEL\nTrending\nWatchlist\nDRY RUN\nHEALTHY\nK\nPause\nDiscover\nEvaluate\nExit Check\nSTRATEGY WORKBENCH\nSandbox\nDedicated run seam for review and live-apply. No redirect detour through discovery-lab routes.\nOpen packs\nOpen results lab\n\nRUN INDEX\n\nRecent runs\n\nNewest runs first. Select one to inspect detail and apply-to-live state.",
+    "apiRuns": {
+      "status": 200,
+      "text": "{\"currentSession\":null,\"runs\":[{\"id\":\"63a304ec-5b9e-48e2-a080-39aba7fdfd52\",\"status\":\"COMPLETED\",\"createdAt\":\"2026-04-18T02:39:13.465Z\",\"startedAt\":\"2026-04-18T02:39:13.465Z\",\"completedAt\":\"2026-04-18T02:39:38.748Z\",\"appliedToLiveAt\":null,\"appliedConfigVersionId\":null,\"packId\":\"workspace-scalp-30pct-deep-liquidity\",\"packName\":\"Scalp 30-60% · Deep Liquidity\",\"packKind\":\"custom\",\"profile\":\"scalp\",\"s"
+    }
+  }
+]

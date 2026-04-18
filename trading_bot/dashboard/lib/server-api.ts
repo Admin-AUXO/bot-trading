@@ -1,7 +1,7 @@
 import "server-only";
 
 const API_URL = process.env.API_URL ?? "http://127.0.0.1:3101";
-const CONTROL_API_SECRET = process.env.CONTROL_API_SECRET ?? "";
+const CONTROL_API_SECRET = process.env.CONTROL_API_SECRET ?? process.env.CONTROL_SECRET ?? "";
 
 export async function serverFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers ?? {});

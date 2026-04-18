@@ -44,6 +44,33 @@ enum DiscoveryLabPackKind {
   CUSTOM
 }
 
+enum StrategyPackStatus {
+  DRAFT
+  TESTING
+  GRADED
+  LIVE
+  RETIRED
+}
+
+enum StrategyPackGrade {
+  A
+  B
+  C
+  D
+  F
+}
+
+enum ExitPlanProfile {
+  scalp
+  balanced
+  runner
+}
+
+enum TradingSessionMode {
+  DRY_RUN
+  LIVE
+}
+
 enum ProviderName {
   BIRDEYE
   HELIUS
@@ -185,6 +212,7 @@ model Candidate {
   @@index([mint, status])
   @@index([strategyPresetId, status, scheduledEvaluationAt])
   @@index([discoveryLabRunId, discoveredAt])
+  @@index([liveStrategyPackId, discoveredAt])
   @@index([discoveredAt])
   @@index([creator])
   @@index([platformId])
@@ -247,7 +275,7 @@ model Position {
   closedAt          DateTime?
   metadata          Json?
 
-
+  exitPlan          ExitPlan?
   fills             Fill[]
   candidates        Candidate[]
   snapshots         TokenMetrics[] @relation("PositionSnapshots")
@@ -273,7 +301,7 @@ model Fill {
   amountUsd    Decimal  @db.Decimal(18, 9)
   amountToken  Decimal  @db.Decimal(24, 9)
   pnlUsd       Decimal? @db.Decimal(18, 9)
-  txSignature  String?
+  txSignature  String? @unique
 
 
   executionReason  String?
@@ -301,12 +329,79 @@ model Fill {
   @@index([positionId, createdAt])
   @@index([side, createdAt])
   @@index([executionReason, createdAt])
-  @@index([txSignature])
 }
 
+model StrategyPack {
+  id              String             @id
+  name            String
+  version         Int                @default(1)
+  status          StrategyPackStatus @default(DRAFT)
+  grade           StrategyPackGrade?
+  recipe          Json
+  baseFilters     Json?
+  baseExits       Json?
+  adaptiveAxes    Json?
+  capitalModifier Decimal            @default(100) @db.Decimal(6, 2)
+  sortColumn      String?
+  sortOrder       String?
+  publishedAt     DateTime?
+  createdBy       String             @default("system")
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
 
+  exitPlans       ExitPlan[]
+  tradingSessions TradingSession[]
+  versions        StrategyPackVersion[]
 
+  @@index([status, updatedAt])
+  @@index([grade, updatedAt])
+  @@index([publishedAt])
+}
 
+model StrategyPackVersion {
+  id             String       @id @default(cuid())
+  packId         String
+  pack           StrategyPack @relation(fields: [packId], references: [id], onDelete: Cascade)
+  version        Int
+  configSnapshot Json
+  parentVersion  Int?
+  notes          String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([packId, version])
+  @@index([packId, createdAt])
+}
+
+model ExitPlan {
+  id                         String          @id @default(cuid())
+  positionId                 String          @unique
+  position                   Position        @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  profile                    ExitPlanProfile
+  stopLossPercent            Decimal         @db.Decimal(6, 2)
+  tp1Multiplier              Decimal         @db.Decimal(6, 4)
+  tp2Multiplier              Decimal         @db.Decimal(6, 4)
+  tp1SellFraction            Decimal         @db.Decimal(6, 4)
+  tp2SellFraction            Decimal         @db.Decimal(6, 4)
+  postTp1RetracePercent      Decimal         @db.Decimal(6, 2)
+  trailingStopPercent        Decimal         @db.Decimal(6, 2)
+  timeStopMinutes            Decimal         @db.Decimal(8, 2)
+  timeStopMinReturnPercent   Decimal         @db.Decimal(6, 2)
+  timeLimitMinutes           Decimal         @db.Decimal(8, 2)
+  partialStopLossEnabled     Boolean         @default(true)
+  partialSlThresholdPercent  Decimal         @db.Decimal(6, 2)
+  partialSlSellFraction      Decimal         @db.Decimal(6, 4)
+  momentumTpExtensionEnabled Boolean         @default(false)
+  recalibrateIntervalMinutes Decimal         @db.Decimal(8, 2)
+  derivedFromScore           Decimal?        @db.Decimal(8, 6)
+  strategyPackId             String?
+  strategyPack               StrategyPack?   @relation(fields: [strategyPackId], references: [id], onDelete: SetNull)
+  createdAt                  DateTime        @default(now())
+  updatedAt                  DateTime        @updatedAt
+
+  @@index([strategyPackId, createdAt])
+  @@index([createdAt])
+}
 
 model DiscoveryLabPack {
   id             String               @id
@@ -371,6 +466,7 @@ model DiscoveryLabRun {
   candidates    Candidate[]
   positions     Position[]
   queries       DiscoveryLabRunQuery[]
+  tradingSessions TradingSession[]
   tokens        DiscoveryLabRunToken[]
 
   @@index([status, startedAt])
@@ -508,6 +604,33 @@ model RuntimeConfigVersion {
 
   @@index([activatedAt])
   @@index([appliedBy, activatedAt])
+}
+
+model TradingSession {
+  id                    String             @id @default(cuid())
+  mode                  TradingSessionMode
+  packId                String?
+  pack                  StrategyPack?      @relation(fields: [packId], references: [id], onDelete: SetNull)
+  packName              String
+  packVersion           Int?
+  sourceRunId           String?
+  sourceRun             DiscoveryLabRun?   @relation(fields: [sourceRunId], references: [id], onDelete: SetNull)
+  previousPackId        String?
+  previousPackName      String?
+  previousPackVersion   Int?
+  startedConfigVersionId Int?
+  stoppedConfigVersionId Int?
+  startedAt             DateTime           @default(now())
+  stoppedAt             DateTime?
+  stoppedReason         String?
+  realizedPnlUsd        Decimal            @default(0) @db.Decimal(18, 9)
+  tradeCount            Int                @default(0)
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  @@index([stoppedAt, startedAt])
+  @@index([packId, startedAt])
+  @@index([sourceRunId, startedAt])
 }
 
 

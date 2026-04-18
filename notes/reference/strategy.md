@@ -143,13 +143,15 @@ Persistence on evaluation:
   - `DAILY_LOSS_LIMIT_USD` breached for the current trading day
   - `MAX_CONSECUTIVE_LOSSES` breached for the current trading day
 - `ExecutionEngine` serializes wallet-affecting actions so overlapping manual triggers and scheduler loops cannot open or close simultaneously
+- `ExecutionEngine` now also takes a per-mint advisory lock before opening a position, so manual-entry and runtime races cannot create duplicate open positions for the same mint
 - `LIVE` buys execute onchain first, then persist the fill, `txSignature`, position, and cash update; if persistence fails after a live trade lands, the bot pauses itself for manual intervention
+- Live fills treat `txSignature` as an idempotency key; duplicate persistence attempts should resolve to the existing fill instead of double-writing cash or position state
 - Live execution metadata now records a timing bundle for each onchain buy or sell, including quote, swap-build, sender-build, broadcast-and-confirm, and settlement-read latency so operator review can compare entry and exit execution speed by fill reason.
 - Live fill metadata now also stores quoted-vs-actual execution output and `executionSlippageBps`, and manual discovery-lab entries persist report-age timing (`discoveryLabReportAgeMsAtEntry`, `discoveryLabRunAgeMsAtEntry`) so fill analytics can separate execution latency from stale-decision delay.
 - Discovery-lab results can now promote a pass-grade token into a manual entry in either runtime mode. That path creates a linked `Candidate`, opens the `Position` through the same execution engine the automatic lane uses, stores the manual entry origin plus discovery-lab context in metadata, and keeps the position inside the normal open-position counts and workbench.
 - Manual discovery-lab entries can now override the final USD ticket size and per-trade exit settings from the operator ticket, but those overrides still route through the normal execution engine and capacity checks instead of bypassing risk.
 - Research mock buys are written to dedicated research tables and never touch `BotState.cashUsd` or `BotState.realizedPnlUsd`
-- The continuation preset can optionally arm a Helius `logsSubscribe` watcher. When a watched migration program emits a signal and the preset is active in `LIVE`, the runtime immediately runs another discovery sweep instead of waiting for the next scheduled loop.
+- The continuation preset can optionally arm a Helius `logsSubscribe` watcher. When a watched migration program emits a signal and the preset is active in `LIVE` and not paused, the runtime immediately runs another discovery sweep instead of waiting for the next scheduled loop.
 
 Pause semantics matter:
 

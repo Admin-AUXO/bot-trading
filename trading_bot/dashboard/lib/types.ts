@@ -226,6 +226,123 @@ export type ActionResponse = {
   home: DeskHomePayload;
 };
 
+export type TradingSessionSnapshot = {
+  id: string;
+  mode: "DRY_RUN" | "LIVE";
+  packId: string | null;
+  packName: string;
+  packVersion: number | null;
+  sourceRunId: string | null;
+  previousPackId: string | null;
+  previousPackName: string | null;
+  previousPackVersion: number | null;
+  startedConfigVersionId: number | null;
+  stoppedConfigVersionId: number | null;
+  startedAt: string;
+  stoppedAt: string | null;
+  stoppedReason: string | null;
+  tradeCount: number;
+  openPositionCount: number;
+  closedPositionCount: number;
+  realizedPnlUsd: number;
+};
+
+export type TradingSessionHistoryPayload = {
+  currentSession: TradingSessionSnapshot | null;
+  sessions: TradingSessionSnapshot[];
+};
+
+export type WorkbenchPackSummary = {
+  id: string;
+  name: string;
+  description: string;
+  kind: DiscoveryLabPackKind;
+  thesis?: string | null;
+  defaultProfile?: DiscoveryLabProfile | null;
+  defaultSources?: string[];
+  recipeCount?: number | null;
+  thresholdOverrideCount?: number | null;
+  updatedAt: string;
+  sourceRunId?: string | null;
+  sourcePath?: string | null;
+  status?: "DRAFT" | "TESTING" | "GRADED" | "LIVE" | "RETIRED" | null;
+  grade?: "A" | "B" | "C" | "D" | "F" | null;
+  version?: number | null;
+  publishedAt?: string | null;
+  runCount?: number | null;
+  completedRunCount?: number | null;
+  winnerCount?: number | null;
+  lastRunStartedAt?: string | null;
+  lastRunAt?: string | null;
+  lastRunStatus?: DiscoveryLabRunStatus | null;
+  latestRunStatus?: DiscoveryLabRunStatus | null;
+  latestAppliedAt?: string | null;
+  currentSessionId?: string | null;
+  isDeployed?: boolean;
+};
+
+export type WorkbenchPackListPayload = {
+  packs: WorkbenchPackSummary[];
+  currentSession?: TradingSessionSnapshot | null;
+};
+
+export type WorkbenchPackDetailPayload = {
+  pack: DiscoveryLabPack;
+  recentRuns?: WorkbenchRunSummary[];
+  currentSession?: TradingSessionSnapshot | null;
+};
+
+export type WorkbenchRunSummary = {
+  id: string;
+  status: DiscoveryLabRunStatus;
+  createdAt: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  packId: string;
+  packName: string;
+  profile?: DiscoveryLabProfile | null;
+  sources?: string[];
+  winnerCount?: number | null;
+  evaluationCount?: number | null;
+  errorMessage?: string | null;
+  appliedToLiveAt?: string | null;
+  appliedConfigVersionId?: number | null;
+  allowOverfiltered?: boolean;
+  canApplyLive?: boolean;
+  isCurrentSessionSource?: boolean;
+};
+
+export type WorkbenchPackRunsPayload = {
+  pack: WorkbenchPackSummary | null;
+  runs: WorkbenchRunSummary[];
+};
+
+export type WorkbenchRunListPayload = {
+  runs: WorkbenchRunSummary[];
+  currentSession?: TradingSessionSnapshot | null;
+};
+
+export type WorkbenchRunDetailPayload = {
+  run: DiscoveryLabRunDetail;
+  summary?: WorkbenchRunSummary;
+  currentSession?: TradingSessionSnapshot | null;
+};
+
+export type WorkbenchCreateRunResponse = {
+  id?: string;
+  runId?: string;
+  run?: {
+    id?: string;
+  };
+};
+
+export type WorkbenchApplyLiveResponse = {
+  ok?: boolean;
+  runId?: string;
+  session?: TradingSessionSnapshot;
+  strategy?: DiscoveryLabStrategyCalibration;
+};
+
 export type DiscoveryLabProfile = "runtime" | "high-value" | "scalp";
 export type DiscoveryLabPackKind = "created" | "custom";
 export type DiscoveryLabRunStatus = "RUNNING" | "COMPLETED" | "FAILED" | "INTERRUPTED";
@@ -405,6 +522,8 @@ export type DiscoveryLabRunSummary = {
   createdAt: string;
   startedAt: string;
   completedAt: string | null;
+  appliedToLiveAt: string | null;
+  appliedConfigVersionId: number | null;
   packId: string;
   packName: string;
   packKind: DiscoveryLabPackKind;
@@ -624,6 +743,7 @@ export type DiscoveryLabRuntimeSnapshot = {
   openPositions: number;
   settings: BotSettings;
   adaptiveModel?: AdaptiveModelState;
+  currentSession?: TradingSessionSnapshot | null;
 };
 
 export type DiscoveryLabTokenInsight = {
@@ -707,6 +827,7 @@ export type DiscoveryLabStrategyCalibration = LiveStrategySettings;
 
 export type DiscoveryLabApplyLiveStrategyResponse = {
   ok: true;
+  session: TradingSessionSnapshot;
   strategy: DiscoveryLabStrategyCalibration;
 };
 

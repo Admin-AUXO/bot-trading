@@ -1,6 +1,6 @@
 import type { Route } from "next";
 import { Activity, FlaskConical, LineChart, Radar, Settings2, SlidersHorizontal, Sparkles } from "lucide-react";
-import { discoveryLabRoutes, operationalDeskRoutes } from "@/lib/dashboard-routes";
+import { discoveryLabRoutes, marketRoutes, operationalDeskRoutes, workbenchRoutes } from "@/lib/dashboard-routes";
 
 export type DashboardNavItem = {
   id: string;
@@ -51,41 +51,72 @@ export const dashboardNavGroups: DashboardNavGroup[] = [
     ],
   },
   {
-    id: "lab",
-    label: "Discovery lab",
+    id: "workbench",
+    label: "Strategy workbench",
     icon: FlaskConical,
     items: [
       {
-        id: "market-stats",
-        href: discoveryLabRoutes.marketStats,
-        label: "Market",
+        id: "packs",
+        href: workbenchRoutes.packs,
+        label: "Packs",
+        detail: "Pack library",
+        icon: FlaskConical,
+        matchPrefixes: [workbenchRoutes.packs, workbenchRoutes.root, discoveryLabRoutes.studio, discoveryLabRoutes.overview, discoveryLabRoutes.root],
+      },
+      {
+        id: "editor",
+        href: workbenchRoutes.editor,
+        label: "Editor",
+        detail: "Edit and tune packs",
+        icon: SlidersHorizontal,
+        matchPrefixes: [workbenchRoutes.editor, workbenchRoutes.editorByIdPrefix],
+      },
+      {
+        id: "sandbox",
+        href: workbenchRoutes.sandbox,
+        label: "Sandbox",
+        detail: "Runs and outcomes",
+        icon: Activity,
+        matchPrefixes: [workbenchRoutes.sandbox, workbenchRoutes.sandboxByRunPrefix, discoveryLabRoutes.results, discoveryLabRoutes.runLab],
+      },
+      {
+        id: "grader",
+        href: workbenchRoutes.grader,
+        label: "Grader",
+        detail: "Suggestions and review",
+        icon: LineChart,
+        matchPrefixes: [workbenchRoutes.grader, workbenchRoutes.graderByRunPrefix],
+      },
+      {
+        id: "sessions",
+        href: workbenchRoutes.sessions,
+        label: "Sessions",
+        detail: "Runtime session controls",
+        icon: Settings2,
+        matchPrefixes: [workbenchRoutes.sessions],
+      },
+    ],
+  },
+  {
+    id: "market",
+    label: "Market intel",
+    icon: LineChart,
+    items: [
+      {
+        id: "trending",
+        href: marketRoutes.trending,
+        label: "Trending",
         detail: "Pulse and mint lookup",
         icon: LineChart,
-        matchPrefixes: [discoveryLabRoutes.marketStats],
+        matchPrefixes: [marketRoutes.trending, marketRoutes.root, marketRoutes.tokenByMintPrefix, discoveryLabRoutes.marketStats],
       },
       {
-        id: "studio",
-        href: discoveryLabRoutes.studio,
-        label: "Studio",
-        detail: "Edit packs and run",
-        icon: FlaskConical,
-        matchPrefixes: [discoveryLabRoutes.studio, discoveryLabRoutes.overview, discoveryLabRoutes.root],
-      },
-      {
-        id: "results",
-        href: discoveryLabRoutes.results,
-        label: "Results",
-        detail: "Runs, review, entries",
-        icon: Activity,
-        matchPrefixes: [discoveryLabRoutes.results],
-      },
-      {
-        id: "config",
-        href: discoveryLabRoutes.config,
-        label: "Config",
-        detail: "Live handoff controls",
-        icon: SlidersHorizontal,
-        matchPrefixes: [discoveryLabRoutes.config],
+        id: "watchlist",
+        href: marketRoutes.watchlist,
+        label: "Watchlist",
+        detail: "Pinned token focus",
+        icon: Sparkles,
+        matchPrefixes: [marketRoutes.watchlist],
       },
     ],
   },

@@ -65,6 +65,26 @@ export class ExitEngine {
         tp2Done: true,
         trailingStopPercent: true,
         metadata: true,
+        exitPlan: {
+          select: {
+            profile: true,
+            stopLossPercent: true,
+            tp1Multiplier: true,
+            tp2Multiplier: true,
+            tp1SellFraction: true,
+            tp2SellFraction: true,
+            postTp1RetracePercent: true,
+            trailingStopPercent: true,
+            timeStopMinutes: true,
+            timeStopMinReturnPercent: true,
+            timeLimitMinutes: true,
+            partialStopLossEnabled: true,
+            partialSlThresholdPercent: true,
+            partialSlSellFraction: true,
+            momentumTpExtensionEnabled: true,
+            recalibrateIntervalMinutes: true,
+          },
+        },
       },
     });
 
@@ -133,6 +153,26 @@ export class ExitEngine {
           tp1Done: position.tp1Done,
           tp2Done: position.tp2Done,
           metadata: position.metadata,
+          exitPlan: position.exitPlan
+            ? {
+                profile: position.exitPlan.profile,
+                stopLossPercent: Number(position.exitPlan.stopLossPercent),
+                tp1Multiplier: Number(position.exitPlan.tp1Multiplier),
+                tp2Multiplier: Number(position.exitPlan.tp2Multiplier),
+                tp1SellFraction: Number(position.exitPlan.tp1SellFraction),
+                tp2SellFraction: Number(position.exitPlan.tp2SellFraction),
+                postTp1RetracePercent: Number(position.exitPlan.postTp1RetracePercent),
+                trailingStopPercent: Number(position.exitPlan.trailingStopPercent),
+                timeStopMinutes: Number(position.exitPlan.timeStopMinutes),
+                timeStopMinReturnPercent: Number(position.exitPlan.timeStopMinReturnPercent),
+                timeLimitMinutes: Number(position.exitPlan.timeLimitMinutes),
+                partialStopLossEnabled: position.exitPlan.partialStopLossEnabled,
+                partialSlThresholdPercent: Number(position.exitPlan.partialSlThresholdPercent),
+                partialSlSellFraction: Number(position.exitPlan.partialSlSellFraction),
+                momentumTpExtensionEnabled: position.exitPlan.momentumTpExtensionEnabled,
+                recalibrateIntervalMinutes: Number(position.exitPlan.recalibrateIntervalMinutes),
+              }
+            : null,
         },
         priceUsd,
         {
@@ -155,15 +195,13 @@ export class ExitEngine {
       try {
         if (exitDecision) {
           try {
-            await this.execution.runExclusive(() =>
-              this.execution.closePosition({
-                positionId: position.id,
-                reason: exitDecision.reason,
-                priceUsd,
-                fraction: exitDecision.fraction,
-                peakPriceUsd: exitDecision.peakPriceUsd,
-              }),
-            );
+            await this.execution.closePosition({
+              positionId: position.id,
+              reason: exitDecision.reason,
+              priceUsd,
+              fraction: exitDecision.fraction,
+              peakPriceUsd: exitDecision.peakPriceUsd,
+            });
           } catch (err) {
             logger.warn({ err, positionId: position.id }, "closePosition failed in exit check");
             await recordOperatorEvent({

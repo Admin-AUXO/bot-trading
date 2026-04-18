@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { fetchJson } from "@/lib/api";
 import { formatInteger } from "@/lib/format";
-import type { DiscoveryLabCatalog, DiscoveryLabRuntimeSnapshot } from "@/lib/types";
+import type { DiscoveryLabCatalog, DiscoveryLabRuntimeSnapshot, WorkbenchRunDetailPayload } from "@/lib/types";
 import { StatusPill } from "@/components/dashboard-primitives";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -50,7 +50,8 @@ export function RunStatusPoller({
 
   async function loadRun(runId: string, silent = false) {
     try {
-      const next = await fetchJson<typeof catalog.activeRun>(`/operator/discovery-lab/runs/${runId}`);
+      const payload = await fetchJson<WorkbenchRunDetailPayload>(`/operator/runs/${runId}`);
+      const next = normalizeRunSummary(payload.summary);
       setRunDetail(next);
       if (next?.status !== "RUNNING") await onCatalogReload();
     } catch (err) {
@@ -81,6 +82,18 @@ export function RunStatusPoller({
       </div>
     </div>
   );
+}
+
+function normalizeRunSummary(
+  payload: WorkbenchRunDetailPayload["summary"] | DiscoveryLabCatalog["activeRun"],
+): DiscoveryLabCatalog["activeRun"] {
+  if (!payload) {
+    return null;
+  }
+  if ("id" in payload) {
+    return payload as DiscoveryLabCatalog["activeRun"];
+  }
+  return null;
 }
 
 interface LiveSessionPanelProps {

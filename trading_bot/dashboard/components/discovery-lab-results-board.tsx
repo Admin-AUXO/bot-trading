@@ -387,7 +387,7 @@ export function DiscoveryLabResultsBoard(props: {
 
     try {
       const payload = await fetchJson<DiscoveryLabTokenInsight>(
-        `/operator/discovery-lab/token-insight?mint=${encodeURIComponent(mint)}`,
+        `/operator/runs/${encodeURIComponent(runDetail?.id ?? "")}/token-insight?mint=${encodeURIComponent(mint)}`,
       );
       setInsightByMint((state) => ({
         ...state,
@@ -475,11 +475,10 @@ export function DiscoveryLabResultsBoard(props: {
 
     try {
       const response = await fetchJson<DiscoveryLabManualEntryResponse>(
-        "/operator/discovery-lab/manual-entry",
+        `/operator/runs/${encodeURIComponent(runDetail.id)}/manual-entry`,
         {
           method: "POST",
           body: JSON.stringify({
-            runId: runDetail.id,
             mint: row.mint,
             positionSizeUsd: Number(draft.positionSizeUsd),
             exitOverrides: {
@@ -539,7 +538,7 @@ export function DiscoveryLabResultsBoard(props: {
       }
       try {
         const payload = await fetchJson<unknown>(
-          `/operator/discovery-lab/market-regime?runId=${encodeURIComponent(runId)}`,
+          `/operator/runs/${encodeURIComponent(runId)}/market-regime`,
         );
         if (cancelled) {
           return;

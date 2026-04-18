@@ -1,5 +1,5 @@
 import { db } from "../db/client.js";
-import type { ExecutionEngine } from "../engine/execution-engine.js";
+import { ExecutionEngine } from "../engine/execution-engine.js";
 import { buildSignalConfidence, deriveExitProfile } from "./entry-scoring.js";
 import type { DiscoveryLabRunDetail } from "./discovery-lab-service.js";
 import type { ExitPlan } from "./strategy-exit.js";
@@ -323,10 +323,11 @@ export class DiscoveryLabManualEntryService {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : "manual discovery-lab entry failed";
+      const status = ExecutionEngine.isOpenPositionConflict(error) ? "SKIPPED" : "ERROR";
       await db.candidate.update({
         where: { id: candidate.id },
         data: {
-          status: "ERROR",
+          status,
           rejectReason: message,
           lastEvaluatedAt: new Date(),
           metadata: toJsonValue({

@@ -5,6 +5,6 @@ import type { DiscoveryLabStrategySuggestionsPayload } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 export default async function DiscoveryLabStrategyIdeasPage() {
-  const initialPayload = await serverFetch<DiscoveryLabStrategySuggestionsPayload>("/api/operator/discovery-lab/strategy-suggestions");
+  const initialPayload = await serverFetch<DiscoveryLabStrategySuggestionsPayload>("/api/operator/market/strategy-suggestions");
   return <DiscoveryLabStrategyIdeasClient initialPayload={initialPayload} />;
 }
