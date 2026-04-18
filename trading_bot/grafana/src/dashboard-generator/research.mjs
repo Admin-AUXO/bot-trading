@@ -4,6 +4,8 @@ import {
   dashboardMeta,
   filterRegex,
   queryVariable,
+  sharedConfigVersionVariable,
+  sharedPackVariable,
   statPanel,
   tablePanel,
   timeFilter,
@@ -13,6 +15,8 @@ export function researchDashboard() {
   const runId = queryVariable("runId", "Research Run", `SELECT TO_CHAR("startedAt", 'YYYY-MM-DD HH24:MI') || ' · ' || status || ' · ' || LEFT(id, 8) AS __text, id AS __value FROM "ResearchRun" ORDER BY "startedAt" DESC`, { multi: false });
   const runStatus = queryVariable("runStatus", "Run Status", `SELECT DISTINCT status AS __text, status AS __value FROM "ResearchRun" ORDER BY 1`);
   const source = queryVariable("source", "Source", `SELECT DISTINCT source AS __text, source AS __value FROM "ResearchToken" ORDER BY 1`);
+  const pack = sharedPackVariable();
+  const configVer = sharedConfigVersionVariable();
   const panels = [
     statPanel(1, "Latest Run PnL", { h: 4, w: 6, x: 0, y: 0 }, `SELECT COALESCE("realizedPnlUsd", 0)::numeric AS value FROM "ResearchRun" WHERE ${filterRegex("id", "runId")} AND ${filterRegex("status", "runStatus")} AND ${timeFilter('"startedAt"')} ORDER BY "startedAt" DESC LIMIT 1`, "currencyUSD", "Latest completed dry-run PnL in the selected research slice."),
     statPanel(2, "Latest Win Rate", { h: 4, w: 6, x: 6, y: 0 }, `SELECT COALESCE("winRatePercent", 0)::numeric AS value FROM "ResearchRun" WHERE ${filterRegex("id", "runId")} AND ${filterRegex("status", "runStatus")} AND ${timeFilter('"startedAt"')} ORDER BY "startedAt" DESC LIMIT 1`, "percent", "Latest dry-run win rate in the selected research slice."),
@@ -24,7 +28,7 @@ export function researchDashboard() {
     tablePanel(8, "Research Fill Trail", { h: 8, w: 24, x: 0, y: 20 }, `SELECT rf."createdAt" AS created_at, rp."runId" AS run_id, rp.id AS position_id, rp.mint, rp.symbol, rf.side, rf."priceUsd"::numeric AS price_usd, rf."amountUsd"::numeric AS amount_usd, rf."pnlUsd"::numeric AS pnl_usd FROM "ResearchFill" rf JOIN "ResearchPosition" rp ON rp.id = rf."positionId" JOIN "ResearchRun" rr ON rr.id = rp."runId" WHERE ${filterRegex('rp."runId"', "runId")} AND ${filterRegex('rr.status', "runStatus")} ORDER BY rf."createdAt" DESC LIMIT 100`, undefined, "Mock execution trail for the selected dry-run slice."),
   ];
 
-  return buildDashboard("research", "Research dry-run summaries, token funnel, and mock position outcomes.", [runId, runStatus, source], panels, [
+  return buildDashboard("research", "Research dry-run summaries, token funnel, and mock position outcomes.", [pack, configVer, runId, runStatus, source], panels, [
     dashboardLink("Executive Scorecard", dashboardMeta.executive.uid),
     dashboardLink("Analyst Insights Overview", dashboardMeta.analyst.uid),
     dashboardLink("Candidate & Funnel Analytics", dashboardMeta.candidate.uid),

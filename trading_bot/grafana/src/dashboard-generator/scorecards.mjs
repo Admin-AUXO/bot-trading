@@ -7,6 +7,8 @@ import {
   queryVariable,
   statPanel,
   tablePanel,
+  sharedConfigVersionVariable,
+  sharedPackVariable,
   timeFilter,
   timeseriesPanel,
 } from "./core.mjs";
@@ -14,6 +16,8 @@ import {
 export function executiveDashboard() {
   const source = queryVariable("source", "Source", "SELECT DISTINCT source AS __text, source AS __value FROM v_source_outcome_daily ORDER BY 1");
   const config = queryVariable("configVersion", "Config Version", "SELECT config_version::text AS __text, config_version AS __value FROM v_config_change_log ORDER BY config_version DESC");
+  const pack = sharedPackVariable();
+  const configVer = sharedConfigVersionVariable();
   const panels = [
     statPanel(1, "Realized PnL", { h: 4, w: 6, x: 0, y: 0 }, `SELECT COALESCE(SUM(realized_pnl_usd), 0) AS value FROM v_fill_pnl_daily WHERE ${timeFilter(dateTimeColumn("session_date"))} AND ${filterRegex("source", "source")} AND ${filterRegex("config_version", "configVersion")}`, "currencyUSD", "Top-line realized PnL for the selected sources and config windows."),
     statPanel(2, "Win Rate", { h: 4, w: 6, x: 6, y: 0 }, `SELECT COALESCE((SUM(wins)::numeric / NULLIF(SUM(wins + losses), 0)) * 100, 0) AS value FROM v_source_outcome_daily WHERE ${timeFilter(dateTimeColumn("session_date"))} AND ${filterRegex("source", "source")} AND ${filterRegex("config_version", "configVersion")}`, "percent", "Weighted closed-position win rate across the selected scope."),
@@ -25,7 +29,7 @@ export function executiveDashboard() {
     tablePanel(8, "Config Window KPI Delta", { h: 8, w: 12, x: 12, y: 12 }, `SELECT config_version, window_start_at, window_end_at, candidates_discovered, candidates_accepted, positions_opened, positions_closed, realized_pnl_usd, win_rate * 100 AS win_rate_pct, provider_units, provider_errors, acceptance_rate_pct, conversion_rate_pct FROM v_kpi_by_config_window WHERE ${filterRegex("config_version", "configVersion")} ORDER BY config_version DESC LIMIT 20`, undefined, "Config-window rollup to compare the operating footprint of each version."),
   ];
 
-  return buildDashboard("executive", "Executive scorecard for health, throughput, and config-aware trend review.", [source, config], panels, [
+  return buildDashboard("executive", "Executive scorecard for health, throughput, and config-aware trend review.", [pack, configVer, source, config], panels, [
     dashboardLink("Live Trade Monitor", dashboardMeta.live.uid),
     dashboardLink("Telemetry & Provider Analytics", dashboardMeta.telemetry.uid),
     dashboardLink("Candidate & Funnel Analytics", dashboardMeta.candidate.uid),

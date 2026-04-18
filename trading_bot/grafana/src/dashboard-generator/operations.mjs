@@ -5,6 +5,8 @@ import {
   filterContains,
   filterRegex,
   queryVariable,
+  sharedConfigVersionVariable,
+  sharedPackVariable,
   statPanel,
   tablePanel,
   textboxVariable,
@@ -13,6 +15,8 @@ import {
 } from "./core.mjs";
 
 export function liveDashboard() {
+  const pack = sharedPackVariable();
+  const configVer = sharedConfigVersionVariable();
   const source = queryVariable("source", "Source", "SELECT DISTINCT source AS __text, source AS __value FROM v_open_position_monitor ORDER BY 1");
   const interventionBand = queryVariable("interventionBand", "Intervention Band", "SELECT DISTINCT intervention_band AS __text, intervention_band AS __value FROM v_open_position_monitor ORDER BY 1");
   const mint = textboxVariable("mint", "Mint");
@@ -30,7 +34,7 @@ export function liveDashboard() {
     tablePanel(9, "Recent Fill Trail", { h: 8, w: 12, x: 12, y: 14 }, `SELECT created_at, side, position_id, mint, symbol, source, exit_profile, price_usd, amount_usd, pnl_usd, tx_signature FROM v_recent_fill_activity WHERE ${timeFilter("created_at")} AND ${filterRegex("source", "source")} AND ${filterContains("mint", "mint")} AND ${filterContains("symbol", "symbol")} AND ${filterContains("position_id", "positionId")} ORDER BY created_at DESC LIMIT 100`, undefined, "Recent execution trail for the currently selected book slice."),
   ];
 
-  return buildDashboard("live", "Live risk, recent executions, and intervention priority.", [source, interventionBand, mint, symbol, positionId], panels, [
+  return buildDashboard("live", "Live risk, recent executions, and intervention priority.", [pack, configVer, source, interventionBand, mint, symbol, positionId], panels, [
     dashboardLink("Position & PnL Analytics", dashboardMeta.position.uid),
     dashboardLink("Telemetry & Provider Analytics", dashboardMeta.telemetry.uid),
     dashboardLink("Executive Scorecard", dashboardMeta.executive.uid),
@@ -38,6 +42,8 @@ export function liveDashboard() {
 }
 
 export function telemetryDashboard() {
+  const pack = sharedPackVariable();
+  const configVer = sharedConfigVersionVariable();
   const provider = queryVariable("provider", "Provider", "SELECT DISTINCT provider AS __text, provider AS __value FROM v_api_provider_daily ORDER BY 1");
   const endpoint = queryVariable("endpoint", "Endpoint", `SELECT DISTINCT endpoint AS __text, endpoint AS __value FROM v_api_endpoint_efficiency WHERE ${filterRegex("provider", "provider")} ORDER BY 1`);
   const errorFamily = queryVariable("errorFamily", "Error Family", `SELECT DISTINCT COALESCE(error_family, 'unknown') AS __text, COALESCE(error_family, 'unknown') AS __value FROM v_raw_api_payload_recent WHERE success = FALSE AND ${filterRegex("provider", "provider")} AND ${filterRegex("endpoint", "endpoint")} ORDER BY 1`);
@@ -54,9 +60,101 @@ export function telemetryDashboard() {
     tablePanel(10, "Lane Health", { h: 8, w: 24, x: 0, y: 20 }, `SELECT lane, status, detail, last_run_at, age_minutes, stale_after_minutes, trade_mode, pause_reason FROM v_runtime_lane_health ORDER BY lane`, undefined, "Runtime lane health beside provider failures so infra and app-side degradation stay correlated."),
   ];
 
-  return buildDashboard("telemetry", "Provider burn, latency, and payload-failure RCA.", [provider, endpoint, errorFamily], panels, [
+  return buildDashboard("telemetry", "Provider burn, latency, and payload-failure RCA.", [pack, configVer, provider, endpoint, errorFamily], panels, [
     dashboardLink("Config Change Impact & RCA", dashboardMeta.config.uid),
     dashboardLink("Live Trade Monitor", dashboardMeta.live.uid),
     dashboardLink("Executive Scorecard", dashboardMeta.executive.uid),
   ]);
+}
+
+export function buildSessionOverviewDashboard() {
+  const pack = sharedPackVariable();
+  const configVer = sharedConfigVersionVariable();
+  const sessionId = queryVariable("sessionId", "Session", "SELECT session_id::text AS __text, session_id::text AS __value FROM v_api_session_cost ORDER BY started_at DESC", { multi: false });
+  const panels = [
+    statPanel(
+      1,
+      "Session Age (min)",
+      { h: 4, w: 4, x: 0, y: 0 },
+      `SELECT COALESCE(MAX(age_minutes), 0) AS value FROM v_runtime_live_status`,
+      "none",
+      "Backed by v_runtime_live_status for active session age.",
+    ),
+    statPanel(
+      2,
+      "Open Positions",
+      { h: 4, w: 4, x: 4, y: 0 },
+      `SELECT COALESCE(MAX(open_positions), 0) AS value FROM v_runtime_live_status`,
+      "none",
+      "Backed by v_runtime_live_status for current open-position count.",
+    ),
+    statPanel(
+      3,
+      "Realized PnL",
+      { h: 4, w: 4, x: 8, y: 0 },
+      `SELECT COALESCE(MAX(realized_pnl_usd), 0) AS value FROM v_runtime_live_status`,
+      "currencyUSD",
+      "Backed by v_runtime_live_status for active-session realized PnL.",
+    ),
+    statPanel(
+      4,
+      "Session Credits",
+      { h: 4, w: 4, x: 12, y: 0 },
+      `SELECT COALESCE(total_credits, 0) AS value FROM v_api_session_cost WHERE ${filterRegex("session_id", "sessionId")} ORDER BY started_at DESC LIMIT 1`,
+      "none",
+      "Backed by v_api_session_cost for session burn total.",
+    ),
+    statPanel(
+      5,
+      "Lane Issues",
+      { h: 4, w: 4, x: 16, y: 0 },
+      `SELECT COUNT(*) AS value FROM v_runtime_lane_health WHERE status <> 'HEALTHY'`,
+      "none",
+      "Backed by v_runtime_lane_health for degraded lane count.",
+    ),
+    statPanel(
+      6,
+      "Stale Positions",
+      { h: 4, w: 4, x: 20, y: 0 },
+      `SELECT COALESCE(COUNT(*), 0) AS value FROM v_open_position_monitor WHERE stale_minutes > 5`,
+      "none",
+      "Backed by v_open_position_monitor for stale position pressure.",
+    ),
+    tablePanel(
+      7,
+      "Lane Health Detail",
+      { h: 8, w: 12, x: 0, y: 4 },
+      `SELECT lane, status, detail, trade_mode, pause_reason, age_minutes, stale_after_minutes FROM v_runtime_lane_health ORDER BY lane`,
+      undefined,
+      "Backed by v_runtime_lane_health for lane-by-lane state detail.",
+    ),
+    tablePanel(
+      8,
+      "Open Position Priority",
+      { h: 8, w: 12, x: 12, y: 4 },
+      `SELECT position_id, mint, symbol, source, intervention_band, intervention_priority, stale_minutes, return_pct FROM v_open_position_monitor ORDER BY intervention_priority DESC, stale_minutes DESC LIMIT 50`,
+      undefined,
+      "Backed by v_open_position_monitor for intervention ordering.",
+    ),
+    timeseriesPanel(
+      9,
+      "Session Credit Burn by Provider",
+      { h: 8, w: 24, x: 0, y: 12 },
+      `SELECT DATE_TRUNC('day', started_at)::timestamp AS "time", session_id::text || ' (' || pack_id::text || ')' AS metric, total_credits AS value FROM v_api_session_cost WHERE ${filterRegex("session_id", "sessionId")} ORDER BY 1, 2`,
+      "none",
+      "Backed by v_api_session_cost for session credit trend.",
+    ),
+  ];
+
+  return buildDashboard(
+    "sessionOverview",
+    "Single-pane session status for lane health, stale pressure, and session burn.",
+    [pack, configVer, sessionId],
+    panels,
+    [
+      dashboardLink("Live Trade Monitor", dashboardMeta.live.uid),
+      dashboardLink("Credit Burn", dashboardMeta.creditBurn.uid),
+      dashboardLink("Telemetry & Provider Analytics", dashboardMeta.telemetry.uid),
+    ],
+  );
 }

@@ -2,7 +2,7 @@
   "annotations": {
     "list": []
   },
-  "description": "Research dry-run summaries, token funnel, and mock position outcomes.",
+  "description": "Exit-reason root-cause analysis across execution quality and mutator impact.",
   "editable": false,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -15,10 +15,10 @@
       "keepTime": true,
       "tags": [],
       "targetBlank": false,
-      "title": "Executive Scorecard",
+      "title": "Adaptive Telemetry",
       "tooltip": "",
       "type": "link",
-      "url": "/d/bot-executive-scorecard"
+      "url": "/d/bot-adaptive-telemetry"
     },
     {
       "asDropdown": false,
@@ -27,10 +27,10 @@
       "keepTime": true,
       "tags": [],
       "targetBlank": false,
-      "title": "Analyst Insights Overview",
+      "title": "Pack Leaderboard",
       "tooltip": "",
       "type": "link",
-      "url": "/d/bot-analyst-insights"
+      "url": "/d/bot-pack-leaderboard"
     },
     {
       "asDropdown": false,
@@ -39,16 +39,16 @@
       "keepTime": true,
       "tags": [],
       "targetBlank": false,
-      "title": "Candidate & Funnel Analytics",
+      "title": "Position & PnL Analytics",
       "tooltip": "",
       "type": "link",
-      "url": "/d/bot-candidate-funnel"
+      "url": "/d/bot-position-pnl"
     }
   ],
   "panels": [
     {
       "id": 1,
-      "title": "Latest Run PnL",
+      "title": "Exit Count",
       "type": "stat",
       "datasource": {
         "type": "postgres",
@@ -69,7 +69,72 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(\"realizedPnlUsd\", 0)::numeric AS value FROM \"ResearchRun\" WHERE COALESCE(id::text, '') ~* '^(${runId:regex})$' AND COALESCE(status::text, '') ~* '^(${runStatus:regex})$' AND \"startedAt\" >= $__timeFrom() AND \"startedAt\" <= $__timeTo() ORDER BY \"startedAt\" DESC LIMIT 1",
+          "rawSql": "SELECT COALESCE(SUM(position_count), 0) AS value FROM v_position_exit_reason_daily WHERE COALESCE(exit_reason::text, '') ~* '^(${exitReason:regex})$' AND COALESCE(strategy_pack_id::text, '') ~* '^(${pack:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVer:regex})$'",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "description": "Backed by v_position_exit_reason_daily for selected exit reason totals."
+    },
+    {
+      "id": 2,
+      "title": "Exit PnL",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(SUM(realized_pnl_usd), 0) AS value FROM v_position_exit_reason_daily WHERE COALESCE(exit_reason::text, '') ~* '^(${exitReason:regex})$' AND COALESCE(strategy_pack_id::text, '') ~* '^(${pack:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVer:regex})$'",
           "refId": "A"
         }
       ],
@@ -109,11 +174,11 @@
         },
         "textMode": "auto"
       },
-      "description": "Latest completed dry-run PnL in the selected research slice."
+      "description": "Backed by v_position_exit_reason_daily for exit-reason PnL."
     },
     {
-      "id": 2,
-      "title": "Latest Win Rate",
+      "id": 3,
+      "title": "Exit p95 Latency",
       "type": "stat",
       "datasource": {
         "type": "postgres",
@@ -122,7 +187,7 @@
       "gridPos": {
         "h": 4,
         "w": 6,
-        "x": 6,
+        "x": 12,
         "y": 0
       },
       "targets": [
@@ -134,7 +199,72 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(\"winRatePercent\", 0)::numeric AS value FROM \"ResearchRun\" WHERE COALESCE(id::text, '') ~* '^(${runId:regex})$' AND COALESCE(status::text, '') ~* '^(${runStatus:regex})$' AND \"startedAt\" >= $__timeFrom() AND \"startedAt\" <= $__timeTo() ORDER BY \"startedAt\" DESC LIMIT 1",
+          "rawSql": "SELECT COALESCE(MAX(p95_exit_latency_ms), 0) AS value FROM v_recent_fill_activity WHERE COALESCE(exit_reason::text, '') ~* '^(${exitReason:regex})$'",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "description": "Backed by v_recent_fill_activity for exit latency tails."
+    },
+    {
+      "id": 4,
+      "title": "SL Bundle Land Rate",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(AVG(land_rate_pct), 0) AS value FROM v_submit_lane_daily WHERE COALESCE(lane::text, '') ~* '^(${lane:regex})$' AND lane = 'JITO_BUNDLE'",
           "refId": "A"
         }
       ],
@@ -174,149 +304,19 @@
         },
         "textMode": "auto"
       },
-      "description": "Latest dry-run win rate in the selected research slice."
-    },
-    {
-      "id": 3,
-      "title": "Latest Discovered",
-      "type": "stat",
-      "datasource": {
-        "type": "postgres",
-        "uid": "trading-bot-postgres"
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 12,
-        "y": 0
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "postgres",
-            "uid": "trading-bot-postgres"
-          },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT COALESCE(\"totalDiscovered\", 0) AS value FROM \"ResearchRun\" WHERE COALESCE(id::text, '') ~* '^(${runId:regex})$' AND COALESCE(status::text, '') ~* '^(${runStatus:regex})$' AND \"startedAt\" >= $__timeFrom() AND \"startedAt\" <= $__timeTo() ORDER BY \"startedAt\" DESC LIMIT 1",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none",
-          "color": {
-            "mode": "palette-classic"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 0
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "description": "Latest dry-run discovery count in the selected scope."
-    },
-    {
-      "id": 4,
-      "title": "Strategy Passed",
-      "type": "stat",
-      "datasource": {
-        "type": "postgres",
-        "uid": "trading-bot-postgres"
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 18,
-        "y": 0
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "postgres",
-            "uid": "trading-bot-postgres"
-          },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT COALESCE(\"totalStrategyPassed\", 0) AS value FROM \"ResearchRun\" WHERE COALESCE(id::text, '') ~* '^(${runId:regex})$' AND COALESCE(status::text, '') ~* '^(${runStatus:regex})$' AND \"startedAt\" >= $__timeFrom() AND \"startedAt\" <= $__timeTo() ORDER BY \"startedAt\" DESC LIMIT 1",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none",
-          "color": {
-            "mode": "palette-classic"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 0
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "description": "Latest count of tokens that passed strategy gates."
+      "description": "Backed by v_submit_lane_daily for Jito stop-loss landing reliability."
     },
     {
       "id": 5,
-      "title": "Run History",
-      "type": "table",
+      "title": "Exit Reason Trend",
+      "type": "timeseries",
       "datasource": {
         "type": "postgres",
         "uid": "trading-bot-postgres"
       },
       "gridPos": {
         "h": 8,
-        "w": 24,
+        "w": 12,
         "x": 0,
         "y": 4
       },
@@ -327,30 +327,148 @@
             "uid": "trading-bot-postgres"
           },
           "editorMode": "code",
-          "format": "table",
+          "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT id, status, \"startedAt\" AS started_at, \"completedAt\" AS completed_at, \"totalDiscovered\" AS total_discovered, \"totalStrategyPassed\" AS total_strategy_passed, \"totalMockOpened\" AS total_mock_opened, \"totalMockClosed\" AS total_mock_closed, \"realizedPnlUsd\"::numeric AS realized_pnl_usd, \"winRatePercent\"::numeric AS win_rate_percent, \"averageHoldMinutes\"::numeric AS average_hold_minutes FROM \"ResearchRun\" WHERE \"startedAt\" >= $__timeFrom() AND \"startedAt\" <= $__timeTo() AND COALESCE(id::text, '') ~* '^(${runId:regex})$' AND COALESCE(status::text, '') ~* '^(${runStatus:regex})$' ORDER BY \"startedAt\" DESC LIMIT 50",
+          "rawSql": "SELECT day::timestamp AS \"time\", exit_reason AS metric, position_count AS value FROM v_position_exit_reason_daily WHERE COALESCE(exit_reason::text, '') ~* '^(${exitReason:regex})$' AND COALESCE(strategy_pack_id::text, '') ~* '^(${pack:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVer:regex})$' ORDER BY 1, 2",
           "refId": "A"
         }
       ],
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
         "overrides": []
       },
       "options": {
-        "cellHeight": "sm",
-        "footer": {
-          "enablePagination": false,
-          "reducer": [],
-          "show": false
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
         },
-        "showHeader": true
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
-      "description": "Run-level history for dry-run comparisons."
+      "description": "Backed by v_position_exit_reason_daily for exit-reason timeline."
     },
     {
       "id": 6,
-      "title": "Research Token Funnel",
+      "title": "Lane Land Rate Trend",
+      "type": "timeseries",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT day::timestamp AS \"time\", lane AS metric, land_rate_pct AS value FROM v_submit_lane_daily WHERE COALESCE(lane::text, '') ~* '^(${lane:regex})$' ORDER BY 1, 2",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "Backed by v_submit_lane_daily for lane landing trend."
+    },
+    {
+      "id": 7,
+      "title": "Recent Exit Fill Trail",
       "type": "table",
       "datasource": {
         "type": "postgres",
@@ -371,7 +489,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT rt.\"runId\" AS run_id, rt.mint, rt.symbol, rt.source, rt.shortlisted, rt.\"fullEvaluationDone\" AS full_evaluation_done, rt.\"strategyPassed\" AS strategy_passed, rt.\"strategyRejectReason\" AS strategy_reject_reason, rt.\"evaluationDeferReason\" AS evaluation_defer_reason, rt.\"liveTradable\" AS live_tradable, rt.\"researchTradable\" AS research_tradable, rt.\"entryScore\"::numeric AS entry_score, rt.\"exitProfile\" AS exit_profile FROM \"ResearchToken\" rt JOIN \"ResearchRun\" rr ON rr.id = rt.\"runId\" WHERE COALESCE(rt.\"runId\"::text, '') ~* '^(${runId:regex})$' AND COALESCE(rr.status::text, '') ~* '^(${runStatus:regex})$' AND COALESCE(rt.source::text, '') ~* '^(${source:regex})$' ORDER BY rt.\"createdAt\" DESC LIMIT 100",
+          "rawSql": "SELECT created_at, side, lane, position_id, mint, symbol, exit_reason, amount_usd, pnl_usd, tx_signature FROM v_recent_fill_activity WHERE created_at >= $__timeFrom() AND created_at <= $__timeTo() AND COALESCE(exit_reason::text, '') ~* '^(${exitReason:regex})$' ORDER BY created_at DESC LIMIT 200",
           "refId": "A"
         }
       ],
@@ -388,11 +506,11 @@
         },
         "showHeader": true
       },
-      "description": "Token-level dry-run funnel evidence."
+      "description": "Backed by v_recent_fill_activity for exit execution evidence."
     },
     {
-      "id": 7,
-      "title": "Research Position Outcomes",
+      "id": 8,
+      "title": "Exit Plan Mutation Impact",
       "type": "table",
       "datasource": {
         "type": "postgres",
@@ -413,7 +531,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT rp.\"runId\" AS run_id, rp.id AS position_id, rp.mint, rp.symbol, rp.status, rp.\"openedAt\" AS opened_at, rp.\"closedAt\" AS closed_at, rp.\"entryPriceUsd\"::numeric AS entry_price_usd, rp.\"currentPriceUsd\"::numeric AS current_price_usd, rp.\"amountUsd\"::numeric AS amount_usd, rp.\"remainingToken\"::numeric AS remaining_token, rp.\"exitReason\" AS exit_reason FROM \"ResearchPosition\" rp JOIN \"ResearchRun\" rr ON rr.id = rp.\"runId\" WHERE COALESCE(rp.\"runId\"::text, '') ~* '^(${runId:regex})$' AND COALESCE(rr.status::text, '') ~* '^(${runStatus:regex})$' ORDER BY rp.\"openedAt\" DESC LIMIT 100",
+          "rawSql": "SELECT day, mutator_code, axis, mutation_count, helped_count, hurt_count FROM v_exit_plan_mutation_daily WHERE COALESCE(strategy_pack_id::text, '') ~* '^(${pack:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVer:regex})$' ORDER BY day DESC, mutation_count DESC",
           "refId": "A"
         }
       ],
@@ -430,58 +548,16 @@
         },
         "showHeader": true
       },
-      "description": "Mock-position outcomes for dry-run analysis."
-    },
-    {
-      "id": 8,
-      "title": "Research Fill Trail",
-      "type": "table",
-      "datasource": {
-        "type": "postgres",
-        "uid": "trading-bot-postgres"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 20
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "postgres",
-            "uid": "trading-bot-postgres"
-          },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT rf.\"createdAt\" AS created_at, rp.\"runId\" AS run_id, rp.id AS position_id, rp.mint, rp.symbol, rf.side, rf.\"priceUsd\"::numeric AS price_usd, rf.\"amountUsd\"::numeric AS amount_usd, rf.\"pnlUsd\"::numeric AS pnl_usd FROM \"ResearchFill\" rf JOIN \"ResearchPosition\" rp ON rp.id = rf.\"positionId\" JOIN \"ResearchRun\" rr ON rr.id = rp.\"runId\" WHERE COALESCE(rp.\"runId\"::text, '') ~* '^(${runId:regex})$' AND COALESCE(rr.status::text, '') ~* '^(${runStatus:regex})$' ORDER BY rf.\"createdAt\" DESC LIMIT 100",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": []
-      },
-      "options": {
-        "cellHeight": "sm",
-        "footer": {
-          "enablePagination": false,
-          "reducer": [],
-          "show": false
-        },
-        "showHeader": true
-      },
-      "description": "Mock execution trail for the selected dry-run slice."
+      "description": "Backed by v_exit_plan_mutation_daily for mutation-to-outcome linkage."
     }
   ],
-  "refresh": "15m",
+  "refresh": "5m",
   "schemaVersion": 41,
   "style": "dark",
   "tags": [
     "bot-trading",
-    "research",
-    "research"
+    "analytics",
+    "exitReasonRca"
   ],
   "templating": {
     "list": [
@@ -542,14 +618,14 @@
           "type": "postgres",
           "uid": "trading-bot-postgres"
         },
-        "definition": "SELECT TO_CHAR(\"startedAt\", 'YYYY-MM-DD HH24:MI') || ' · ' || status || ' · ' || LEFT(id, 8) AS __text, id AS __value FROM \"ResearchRun\" ORDER BY \"startedAt\" DESC",
+        "definition": "SELECT DISTINCT exit_reason AS __text, exit_reason AS __value FROM v_position_exit_reason_daily ORDER BY 1",
         "hide": 0,
         "includeAll": true,
-        "label": "Research Run",
-        "multi": false,
-        "name": "runId",
+        "label": "Exit Reason",
+        "multi": true,
+        "name": "exitReason",
         "options": [],
-        "query": "SELECT TO_CHAR(\"startedAt\", 'YYYY-MM-DD HH24:MI') || ' · ' || status || ' · ' || LEFT(id, 8) AS __text, id AS __value FROM \"ResearchRun\" ORDER BY \"startedAt\" DESC",
+        "query": "SELECT DISTINCT exit_reason AS __text, exit_reason AS __value FROM v_position_exit_reason_daily ORDER BY 1",
         "refresh": 2,
         "sort": 1,
         "type": "query"
@@ -565,37 +641,14 @@
           "type": "postgres",
           "uid": "trading-bot-postgres"
         },
-        "definition": "SELECT DISTINCT status AS __text, status AS __value FROM \"ResearchRun\" ORDER BY 1",
+        "definition": "SELECT DISTINCT lane AS __text, lane AS __value FROM v_submit_lane_daily ORDER BY 1",
         "hide": 0,
         "includeAll": true,
-        "label": "Run Status",
+        "label": "Lane",
         "multi": true,
-        "name": "runStatus",
+        "name": "lane",
         "options": [],
-        "query": "SELECT DISTINCT status AS __text, status AS __value FROM \"ResearchRun\" ORDER BY 1",
-        "refresh": 2,
-        "sort": 1,
-        "type": "query"
-      },
-      {
-        "allValue": ".*",
-        "current": {
-          "selected": false,
-          "text": "All",
-          "value": ".*"
-        },
-        "datasource": {
-          "type": "postgres",
-          "uid": "trading-bot-postgres"
-        },
-        "definition": "SELECT DISTINCT source AS __text, source AS __value FROM \"ResearchToken\" ORDER BY 1",
-        "hide": 0,
-        "includeAll": true,
-        "label": "Source",
-        "multi": true,
-        "name": "source",
-        "options": [],
-        "query": "SELECT DISTINCT source AS __text, source AS __value FROM \"ResearchToken\" ORDER BY 1",
+        "query": "SELECT DISTINCT lane AS __text, lane AS __value FROM v_submit_lane_daily ORDER BY 1",
         "refresh": 2,
         "sort": 1,
         "type": "query"
@@ -608,8 +661,8 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "Research & Dry-Run Analysis",
-  "uid": "bot-research-dry-run",
+  "title": "Exit Reason RCA",
+  "uid": "bot-exit-reason-rca",
   "version": 1,
   "weekStart": "monday"
 }

@@ -2,7 +2,7 @@
   "annotations": {
     "list": []
   },
-  "description": "Research dry-run summaries, token funnel, and mock position outcomes.",
+  "description": "Candidate funnel diagnostics from discovery through exits.",
   "editable": false,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -15,10 +15,10 @@
       "keepTime": true,
       "tags": [],
       "targetBlank": false,
-      "title": "Executive Scorecard",
+      "title": "Pack Leaderboard",
       "tooltip": "",
       "type": "link",
-      "url": "/d/bot-executive-scorecard"
+      "url": "/d/bot-pack-leaderboard"
     },
     {
       "asDropdown": false,
@@ -27,10 +27,10 @@
       "keepTime": true,
       "tags": [],
       "targetBlank": false,
-      "title": "Analyst Insights Overview",
+      "title": "Exit Reason RCA",
       "tooltip": "",
       "type": "link",
-      "url": "/d/bot-analyst-insights"
+      "url": "/d/bot-exit-reason-rca"
     },
     {
       "asDropdown": false,
@@ -39,16 +39,16 @@
       "keepTime": true,
       "tags": [],
       "targetBlank": false,
-      "title": "Candidate & Funnel Analytics",
+      "title": "Enrichment Quality",
       "tooltip": "",
       "type": "link",
-      "url": "/d/bot-candidate-funnel"
+      "url": "/d/bot-enrichment-quality"
     }
   ],
   "panels": [
     {
       "id": 1,
-      "title": "Latest Run PnL",
+      "title": "Discovered",
       "type": "stat",
       "datasource": {
         "type": "postgres",
@@ -69,13 +69,13 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(\"realizedPnlUsd\", 0)::numeric AS value FROM \"ResearchRun\" WHERE COALESCE(id::text, '') ~* '^(${runId:regex})$' AND COALESCE(status::text, '') ~* '^(${runStatus:regex})$' AND \"startedAt\" >= $__timeFrom() AND \"startedAt\" <= $__timeTo() ORDER BY \"startedAt\" DESC LIMIT 1",
+          "rawSql": "SELECT COALESCE(SUM(discovered_count), 0) AS value FROM v_candidate_funnel_daily_source WHERE COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(strategy_pack_id::text, '') ~* '^(${pack:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVer:regex})$'",
           "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "currencyUSD",
+          "unit": "none",
           "color": {
             "mode": "palette-classic"
           },
@@ -109,11 +109,11 @@
         },
         "textMode": "auto"
       },
-      "description": "Latest completed dry-run PnL in the selected research slice."
+      "description": "Backed by v_candidate_funnel_daily_source for discovered-stage totals."
     },
     {
       "id": 2,
-      "title": "Latest Win Rate",
+      "title": "Accepted",
       "type": "stat",
       "datasource": {
         "type": "postgres",
@@ -134,72 +134,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(\"winRatePercent\", 0)::numeric AS value FROM \"ResearchRun\" WHERE COALESCE(id::text, '') ~* '^(${runId:regex})$' AND COALESCE(status::text, '') ~* '^(${runStatus:regex})$' AND \"startedAt\" >= $__timeFrom() AND \"startedAt\" <= $__timeTo() ORDER BY \"startedAt\" DESC LIMIT 1",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "color": {
-            "mode": "palette-classic"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 0
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "description": "Latest dry-run win rate in the selected research slice."
-    },
-    {
-      "id": 3,
-      "title": "Latest Discovered",
-      "type": "stat",
-      "datasource": {
-        "type": "postgres",
-        "uid": "trading-bot-postgres"
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 12,
-        "y": 0
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "postgres",
-            "uid": "trading-bot-postgres"
-          },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT COALESCE(\"totalDiscovered\", 0) AS value FROM \"ResearchRun\" WHERE COALESCE(id::text, '') ~* '^(${runId:regex})$' AND COALESCE(status::text, '') ~* '^(${runStatus:regex})$' AND \"startedAt\" >= $__timeFrom() AND \"startedAt\" <= $__timeTo() ORDER BY \"startedAt\" DESC LIMIT 1",
+          "rawSql": "SELECT COALESCE(SUM(accepted_count), 0) AS value FROM v_candidate_funnel_daily_source WHERE COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(strategy_pack_id::text, '') ~* '^(${pack:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVer:regex})$'",
           "refId": "A"
         }
       ],
@@ -239,11 +174,76 @@
         },
         "textMode": "auto"
       },
-      "description": "Latest dry-run discovery count in the selected scope."
+      "description": "Backed by v_candidate_funnel_daily_source for accepted-stage totals."
+    },
+    {
+      "id": 3,
+      "title": "Filled",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(SUM(filled_count), 0) AS value FROM v_candidate_funnel_daily_source WHERE COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(strategy_pack_id::text, '') ~* '^(${pack:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVer:regex})$'",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "description": "Backed by v_candidate_funnel_daily_source for filled-stage totals."
     },
     {
       "id": 4,
-      "title": "Strategy Passed",
+      "title": "Exited",
       "type": "stat",
       "datasource": {
         "type": "postgres",
@@ -264,7 +264,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(\"totalStrategyPassed\", 0) AS value FROM \"ResearchRun\" WHERE COALESCE(id::text, '') ~* '^(${runId:regex})$' AND COALESCE(status::text, '') ~* '^(${runStatus:regex})$' AND \"startedAt\" >= $__timeFrom() AND \"startedAt\" <= $__timeTo() ORDER BY \"startedAt\" DESC LIMIT 1",
+          "rawSql": "SELECT COALESCE(SUM(exited_count), 0) AS value FROM v_candidate_funnel_daily_source WHERE COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(strategy_pack_id::text, '') ~* '^(${pack:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVer:regex})$'",
           "refId": "A"
         }
       ],
@@ -304,11 +304,91 @@
         },
         "textMode": "auto"
       },
-      "description": "Latest count of tokens that passed strategy gates."
+      "description": "Backed by v_candidate_funnel_daily_source for exited-stage totals."
     },
     {
       "id": 5,
-      "title": "Run History",
+      "title": "Funnel Stages by Day",
+      "type": "timeseries",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT day::timestamp AS \"time\", stage AS metric, stage_count AS value FROM v_candidate_funnel_daily_source WHERE COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(strategy_pack_id::text, '') ~* '^(${pack:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVer:regex})$' ORDER BY 1, 2",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "Backed by v_candidate_funnel_daily_source for stage progression trend."
+    },
+    {
+      "id": 6,
+      "title": "Decision Reason Mix",
       "type": "table",
       "datasource": {
         "type": "postgres",
@@ -316,8 +396,8 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 24,
-        "x": 0,
+        "w": 12,
+        "x": 12,
         "y": 4
       },
       "targets": [
@@ -329,7 +409,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT id, status, \"startedAt\" AS started_at, \"completedAt\" AS completed_at, \"totalDiscovered\" AS total_discovered, \"totalStrategyPassed\" AS total_strategy_passed, \"totalMockOpened\" AS total_mock_opened, \"totalMockClosed\" AS total_mock_closed, \"realizedPnlUsd\"::numeric AS realized_pnl_usd, \"winRatePercent\"::numeric AS win_rate_percent, \"averageHoldMinutes\"::numeric AS average_hold_minutes FROM \"ResearchRun\" WHERE \"startedAt\" >= $__timeFrom() AND \"startedAt\" <= $__timeTo() AND COALESCE(id::text, '') ~* '^(${runId:regex})$' AND COALESCE(status::text, '') ~* '^(${runStatus:regex})$' ORDER BY \"startedAt\" DESC LIMIT 50",
+          "rawSql": "SELECT day, source, reject_reason, decision_count FROM v_candidate_decision_facts WHERE COALESCE(source::text, '') ~* '^(${source:regex})$' AND COALESCE(strategy_pack_id::text, '') ~* '^(${pack:regex})$' AND COALESCE(config_version::text, '') ~* '^(${configVer:regex})$' ORDER BY day DESC, decision_count DESC LIMIT 200",
           "refId": "A"
         }
       ],
@@ -346,95 +426,11 @@
         },
         "showHeader": true
       },
-      "description": "Run-level history for dry-run comparisons."
-    },
-    {
-      "id": 6,
-      "title": "Research Token Funnel",
-      "type": "table",
-      "datasource": {
-        "type": "postgres",
-        "uid": "trading-bot-postgres"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 12
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "postgres",
-            "uid": "trading-bot-postgres"
-          },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT rt.\"runId\" AS run_id, rt.mint, rt.symbol, rt.source, rt.shortlisted, rt.\"fullEvaluationDone\" AS full_evaluation_done, rt.\"strategyPassed\" AS strategy_passed, rt.\"strategyRejectReason\" AS strategy_reject_reason, rt.\"evaluationDeferReason\" AS evaluation_defer_reason, rt.\"liveTradable\" AS live_tradable, rt.\"researchTradable\" AS research_tradable, rt.\"entryScore\"::numeric AS entry_score, rt.\"exitProfile\" AS exit_profile FROM \"ResearchToken\" rt JOIN \"ResearchRun\" rr ON rr.id = rt.\"runId\" WHERE COALESCE(rt.\"runId\"::text, '') ~* '^(${runId:regex})$' AND COALESCE(rr.status::text, '') ~* '^(${runStatus:regex})$' AND COALESCE(rt.source::text, '') ~* '^(${source:regex})$' ORDER BY rt.\"createdAt\" DESC LIMIT 100",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": []
-      },
-      "options": {
-        "cellHeight": "sm",
-        "footer": {
-          "enablePagination": false,
-          "reducer": [],
-          "show": false
-        },
-        "showHeader": true
-      },
-      "description": "Token-level dry-run funnel evidence."
+      "description": "Backed by v_candidate_decision_facts for rejection and decision RCA."
     },
     {
       "id": 7,
-      "title": "Research Position Outcomes",
-      "type": "table",
-      "datasource": {
-        "type": "postgres",
-        "uid": "trading-bot-postgres"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 12
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "postgres",
-            "uid": "trading-bot-postgres"
-          },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT rp.\"runId\" AS run_id, rp.id AS position_id, rp.mint, rp.symbol, rp.status, rp.\"openedAt\" AS opened_at, rp.\"closedAt\" AS closed_at, rp.\"entryPriceUsd\"::numeric AS entry_price_usd, rp.\"currentPriceUsd\"::numeric AS current_price_usd, rp.\"amountUsd\"::numeric AS amount_usd, rp.\"remainingToken\"::numeric AS remaining_token, rp.\"exitReason\" AS exit_reason FROM \"ResearchPosition\" rp JOIN \"ResearchRun\" rr ON rr.id = rp.\"runId\" WHERE COALESCE(rp.\"runId\"::text, '') ~* '^(${runId:regex})$' AND COALESCE(rr.status::text, '') ~* '^(${runStatus:regex})$' ORDER BY rp.\"openedAt\" DESC LIMIT 100",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": []
-      },
-      "options": {
-        "cellHeight": "sm",
-        "footer": {
-          "enablePagination": false,
-          "reducer": [],
-          "show": false
-        },
-        "showHeader": true
-      },
-      "description": "Mock-position outcomes for dry-run analysis."
-    },
-    {
-      "id": 8,
-      "title": "Research Fill Trail",
+      "title": "Latest Filter State Heatstrip",
       "type": "table",
       "datasource": {
         "type": "postgres",
@@ -444,7 +440,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 20
+        "y": 12
       },
       "targets": [
         {
@@ -455,7 +451,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT rf.\"createdAt\" AS created_at, rp.\"runId\" AS run_id, rp.id AS position_id, rp.mint, rp.symbol, rf.side, rf.\"priceUsd\"::numeric AS price_usd, rf.\"amountUsd\"::numeric AS amount_usd, rf.\"pnlUsd\"::numeric AS pnl_usd FROM \"ResearchFill\" rf JOIN \"ResearchPosition\" rp ON rp.id = rf.\"positionId\" JOIN \"ResearchRun\" rr ON rr.id = rp.\"runId\" WHERE COALESCE(rp.\"runId\"::text, '') ~* '^(${runId:regex})$' AND COALESCE(rr.status::text, '') ~* '^(${runStatus:regex})$' ORDER BY rf.\"createdAt\" DESC LIMIT 100",
+          "rawSql": "SELECT mint, symbol, source, status, reject_reason, security_risk, liquidity_usd, volume_5m_usd, buy_sell_ratio, last_snapshot_at FROM v_candidate_latest_filter_state WHERE COALESCE(source::text, '') ~* '^(${source:regex})$' ORDER BY last_snapshot_at DESC LIMIT 200",
           "refId": "A"
         }
       ],
@@ -472,16 +468,16 @@
         },
         "showHeader": true
       },
-      "description": "Mock execution trail for the selected dry-run slice."
+      "description": "Backed by v_candidate_latest_filter_state for latest filter-firing evidence."
     }
   ],
-  "refresh": "15m",
+  "refresh": "5m",
   "schemaVersion": 41,
   "style": "dark",
   "tags": [
     "bot-trading",
-    "research",
-    "research"
+    "analytics",
+    "candidateFunnel"
   ],
   "templating": {
     "list": [
@@ -542,60 +538,14 @@
           "type": "postgres",
           "uid": "trading-bot-postgres"
         },
-        "definition": "SELECT TO_CHAR(\"startedAt\", 'YYYY-MM-DD HH24:MI') || ' · ' || status || ' · ' || LEFT(id, 8) AS __text, id AS __value FROM \"ResearchRun\" ORDER BY \"startedAt\" DESC",
-        "hide": 0,
-        "includeAll": true,
-        "label": "Research Run",
-        "multi": false,
-        "name": "runId",
-        "options": [],
-        "query": "SELECT TO_CHAR(\"startedAt\", 'YYYY-MM-DD HH24:MI') || ' · ' || status || ' · ' || LEFT(id, 8) AS __text, id AS __value FROM \"ResearchRun\" ORDER BY \"startedAt\" DESC",
-        "refresh": 2,
-        "sort": 1,
-        "type": "query"
-      },
-      {
-        "allValue": ".*",
-        "current": {
-          "selected": false,
-          "text": "All",
-          "value": ".*"
-        },
-        "datasource": {
-          "type": "postgres",
-          "uid": "trading-bot-postgres"
-        },
-        "definition": "SELECT DISTINCT status AS __text, status AS __value FROM \"ResearchRun\" ORDER BY 1",
-        "hide": 0,
-        "includeAll": true,
-        "label": "Run Status",
-        "multi": true,
-        "name": "runStatus",
-        "options": [],
-        "query": "SELECT DISTINCT status AS __text, status AS __value FROM \"ResearchRun\" ORDER BY 1",
-        "refresh": 2,
-        "sort": 1,
-        "type": "query"
-      },
-      {
-        "allValue": ".*",
-        "current": {
-          "selected": false,
-          "text": "All",
-          "value": ".*"
-        },
-        "datasource": {
-          "type": "postgres",
-          "uid": "trading-bot-postgres"
-        },
-        "definition": "SELECT DISTINCT source AS __text, source AS __value FROM \"ResearchToken\" ORDER BY 1",
+        "definition": "SELECT DISTINCT source AS __text, source AS __value FROM v_candidate_funnel_daily_source ORDER BY 1",
         "hide": 0,
         "includeAll": true,
         "label": "Source",
         "multi": true,
         "name": "source",
         "options": [],
-        "query": "SELECT DISTINCT source AS __text, source AS __value FROM \"ResearchToken\" ORDER BY 1",
+        "query": "SELECT DISTINCT source AS __text, source AS __value FROM v_candidate_funnel_daily_source ORDER BY 1",
         "refresh": 2,
         "sort": 1,
         "type": "query"
@@ -603,13 +553,13 @@
     ]
   },
   "time": {
-    "from": "now-30d",
+    "from": "now-14d",
     "to": "now"
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "Research & Dry-Run Analysis",
-  "uid": "bot-research-dry-run",
+  "title": "Candidate Funnel",
+  "uid": "bot-candidate-funnel-rca",
   "version": 1,
   "weekStart": "monday"
 }

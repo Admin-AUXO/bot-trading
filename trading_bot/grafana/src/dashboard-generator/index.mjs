@@ -1,9 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import { analystDashboard, candidateDashboard, configDashboard, positionDashboard, sourceDashboard } from "./analytics.mjs";
+import { analystDashboard, buildCandidateFunnelDashboard, buildExitReasonRCADashboard, buildPackLeaderboardDashboard, candidateDashboard, configDashboard, positionDashboard, sourceDashboard } from "./analytics.mjs";
+import { buildAdaptiveTelemetryDashboard } from "./adaptive.mjs";
 import { dashboardMeta } from "./core.mjs";
-import { liveDashboard, telemetryDashboard } from "./operations.mjs";
+import { buildCreditBurnDashboard } from "./credits.mjs";
+import { buildEnrichmentQualityDashboard } from "./enrichment.mjs";
+import { buildSessionOverviewDashboard, liveDashboard, telemetryDashboard } from "./operations.mjs";
 import { researchDashboard } from "./research.mjs";
 import { executiveDashboard } from "./scorecards.mjs";
 
@@ -17,6 +20,13 @@ export const dashboards = [
   configDashboard(),
   sourceDashboard(),
   researchDashboard(),
+  buildSessionOverviewDashboard(),
+  buildPackLeaderboardDashboard(),
+  buildCandidateFunnelDashboard(),
+  buildExitReasonRCADashboard(),
+  buildCreditBurnDashboard(),
+  buildAdaptiveTelemetryDashboard(),
+  buildEnrichmentQualityDashboard(),
 ];
 
 export async function writeDashboards(dashboardsDir) {

@@ -10,6 +10,13 @@ export const dashboardMeta = {
   config: { uid: "bot-config-impact", title: "Config Change Impact & RCA", folder: "analytics", refresh: "5m", from: "now-30d" },
   source: { uid: "bot-source-cohorts", title: "Source & Cohort Performance", folder: "analytics", refresh: "15m", from: "now-30d" },
   research: { uid: "bot-research-dry-run", title: "Research & Dry-Run Analysis", folder: "research", refresh: "15m", from: "now-30d" },
+  sessionOverview: { uid: "bot-session-overview", title: "Session Overview", folder: "operations", refresh: "30s", from: "now-24h" },
+  packLeaderboard: { uid: "bot-pack-leaderboard", title: "Pack Leaderboard", folder: "analytics", refresh: "5m", from: "now-30d" },
+  candidateFunnel: { uid: "bot-candidate-funnel-rca", title: "Candidate Funnel", folder: "analytics", refresh: "5m", from: "now-14d" },
+  exitReasonRca: { uid: "bot-exit-reason-rca", title: "Exit Reason RCA", folder: "analytics", refresh: "5m", from: "now-30d" },
+  creditBurn: { uid: "bot-credit-burn", title: "Credit Burn", folder: "operations", refresh: "1m", from: "now-30d" },
+  adaptiveTelemetry: { uid: "bot-adaptive-telemetry", title: "Adaptive Telemetry", folder: "operations", refresh: "5m", from: "now-30d" },
+  enrichmentQuality: { uid: "bot-enrichment-quality", title: "Enrichment Quality", folder: "operations", refresh: "5m", from: "now-14d" },
 };
 
 export const allRegex = ".*";
@@ -148,6 +155,22 @@ export function queryVariable(name, label, query, { includeAll = true, multi = t
     sort: 1,
     type: "query",
   };
+}
+
+export function sharedPackVariable() {
+  return queryVariable(
+    "pack",
+    "Pack",
+    'SELECT id::text AS __value, COALESCE(name, id)::text AS __text FROM "StrategyPack" WHERE status <> \'RETIRED\' ORDER BY 2',
+  );
+}
+
+export function sharedConfigVersionVariable() {
+  return queryVariable(
+    "configVer",
+    "Config Version",
+    'SELECT DISTINCT config_version::text AS __text, config_version::text AS __value FROM "ConfigSnapshot" ORDER BY config_version::int DESC',
+  );
 }
 
 export function textboxVariable(name, label) {

@@ -7,6 +7,8 @@ import {
   filterContains,
   filterRegex,
   queryVariable,
+  sharedConfigVersionVariable,
+  sharedPackVariable,
   statPanel,
   tablePanel,
   textboxVariable,
@@ -16,6 +18,8 @@ import {
 } from "./core.mjs";
 
 export function analystDashboard() {
+  const pack = sharedPackVariable();
+  const configVer = sharedConfigVersionVariable();
   const source = queryVariable("source", "Source", "SELECT DISTINCT source AS __text, source AS __value FROM v_source_outcome_daily ORDER BY 1");
   const provider = queryVariable("provider", "Provider", "SELECT DISTINCT provider AS __text, provider AS __value FROM v_api_provider_daily ORDER BY 1");
   const endpoint = queryVariable("endpoint", "Endpoint", `SELECT DISTINCT endpoint AS __text, endpoint AS __value FROM v_api_endpoint_efficiency WHERE ${filterRegex("provider", "provider")} ORDER BY 1`);
@@ -35,7 +39,7 @@ export function analystDashboard() {
     tablePanel(9, "Provider Pressure by Endpoint", { h: 8, w: 24, x: 0, y: 20 }, `SELECT bucket_at, provider, endpoint, total_calls, total_units, avg_latency_ms, error_count FROM v_api_endpoint_hourly WHERE ${timeFilter("bucket_at")} AND ${filterRegex("provider", "provider")} AND ${filterRegex("endpoint", "endpoint")} ORDER BY bucket_at DESC, total_units DESC LIMIT 80`, undefined, "Endpoint-level provider load for cohort-level RCA."),
   ];
 
-  return buildDashboard("analyst", "Analyst-first cohort and config view across sources, providers, and outcome patterns.", [source, provider, endpoint, config, daypart, exitProfile, securityRisk], panels, [
+  return buildDashboard("analyst", "Analyst-first cohort and config view across sources, providers, and outcome patterns.", [pack, configVer, source, provider, endpoint, config, daypart, exitProfile, securityRisk], panels, [
     dashboardLink("Source & Cohort Performance", dashboardMeta.source.uid),
     dashboardLink("Config Change Impact & RCA", dashboardMeta.config.uid),
     dashboardLink("Telemetry & Provider Analytics", dashboardMeta.telemetry.uid),
@@ -44,6 +48,8 @@ export function analystDashboard() {
 }
 
 export function candidateDashboard() {
+  const pack = sharedPackVariable();
+  const configVer = sharedConfigVersionVariable();
   const source = queryVariable("source", "Source", "SELECT DISTINCT source AS __text, source AS __value FROM v_candidate_decision_facts ORDER BY 1");
   const config = queryVariable("configVersion", "Config Version", "SELECT DISTINCT config_version::text AS __text, config_version::text AS __value FROM v_candidate_decision_facts ORDER BY 1 DESC");
   const mint = textboxVariable("mint", "Mint");
@@ -68,7 +74,7 @@ export function candidateDashboard() {
     tablePanel(11, "Provider Payload Evidence", { h: 8, w: 12, x: 12, y: 20 }, `SELECT captured_at, provider, endpoint, status_code, error_family, entity_key, latency_ms, error_message FROM v_raw_api_payload_recent WHERE ${timeFilter("captured_at")} AND (${asSqlText(varRef("mint"))} = '' OR entity_key ILIKE '%' || ${asSqlText(varRef("mint"))} || '%') ORDER BY captured_at DESC LIMIT 1000`, undefined, "Raw provider failures and payload evidence for mint-focused RCA."),
   ];
 
-  return buildDashboard("candidate", "Candidate funnel, decision evidence, and downstream outcome trace.", [source, config, mint, symbol, candidateStatus, rejectReason, trigger, securityRisk, daypart], panels, [
+  return buildDashboard("candidate", "Candidate funnel, decision evidence, and downstream outcome trace.", [pack, configVer, source, config, mint, symbol, candidateStatus, rejectReason, trigger, securityRisk, daypart], panels, [
     dashboardLink("Source & Cohort Performance", dashboardMeta.source.uid),
     dashboardLink("Analyst Insights Overview", dashboardMeta.analyst.uid),
     dashboardLink("Position & PnL Analytics", dashboardMeta.position.uid),
@@ -77,6 +83,8 @@ export function candidateDashboard() {
 }
 
 export function positionDashboard() {
+  const pack = sharedPackVariable();
+  const configVer = sharedConfigVersionVariable();
   const source = queryVariable("source", "Source", "SELECT DISTINCT source AS __text, source AS __value FROM v_position_pnl_daily ORDER BY 1");
   const positionStatus = queryVariable("positionStatus", "Position Status", "SELECT DISTINCT status AS __text, status AS __value FROM v_position_performance ORDER BY 1");
   const positionId = textboxVariable("positionId", "Position ID");
@@ -99,7 +107,7 @@ export function positionDashboard() {
     tablePanel(10, "Snapshot Evidence", { h: 8, w: 24, x: 0, y: 20 }, `SELECT captured_at, mint, symbol, trigger, source, config_version, price_usd, liquidity_usd, volume_5m_usd, buy_sell_ratio, top10_holder_percent, security_risk, position_status, position_exit_reason FROM v_token_snapshot_enriched WHERE ${timeFilter("captured_at")} AND ${filterRegex("source", "source")} AND ${filterContains("mint", "mint")} AND ${filterContains("symbol", "symbol")} ORDER BY captured_at DESC LIMIT 100`, undefined, "Position-linked snapshot trail for trade RCA."),
   ];
 
-  return buildDashboard("position", "Position outcomes, execution history, and raw trade evidence.", [source, positionStatus, positionId, mint, symbol, exitReason, exitProfile, config], panels, [
+  return buildDashboard("position", "Position outcomes, execution history, and raw trade evidence.", [pack, configVer, source, positionStatus, positionId, mint, symbol, exitReason, exitProfile, config], panels, [
     dashboardLink("Live Trade Monitor", dashboardMeta.live.uid),
     dashboardLink("Config Change Impact & RCA", dashboardMeta.config.uid),
     dashboardLink("Source & Cohort Performance", dashboardMeta.source.uid),
@@ -108,6 +116,8 @@ export function positionDashboard() {
 }
 
 export function configDashboard() {
+  const pack = sharedPackVariable();
+  const configVer = sharedConfigVersionVariable();
   const config = queryVariable("configVersion", "Config Version", "SELECT config_version::text AS __text, config_version::text AS __value FROM v_config_change_log ORDER BY config_version DESC", { multi: false });
   const source = queryVariable("source", "Source", "SELECT DISTINCT source AS __text, source AS __value FROM v_source_outcome_daily ORDER BY 1");
   const exitProfile = queryVariable("exitProfile", "Exit Profile", "SELECT DISTINCT exit_profile AS __text, exit_profile AS __value FROM v_position_pnl_daily ORDER BY 1");
@@ -123,7 +133,7 @@ export function configDashboard() {
     tablePanel(9, "Source / Exit Profile Delta", { h: 8, w: 24, x: 0, y: 20 }, `SELECT p.session_date, p.source, p.exit_profile, p.config_version, p.position_count, p.closed_count, p.realized_pnl_usd, p.avg_return_pct, p.win_rate * 100 AS win_rate_pct FROM v_position_pnl_daily p WHERE ${timeFilter(dateTimeColumn("session_date"))} AND ${filterRegex("source", "source")} AND ${filterRegex("exit_profile", "exitProfile")} AND ${filterRegex("config_version", "configVersion")} ORDER BY p.session_date DESC, p.realized_pnl_usd DESC LIMIT 80`, undefined, "Outcome delta by source and exit profile within the selected config window."),
   ];
 
-  return buildDashboard("config", "Config history, field-level diffs, and KPI windows.", [config, source, exitProfile], panels, [
+  return buildDashboard("config", "Config history, field-level diffs, and KPI windows.", [pack, configVer, config, source, exitProfile], panels, [
     dashboardLink("Candidate & Funnel Analytics", dashboardMeta.candidate.uid),
     dashboardLink("Position & PnL Analytics", dashboardMeta.position.uid),
     dashboardLink("Telemetry & Provider Analytics", dashboardMeta.telemetry.uid),
@@ -132,6 +142,8 @@ export function configDashboard() {
 }
 
 export function sourceDashboard() {
+  const pack = sharedPackVariable();
+  const configVer = sharedConfigVersionVariable();
   const source = queryVariable("source", "Source", "SELECT DISTINCT source AS __text, source AS __value FROM v_source_outcome_daily ORDER BY 1");
   const daypart = queryVariable("daypart", "Daypart", "SELECT DISTINCT daypart AS __text, daypart AS __value FROM v_candidate_cohort_daily ORDER BY 1");
   const securityRisk = queryVariable("securityRisk", "Security Risk", "SELECT DISTINCT security_risk AS __text, security_risk AS __value FROM v_candidate_cohort_daily ORDER BY 1");
@@ -148,10 +160,239 @@ export function sourceDashboard() {
     tablePanel(8, "Position Cohort Leaderboard", { h: 8, w: 12, x: 12, y: 12 }, `SELECT session_date, source, config_version, daypart, exit_profile, security_risk, outcome, position_count, avg_return_pct, avg_hold_minutes, win_rate * 100 AS win_rate_pct, realized_pnl_usd FROM v_position_cohort_daily WHERE ${timeFilter(dateTimeColumn("session_date"))} AND ${filterRegex("source", "source")} AND ${filterRegex("daypart", "daypart")} AND ${filterRegex("exit_profile", "exitProfile")} AND ${filterRegex("security_risk", "securityRisk")} AND ${filterRegex("config_version", "configVersion")} ORDER BY session_date DESC, realized_pnl_usd DESC LIMIT 80`, undefined, "Position cohort leaderboard for source and exit-profile comparisons."),
   ];
 
-  return buildDashboard("source", "Source-level and cohort-level performance review.", [source, daypart, securityRisk, exitProfile, config], panels, [
+  return buildDashboard("source", "Source-level and cohort-level performance review.", [pack, configVer, source, daypart, securityRisk, exitProfile, config], panels, [
     dashboardLink("Analyst Insights Overview", dashboardMeta.analyst.uid),
     dashboardLink("Candidate & Funnel Analytics", dashboardMeta.candidate.uid),
     dashboardLink("Position & PnL Analytics", dashboardMeta.position.uid),
     dashboardLink("Config Change Impact & RCA", dashboardMeta.config.uid),
   ]);
+}
+
+export function buildPackLeaderboardDashboard() {
+  const pack = sharedPackVariable();
+  const configVer = sharedConfigVersionVariable();
+  const grade = queryVariable("grade", "Grade", "SELECT DISTINCT grade AS __text, grade AS __value FROM v_strategy_pack_performance_daily ORDER BY 1");
+  const panels = [
+    statPanel(
+      1,
+      "Top Pack Win Rate",
+      { h: 4, w: 8, x: 0, y: 0 },
+      `SELECT COALESCE(MAX(win_rate_pct), 0) AS value FROM v_strategy_pack_performance_daily WHERE ${filterRegex("strategy_pack_id", "pack")} AND ${filterRegex("config_version", "configVer")} AND ${filterRegex("grade", "grade")}`,
+      "percent",
+      "Backed by v_strategy_pack_performance_daily for peak pack win-rate.",
+    ),
+    statPanel(
+      2,
+      "Top Pack EV",
+      { h: 4, w: 8, x: 8, y: 0 },
+      `SELECT COALESCE(MAX(expected_value_usd), 0) AS value FROM v_strategy_pack_performance_daily WHERE ${filterRegex("strategy_pack_id", "pack")} AND ${filterRegex("config_version", "configVer")} AND ${filterRegex("grade", "grade")}`,
+      "currencyUSD",
+      "Backed by v_strategy_pack_performance_daily for expected-value leader.",
+    ),
+    statPanel(
+      3,
+      "Median Hold Minutes",
+      { h: 4, w: 8, x: 16, y: 0 },
+      `SELECT COALESCE(AVG(avg_hold_minutes), 0) AS value FROM v_strategy_pack_exit_profile_mix WHERE ${filterRegex("strategy_pack_id", "pack")} AND ${filterRegex("config_version", "configVer")}`,
+      "none",
+      "Backed by v_strategy_pack_exit_profile_mix for hold-time baseline.",
+    ),
+    tablePanel(
+      4,
+      "Pack Leaderboard",
+      { h: 9, w: 12, x: 0, y: 4 },
+      `SELECT day, strategy_pack_id, grade, accepted_count, closed_positions, win_rate_pct, avg_winner_usd, avg_loser_usd, expected_value_usd FROM v_strategy_pack_performance_daily WHERE ${filterRegex("strategy_pack_id", "pack")} AND ${filterRegex("config_version", "configVer")} AND ${filterRegex("grade", "grade")} ORDER BY expected_value_usd DESC, win_rate_pct DESC LIMIT 100`,
+      undefined,
+      "Backed by v_strategy_pack_performance_daily for rank-ordered pack performance.",
+    ),
+    timeseriesPanel(
+      5,
+      "Pack Grade Trend",
+      { h: 9, w: 12, x: 12, y: 4 },
+      `SELECT day::timestamp AS "time", strategy_pack_id::text AS metric, grade_score AS value FROM v_strategy_pack_performance_daily WHERE ${filterRegex("strategy_pack_id", "pack")} AND ${filterRegex("config_version", "configVer")} ORDER BY 1, 2`,
+      "none",
+      "Backed by v_strategy_pack_performance_daily for grade trajectory.",
+    ),
+    tablePanel(
+      6,
+      "Config Window Cross-Check",
+      { h: 9, w: 24, x: 0, y: 13 },
+      `SELECT config_version, window_start_at, window_end_at, candidates_accepted, positions_closed, realized_pnl_usd, win_rate * 100 AS win_rate_pct FROM v_kpi_by_config_window WHERE ${filterRegex("config_version", "configVer")} ORDER BY config_version DESC`,
+      undefined,
+      "Backed by v_kpi_by_config_window for config-level verification against pack stats.",
+    ),
+  ];
+
+  return buildDashboard(
+    "packLeaderboard",
+    "Pack-level performance leaderboard with config-window cross-checks.",
+    [pack, configVer, grade],
+    panels,
+    [
+      dashboardLink("Candidate Funnel", dashboardMeta.candidateFunnel.uid),
+      dashboardLink("Exit Reason RCA", dashboardMeta.exitReasonRca.uid),
+      dashboardLink("Session Overview", dashboardMeta.sessionOverview.uid),
+    ],
+  );
+}
+
+export function buildCandidateFunnelDashboard() {
+  const pack = sharedPackVariable();
+  const configVer = sharedConfigVersionVariable();
+  const source = queryVariable("source", "Source", "SELECT DISTINCT source AS __text, source AS __value FROM v_candidate_funnel_daily_source ORDER BY 1");
+  const panels = [
+    statPanel(
+      1,
+      "Discovered",
+      { h: 4, w: 6, x: 0, y: 0 },
+      `SELECT COALESCE(SUM(discovered_count), 0) AS value FROM v_candidate_funnel_daily_source WHERE ${filterRegex("source", "source")} AND ${filterRegex("strategy_pack_id", "pack")} AND ${filterRegex("config_version", "configVer")}`,
+      "none",
+      "Backed by v_candidate_funnel_daily_source for discovered-stage totals.",
+    ),
+    statPanel(
+      2,
+      "Accepted",
+      { h: 4, w: 6, x: 6, y: 0 },
+      `SELECT COALESCE(SUM(accepted_count), 0) AS value FROM v_candidate_funnel_daily_source WHERE ${filterRegex("source", "source")} AND ${filterRegex("strategy_pack_id", "pack")} AND ${filterRegex("config_version", "configVer")}`,
+      "none",
+      "Backed by v_candidate_funnel_daily_source for accepted-stage totals.",
+    ),
+    statPanel(
+      3,
+      "Filled",
+      { h: 4, w: 6, x: 12, y: 0 },
+      `SELECT COALESCE(SUM(filled_count), 0) AS value FROM v_candidate_funnel_daily_source WHERE ${filterRegex("source", "source")} AND ${filterRegex("strategy_pack_id", "pack")} AND ${filterRegex("config_version", "configVer")}`,
+      "none",
+      "Backed by v_candidate_funnel_daily_source for filled-stage totals.",
+    ),
+    statPanel(
+      4,
+      "Exited",
+      { h: 4, w: 6, x: 18, y: 0 },
+      `SELECT COALESCE(SUM(exited_count), 0) AS value FROM v_candidate_funnel_daily_source WHERE ${filterRegex("source", "source")} AND ${filterRegex("strategy_pack_id", "pack")} AND ${filterRegex("config_version", "configVer")}`,
+      "none",
+      "Backed by v_candidate_funnel_daily_source for exited-stage totals.",
+    ),
+    timeseriesPanel(
+      5,
+      "Funnel Stages by Day",
+      { h: 8, w: 12, x: 0, y: 4 },
+      `SELECT day::timestamp AS "time", stage AS metric, stage_count AS value FROM v_candidate_funnel_daily_source WHERE ${filterRegex("source", "source")} AND ${filterRegex("strategy_pack_id", "pack")} AND ${filterRegex("config_version", "configVer")} ORDER BY 1, 2`,
+      "none",
+      "Backed by v_candidate_funnel_daily_source for stage progression trend.",
+    ),
+    tablePanel(
+      6,
+      "Decision Reason Mix",
+      { h: 8, w: 12, x: 12, y: 4 },
+      `SELECT day, source, reject_reason, decision_count FROM v_candidate_decision_facts WHERE ${filterRegex("source", "source")} AND ${filterRegex("strategy_pack_id", "pack")} AND ${filterRegex("config_version", "configVer")} ORDER BY day DESC, decision_count DESC LIMIT 200`,
+      undefined,
+      "Backed by v_candidate_decision_facts for rejection and decision RCA.",
+    ),
+    tablePanel(
+      7,
+      "Latest Filter State Heatstrip",
+      { h: 8, w: 24, x: 0, y: 12 },
+      `SELECT mint, symbol, source, status, reject_reason, security_risk, liquidity_usd, volume_5m_usd, buy_sell_ratio, last_snapshot_at FROM v_candidate_latest_filter_state WHERE ${filterRegex("source", "source")} ORDER BY last_snapshot_at DESC LIMIT 200`,
+      undefined,
+      "Backed by v_candidate_latest_filter_state for latest filter-firing evidence.",
+    ),
+  ];
+
+  return buildDashboard(
+    "candidateFunnel",
+    "Candidate funnel diagnostics from discovery through exits.",
+    [pack, configVer, source],
+    panels,
+    [
+      dashboardLink("Pack Leaderboard", dashboardMeta.packLeaderboard.uid),
+      dashboardLink("Exit Reason RCA", dashboardMeta.exitReasonRca.uid),
+      dashboardLink("Enrichment Quality", dashboardMeta.enrichmentQuality.uid),
+    ],
+  );
+}
+
+export function buildExitReasonRCADashboard() {
+  const pack = sharedPackVariable();
+  const configVer = sharedConfigVersionVariable();
+  const exitReason = queryVariable("exitReason", "Exit Reason", "SELECT DISTINCT exit_reason AS __text, exit_reason AS __value FROM v_position_exit_reason_daily ORDER BY 1");
+  const lane = queryVariable("lane", "Lane", "SELECT DISTINCT lane AS __text, lane AS __value FROM v_submit_lane_daily ORDER BY 1");
+  const panels = [
+    statPanel(
+      1,
+      "Exit Count",
+      { h: 4, w: 6, x: 0, y: 0 },
+      `SELECT COALESCE(SUM(position_count), 0) AS value FROM v_position_exit_reason_daily WHERE ${filterRegex("exit_reason", "exitReason")} AND ${filterRegex("strategy_pack_id", "pack")} AND ${filterRegex("config_version", "configVer")}`,
+      "none",
+      "Backed by v_position_exit_reason_daily for selected exit reason totals.",
+    ),
+    statPanel(
+      2,
+      "Exit PnL",
+      { h: 4, w: 6, x: 6, y: 0 },
+      `SELECT COALESCE(SUM(realized_pnl_usd), 0) AS value FROM v_position_exit_reason_daily WHERE ${filterRegex("exit_reason", "exitReason")} AND ${filterRegex("strategy_pack_id", "pack")} AND ${filterRegex("config_version", "configVer")}`,
+      "currencyUSD",
+      "Backed by v_position_exit_reason_daily for exit-reason PnL.",
+    ),
+    statPanel(
+      3,
+      "Exit p95 Latency",
+      { h: 4, w: 6, x: 12, y: 0 },
+      `SELECT COALESCE(MAX(p95_exit_latency_ms), 0) AS value FROM v_recent_fill_activity WHERE ${filterRegex("exit_reason", "exitReason")}`,
+      "ms",
+      "Backed by v_recent_fill_activity for exit latency tails.",
+    ),
+    statPanel(
+      4,
+      "SL Bundle Land Rate",
+      { h: 4, w: 6, x: 18, y: 0 },
+      `SELECT COALESCE(AVG(land_rate_pct), 0) AS value FROM v_submit_lane_daily WHERE ${filterRegex("lane", "lane")} AND lane = 'JITO_BUNDLE'`,
+      "percent",
+      "Backed by v_submit_lane_daily for Jito stop-loss landing reliability.",
+    ),
+    timeseriesPanel(
+      5,
+      "Exit Reason Trend",
+      { h: 8, w: 12, x: 0, y: 4 },
+      `SELECT day::timestamp AS "time", exit_reason AS metric, position_count AS value FROM v_position_exit_reason_daily WHERE ${filterRegex("exit_reason", "exitReason")} AND ${filterRegex("strategy_pack_id", "pack")} AND ${filterRegex("config_version", "configVer")} ORDER BY 1, 2`,
+      "none",
+      "Backed by v_position_exit_reason_daily for exit-reason timeline.",
+    ),
+    timeseriesPanel(
+      6,
+      "Lane Land Rate Trend",
+      { h: 8, w: 12, x: 12, y: 4 },
+      `SELECT day::timestamp AS "time", lane AS metric, land_rate_pct AS value FROM v_submit_lane_daily WHERE ${filterRegex("lane", "lane")} ORDER BY 1, 2`,
+      "percent",
+      "Backed by v_submit_lane_daily for lane landing trend.",
+    ),
+    tablePanel(
+      7,
+      "Recent Exit Fill Trail",
+      { h: 8, w: 12, x: 0, y: 12 },
+      `SELECT created_at, side, lane, position_id, mint, symbol, exit_reason, amount_usd, pnl_usd, tx_signature FROM v_recent_fill_activity WHERE ${timeFilter("created_at")} AND ${filterRegex("exit_reason", "exitReason")} ORDER BY created_at DESC LIMIT 200`,
+      undefined,
+      "Backed by v_recent_fill_activity for exit execution evidence.",
+    ),
+    tablePanel(
+      8,
+      "Exit Plan Mutation Impact",
+      { h: 8, w: 12, x: 12, y: 12 },
+      `SELECT day, mutator_code, axis, mutation_count, helped_count, hurt_count FROM v_exit_plan_mutation_daily WHERE ${filterRegex("strategy_pack_id", "pack")} AND ${filterRegex("config_version", "configVer")} ORDER BY day DESC, mutation_count DESC`,
+      undefined,
+      "Backed by v_exit_plan_mutation_daily for mutation-to-outcome linkage.",
+    ),
+  ];
+
+  return buildDashboard(
+    "exitReasonRca",
+    "Exit-reason root-cause analysis across execution quality and mutator impact.",
+    [pack, configVer, exitReason, lane],
+    panels,
+    [
+      dashboardLink("Adaptive Telemetry", dashboardMeta.adaptiveTelemetry.uid),
+      dashboardLink("Pack Leaderboard", dashboardMeta.packLeaderboard.uid),
+      dashboardLink("Position & PnL Analytics", dashboardMeta.position.uid),
+    ],
+  );
 }

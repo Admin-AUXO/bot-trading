@@ -691,6 +691,52 @@
           "type": "postgres",
           "uid": "trading-bot-postgres"
         },
+        "definition": "SELECT id::text AS __value, COALESCE(name, id)::text AS __text FROM \"StrategyPack\" WHERE status <> 'RETIRED' ORDER BY 2",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Pack",
+        "multi": true,
+        "name": "pack",
+        "options": [],
+        "query": "SELECT id::text AS __value, COALESCE(name, id)::text AS __text FROM \"StrategyPack\" WHERE status <> 'RETIRED' ORDER BY 2",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": ".*"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "trading-bot-postgres"
+        },
+        "definition": "SELECT DISTINCT config_version::text AS __text, config_version::text AS __value FROM \"ConfigSnapshot\" ORDER BY config_version::int DESC",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Config Version",
+        "multi": true,
+        "name": "configVer",
+        "options": [],
+        "query": "SELECT DISTINCT config_version::text AS __text, config_version::text AS __value FROM \"ConfigSnapshot\" ORDER BY config_version::int DESC",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": ".*"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "trading-bot-postgres"
+        },
         "definition": "SELECT DISTINCT source AS __text, source AS __value FROM v_position_pnl_daily ORDER BY 1",
         "hide": 0,
         "includeAll": true,

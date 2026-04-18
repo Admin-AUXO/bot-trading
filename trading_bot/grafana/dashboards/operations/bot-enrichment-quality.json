@@ -2,7 +2,7 @@
   "annotations": {
     "list": []
   },
-  "description": "Research dry-run summaries, token funnel, and mock position outcomes.",
+  "description": "Enrichment-provider quality, freshness, and composite-score coverage telemetry.",
   "editable": false,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -15,10 +15,10 @@
       "keepTime": true,
       "tags": [],
       "targetBlank": false,
-      "title": "Executive Scorecard",
+      "title": "Credit Burn",
       "tooltip": "",
       "type": "link",
-      "url": "/d/bot-executive-scorecard"
+      "url": "/d/bot-credit-burn"
     },
     {
       "asDropdown": false,
@@ -27,10 +27,10 @@
       "keepTime": true,
       "tags": [],
       "targetBlank": false,
-      "title": "Analyst Insights Overview",
+      "title": "Telemetry & Provider Analytics",
       "tooltip": "",
       "type": "link",
-      "url": "/d/bot-analyst-insights"
+      "url": "/d/bot-telemetry-provider"
     },
     {
       "asDropdown": false,
@@ -39,16 +39,16 @@
       "keepTime": true,
       "tags": [],
       "targetBlank": false,
-      "title": "Candidate & Funnel Analytics",
+      "title": "Candidate Funnel",
       "tooltip": "",
       "type": "link",
-      "url": "/d/bot-candidate-funnel"
+      "url": "/d/bot-candidate-funnel-rca"
     }
   ],
   "panels": [
     {
       "id": 1,
-      "title": "Latest Run PnL",
+      "title": "Success Rate (24h)",
       "type": "stat",
       "datasource": {
         "type": "postgres",
@@ -69,72 +69,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(\"realizedPnlUsd\", 0)::numeric AS value FROM \"ResearchRun\" WHERE COALESCE(id::text, '') ~* '^(${runId:regex})$' AND COALESCE(status::text, '') ~* '^(${runStatus:regex})$' AND \"startedAt\" >= $__timeFrom() AND \"startedAt\" <= $__timeTo() ORDER BY \"startedAt\" DESC LIMIT 1",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "currencyUSD",
-          "color": {
-            "mode": "palette-classic"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 0
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "description": "Latest completed dry-run PnL in the selected research slice."
-    },
-    {
-      "id": 2,
-      "title": "Latest Win Rate",
-      "type": "stat",
-      "datasource": {
-        "type": "postgres",
-        "uid": "trading-bot-postgres"
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 6,
-        "y": 0
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "postgres",
-            "uid": "trading-bot-postgres"
-          },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT COALESCE(\"winRatePercent\", 0)::numeric AS value FROM \"ResearchRun\" WHERE COALESCE(id::text, '') ~* '^(${runId:regex})$' AND COALESCE(status::text, '') ~* '^(${runStatus:regex})$' AND \"startedAt\" >= $__timeFrom() AND \"startedAt\" <= $__timeTo() ORDER BY \"startedAt\" DESC LIMIT 1",
+          "rawSql": "SELECT COALESCE((SUM(success_count)::numeric / NULLIF(SUM(total_count), 0)) * 100, 0) AS value FROM v_enrichment_quality_daily WHERE day >= DATE_TRUNC('day', NOW()) - INTERVAL '1 day' AND COALESCE(source::text, '') ~* '^(${enrichmentSource:regex})$'",
           "refId": "A"
         }
       ],
@@ -174,11 +109,11 @@
         },
         "textMode": "auto"
       },
-      "description": "Latest dry-run win rate in the selected research slice."
+      "description": "Backed by v_enrichment_quality_daily for per-source success ratio."
     },
     {
-      "id": 3,
-      "title": "Latest Discovered",
+      "id": 2,
+      "title": "p95 Latency (ms)",
       "type": "stat",
       "datasource": {
         "type": "postgres",
@@ -187,7 +122,7 @@
       "gridPos": {
         "h": 4,
         "w": 6,
-        "x": 12,
+        "x": 6,
         "y": 0
       },
       "targets": [
@@ -199,13 +134,13 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(\"totalDiscovered\", 0) AS value FROM \"ResearchRun\" WHERE COALESCE(id::text, '') ~* '^(${runId:regex})$' AND COALESCE(status::text, '') ~* '^(${runStatus:regex})$' AND \"startedAt\" >= $__timeFrom() AND \"startedAt\" <= $__timeTo() ORDER BY \"startedAt\" DESC LIMIT 1",
+          "rawSql": "SELECT COALESCE(MAX(p95_latency_ms), 0) AS value FROM v_enrichment_quality_daily WHERE day >= DATE_TRUNC('day', NOW()) - INTERVAL '1 day' AND COALESCE(source::text, '') ~* '^(${enrichmentSource:regex})$'",
           "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "none",
+          "unit": "ms",
           "color": {
             "mode": "palette-classic"
           },
@@ -239,11 +174,76 @@
         },
         "textMode": "auto"
       },
-      "description": "Latest dry-run discovery count in the selected scope."
+      "description": "Backed by v_enrichment_quality_daily for source latency p95."
+    },
+    {
+      "id": 3,
+      "title": "Cache Hit %",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(AVG(cache_hit_pct), 0) AS value FROM v_enrichment_freshness WHERE bucket_at >= $__timeFrom() AND bucket_at <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${enrichmentSource:regex})$'",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "description": "Backed by v_enrichment_freshness for cache-hit share."
     },
     {
       "id": 4,
-      "title": "Strategy Passed",
+      "title": "Composite Coverage %",
       "type": "stat",
       "datasource": {
         "type": "postgres",
@@ -264,13 +264,13 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(\"totalStrategyPassed\", 0) AS value FROM \"ResearchRun\" WHERE COALESCE(id::text, '') ~* '^(${runId:regex})$' AND COALESCE(status::text, '') ~* '^(${runStatus:regex})$' AND \"startedAt\" >= $__timeFrom() AND \"startedAt\" <= $__timeTo() ORDER BY \"startedAt\" DESC LIMIT 1",
+          "rawSql": "SELECT COALESCE(AVG(composite_coverage_pct), 0) AS value FROM v_enrichment_quality_daily WHERE COALESCE(source::text, '') ~* '^(${enrichmentSource:regex})$'",
           "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "none",
+          "unit": "percent",
           "color": {
             "mode": "palette-classic"
           },
@@ -304,19 +304,19 @@
         },
         "textMode": "auto"
       },
-      "description": "Latest count of tokens that passed strategy gates."
+      "description": "Backed by v_enrichment_quality_daily for composite-score coverage."
     },
     {
       "id": 5,
-      "title": "Run History",
-      "type": "table",
+      "title": "Success Rate by Source",
+      "type": "timeseries",
       "datasource": {
         "type": "postgres",
         "uid": "trading-bot-postgres"
       },
       "gridPos": {
         "h": 8,
-        "w": 24,
+        "w": 12,
         "x": 0,
         "y": 4
       },
@@ -327,31 +327,149 @@
             "uid": "trading-bot-postgres"
           },
           "editorMode": "code",
-          "format": "table",
+          "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT id, status, \"startedAt\" AS started_at, \"completedAt\" AS completed_at, \"totalDiscovered\" AS total_discovered, \"totalStrategyPassed\" AS total_strategy_passed, \"totalMockOpened\" AS total_mock_opened, \"totalMockClosed\" AS total_mock_closed, \"realizedPnlUsd\"::numeric AS realized_pnl_usd, \"winRatePercent\"::numeric AS win_rate_percent, \"averageHoldMinutes\"::numeric AS average_hold_minutes FROM \"ResearchRun\" WHERE \"startedAt\" >= $__timeFrom() AND \"startedAt\" <= $__timeTo() AND COALESCE(id::text, '') ~* '^(${runId:regex})$' AND COALESCE(status::text, '') ~* '^(${runStatus:regex})$' ORDER BY \"startedAt\" DESC LIMIT 50",
+          "rawSql": "SELECT day::timestamp AS \"time\", source AS metric, success_rate_pct AS value FROM v_enrichment_quality_daily WHERE COALESCE(source::text, '') ~* '^(${enrichmentSource:regex})$' ORDER BY 1, 2",
           "refId": "A"
         }
       ],
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
         "overrides": []
       },
       "options": {
-        "cellHeight": "sm",
-        "footer": {
-          "enablePagination": false,
-          "reducer": [],
-          "show": false
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
         },
-        "showHeader": true
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
-      "description": "Run-level history for dry-run comparisons."
+      "description": "Backed by v_enrichment_quality_daily for success-rate trend."
     },
     {
       "id": 6,
-      "title": "Research Token Funnel",
-      "type": "table",
+      "title": "p95 Latency by Source",
+      "type": "timeseries",
+      "datasource": {
+        "type": "postgres",
+        "uid": "trading-bot-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "trading-bot-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT day::timestamp AS \"time\", source AS metric, p95_latency_ms AS value FROM v_enrichment_quality_daily WHERE COALESCE(source::text, '') ~* '^(${enrichmentSource:regex})$' ORDER BY 1, 2",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "Backed by v_enrichment_quality_daily for latency trend."
+    },
+    {
+      "id": 7,
+      "title": "Stale Share by Source",
+      "type": "timeseries",
       "datasource": {
         "type": "postgres",
         "uid": "trading-bot-postgres"
@@ -369,30 +487,68 @@
             "uid": "trading-bot-postgres"
           },
           "editorMode": "code",
-          "format": "table",
+          "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT rt.\"runId\" AS run_id, rt.mint, rt.symbol, rt.source, rt.shortlisted, rt.\"fullEvaluationDone\" AS full_evaluation_done, rt.\"strategyPassed\" AS strategy_passed, rt.\"strategyRejectReason\" AS strategy_reject_reason, rt.\"evaluationDeferReason\" AS evaluation_defer_reason, rt.\"liveTradable\" AS live_tradable, rt.\"researchTradable\" AS research_tradable, rt.\"entryScore\"::numeric AS entry_score, rt.\"exitProfile\" AS exit_profile FROM \"ResearchToken\" rt JOIN \"ResearchRun\" rr ON rr.id = rt.\"runId\" WHERE COALESCE(rt.\"runId\"::text, '') ~* '^(${runId:regex})$' AND COALESCE(rr.status::text, '') ~* '^(${runStatus:regex})$' AND COALESCE(rt.source::text, '') ~* '^(${source:regex})$' ORDER BY rt.\"createdAt\" DESC LIMIT 100",
+          "rawSql": "SELECT bucket_at AS \"time\", source AS metric, stale_pct AS value FROM v_enrichment_freshness WHERE bucket_at >= $__timeFrom() AND bucket_at <= $__timeTo() AND COALESCE(source::text, '') ~* '^(${enrichmentSource:regex})$' ORDER BY 1, 2",
           "refId": "A"
         }
       ],
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
         "overrides": []
       },
       "options": {
-        "cellHeight": "sm",
-        "footer": {
-          "enablePagination": false,
-          "reducer": [],
-          "show": false
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
         },
-        "showHeader": true
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
-      "description": "Token-level dry-run funnel evidence."
+      "description": "Backed by v_enrichment_freshness for stale-data share."
     },
     {
-      "id": 7,
-      "title": "Research Position Outcomes",
+      "id": 8,
+      "title": "Composite Score Coverage Detail",
       "type": "table",
       "datasource": {
         "type": "postgres",
@@ -413,7 +569,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT rp.\"runId\" AS run_id, rp.id AS position_id, rp.mint, rp.symbol, rp.status, rp.\"openedAt\" AS opened_at, rp.\"closedAt\" AS closed_at, rp.\"entryPriceUsd\"::numeric AS entry_price_usd, rp.\"currentPriceUsd\"::numeric AS current_price_usd, rp.\"amountUsd\"::numeric AS amount_usd, rp.\"remainingToken\"::numeric AS remaining_token, rp.\"exitReason\" AS exit_reason FROM \"ResearchPosition\" rp JOIN \"ResearchRun\" rr ON rr.id = rp.\"runId\" WHERE COALESCE(rp.\"runId\"::text, '') ~* '^(${runId:regex})$' AND COALESCE(rr.status::text, '') ~* '^(${runStatus:regex})$' ORDER BY rp.\"openedAt\" DESC LIMIT 100",
+          "rawSql": "SELECT day, source, composite_coverage_pct, success_rate_pct, p95_latency_ms FROM v_enrichment_quality_daily WHERE COALESCE(source::text, '') ~* '^(${enrichmentSource:regex})$' ORDER BY day DESC, source",
           "refId": "A"
         }
       ],
@@ -430,11 +586,11 @@
         },
         "showHeader": true
       },
-      "description": "Mock-position outcomes for dry-run analysis."
+      "description": "Backed by v_enrichment_quality_daily for coverage detail rows."
     },
     {
-      "id": 8,
-      "title": "Research Fill Trail",
+      "id": 9,
+      "title": "Endpoint Efficiency (Enrichment Providers)",
       "type": "table",
       "datasource": {
         "type": "postgres",
@@ -455,7 +611,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT rf.\"createdAt\" AS created_at, rp.\"runId\" AS run_id, rp.id AS position_id, rp.mint, rp.symbol, rf.side, rf.\"priceUsd\"::numeric AS price_usd, rf.\"amountUsd\"::numeric AS amount_usd, rf.\"pnlUsd\"::numeric AS pnl_usd FROM \"ResearchFill\" rf JOIN \"ResearchPosition\" rp ON rp.id = rf.\"positionId\" JOIN \"ResearchRun\" rr ON rr.id = rp.\"runId\" WHERE COALESCE(rp.\"runId\"::text, '') ~* '^(${runId:regex})$' AND COALESCE(rr.status::text, '') ~* '^(${runStatus:regex})$' ORDER BY rf.\"createdAt\" DESC LIMIT 100",
+          "rawSql": "SELECT provider, endpoint, calls_7d, credits_7d, avg_latency_ms, fail_rate\n       FROM v_api_endpoint_efficiency\n       WHERE provider IN ('TRENCH', 'BUBBLEMAPS', 'SOLSNIFFER', 'JUPITER', 'GECKOTERMINAL', 'CIELO', 'PUMPFUN', 'DEFILLAMA')\n       ORDER BY fail_rate DESC, calls_7d DESC",
           "refId": "A"
         }
       ],
@@ -472,16 +628,16 @@
         },
         "showHeader": true
       },
-      "description": "Mock execution trail for the selected dry-run slice."
+      "description": "Backed by v_api_endpoint_efficiency scoped to enrichment providers."
     }
   ],
-  "refresh": "15m",
+  "refresh": "5m",
   "schemaVersion": 41,
   "style": "dark",
   "tags": [
     "bot-trading",
-    "research",
-    "research"
+    "operations",
+    "enrichmentQuality"
   ],
   "templating": {
     "list": [
@@ -542,60 +698,14 @@
           "type": "postgres",
           "uid": "trading-bot-postgres"
         },
-        "definition": "SELECT TO_CHAR(\"startedAt\", 'YYYY-MM-DD HH24:MI') || ' · ' || status || ' · ' || LEFT(id, 8) AS __text, id AS __value FROM \"ResearchRun\" ORDER BY \"startedAt\" DESC",
+        "definition": "SELECT DISTINCT source AS __text, source AS __value FROM v_enrichment_quality_daily ORDER BY 1",
         "hide": 0,
         "includeAll": true,
-        "label": "Research Run",
-        "multi": false,
-        "name": "runId",
-        "options": [],
-        "query": "SELECT TO_CHAR(\"startedAt\", 'YYYY-MM-DD HH24:MI') || ' · ' || status || ' · ' || LEFT(id, 8) AS __text, id AS __value FROM \"ResearchRun\" ORDER BY \"startedAt\" DESC",
-        "refresh": 2,
-        "sort": 1,
-        "type": "query"
-      },
-      {
-        "allValue": ".*",
-        "current": {
-          "selected": false,
-          "text": "All",
-          "value": ".*"
-        },
-        "datasource": {
-          "type": "postgres",
-          "uid": "trading-bot-postgres"
-        },
-        "definition": "SELECT DISTINCT status AS __text, status AS __value FROM \"ResearchRun\" ORDER BY 1",
-        "hide": 0,
-        "includeAll": true,
-        "label": "Run Status",
+        "label": "Enrichment Source",
         "multi": true,
-        "name": "runStatus",
+        "name": "enrichmentSource",
         "options": [],
-        "query": "SELECT DISTINCT status AS __text, status AS __value FROM \"ResearchRun\" ORDER BY 1",
-        "refresh": 2,
-        "sort": 1,
-        "type": "query"
-      },
-      {
-        "allValue": ".*",
-        "current": {
-          "selected": false,
-          "text": "All",
-          "value": ".*"
-        },
-        "datasource": {
-          "type": "postgres",
-          "uid": "trading-bot-postgres"
-        },
-        "definition": "SELECT DISTINCT source AS __text, source AS __value FROM \"ResearchToken\" ORDER BY 1",
-        "hide": 0,
-        "includeAll": true,
-        "label": "Source",
-        "multi": true,
-        "name": "source",
-        "options": [],
-        "query": "SELECT DISTINCT source AS __text, source AS __value FROM \"ResearchToken\" ORDER BY 1",
+        "query": "SELECT DISTINCT source AS __text, source AS __value FROM v_enrichment_quality_daily ORDER BY 1",
         "refresh": 2,
         "sort": 1,
         "type": "query"
@@ -603,13 +713,13 @@
     ]
   },
   "time": {
-    "from": "now-30d",
+    "from": "now-14d",
     "to": "now"
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "Research & Dry-Run Analysis",
-  "uid": "bot-research-dry-run",
+  "title": "Enrichment Quality",
+  "uid": "bot-enrichment-quality",
   "version": 1,
   "weekStart": "monday"
 }
