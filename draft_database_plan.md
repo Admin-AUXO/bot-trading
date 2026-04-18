@@ -1,6 +1,6 @@
 # Database Plan — Schema, Views, Deletions
 
-Companion to [draft_workflow_redesign.md](draft_workflow_redesign.md), [draft_strategy_packs_v2.md](draft_strategy_packs_v2.md), [draft_backend_plan.md](draft_backend_plan.md).
+Companion to [draft_index.md](draft_index.md), [draft_strategy_packs_v2.md](draft_strategy_packs_v2.md), [draft_backend_plan.md](draft_backend_plan.md).
 
 **Scope:** Prisma 7 schema + PostgreSQL 16 views. Schema-only edits (per project rules — no hand-authored migrations). All new tables carry `createdAt` / `updatedAt` and FK indexes.
 

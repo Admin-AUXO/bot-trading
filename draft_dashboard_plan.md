@@ -1,6 +1,6 @@
 # Dashboard Plan — Next.js Pages, Layout, UI/UX (Page-by-Page)
 
-Companion to [draft_workflow_redesign.md](draft_workflow_redesign.md), [draft_backend_plan.md](draft_backend_plan.md), [draft_workflow_principles.md](draft_workflow_principles.md).
+Companion to [draft_index.md](draft_index.md), [draft_backend_plan.md](draft_backend_plan.md), [draft_workflow_principles.md](draft_workflow_principles.md).
 
 **Stack (already in place — reuse, don't reinvent):** Next.js 16, React 19, AG Grid 35, Radix (dialog / tabs / tooltip), Tailwind 4, TanStack Form, Recharts, react-resizable-panels, cmdk (command palette), sonner (toasts), lucide icons, motion, zod.
 

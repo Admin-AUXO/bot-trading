@@ -1,6 +1,6 @@
 # Backend Plan — Services, Engine, API, Webhooks (Service-by-Service)
 
-Companion to [draft_workflow_redesign.md](draft_workflow_redesign.md), [draft_database_plan.md](draft_database_plan.md), [draft_dashboard_plan.md](draft_dashboard_plan.md), [draft_workflow_principles.md](draft_workflow_principles.md).
+Companion to [draft_index.md](draft_index.md), [draft_database_plan.md](draft_database_plan.md), [draft_dashboard_plan.md](draft_dashboard_plan.md), [draft_workflow_principles.md](draft_workflow_principles.md).
 
 **Stack (already in place):** Node.js + TypeScript, Prisma 7, PostgreSQL 16, Express-style `createApiServer`, Helius RPC + webhooks + laserstream, Birdeye Lite, Jupiter + Jito for execution, SSE for streaming. Reuse — don't introduce new frameworks.
 

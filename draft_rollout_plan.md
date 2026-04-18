@@ -16,7 +16,7 @@ Companion to all other `draft_*.md` docs. This is the execution schedule. User h
 
 ## 2. Phase order
 
-Phase order stays as specified in [draft_workflow_redesign.md §7](draft_workflow_redesign.md). Workbench UI (phase 4) ships **before** the adaptive engine (phase 5) so the operator has a UI surface to manage adaptive rollout from.
+Workbench UI (phase 4) ships **before** the adaptive engine (phase 5) so the operator has a UI surface to manage adaptive rollout from.
 
 ### Phase 1 — Foundation (no behavior change)
 - Prisma adds all 12 new tables, fixes dangling FKs, promotes blob fields.

@@ -1,6 +1,6 @@
 # Strategy Packs v2 — Tuned for Higher Win %, Split by PnL Band
 
-Supersedes the pack catalog in [draft_strategy_packs.md](draft_strategy_packs.md). Reuses the adaptive engine defined there (§3). This doc adds:
+Canonical pack catalog + adaptive engine. See [draft_index.md](draft_index.md) for the docs map. This doc covers:
 
 1. **Removal / deletion audit** — low-value surfaces to cut (reduces latency and context bloat).
 2. **6 packs optimized for >100% PnL range** (runners, high-conviction).
@@ -389,7 +389,7 @@ Running all 10 packs with adaptive engine active (rough weekly paper projection,
 
 ---
 
-## F. Implementation order (matches phase map in [draft_workflow_redesign.md](draft_workflow_redesign.md))
+## F. Implementation order (matches phase map in [draft_rollout_plan.md](draft_rollout_plan.md))
 
 1. **Phase 1 (schema):** add `StrategyPack` + `ExitPlan` + `AdaptiveThresholdLog`. Seed packs 7–10 first (scalps) — they use only existing data sources.
 2. **Phase 3 (enrichment):** packs 5 and 6 need `holderGrowth5m` + `koth_duration_sec` from Pump.fun public + Helius creator lineage.

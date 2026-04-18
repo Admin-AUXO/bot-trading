@@ -1,6 +1,6 @@
 # Grafana Plan — Dashboards v2 + Auto-Generator Extension
 
-Companion to [draft_workflow_redesign.md](draft_workflow_redesign.md), [draft_database_plan.md](draft_database_plan.md).
+Companion to [draft_index.md](draft_index.md), [draft_database_plan.md](draft_database_plan.md).
 
 **Scope:** keep the 9 existing dashboards, backfill 20 missing views, add 6 new dashboards, extend the auto-generator (not hand-author), harden docker-compose.
 
