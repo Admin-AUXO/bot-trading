@@ -29,7 +29,13 @@ export type ApiServerDeps = {
   listRuns: (limit?: number, packId?: string) => Promise<OperatorRunListPayload>;
   getRunDetail: (runId: string) => Promise<OperatorRunDetailPayload | null>;
   startRunFromPack: (packId: string, input: Omit<DiscoveryLabRunRequest, "packId">) => Promise<unknown>;
-  applyRunToLive: (runId: string) => Promise<unknown>;
+  applyRunToLive: (input: {
+    runId: string;
+    mode?: "DRY_RUN" | "LIVE";
+    confirmation: string;
+    liveDeployToken?: string;
+    requestIp?: string | null;
+  }) => Promise<unknown>;
   getRunMarketRegime: (runId: string) => Promise<DiscoveryLabMarketRegimeResponse>;
   getRunTokenInsight: (input: { runId?: string; mint?: string }) => Promise<TokenEnrichmentPayload>;
   enterRunManualTrade: (input: {
@@ -40,7 +46,23 @@ export type ApiServerDeps = {
   }) => Promise<unknown>;
   listSessions: (limit?: number) => Promise<unknown>;
   getCurrentSession: () => Promise<unknown | null>;
+  startSession: (input: {
+    runId: string;
+    mode?: "DRY_RUN" | "LIVE";
+    confirmation: string;
+    liveDeployToken?: string;
+    requestIp?: string | null;
+  }) => Promise<unknown>;
   stopSession: (sessionId: string, reason?: string) => Promise<unknown>;
+  pauseSession: (sessionId: string, reason?: string) => Promise<unknown>;
+  resumeSession: (sessionId: string) => Promise<unknown>;
+  revertSession: (input: {
+    sessionId: string;
+    mode?: "DRY_RUN" | "LIVE";
+    confirmation: string;
+    liveDeployToken?: string;
+    requestIp?: string | null;
+  }) => Promise<unknown>;
   listCandidateQueue: (bucket: "ready" | "risk" | "provider" | "data") => Promise<unknown>;
   getCandidateDetail: (candidateId: string) => Promise<unknown | null>;
   listPositionBook: (book: "open" | "closed") => Promise<unknown>;
@@ -71,7 +93,13 @@ export type ApiServerDeps = {
     positionSizeUsd?: number;
     exitOverrides?: Record<string, number>;
   }) => Promise<unknown>;
-  applyDiscoveryLabLiveStrategy: (input: { runId?: string }) => Promise<unknown>;
+  applyDiscoveryLabLiveStrategy: (input: {
+    runId?: string;
+    mode?: "DRY_RUN" | "LIVE";
+    confirmation?: string;
+    liveDeployToken?: string;
+    requestIp?: string | null;
+  }) => Promise<unknown>;
 };
 
 export type AuthMiddleware = (

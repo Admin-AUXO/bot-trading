@@ -67,6 +67,7 @@ export class BotRuntime {
   private readonly tradingSessions = new TradingSessionService({
     config: this.config,
     getDiscoveryLabRun: (runId) => this.strategyRunReads.getRun(runId),
+    armLiveRuntime: () => this.armLiveLoopsFromDashboard(),
   });
   private readonly strategyPacks = new StrategyPackService({
     packs: this.packRepo,
@@ -180,7 +181,15 @@ export class BotRuntime {
     return {
       listSessions: (limit?: number) => this.tradingSessions.listSessions(limit),
       getCurrentSession: () => this.tradingSessions.getCurrentSession(),
+      startSession: (
+        input: Parameters<TradingSessionService["startSession"]>[0],
+      ) => this.tradingSessions.startSession(input),
       stopSession: (sessionId: string, reason?: string) => this.tradingSessions.stopSession(sessionId, reason),
+      pauseSession: (sessionId: string, reason?: string) => this.tradingSessions.pauseSession(sessionId, reason),
+      resumeSession: (sessionId: string) => this.tradingSessions.resumeSession(sessionId),
+      revertSession: (
+        input: Parameters<TradingSessionService["revertSession"]>[0],
+      ) => this.tradingSessions.revertSession(input),
     };
   }
 
@@ -205,7 +214,9 @@ export class BotRuntime {
         packId: string,
         input: Omit<Parameters<StrategyRunService["startRun"]>[0], "packId">,
       ) => this.strategyRuns.startRunForPack(packId, input),
-      applyRunToLive: (runId: string) => this.strategyRuns.applyRunToLive(runId),
+      applyRunToLive: (
+        input: Parameters<StrategyRunService["applyRunToLive"]>[0],
+      ) => this.strategyRuns.applyRunToLive(input),
       getRunMarketRegime: (runId: string) => this.strategyRunResults.getMarketRegime(runId),
       getRunTokenInsight: (input: { runId?: string; mint?: string }) => this.strategyRunResults.getTokenInsight(input),
       enterRunManualTrade: (input: {
@@ -257,7 +268,15 @@ export class BotRuntime {
           exitOverrides?: Record<string, number>;
         },
       ) => this.enterDiscoveryLabManualTrade(input),
-      applyDiscoveryLabLiveStrategy: (input: { runId?: string }) => this.applyDiscoveryLabLiveStrategy(input),
+      applyDiscoveryLabLiveStrategy: (
+        input: {
+          runId?: string;
+          mode?: "DRY_RUN" | "LIVE";
+          confirmation?: string;
+          liveDeployToken?: string;
+          requestIp?: string | null;
+        },
+      ) => this.applyDiscoveryLabLiveStrategy(input),
     };
   }
 
@@ -579,9 +598,21 @@ export class BotRuntime {
     return result;
   }
 
-  private async applyDiscoveryLabLiveStrategy(input: { runId?: string }) {
+  private async applyDiscoveryLabLiveStrategy(input: {
+    runId?: string;
+    mode?: "DRY_RUN" | "LIVE";
+    confirmation?: string;
+    liveDeployToken?: string;
+    requestIp?: string | null;
+  }) {
     const runId = typeof input.runId === "string" ? input.runId.trim() : "";
-    return this.strategyRuns.applyRunToLive(runId);
+    return this.strategyRuns.applyRunToLive({
+      runId,
+      mode: input.mode,
+      confirmation: typeof input.confirmation === "string" ? input.confirmation : "",
+      liveDeployToken: typeof input.liveDeployToken === "string" ? input.liveDeployToken : undefined,
+      requestIp: input.requestIp,
+    });
   }
 
   private async pause(reason?: string): Promise<void> {

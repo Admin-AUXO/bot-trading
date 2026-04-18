@@ -103,8 +103,14 @@ export class StrategyRunService {
     });
   }
 
-  async applyRunToLive(runId: string): Promise<DiscoveryLabApplyLiveStrategyResponse> {
-    return this.deps.sessions.startFromDiscoveryLabRun(runId);
+  async applyRunToLive(input: {
+    runId: string;
+    mode?: "DRY_RUN" | "LIVE";
+    confirmation: string;
+    liveDeployToken?: string;
+    requestIp?: string | null;
+  }): Promise<DiscoveryLabApplyLiveStrategyResponse> {
+    return this.deps.sessions.startSession(input);
   }
 
   async listDiscoverySummaries(): Promise<DiscoveryLabRunSummary[]> {
@@ -138,9 +144,7 @@ export class StrategyRunService {
     },
     currentSession: TradingSessionSnapshot | null,
   ): OperatorRunSummary {
-    const canApplyLive = Boolean(row.strategyCalibration)
-      && row.status === "COMPLETED"
-      && row.packId !== "__inline__";
+    const canApplyLive = isDeployableCalibration(row.strategyCalibration, row.status, row.packId);
     return {
       id: row.id,
       status: row.status,
@@ -165,9 +169,7 @@ export class StrategyRunService {
   }
 
   private mapDetailSummary(detail: DiscoveryLabRunDetail, currentSession: TradingSessionSnapshot | null): OperatorRunSummary {
-    const canApplyLive = Boolean(detail.strategyCalibration)
-      && detail.status === "COMPLETED"
-      && detail.packId !== "__inline__";
+    const canApplyLive = isDeployableCalibration(detail.strategyCalibration, detail.status, detail.packId);
     return {
       id: detail.id,
       status: detail.status,
@@ -197,4 +199,36 @@ function normalizeLimit(limit: number): number {
     return DEFAULT_RUN_LIMIT;
   }
   return Math.min(Math.floor(limit), MAX_RUN_LIMIT);
+}
+
+function isDeployableCalibration(
+  calibration: unknown,
+  status: string,
+  packId: string,
+): boolean {
+  if (status !== "COMPLETED" || packId === "__inline__" || packId === "inline") {
+    return false;
+  }
+  if (!calibration || typeof calibration !== "object") {
+    return false;
+  }
+
+  const value = calibration as {
+    packId?: string | null;
+    calibrationSummary?: {
+      winnerCount?: number | null;
+      calibrationConfidence?: number | null;
+      avgWinnerTimeSinceGraduationMin?: number | null;
+    } | null;
+  };
+  const calibratedPackId = typeof value.packId === "string" ? value.packId : null;
+  const winnerCount = value.calibrationSummary?.winnerCount ?? 0;
+  const confidence = value.calibrationSummary?.calibrationConfidence ?? 0;
+  const avgWinnerMinutes = value.calibrationSummary?.avgWinnerTimeSinceGraduationMin ?? Number.POSITIVE_INFINITY;
+
+  return Boolean(calibratedPackId)
+    && calibratedPackId !== "__inline__"
+    && winnerCount > 0
+    && confidence >= 0.56
+    && (avgWinnerMinutes > 30 || winnerCount >= 3);
 }

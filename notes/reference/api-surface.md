@@ -51,6 +51,7 @@ Transport model:
 - `GET /api/desk/events?limit=`: unified operator and system event feed for runtime, provider, control, and settings activity
 - Compatibility aliases: `GET /api/operator/shell`, `GET /api/operator/home`, and `GET /api/operator/events?limit=` currently mirror the desk endpoints while the dashboard transitions to the new workbench and market IA.
 - `GET /api/operator/sessions?limit=`: backend-owned session history surface for `/workbench/sessions`, returning the current active session plus recent bounded session windows ordered newest-first
+- `GET /api/operator/sessions?limit=`: the session history payload now also includes `runtimePauseReason`, so `/workbench/sessions` can show whether the active deployment is paused without guessing from a different surface
 - `GET /api/operator/sessions/current`: current backend-owned `TradingSession` snapshot for the active deployed pack, including pack identity, source run, prior pack linkage, config-version attribution, trade counts, and realized PnL rolled up from positions opened during that session
 - `GET /api/operator/packs?limit=`: backend-owned workbench pack catalog, enriched from `DiscoveryLabPack`, `StrategyPack`, recent `DiscoveryLabRun` rows, and the current deployed session so `/workbench/packs` can stop delegating to discovery-lab chrome
 - `GET /api/operator/packs/:id`: backend-owned pack detail surface, including the editing/source draft contract, latest synced version metadata, and recent runs
@@ -114,7 +115,8 @@ Transport model:
 - `DELETE /api/operator/packs/:id`: dedicated pack-delete route for custom workbench packs
 - `POST /api/operator/packs/:id/runs`: dedicated pack-scoped run start for `/workbench/packs`, now owned by the dedicated `RunRunner` seam instead of `DiscoveryLabService`
 - `POST /api/operator/runs/:id/apply-live`: dedicated run-owned deployment route for `/workbench/sandbox`, still cutting into the existing session seam and runtime-config live-strategy path; inline `__inline__` draft runs are now rejected and must be saved as packs before deployment
-- `PATCH /api/operator/sessions/:id`: currently supports `{ action: "stop", reason? }`, which closes the active session, writes bounded session totals, clears the deployed `strategy.liveStrategy` contract, and pauses further entries until the operator resumes with another deployment
+- `POST /api/operator/sessions`: the session seam is now the authoritative deployment start contract. The request must include `runId`, explicit `confirmation`, and optional `mode`; `mode=LIVE` also requires a trusted caller IP plus the separate live deploy token. This route creates the session, patches runtime config, stamps the run apply metadata, and owns replacement semantics when another session is already active.
+- `PATCH /api/operator/sessions/:id`: now supports `{ action: "pause" | "resume" | "stop" | "revert" }`. `pause` and `resume` act on the active session runtime state, `stop` clears the deployed `strategy.liveStrategy` contract and pauses further entries, and `revert` re-applies the previous deployment from `RuntimeConfigVersion` through the same session seam.
 
 Exit-plan transition note:
 
@@ -124,8 +126,9 @@ Exit-plan transition note:
 Trading-session transition note:
 
 - `TradingSession` is now the first pack/session backend seam instead of inferring the active deployment entirely from `RuntimeConfig.strategy.liveStrategy`.
-- The cut-in point is still the existing `POST /api/operator/discovery-lab/apply-live-strategy` flow; no parallel session-start route was introduced in this pass.
 - `TradingSessionService` now owns current-session reads, bounded session history, explicit stop semantics, and clean replacement semantics when a new run is applied.
+- `TradingSessionService` now also owns explicit session start, pause, resume, and revert semantics. The session route is the production owner; `POST /api/operator/runs/:id/apply-live` and `POST /api/operator/discovery-lab/apply-live-strategy` are compatibility entry points over that same start contract.
+- Starting a session now requires an explicit operator confirmation phrase, and `mode=LIVE` also requires a trusted caller IP plus the separate `LIVE_DEPLOY_2FA_TOKEN`. The dashboard proxy now forwards `x-forwarded-for` / `x-real-ip` so the backend can enforce that guard.
 - Session window totals are now bounded by `startedAt` and `stoppedAt`, so re-applying the same run does not smear counts or realized PnL across multiple deployment windows.
 - Strategy-pack deployment state is now owned by the session seam. Discovery-lab pack sync keeps pack snapshots fresh, but it no longer infers which pack is `LIVE` from settings reads.
 
@@ -173,6 +176,7 @@ Dashboard navigation conventions:
 - `/workbench/packs`, `/workbench/sandbox`, and `/workbench/sessions` now read dedicated backend-owned pack/run/session surfaces directly.
 - `/workbench/editor` now reads pack list/detail/run history from `/api/operator/packs*`, validates and saves through the dedicated pack seam, and launches pack-scoped runs through `/api/operator/packs/:id/runs`.
 - `/workbench/grader` now reads run list/detail from `/api/operator/runs*` and applies live through the run-owned live endpoint instead of redirecting to discovery-lab strategy ideas.
+- `/workbench/sessions` now starts sessions through `POST /api/operator/sessions` and controls active deployments through `PATCH /api/operator/sessions/:id`. The page is no longer a read-only history pane.
 - `/discovery-lab/studio` now also consumes the dedicated operator pack/run routes under the hood while preserving the existing discovery-lab studio chrome and draft behavior.
 - `/market/trending` now reads the dedicated operator market seam directly through `/api/operator/market/trending`.
 - `/market/token/:mint` now reads the dedicated operator market seam directly with `focusOnly=true`; the page still reuses the ranked-market payload for its focus-token card, so the route group is not the final UI contract even though backend ownership has moved.

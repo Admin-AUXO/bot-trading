@@ -250,6 +250,7 @@ export type TradingSessionSnapshot = {
 export type TradingSessionHistoryPayload = {
   currentSession: TradingSessionSnapshot | null;
   sessions: TradingSessionSnapshot[];
+  runtimePauseReason: string | null;
 };
 
 export type WorkbenchPackSummary = {

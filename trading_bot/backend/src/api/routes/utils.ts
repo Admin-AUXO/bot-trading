@@ -48,6 +48,15 @@ export function errorToStatus(error: unknown): number {
     return 404;
   }
   if (
+    message.includes("confirmation must match")
+    || message.includes("requires live_deploy")
+    || message.includes("requires a valid live deploy token")
+    || message.includes("requires a trusted caller ip")
+    || message.includes("is required")
+  ) {
+    return 400;
+  }
+  if (
     message.includes("already active")
     || message.includes("only available")
     || message.includes("cannot ")

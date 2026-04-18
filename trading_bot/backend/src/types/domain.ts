@@ -271,6 +271,7 @@ export interface TradingSessionSnapshot {
 export interface TradingSessionHistoryPayload {
   currentSession: TradingSessionSnapshot | null;
   sessions: TradingSessionSnapshot[];
+  runtimePauseReason: string | null;
 }
 
 export interface OperatorPackSummary {

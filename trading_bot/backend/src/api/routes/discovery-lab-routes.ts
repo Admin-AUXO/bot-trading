@@ -65,7 +65,10 @@ function registerDiscoveryLabBase(
   });
 
   app.post(`${basePath}/apply-live-strategy`, async (req, res) => {
-    res.json(await deps.applyDiscoveryLabLiveStrategy(req.body ?? {}));
+    res.json(await deps.applyDiscoveryLabLiveStrategy({
+      ...(req.body ?? {}),
+      requestIp: getRequestIp(req),
+    }));
   });
 
   app.get(`${basePath}/runs`, async (_req, res) => {
@@ -85,4 +88,19 @@ export function registerDiscoveryLabRoutes(app: express.Express, context: RouteR
   registerDiscoveryLabBase(app, "/api/operator/discovery-lab", context);
   registerDiscoveryLabBase(app, "/api/operator/workbench-market", context);
   registerDiscoveryLabBase(app, "/api/workbench-market", context);
+}
+
+function getRequestIp(req: express.Request): string | null {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string") {
+    const first = forwarded.split(",")[0]?.trim();
+    if (first) {
+      return first;
+    }
+  }
+  const realIp = req.headers["x-real-ip"];
+  if (typeof realIp === "string" && realIp.trim().length > 0) {
+    return realIp.trim();
+  }
+  return req.socket.remoteAddress ?? null;
 }

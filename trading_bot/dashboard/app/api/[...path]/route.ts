@@ -13,6 +13,8 @@ async function proxy(request: NextRequest, path: string[]) {
   const apiKeyHeader = request.headers.get("x-api-key");
   const contentType = request.headers.get("content-type");
   const forwardedAuthHeader = authHeader?.startsWith("Bearer ") ? authHeader : null;
+  const forwardedForHeader = request.headers.get("x-forwarded-for");
+  const realIpHeader = request.headers.get("x-real-ip");
 
   const init: RequestInit = {
     method: request.method,
@@ -24,6 +26,8 @@ async function proxy(request: NextRequest, path: string[]) {
           : {}),
       ...(apiKeyHeader ? { "x-api-key": apiKeyHeader } : {}),
       ...(contentType ? { "content-type": contentType } : {}),
+      ...(forwardedForHeader ? { "x-forwarded-for": forwardedForHeader } : {}),
+      ...(realIpHeader ? { "x-real-ip": realIpHeader } : {}),
     },
     cache: "no-store",
     signal: AbortSignal.timeout(10_000),

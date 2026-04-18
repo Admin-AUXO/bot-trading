@@ -97,6 +97,8 @@ const envSchema = z.object({
   LIVE_MAX_PRIORITY_FEE_LAMPORTS: z.coerce.number().int().positive().default(1_000_000),
   LIVE_RESTRICT_INTERMEDIATE_TOKENS: z.coerce.boolean().default(true),
   LIVE_HELIUS_SENDER_URL: z.string().url().default("https://sender.helius-rpc.com/fast"),
+  LIVE_DEPLOY_ALLOWED_IPS: csvListSchema(""),
+  LIVE_DEPLOY_2FA_TOKEN: optionalNonEmptyString,
   CONTROL_API_SECRET: optionalNonEmptyString,
   BIRDEYE_BUDGET_EMERGENCY_BYPASS: z.coerce.boolean().default(false),
 });

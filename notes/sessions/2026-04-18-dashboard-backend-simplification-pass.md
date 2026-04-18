@@ -456,3 +456,142 @@ next_action: Browser-check `/workbench/packs`, `/workbench/sandbox`, `/workbench
   no additional market/enrichment views,
   and no additive session-rollup index was introduced.
 - `/market/token/:mint` still reuses the market-trending/focus payload rather than a final page-specific enrichment contract. Backend ownership is fixed; final page decomposition is not.
+
+## Follow-up - Phase-4 Session And Deployment Guardrail Pass
+
+### What Phase 4 Means Now
+
+- The original draft phase 4 was the workbench UI. That is no longer the real gap. The route groups and primary pages already exist.
+- The production-grade phase-4 hole at the start of this pass was the deployment/session contract:
+  `/workbench/sessions` could read history, but it could not start a session,
+  `TradingSessionService` still did not own pause/resume/revert,
+  `POST /api/operator/runs/:id/apply-live` was still the practical deployment owner,
+  and the draft guardrails for explicit confirmation plus `LIVE` deploy gating were still missing.
+- So phase 4 now means: finish the session/deployment operator seam at production-ready level, with `TradingSessionService` as the authority and the workbench using that seam directly.
+
+### Major Draft-Plan Items Still Missing At The Start Of This Pass
+
+- No authoritative `POST /api/operator/sessions` deployment-start contract.
+- No authoritative session `pause`, `resume`, or `revert` actions.
+- No explicit operator confirmation on deployment start.
+- No `LIVE` deploy guard on trusted IP plus separate deploy token.
+- `/workbench/sessions` was still mostly a read-only history surface.
+- `/api/operator/runs/:id/apply-live` and the discovery-lab apply route still mattered more than the session seam for real deployment behavior.
+
+### What Changed
+
+- Landed the real phase-4 backend session contract in
+  `trading_bot/backend/src/services/session/trading-session-service.ts`.
+  `TradingSessionService` now owns:
+  session start,
+  pause,
+  resume,
+  stop,
+  revert-from-previous-config,
+  replacement semantics,
+  and deployment-state transitions.
+- Added the authoritative session-start route:
+  `POST /api/operator/sessions`
+  in
+  `trading_bot/backend/src/api/routes/session-routes.ts`.
+  The request now requires an explicit confirmation phrase, and `mode=LIVE` also requires the separate live deploy token plus a trusted caller IP.
+- Expanded
+  `PATCH /api/operator/sessions/:id`
+  from stop-only into the real lifecycle route:
+  `pause`,
+  `resume`,
+  `stop`,
+  and
+  `revert`.
+- Kept `TradingSessionService` authoritative and collapsed compatibility entry points onto it instead of creating yet another owner.
+  `POST /api/operator/runs/:id/apply-live`
+  and
+  `POST /api/operator/discovery-lab/apply-live-strategy`
+  now cut through the same guarded session-start contract.
+- Added the missing runtime callback bridge so session `resume` can re-arm live loops through runtime without moving authority back out of the session seam.
+- Added the new live-deploy env contract:
+  `LIVE_DEPLOY_ALLOWED_IPS`
+  and
+  `LIVE_DEPLOY_2FA_TOKEN`
+  in backend env parsing and `.env.example`.
+- Updated the dashboard proxy to forward `x-forwarded-for` / `x-real-ip`, which lets the backend enforce the `LIVE` trusted-IP gate from real dashboard traffic.
+- Moved `/workbench/sessions` from read-only history to a usable operator surface.
+  The page now:
+  shows runtime pause state,
+  can start a session from recent runs,
+  and can pause, resume, stop, or revert the active session.
+- Updated the shared workbench action component so sandbox/grader now start sessions through the session seam instead of the old run-owned shortcut.
+
+### What I Verified
+
+- Builds:
+  `cd trading_bot/backend && npm run build`
+  `cd trading_bot/dashboard && npm run build`
+- Direct backend contract checks on an isolated backend:
+  backend on `http://127.0.0.1:3211`
+  with
+  `DATABASE_URL=postgresql://botuser:botpass@localhost:56432/trading_bot`
+  `CONTROL_API_SECRET=phase4-secret`
+  `LIVE_DEPLOY_ALLOWED_IPS=127.0.0.1,::1`
+  `LIVE_DEPLOY_2FA_TOKEN=phase4-token`
+- Verified the new session seam directly:
+  `POST /api/operator/sessions` started a DRY_RUN session from a persisted verification run
+  `PATCH /api/operator/sessions/:id` with `pause`
+  `resume`
+  `revert`
+  and `stop` all succeeded
+  replacement semantics stamped the earlier session as `REPLACED`
+  revert stamped the replaced session as `REVERTED`
+  `POST /api/operator/sessions` with `mode=LIVE` and a bad token returned `400`
+  `POST /api/operator/sessions` with `mode=LIVE` and the configured token succeeded
+- Verified the dashboard proxy against the live dashboard on `http://127.0.0.1:3213` behind basic auth (`operator:phase4-secret`):
+  `GET /api/operator/sessions?limit=2` returned `200`
+  `POST /api/operator/sessions` with a bad live token returned `400` through the proxy too
+- Browser verification was attempted and succeeded with Playwright against the live dashboard:
+  `/workbench/sandbox/phase4-session-verify-a`
+  was loaded under basic auth,
+  the browser clicked the new `Start session` control through the real prompt flow,
+  and `/workbench/sessions` then rendered the updated session surface.
+  Artifacts:
+  `output/playwright/phase4-sandbox-start-session.png`
+  `output/playwright/phase4-sessions-page.png`
+  `output/playwright/phase4-session-browser-check.json`
+
+### Verification Data Notes
+
+- The local database did not contain a clean deployable persisted run for this seam:
+  most completed runs were either inline drafts or had zero winners.
+- To prove the route behavior cleanly, I seeded two temporary verification `DiscoveryLabRun` rows:
+  `phase4-session-verify-a`
+  and
+  `phase4-session-verify-b`
+  from existing persisted pack snapshots with explicit non-zero calibration evidence.
+- That verification data was used only to exercise the new session seam and replacement/revert logic.
+  No schema or view change was required.
+  After verification, those temporary run rows and the session rows created from them were deleted from the local database so the repo state is not left pretending they are real operator history.
+
+### What Major Pieces This Pass Completed
+
+- The biggest remaining production-grade phase-4 item from the draft plans:
+  session start/control ownership with real deploy guardrails.
+- The missing workbench/operator part of phase 4:
+  `/workbench/sessions` is now an actual control surface instead of a history page with dead authority.
+- The architectural requirement to keep `TradingSessionService` authoritative while shrinking compatibility owners.
+
+### Major Phase-4 Pieces Still Not Complete After This Pass
+
+- Phase 4 is materially closer to done, but not fully finished against the original dashboard draft:
+  `discovery-lab/config` and `discovery-lab/strategy-ideas` still exist,
+  the old discovery-lab route family is not deleted,
+  and the large retained results/studio client surfaces are still in the tree.
+- The draft grader/tuning contract is still missing:
+  no `PackGradingService`,
+  no `POST /api/operator/runs/:id/grade`,
+  and no `suggest-tuning` route yet.
+- The draft route-cleanup work is still open:
+  redirect-only and compatibility-only discovery-lab surfaces were not deleted in this pass.
+- The larger non-phase-4 draft backlog still remains:
+  webhook/watch ownership,
+  smart-wallet ingest,
+  adaptive service-map work,
+  and the broader database draft beyond the already-landed transition slices.

@@ -6,25 +6,35 @@ import {
   ScanStat,
   StatusPill,
 } from "@/components/dashboard-primitives";
+import {
+  SessionLaunchPanel,
+  SessionLifecycleActions,
+} from "@/components/workbench/workbench-actions";
 import { buttonVariants } from "@/components/ui/button";
 import { discoveryLabRoutes, workbenchRoutes } from "@/lib/dashboard-routes";
 import { serverFetch } from "@/lib/server-api";
 import type {
+  DiscoveryLabRuntimeSnapshot,
   TradingSessionHistoryPayload,
-  TradingSessionSnapshot,
+  WorkbenchRunListPayload,
 } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 export default async function WorkbenchSessionsPage() {
-  const payload = await serverFetch<TradingSessionHistoryPayload>("/api/operator/sessions?limit=20");
+  const [payload, status, runsPayload] = await Promise.all([
+    serverFetch<TradingSessionHistoryPayload>("/api/operator/sessions?limit=20"),
+    serverFetch<DiscoveryLabRuntimeSnapshot>("/api/status"),
+    serverFetch<WorkbenchRunListPayload>("/api/operator/runs?limit=12"),
+  ]);
+  const isPaused = Boolean(payload.runtimePauseReason ?? status.botState.pauseReason);
 
   return (
     <div className="space-y-5">
       <CompactPageHeader
         eyebrow="Strategy workbench"
         title="Sessions"
-        description="Backend-owned deployment history for live strategy sessions. Apply still cuts in from discovery-lab results; this page finally shows the real lifecycle instead of redirecting somewhere useless."
+        description="Session start, pause, resume, stop, and revert now belong to the backend session seam instead of pretending that deployment is just a run-side side effect."
         actions={(
           <div className="flex flex-wrap gap-2">
             <Link href={discoveryLabRoutes.results} className={buttonVariants({ variant: "secondary", size: "sm" })}>
@@ -58,12 +68,24 @@ export default async function WorkbenchSessionsPage() {
                 <StatusPill value={payload.currentSession.mode} />
               </div>
 
+              {isPaused ? (
+                <div className="mt-3 rounded-[12px] border border-[rgba(251,191,36,0.22)] bg-[rgba(251,191,36,0.08)] px-3 py-2 text-xs text-[#fcd34d]">
+                  Runtime pause: {payload.runtimePauseReason ?? status.botState.pauseReason ?? "manual pause"}
+                </div>
+              ) : null}
+
               <div className="mt-3 grid gap-2 md:grid-cols-2">
                 <DetailLine label="Pack id" value={payload.currentSession.packId ?? "Unlinked"} />
                 <DetailLine label="Pack version" value={formatNullableNumber(payload.currentSession.packVersion)} />
                 <DetailLine label="Source run" value={payload.currentSession.sourceRunId ?? "None"} />
                 <DetailLine label="Previous pack" value={payload.currentSession.previousPackName ?? "None"} />
               </div>
+
+              <SessionLifecycleActions
+                session={payload.currentSession}
+                isPaused={isPaused}
+                className="mt-3"
+              />
             </div>
 
             <div className="grid gap-2 sm:grid-cols-2">
@@ -82,13 +104,26 @@ export default async function WorkbenchSessionsPage() {
             </div>
           </div>
         ) : (
-          <EmptyState
-            compact
-            title="No active session"
-            detail="Nothing is currently deployed through the session seam. Apply a discovery-lab run to create the next live strategy window."
-          />
+          <div className="space-y-3">
+            <EmptyState
+              compact
+              title="No active session"
+              detail="Nothing is currently deployed through the session seam."
+            />
+            <SessionLaunchPanel runs={runsPayload.runs} />
+          </div>
         )}
       </Panel>
+
+      {payload.currentSession ? (
+        <Panel
+          title="Start another session"
+          eyebrow="Replacement flow"
+          description="Starting a new session replaces the active deployment through TradingSessionService and stamps the new config/session window atomically."
+        >
+          <SessionLaunchPanel runs={runsPayload.runs} />
+        </Panel>
+      ) : null}
 
       <Panel
         title="Recent history"
