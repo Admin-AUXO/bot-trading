@@ -2,6 +2,10 @@
 
 Active workstream summaries. Keep short. Archive when done.
 
+- Keep only the current summaries in the root of `sessions/`.
+- Move completed or superseded handoffs into `sessions/archive/`.
+- If the task changes runtime behavior, link the matching reference note under `../reference/`.
+
 ## Active
 
 - [2026-04-18 Dashboard UI UX Pass](2026-04-18-dashboard-ui-ux-pass.md) ← structured filters, stacked headers, compose + Playwright verified
@@ -18,6 +22,12 @@ Active workstream summaries. Keep short. Archive when done.
 - [2026-04-14 Compose Refresh Script](2026-04-14-compose-refresh-script-and-skill.md)
 - [2026-04-14 Dashboard Shell Sidebar](2026-04-14-dashboard-shell-contextual-sidebar-and-compact-headers.md)
 - [2026-04-14 Discovery Lab Redesign](2026-04-14-discovery-lab-redesign-and-shell-collapse.md)
+- [2026-04-12 Cross-Platform Bootstrap Hardening](2026-04-12-cross-platform-bootstrap-hardening.md)
+- [2026-04-12 GitHub And Grafana MCP Wiring](2026-04-12-github-and-grafana-mcp-wiring.md)
+- [2026-04-12 MCP Config Pruning](2026-04-12-mcp-config-pruning.md)
+- [2026-04-12 Obsidian Hooks Hardening](2026-04-12-obsidian-hooks-hardening.md)
+- [2026-04-11 Dashboard Workstream Summary](2026-04-11-dashboard-workstream-summary.md)
+- [2026-04-11 Provider And Runtime Workstream Summary](2026-04-11-provider-runtime-workstream-summary.md)
 
 ## Archive
 

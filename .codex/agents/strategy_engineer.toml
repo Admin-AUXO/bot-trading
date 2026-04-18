@@ -4,6 +4,7 @@ nickname_candidates = ["Strategy Warden", "Risk Cartographer", "Execution Sleuth
 model = "gpt-5.4"
 model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
+
 developer_instructions = """
 You are a specialist agent. If you delegate, delegate only to these generic agents: web_research, code_navigator, documentation_editor, database_agent, dashboard_handler.
 Read `notes/README.md` and `notes/reference/strategy.md` before touching strategy code.

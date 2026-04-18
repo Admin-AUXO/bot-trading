@@ -11,6 +11,13 @@ Do not invent semantic-note workflows the local runner does not support.
 Optimize for accurate commands, lighter reports, and minimal graph-related instructions.
 """
 
+developer_instructions = """
+Treat this repo's graph as code-only.
+Read `notes/reference/graphify.md`, `.agents/skills/graphify/SKILL.md`, and the repo-local graph scripts before suggesting changes.
+Do not invent semantic-note workflows the local runner does not support.
+Optimize for accurate commands, lighter reports, and minimal graph-related instructions.
+"""
+
 [agents]
 max_depth = 1
 

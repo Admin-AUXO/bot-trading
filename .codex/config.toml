@@ -1,183 +1,143 @@
 approval_policy = "never"
+experimental_windows_sandbox = false
 model = "gpt-5.4"
 model_reasoning_effort = "medium"
-personality = "pragmatic"
-plan_mode_reasoning_effort = "high"
 project_doc_fallback_filenames = ["AGENTS.md"]
-project_root_markers = [".git"]
-sandbox_mode = "danger-full-access"
-web_search = "live"
+project_root_markers = [
+    ".git",
+]
+web_search = "cached"
+
+[features]
+runtime_metrics = true
 
 [agents]
 max_depth = 1
-max_threads = 5
+max_threads = 3
 
-[features]
-codex_hooks = false
-
-[inline_tool_policy]
-approve_query_patterns = [
-    "git (status|diff|log|branch)",
-    "git status",
-    "npm run",
-]
-approve_read_patterns = [
-    "Read",
-    "Glob",
-    "Grep",
-    "list_directory",
-]
-deny_file_write_patterns = ["^(?!trading_bot/|notes/)"]
-deny_shell_patterns = [
-    "rm -rf",
-    "dropdb",
-    "git push --force",
-]
-
-# --- Custom model providers ---------------------------------------------------
-# MiniMax M2.7 (Token Plan). Set MINIMAX_API_KEY in your shell. Endpoint is
-# OpenAI-compatible — see https://platform.minimax.io/docs/guides/text-ai-coding-tools
-[model_providers.minimax]
-name = "MiniMax M2.7 (Token Plan)"
-base_url = "https://api.minimax.io/v1"
-env_key = "MINIMAX_API_KEY"
-wire_api = "responses"
-requires_openai_auth = false
-stream_idle_timeout_ms = 600000
-
-# --- Profiles -----------------------------------------------------------------
-# Opt-in cheap-research profile: route the whole session through MiniMax
-# M2.7-highspeed for one-off research/analysis. Invoke with:
-#   codex --profile minimax-research
-[profiles.minimax-research]
-model_provider = "minimax"
-model = "MiniMax-M2.7-highspeed"
-model_reasoning_effort = "low"
-plan_mode_reasoning_effort = "medium"
-web_search = "live"
-
-# Tighter, review-grade profile (Anthropic-default model, on-request approvals,
-# workspace-write only). Use when shipping or auditing safety-critical work:
-#   codex --profile review
-[profiles.review]
-model = "gpt-5.4"
-model_reasoning_effort = "high"
-plan_mode_reasoning_effort = "high"
+[mcp_servers.browsermcp]
+args = ["-y", "@browsermcp/mcp"]
+command = "npx"
+required = false
+startup_timeout_ms = 20000
+tool_timeout_sec = 90
 
 [mcp_servers.birdeye-mcp]
 args = [".codex/scripts/start-birdeye-mcp.cjs"]
 command = "node"
 enabled = true
 required = false
-startup_timeout_sec = 30
+startup_timeout_ms = 30000
 tool_timeout_sec = 45
 
 [mcp_servers.chrome_devtools]
 args = [
-    ".codex/scripts/start-stdio-command.cjs",
-    "npx",
     "-y",
     "chrome-devtools-mcp@latest",
 ]
-command = "node"
-enabled = false
+command = "npx"
 required = false
-startup_timeout_sec = 45
+startup_timeout_ms = 20000
 tool_timeout_sec = 90
 
-[mcp_servers.context7]
-enabled = false
-required = false
-startup_timeout_ms = 20000
-url = "https://mcp.context7.com/mcp"
-
 [mcp_servers.desktop_commander]
-args = [".codex/scripts/start-desktop-commander.cjs"]
-command = "node"
-enabled = true
-required = false
-startup_timeout_ms = 90000
+args = [
+    "-y",
+    "@wonderwhy-er/desktop-commander@latest",
+    "--no-onboarding",
+]
+command = "npx"
+required = true
+startup_timeout_ms = 30000
 tool_timeout_sec = 120
 
-[mcp_servers.desktop_commander.tools.start_process]
-approval_mode = "approve"
-
 [mcp_servers.fetch]
-args = [
-    ".codex/scripts/start-stdio-command.cjs",
-    "uvx",
-    "mcp-server-fetch",
-]
-command = "node"
-enabled = false
-required = false
+args = ["mcp-server-fetch"]
+command = "uvx"
+required = true
 startup_timeout_ms = 20000
 
-[mcp_servers.firecrawl]
-args = [".codex/scripts/start-firecrawl-mcp.cjs"]
-command = "node"
-enabled = false
-required = false
-startup_timeout_ms = 30000
-
-[mcp_servers.helius]
+[mcp_servers.github]
 args = [
-    ".codex/scripts/start-stdio-command.cjs",
-    "npx",
-    "-y",
-    "helius-mcp@latest",
+    "run",
+    "-i",
+    "--rm",
+    "-e",
+    "GITHUB_PERSONAL_ACCESS_TOKEN",
+    "ghcr.io/github/github-mcp-server",
+    "stdio",
+    "--toolsets",
+    "repos,issues,pull_requests,actions",
 ]
-command = "node"
-enabled = false
+command = "docker"
 required = false
 startup_timeout_ms = 30000
+tool_timeout_sec = 120
+
+[mcp_servers.grafana]
+args = [
+    "run",
+    "-i",
+    "--rm",
+    "-e",
+    "GRAFANA_URL",
+    "-e",
+    "GRAFANA_USERNAME",
+    "-e",
+    "GRAFANA_PASSWORD",
+    "-e",
+    "GRAFANA_ORG_ID",
+    "grafana/mcp-grafana",
+    "-t",
+    "stdio",
+]
+command = "docker"
+required = false
+startup_timeout_ms = 30000
+tool_timeout_sec = 120
+
+[mcp_servers.grafana.env]
+GRAFANA_URL = "http://host.docker.internal:3400"
+GRAFANA_USERNAME = "admin"
+GRAFANA_PASSWORD = "admin"
+GRAFANA_ORG_ID = "1"
 
 [mcp_servers.postgres]
 args = [
-    ".codex/scripts/start-stdio-command.cjs",
-    "npx",
     "-y",
     "@modelcontextprotocol/server-postgres",
     "postgresql://botuser:botpass@127.0.0.1:56432/trading_bot",
 ]
-command = "node"
-enabled = false
-required = false
+command = "npx"
+enabled = true
+required = true
 startup_timeout_ms = 20000
 
-[mcp_servers.shadcn]
+[mcp_servers.helius]
 args = [
-    ".codex/scripts/start-stdio-command.cjs",
-    "npx",
     "-y",
-    "shadcn@latest",
-    "mcp",
+    "helius-mcp@latest",
 ]
-command = "node"
-enabled = false
+command = "npx"
+enabled = true
 required = false
 startup_timeout_ms = 30000
 
 [mcp_servers.time]
-args = [
-    ".codex/scripts/start-stdio-command.cjs",
-    "uvx",
-    "mcp-server-time",
-]
-command = "node"
-enabled = false
-required = false
+args = ["mcp-server-time"]
+command = "uvx"
+required = true
 startup_timeout_ms = 20000
+
+[profiles.deep]
+model_reasoning_effort = "high"
+
+[profiles.review]
+model = "gpt-5.4"
+model_reasoning_effort = "high"
 
 [shell_environment_policy]
 inherit = "all"
 
-[shell_environment_policy.set]
-CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = "80"
-MAX_THINKING_TOKENS = "10000"
-
-[tools.bash]
-timeout_ms = 60000
-
-[windows]
-sandbox = "elevated"
+[sandbox_workspace_write]
+network_access = true

@@ -4,9 +4,9 @@ nickname_candidates = ["Dashboard Mechanic", "Chart Fixer", "UI Operator"]
 model = "gpt-5.3-codex"
 model_reasoning_effort = "medium"
 sandbox_mode = "workspace-write"
+
 developer_instructions = """
 Handle practical dashboard work inside the existing product style.
-Expect the parent session to have the repo `dashboard` MCP profile when browser verification or registry-backed UI work matters.
 Read `notes/README.md`, `notes/reference/tech-stack.md`, and `notes/reference/api-surface.md` before changing dashboard code.
 Trace the full data path from query or input through transform and state to rendered output.
 Keep query keys, request params, and backend filters aligned; if the cache key changes with `days`, `mode`, `configProfile`, or `tradeSource`, the request should too.

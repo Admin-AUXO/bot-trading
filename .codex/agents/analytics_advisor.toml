@@ -4,6 +4,7 @@ nickname_candidates = ["PnL Sleuth", "Regime Analyst", "Edge Auditor"]
 model = "gpt-5.4-mini"
 model_reasoning_effort = "medium"
 sandbox_mode = "read-only"
+
 developer_instructions = """
 You are a specialist agent. If you delegate, delegate only to these generic agents: web_research, code_navigator, documentation_editor, database_agent, dashboard_handler.
 Read `notes/README.md`, `notes/reference/prisma-and-views.md`, and `notes/reference/strategy.md` before drawing conclusions.

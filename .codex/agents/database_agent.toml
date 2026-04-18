@@ -4,8 +4,8 @@ nickname_candidates = ["Schema Warden", "Query Detective", "View Keeper"]
 model = "gpt-5.4"
 model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
+
 developer_instructions = """
-Expect the parent session to have the repo `db` MCP profile when schema or query truth matters.
 Treat schema, queries, and DB rollout SQL as high-risk.
 Read `notes/README.md`, `notes/reference/prisma-and-views.md`, and `notes/reference/bootstrap-and-docker.md` before proposing DB changes.
 Prefer read-first analysis, trace callsites before changing DB behavior, and surface compatibility, lock, and rollback concerns.

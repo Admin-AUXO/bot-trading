@@ -1,26 +1,26 @@
 # bot-trading
 
-This repo currently hosts one active app: [`trading_bot/`](trading_bot/), a graduation trading bot with a TypeScript backend, a Next.js operator dashboard, PostgreSQL, and a repo-owned Grafana surface.
+This repo currently hosts one active app: [`trading_bot/`](/Users/rukaiyahyusuf/Downloads/bot-trading/trading_bot), a graduation trading bot with a TypeScript backend, a Next.js operator dashboard, PostgreSQL, and a repo-owned Grafana surface.
 
 ## What This Repo Contains
 
-- [`trading_bot/backend`](trading_bot/backend): bot runtime, API server, Prisma schema, SQL views, provider clients, and trading logic
-- [`trading_bot/dashboard`](trading_bot/dashboard): operator UI and backend proxy
-- [`trading_bot/docker-compose.yml`](trading_bot/docker-compose.yml): local stack for Postgres, schema setup, backend, dashboard, Grafana, and optional Obsidian
-- [`notes/`](notes/): canonical repo docs, decisions, investigations, runbooks, and durable memory
-- [`graphify-out/`](graphify-out/): code-only architecture output when the graph has been built locally
+- [`trading_bot/backend`](/Users/rukaiyahyusuf/Downloads/bot-trading/trading_bot/backend): bot runtime, API server, Prisma schema, SQL views, provider clients, and trading logic
+- [`trading_bot/dashboard`](/Users/rukaiyahyusuf/Downloads/bot-trading/trading_bot/dashboard): operator UI and backend proxy
+- [`trading_bot/docker-compose.yml`](/Users/rukaiyahyusuf/Downloads/bot-trading/trading_bot/docker-compose.yml): local stack for Postgres, schema setup, backend, dashboard, Grafana, and optional Obsidian
+- [`notes/`](/Users/rukaiyahyusuf/Downloads/bot-trading/notes): canonical repo docs, decisions, investigations, runbooks, and durable memory
+- [`graphify-out/`](/Users/rukaiyahyusuf/Downloads/bot-trading/graphify-out): code-only architecture output when the graph has been built locally
 
 ## Start Here
 
-- Repo rules and session startup order: [`AGENTS.md`](AGENTS.md)
-- App-local rules inside the active app: [`trading_bot/AGENTS.md`](trading_bot/AGENTS.md)
-- Canonical reference index: [`notes/reference/index.md`](notes/reference/index.md)
-- Setup, env, and Docker contracts: [`notes/reference/bootstrap-and-docker.md`](notes/reference/bootstrap-and-docker.md)
-- Strategy behavior and runtime rules: [`notes/reference/strategy.md`](notes/reference/strategy.md)
+- Repo rules and session startup order: [`AGENTS.md`](/Users/rukaiyahyusuf/Downloads/bot-trading/AGENTS.md)
+- App-local rules inside the active app: [`trading_bot/AGENTS.md`](/Users/rukaiyahyusuf/Downloads/bot-trading/trading_bot/AGENTS.md)
+- Canonical reference index: [`notes/reference/index.md`](/Users/rukaiyahyusuf/Downloads/bot-trading/notes/reference/index.md)
+- Setup, env, and Docker contracts: [`notes/reference/bootstrap-and-docker.md`](/Users/rukaiyahyusuf/Downloads/bot-trading/notes/reference/bootstrap-and-docker.md)
+- Strategy behavior and runtime rules: [`notes/reference/strategy.md`](/Users/rukaiyahyusuf/Downloads/bot-trading/notes/reference/strategy.md)
 
 ## Prerequisites
 
-- Node.js 22 via [`trading_bot/.nvmrc`](trading_bot/.nvmrc)
+- Node.js 22 via [`trading_bot/.nvmrc`](/Users/rukaiyahyusuf/Downloads/bot-trading/trading_bot/.nvmrc)
 - npm 10+ or newer
 - Docker with Compose
 
@@ -28,25 +28,52 @@ Optional but useful:
 
 - `nvm`
 - `curl`
+- `rg` for faster local search, though the bootstrap scripts no longer require it
 
 ## Fresh Machine Setup
 
-From a new machine, use the pinned Node version and the bootstrap helper:
+From a new machine, use the pinned Node version and the bootstrap helper.
+
+macOS and Linux:
 
 ```bash
 cd trading_bot
 nvm use || nvm install
-node ./scripts/bootstrap-new-system.mjs host
+./scripts/bootstrap-new-system.sh host
+```
+
+Windows PowerShell:
+
+```powershell
+cd trading_bot
+nvm use 22
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\bootstrap-new-system.ps1 host
 ```
 
 That installs backend and dashboard dependencies and creates `backend/.env` from the checked-in example if it is missing.
 
+Cross-platform contract:
+
+- use `.sh` scripts on macOS and Linux
+- use `.ps1` scripts on Windows PowerShell
+- shell scripts are committed with LF line endings via `.gitattributes` so Bash stays usable on macOS checkouts
+
 If you want the full container stack instead:
+
+macOS and Linux:
 
 ```bash
 cd trading_bot
 nvm use || nvm install
-node ./scripts/bootstrap-new-system.mjs compose
+./scripts/bootstrap-new-system.sh compose
+```
+
+Windows PowerShell:
+
+```powershell
+cd trading_bot
+nvm use 22
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\bootstrap-new-system.ps1 compose
 ```
 
 That also generates the runtime service env files:
@@ -56,10 +83,10 @@ That also generates the runtime service env files:
 
 The checked-in examples live at:
 
-- [`trading_bot/dashboard/compose.env.example`](trading_bot/dashboard/compose.env.example)
-- [`trading_bot/grafana/compose.env.example`](trading_bot/grafana/compose.env.example)
+- [`trading_bot/dashboard/compose.env.example`](/Users/rukaiyahyusuf/Downloads/bot-trading/trading_bot/dashboard/compose.env.example)
+- [`trading_bot/grafana/compose.env.example`](/Users/rukaiyahyusuf/Downloads/bot-trading/trading_bot/grafana/compose.env.example)
 
-You still need to edit [`trading_bot/backend/.env`](trading_bot/backend/.env.example) with real provider keys and the control secret before expecting the bot to behave like anything except a skeleton.
+You still need to edit [`trading_bot/backend/.env`](/Users/rukaiyahyusuf/Downloads/bot-trading/trading_bot/backend/.env.example) with real provider keys and the control secret before expecting the bot to behave like anything except a skeleton.
 
 ## Supported Run Modes
 
@@ -83,7 +110,7 @@ npm run dev
 Important:
 
 - change `DATABASE_URL` in `trading_bot/backend/.env` from `postgres` to `127.0.0.1` or `localhost`
-- fill `HELIUS_RPC_URL` and `BIRDEYE_API_KEY`
+- fill `HELIUS_RPC_URL`, `BIRDEYE_API_KEY`, and `CONTROL_API_SECRET`
 
 ### 2. Full Compose Stack
 
@@ -91,15 +118,16 @@ Use this if you want Postgres, schema setup, backend, dashboard, and Grafana in 
 
 ```bash
 cd trading_bot
-node ./scripts/sync-compose-env.mjs
+./scripts/sync-compose-env.sh
 docker compose up --build
 ```
 
-For repeat refreshes after code or env changes:
+Windows PowerShell:
 
-```bash
+```powershell
 cd trading_bot
-node ./scripts/update-compose-stack.mjs
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\sync-compose-env.ps1
+docker compose up --build
 ```
 
 Important:
@@ -130,39 +158,25 @@ Open `https://127.0.0.1:3111` and use `/config/vaults/bot-trading`.
 
 ## Canonical Docs
 
-- Setup and Docker: [`notes/reference/bootstrap-and-docker.md`](notes/reference/bootstrap-and-docker.md)
-- API and dashboard boundary: [`notes/reference/api-surface.md`](notes/reference/api-surface.md)
-- Prisma, views, and reporting tables: [`notes/reference/prisma-and-views.md`](notes/reference/prisma-and-views.md)
-- Strategy and risk behavior: [`notes/reference/strategy.md`](notes/reference/strategy.md)
-- Obsidian workflow and durable memory rules: [`notes/reference/obsidian.md`](notes/reference/obsidian.md)
-- Tool and MCP routing rules: [`notes/reference/tool-routing.md`](notes/reference/tool-routing.md)
-- Graphify workflow: [`notes/reference/graphify.md`](notes/reference/graphify.md)
+- Setup and Docker: [`notes/reference/bootstrap-and-docker.md`](/Users/rukaiyahyusuf/Downloads/bot-trading/notes/reference/bootstrap-and-docker.md)
+- API and dashboard boundary: [`notes/reference/api-surface.md`](/Users/rukaiyahyusuf/Downloads/bot-trading/notes/reference/api-surface.md)
+- Prisma, views, and reporting tables: [`notes/reference/prisma-and-views.md`](/Users/rukaiyahyusuf/Downloads/bot-trading/notes/reference/prisma-and-views.md)
+- Strategy and risk behavior: [`notes/reference/strategy.md`](/Users/rukaiyahyusuf/Downloads/bot-trading/notes/reference/strategy.md)
+- Obsidian workflow and durable memory rules: [`notes/reference/obsidian.md`](/Users/rukaiyahyusuf/Downloads/bot-trading/notes/reference/obsidian.md)
+- Tool and MCP routing rules: [`notes/reference/tool-routing.md`](/Users/rukaiyahyusuf/Downloads/bot-trading/notes/reference/tool-routing.md)
+- Graphify workflow: [`notes/reference/graphify.md`](/Users/rukaiyahyusuf/Downloads/bot-trading/notes/reference/graphify.md)
 
 ## Verification Shortlist
 
 Use the smallest check that matches the change:
 
 ```bash
-node ./.codex/scripts/install-mcp-config.cjs
 cd trading_bot && docker compose config
 cd trading_bot/backend && npm run build
 cd trading_bot/backend && npm run db:setup
 cd trading_bot/dashboard && npm run build
 curl -sf http://127.0.0.1:3400/api/health
 ```
-
-## Codex MCP Setup
-
-The repo-local [`.codex/config.toml`](.codex/config.toml) is a template. Current Codex CLI builds load MCP servers from `~/.codex/config.toml`.
-
-Install or refresh the repo-managed MCP block with:
-
-```bash
-node ./.codex/scripts/install-mcp-config.cjs
-codex mcp list
-```
-
-Restart Codex after that so the session picks up the refreshed MCP registry.
 
 ## Non-Features
 

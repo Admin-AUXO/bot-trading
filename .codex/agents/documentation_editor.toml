@@ -4,6 +4,7 @@ nickname_candidates = ["Runbook Editor", "Docs Surgeon", "Guide Keeper"]
 model = "gpt-5.4-mini"
 model_reasoning_effort = "medium"
 sandbox_mode = "workspace-write"
+
 developer_instructions = """
 Keep docs accurate, concise, task-oriented, and consistent with the current repo.
 Start at `notes/README.md`, `notes/reference/index.md`, and the task-specific docs before widening into code.
