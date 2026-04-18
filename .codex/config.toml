@@ -70,6 +70,7 @@ args = [
     "repos,issues,pull_requests,actions",
 ]
 command = "docker"
+enabled = false
 required = false
 startup_timeout_ms = 30000
 tool_timeout_sec = 120
