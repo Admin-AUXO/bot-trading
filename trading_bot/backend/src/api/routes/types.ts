@@ -10,6 +10,7 @@ import type { DiscoveryLabMarketStatsPayload } from "../../services/discovery-la
 import type { DiscoveryLabStrategySuggestionsPayload } from "../../services/discovery-lab-strategy-suggestion-service.js";
 import type { TokenEnrichmentPayload } from "../../services/enrichment/token-enrichment-service.js";
 import type {
+  AdaptiveActivityPayload,
   OperatorPackDetailPayload,
   OperatorPackListPayload,
   OperatorRunGradePayload,
@@ -42,6 +43,7 @@ export type ApiServerDeps = {
   }) => Promise<unknown>;
   getRunMarketRegime: (runId: string) => Promise<DiscoveryLabMarketRegimeResponse>;
   getRunTokenInsight: (input: { runId?: string; mint?: string }) => Promise<TokenEnrichmentPayload>;
+  getAdaptiveActivity: (limit?: number) => Promise<AdaptiveActivityPayload>;
   enterRunManualTrade: (input: {
     runId?: string;
     mint?: string;
@@ -104,6 +106,9 @@ export type ApiServerDeps = {
     liveDeployToken?: string;
     requestIp?: string | null;
   }) => Promise<unknown>;
+  ingestHeliusSmartWalletWebhook: (body: unknown, rawBody: string, signature?: string) => Promise<{ ok: true; inserted: number }>;
+  ingestHeliusLpWebhook: (body: unknown, rawBody: string, signature?: string) => Promise<{ ok: true }>;
+  ingestHeliusHoldersWebhook: (body: unknown, rawBody: string, signature?: string) => Promise<{ ok: true }>;
 };
 
 export type AuthMiddleware = (

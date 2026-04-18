@@ -5,6 +5,8 @@ import { BirdeyeClient } from "../services/birdeye-client.js";
 import { HeliusClient } from "../services/helius-client.js";
 import { ProviderBudgetService } from "../services/provider-budget-service.js";
 import { RuntimeConfigService } from "../services/runtime-config.js";
+import { AdaptiveContextBuilder } from "../services/adaptive/adaptive-context-builder.js";
+import { AdaptiveThresholdService } from "../services/adaptive/adaptive-threshold-service.js";
 import { SharedTokenFactsService, type FreshTokenFacts } from "../services/shared-token-facts.js";
 import { buildSignalConfidence, deriveExitProfile, scoreEntrySignal } from "../services/entry-scoring.js";
 import { FAIR_VALUE_ENTRY_PREMIUM_CAP } from "../services/strategy-exit.js";
@@ -22,6 +24,7 @@ import { toOptionalDate } from "../utils/dates.js";
 import { ExecutionEngine } from "./execution-engine.js";
 import { RiskEngine } from "./risk-engine.js";
 import type {
+  BotSettings,
   CandidateEvaluation,
   CandidateFilterState,
   DiscoveryToken,
@@ -60,6 +63,8 @@ export class GraduationEngine {
     private readonly execution: ExecutionEngine,
     private readonly risk: RiskEngine,
     private readonly config: RuntimeConfigService,
+    private readonly adaptiveContextBuilder: AdaptiveContextBuilder,
+    private readonly adaptiveThresholds: AdaptiveThresholdService,
   ) {}
 
   async getResearchDiscoveryTokens(limit: number): Promise<DiscoveryToken[]> {
@@ -361,6 +366,9 @@ export class GraduationEngine {
 
     try {
       const settings = await this.config.getSettings();
+      const adaptiveContext = settings.strategy.liveStrategy.enabled
+        ? await this.adaptiveContextBuilder.buildContext()
+        : null;
       const candidates = await db.candidate.findMany({
         where: {
           status: { in: DUE_CANDIDATE_STATUSES },
@@ -398,11 +406,18 @@ export class GraduationEngine {
 
       for (const candidate of rankedCandidates) {
         try {
+          const adaptiveMutation = adaptiveContext
+            ? await this.adaptiveThresholds.mutateFilters(settings, adaptiveContext, {
+                candidateId: candidate.id,
+                packId: candidate.liveStrategyPackId ?? settings.strategy.liveStrategy.packId,
+              })
+            : null;
           const evaluation = await this.evaluateCandidate(
             candidate.mint,
             candidate.latestMetrics?.metadata as Record<string, unknown> | null,
             settings,
             candidate.strategyPresetId as StrategyPresetId,
+            adaptiveMutation,
           );
           if (evaluation.deferReason) {
             await db.candidate.update({
@@ -542,9 +557,17 @@ export class GraduationEngine {
     baselineMetrics: Record<string, unknown> | null,
     settings: Awaited<ReturnType<RuntimeConfigService["getSettings"]>>,
     strategyPresetId: StrategyPresetId,
+    adaptiveMutation?: {
+      filters: BotSettings["filters"];
+      entryScoreFloor: number | null;
+      filterMult: number;
+    } | null,
   ): Promise<CandidateEvaluation> {
     const preset = getStrategyPreset(strategyPresetId);
     const effectiveSettings = applyStrategySettings(settings, strategyPresetId);
+    if (adaptiveMutation) {
+      effectiveSettings.filters = adaptiveMutation.filters;
+    }
     const baseline = this.extractBaselineDiscovery(baselineMetrics);
     const baselineMerged = this.mergeDiscoveryMetrics(null, baselineMetrics);
     const baselineFilterState: CandidateFilterState = {
@@ -585,6 +608,8 @@ export class GraduationEngine {
       strategyPresetId,
       strategyLabel: preset.label,
       strategyRecipeName: preset.discovery.name,
+      adaptiveFilterMult: adaptiveMutation?.filterMult ?? null,
+      adaptiveEntryScoreFloor: adaptiveMutation?.entryScoreFloor ?? null,
       detail,
       mintAuthorities,
     };
@@ -901,6 +926,14 @@ export class GraduationEngine {
     metrics.entryScore = entryScore;
     metrics.confidenceScore = confidenceScore;
     metrics.exitProfile = deriveExitProfile(confidenceScore);
+    if (adaptiveMutation?.entryScoreFloor != null && entryScore < adaptiveMutation.entryScoreFloor) {
+      return {
+        passed: false,
+        rejectReason: `entry score below adaptive floor (${adaptiveMutation.entryScoreFloor.toFixed(2)})`,
+        metrics,
+        filterState: baseFilterState,
+      };
+    }
 
     return {
       passed: true,

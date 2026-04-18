@@ -244,7 +244,32 @@ export interface RuntimeSnapshot {
   providerSummary?: unknown[];
   providerBudget?: unknown;
   adaptiveModel?: AdaptiveModelState;
+  heliusWatch?: HeliusWatchSummary;
   currentSession?: TradingSessionSnapshot | null;
+}
+
+export interface HeliusWatchSummary {
+  migrationWatcherEnabled: boolean;
+  trackedWalletCount: number;
+  recentSmartWalletEvents24h: number;
+  recentSmartWalletSignals24h: number;
+  lastSmartWalletSignalAt: string | null;
+  lastMigrationSignalAt: string | null;
+  webhookSecretConfigured: boolean;
+}
+
+export interface AdaptiveActivityPayload {
+  generatedAt: string;
+  lastMutationAt: string | null;
+  points: Array<{
+    hour: string;
+    axis: string;
+    field: string;
+    mutationCount: number;
+    candidateCount: number;
+    positionCount: number;
+    lastMutationAt: string | null;
+  }>;
 }
 
 export interface TradingSessionSnapshot {

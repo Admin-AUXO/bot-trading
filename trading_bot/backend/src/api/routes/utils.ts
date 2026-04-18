@@ -19,6 +19,8 @@ export const ALLOWED_SQL_VIEWS = new Set([
   "v_discovery_lab_pack_performance",
   "v_strategy_pack_performance_daily",
   "v_shared_token_fact_cache",
+  "v_adaptive_threshold_activity",
+  "v_smart_wallet_mint_activity",
 ]);
 
 export function parseLimit(value: unknown, fallback: number, max: number): number {
@@ -52,6 +54,8 @@ export function errorToStatus(error: unknown): number {
     || message.includes("requires live_deploy")
     || message.includes("requires a valid live deploy token")
     || message.includes("requires a trusted caller ip")
+    || message.includes("invalid helius webhook signature")
+    || message.includes("required for helius webhook ingestion")
     || message.includes("is required")
   ) {
     return 400;

@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import express from "express";
+import { registerAdaptiveRoutes } from "./routes/adaptive-routes.js";
 import { registerDeskOperatorRoutes } from "./routes/desk-operator-routes.js";
 import { registerDiscoveryLabRoutes } from "./routes/discovery-lab-routes.js";
 import { registerEnrichmentRoutes } from "./routes/enrichment-routes.js";
@@ -13,6 +14,7 @@ import { registerSettingsControlRoutes } from "./routes/settings-control-routes.
 import type { ApiServerDeps } from "./routes/types.js";
 import { errorToStatus, formatErrorMessage } from "./routes/utils.js";
 import { registerViewsRoutes } from "./routes/views-routes.js";
+import { registerWebhookRoutes } from "./routes/webhook-routes.js";
 
 function cryptoTimingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) {
@@ -23,7 +25,12 @@ function cryptoTimingSafeEqual(a: string, b: string): boolean {
 
 export function createApiServer(deps: ApiServerDeps) {
   const app = express();
-  app.use(express.json({ limit: "1mb" }));
+  app.use(express.json({
+    limit: "1mb",
+    verify: (req, _res, buffer) => {
+      (req as express.Request & { rawBody?: string }).rawBody = buffer.toString("utf8");
+    },
+  }));
 
   function authMiddleware(req: express.Request, res: express.Response, next: express.NextFunction): void {
     const secret = process.env.CONTROL_API_SECRET;
@@ -53,6 +60,7 @@ export function createApiServer(deps: ApiServerDeps) {
   }
 
   registerHealthRoutes(app);
+  registerWebhookRoutes(app, deps);
 
   app.use("/api", (req, res, next) => {
     if (
@@ -70,6 +78,7 @@ export function createApiServer(deps: ApiServerDeps) {
   });
 
   registerDeskOperatorRoutes(app, { deps, authMiddleware, respondWithDeskState });
+  registerAdaptiveRoutes(app, { deps, authMiddleware, respondWithDeskState });
   registerPackRoutes(app, { deps, authMiddleware, respondWithDeskState });
   registerRunRoutes(app, { deps, authMiddleware, respondWithDeskState });
   registerMarketRoutes(app, { deps, authMiddleware, respondWithDeskState });

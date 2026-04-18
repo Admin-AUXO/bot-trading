@@ -113,6 +113,30 @@ export type AdaptiveModelState = {
   updatedAt: string | null;
 };
 
+export type AdaptiveActivityPayload = {
+  generatedAt: string;
+  lastMutationAt: string | null;
+  points: Array<{
+    hour: string;
+    axis: string;
+    field: string;
+    mutationCount: number;
+    candidateCount: number;
+    positionCount: number;
+    lastMutationAt: string | null;
+  }>;
+};
+
+export type HeliusWatchSummary = {
+  migrationWatcherEnabled: boolean;
+  trackedWalletCount: number;
+  recentSmartWalletEvents24h: number;
+  recentSmartWalletSignals24h: number;
+  lastSmartWalletSignalAt: string | null;
+  lastMigrationSignalAt: string | null;
+  webhookSecretConfigured: boolean;
+};
+
 export type AdaptiveTokenExplanation = {
   enabled: boolean;
   status: "inactive" | "matched" | "partial" | "unmatched";
@@ -792,6 +816,7 @@ export type DiscoveryLabRuntimeSnapshot = {
   openPositions: number;
   settings: BotSettings;
   adaptiveModel?: AdaptiveModelState;
+  heliusWatch?: HeliusWatchSummary;
   currentSession?: TradingSessionSnapshot | null;
 };
 

@@ -45,6 +45,8 @@ const envSchema = z.object({
   HELIUS_MIGRATION_WATCHER_ENABLED: z.coerce.boolean().default(true),
   HELIUS_MIGRATION_WATCH_PROGRAM_IDS: csvListSchema(""),
   HELIUS_MIGRATION_WATCH_DEBOUNCE_MS: z.coerce.number().int().positive().default(15_000),
+  HELIUS_WEBHOOK_SECRET: optionalNonEmptyString,
+  HELIUS_SMART_WALLET_ADDRESSES: csvListSchema(""),
   CAPITAL_USD: z.coerce.number().positive().default(100),
   POSITION_SIZE_USD: z.coerce.number().positive().default(25),
   MAX_OPEN_POSITIONS: z.coerce.number().int().positive().default(3),

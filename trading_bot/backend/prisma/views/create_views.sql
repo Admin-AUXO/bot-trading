@@ -23,6 +23,8 @@ DROP VIEW IF EXISTS v_discovery_lab_pack_performance CASCADE;
 DROP VIEW IF EXISTS v_strategy_pack_performance_daily CASCADE;
 DROP VIEW IF EXISTS v_shared_token_fact_cache CASCADE;
 DROP VIEW IF EXISTS v_candidate_decision_facts CASCADE;
+DROP VIEW IF EXISTS v_adaptive_threshold_activity CASCADE;
+DROP VIEW IF EXISTS v_smart_wallet_mint_activity CASCADE;
 
 
 
@@ -553,10 +555,32 @@ SELECT
   
 FROM "SharedTokenFact";
 
+CREATE VIEW v_adaptive_threshold_activity AS
+SELECT
+  DATE_TRUNC('hour', "appliedAt")::timestamp AS activity_hour,
+  axis,
+  field,
+  COUNT(*)::int AS mutation_count,
+  COUNT(DISTINCT "candidateId")::int AS candidate_count,
+  COUNT(DISTINCT "positionId")::int AS position_count,
+  MAX("appliedAt") AS last_mutation_at
+FROM "AdaptiveThresholdLog"
+GROUP BY 1, 2, 3;
 
-
-
-
+CREATE VIEW v_smart_wallet_mint_activity AS
+SELECT
+  DATE_TRUNC('hour', "receivedAt")::timestamp AS activity_hour,
+  mint,
+  COUNT(*)::int AS event_count,
+  COUNT(DISTINCT "walletAddress")::int AS wallet_count,
+  COUNT(*) FILTER (WHERE side = 'BUY')::int AS buy_event_count,
+  COUNT(*) FILTER (WHERE side = 'SELL')::int AS sell_event_count,
+  COALESCE(SUM(CASE WHEN side = 'BUY' THEN "amountUsd"::numeric ELSE 0 END), 0)::numeric(18,2) AS buy_amount_usd,
+  COALESCE(SUM(CASE WHEN side = 'SELL' THEN "amountUsd"::numeric ELSE 0 END), 0)::numeric(18,2) AS sell_amount_usd,
+  COALESCE(SUM(CASE WHEN side = 'BUY' THEN "amountUsd"::numeric ELSE -"amountUsd"::numeric END), 0)::numeric(18,2) AS net_amount_usd,
+  MAX("receivedAt") AS last_event_at
+FROM "SmartWalletEvent"
+GROUP BY 1, 2;
 
 CREATE VIEW v_candidate_decision_facts AS
 WITH sell_summary AS (

@@ -71,6 +71,11 @@ enum TradingSessionMode {
   LIVE
 }
 
+enum SmartWalletEventSide {
+  BUY
+  SELL
+}
+
 enum ProviderName {
   BIRDEYE
   HELIUS
@@ -633,9 +638,60 @@ model TradingSession {
   @@index([sourceRunId, startedAt])
 }
 
+model AdaptiveThresholdLog {
+  id            String    @id @default(cuid())
+  candidateId   String?
+  positionId    String?
+  axis          String
+  field         String
+  originalValue Decimal?  @db.Decimal(18, 9)
+  mutatedValue  Decimal?  @db.Decimal(18, 9)
+  reasonCode    String
+  ctxJson       Json?
+  appliedAt     DateTime  @default(now())
+  createdAt     DateTime  @default(now())
 
+  @@index([candidateId, appliedAt])
+  @@index([positionId, appliedAt])
+  @@index([axis, appliedAt])
+  @@index([field, appliedAt])
+}
 
+model SmartWallet {
+  address      String   @id
+  label        String?
+  pnlUsd       Decimal? @db.Decimal(18, 2)
+  winRate      Decimal? @db.Decimal(6, 4)
+  source       String?
+  active       Boolean  @default(true)
+  refreshedAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
+  events       SmartWalletEvent[]
+
+  @@index([active, refreshedAt])
+  @@index([source, refreshedAt])
+}
+
+model SmartWalletEvent {
+  id            String               @id @default(cuid())
+  walletAddress String
+  wallet        SmartWallet          @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
+  mint          String
+  side          SmartWalletEventSide
+  amountUsd     Decimal              @db.Decimal(18, 2)
+  slot          BigInt?
+  txSignature   String
+  metadata      Json?
+  receivedAt    DateTime             @default(now())
+  createdAt     DateTime             @default(now())
+
+  @@unique([walletAddress, txSignature, side])
+  @@index([mint, receivedAt])
+  @@index([walletAddress, receivedAt])
+  @@index([txSignature, receivedAt])
+}
 
 model OperatorEvent {
   id          String   @id @default(cuid())

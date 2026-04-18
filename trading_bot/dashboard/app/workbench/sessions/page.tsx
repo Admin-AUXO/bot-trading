@@ -14,6 +14,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { discoveryLabRoutes, workbenchRoutes } from "@/lib/dashboard-routes";
 import { serverFetch } from "@/lib/server-api";
 import type {
+  AdaptiveActivityPayload,
   DiscoveryLabRuntimeSnapshot,
   TradingSessionHistoryPayload,
   WorkbenchRunListPayload,
@@ -22,12 +23,14 @@ import type {
 export const dynamic = "force-dynamic";
 
 export default async function WorkbenchSessionsPage() {
-  const [payload, status, runsPayload] = await Promise.all([
+  const [payload, status, runsPayload, adaptiveActivity] = await Promise.all([
     serverFetch<TradingSessionHistoryPayload>("/api/operator/sessions?limit=20"),
     serverFetch<DiscoveryLabRuntimeSnapshot>("/api/status"),
     serverFetch<WorkbenchRunListPayload>("/api/operator/runs?limit=12"),
+    serverFetch<AdaptiveActivityPayload>("/api/operator/adaptive/activity?limit=24"),
   ]);
   const isPaused = Boolean(payload.runtimePauseReason ?? status.botState.pauseReason);
+  const adaptiveMutationCount = adaptiveActivity.points.reduce((sum, point) => sum + point.mutationCount, 0);
 
   return (
     <div className="space-y-5">
@@ -178,6 +181,55 @@ export default async function WorkbenchSessionsPage() {
             detail="Once discovery-lab applies a live strategy, the backend will keep the deployment history here."
           />
         )}
+      </Panel>
+
+      <Panel
+        title="Phase-5 runtime seams"
+        eyebrow="Adaptive and Helius watch"
+        description="This is the direct proof surface for the new backend owners: adaptive mutation logging and Helius smart-wallet/watch ingest."
+      >
+        <div className="grid gap-2 lg:grid-cols-2">
+          <div className="rounded-[14px] border border-bg-border bg-bg-hover/20 p-3">
+            <div className="section-kicker">Adaptive activity</div>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              <ScanStat
+                label="Mutations 24h"
+                value={String(adaptiveMutationCount)}
+                detail={adaptiveActivity.lastMutationAt ? `Last ${formatTimestamp(adaptiveActivity.lastMutationAt)}` : "No mutation evidence yet"}
+                tone={adaptiveMutationCount > 0 ? "accent" : "warning"}
+              />
+              <ScanStat
+                label="Model state"
+                value={status.adaptiveModel?.status ?? "inactive"}
+                detail={status.adaptiveModel?.packName ?? "No live adaptive pack"}
+                tone={status.adaptiveModel?.status === "active" ? "accent" : status.adaptiveModel?.status === "degraded" ? "warning" : "default"}
+              />
+            </div>
+          </div>
+
+          <div className="rounded-[14px] border border-bg-border bg-bg-hover/20 p-3">
+            <div className="section-kicker">Helius watch</div>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              <ScanStat
+                label="Tracked wallets"
+                value={String(status.heliusWatch?.trackedWalletCount ?? 0)}
+                detail={`${status.heliusWatch?.recentSmartWalletEvents24h ?? 0} events / 24h`}
+                tone={(status.heliusWatch?.trackedWalletCount ?? 0) > 0 ? "accent" : "warning"}
+              />
+              <ScanStat
+                label="Signals 24h"
+                value={String(status.heliusWatch?.recentSmartWalletSignals24h ?? 0)}
+                detail={status.heliusWatch?.lastSmartWalletSignalAt ? `Last ${formatTimestamp(status.heliusWatch.lastSmartWalletSignalAt)}` : "No smart-money signal yet"}
+                tone={(status.heliusWatch?.recentSmartWalletSignals24h ?? 0) > 0 ? "accent" : "default"}
+              />
+            </div>
+            <div className="mt-3 text-xs text-text-secondary">
+              Migration watcher {status.heliusWatch?.migrationWatcherEnabled ? "armed" : "disabled"}.
+              {" "}
+              Webhook secret {status.heliusWatch?.webhookSecretConfigured ? "configured" : "missing"}.
+            </div>
+          </div>
+        </div>
       </Panel>
     </div>
   );

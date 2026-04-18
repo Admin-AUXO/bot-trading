@@ -3,16 +3,17 @@ import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
 import { BirdeyeClient } from "../services/birdeye-client.js";
 import { HeliusClient } from "../services/helius-client.js";
-import { HeliusMigrationWatcher } from "../services/helius-migration-watcher.js";
+import { AdaptiveContextBuilder } from "../services/adaptive/adaptive-context-builder.js";
+import { AdaptiveThresholdService } from "../services/adaptive/adaptive-threshold-service.js";
 import { OperatorDeskService } from "../services/operator-desk.js";
 import { recordOperatorEvent } from "../services/operator-events.js";
 import { ProviderBudgetService } from "../services/provider-budget-service.js";
 import { RuntimeConfigService } from "../services/runtime-config.js";
-import { SharedTokenFactsService } from "../services/shared-token-facts.js";
 import { DiscoveryLabMarketRegimeService } from "../services/discovery-lab-market-regime-service.js";
 import { DiscoveryLabManualEntryService } from "../services/discovery-lab-manual-entry.js";
 import { buildAdaptiveModelState } from "../services/adaptive-model.js";
 import { TokenEnrichmentService } from "../services/enrichment/token-enrichment-service.js";
+import { HeliusWatchService } from "../services/helius/helius-watch-service.js";
 import { MarketIntelService } from "../services/market/market-intel-service.js";
 import { MarketStrategyIdeasService } from "../services/market/market-strategy-ideas-service.js";
 import { TradingSessionService } from "../services/session/trading-session-service.js";
@@ -25,7 +26,6 @@ import { StrategyPackService } from "../services/workbench/strategy-pack-service
 import { StrategyRunReadService } from "../services/workbench/strategy-run-read-service.js";
 import { StrategyRunResultsService } from "../services/workbench/strategy-run-results-service.js";
 import { StrategyRunService } from "../services/workbench/strategy-run-service.js";
-import { getStrategyPreset } from "../services/strategy-presets.js";
 import { RiskEngine } from "./risk-engine.js";
 import { ExecutionEngine } from "./execution-engine.js";
 import { ExitEngine } from "./exit-engine.js";
@@ -44,7 +44,8 @@ export class BotRuntime {
   private readonly birdeye = new BirdeyeClient(env.BIRDEYE_API_KEY);
   private readonly helius = new HeliusClient(env.HELIUS_RPC_URL);
   private readonly providerBudget = new ProviderBudgetService();
-  private readonly sharedFacts = new SharedTokenFactsService();
+  private readonly adaptiveContext = new AdaptiveContextBuilder();
+  private readonly adaptiveThresholds = new AdaptiveThresholdService();
   private readonly packDraftValidator = new StrategyPackDraftValidator();
   private readonly packRepo = new PackRepo();
   private readonly strategyRunReads = new StrategyRunReadService();
@@ -92,15 +93,30 @@ export class BotRuntime {
     tokenInsight: this.tokenEnrichment,
     manualEntry: this.discoveryLabManualEntry,
   });
-  private readonly exits = new ExitEngine(this.birdeye, this.execution, this.config, this.risk);
-  private readonly graduation = new GraduationEngine(this.birdeye, this.helius, this.execution, this.risk, this.config);
-  private readonly desk = new OperatorDeskService(this.config, this.risk, this.providerBudget);
-  private readonly migrationWatcher = new HeliusMigrationWatcher(
-    env.HELIUS_RPC_URL,
-    env.HELIUS_MIGRATION_WATCH_PROGRAM_IDS,
-    env.HELIUS_MIGRATION_WATCH_DEBOUNCE_MS,
-    async ({ programId, signature }) => this.handleMigrationSignal(programId, signature),
+  private readonly exits = new ExitEngine(
+    this.birdeye,
+    this.execution,
+    this.config,
+    this.risk,
+    this.adaptiveContext,
+    this.adaptiveThresholds,
+    (mints) => this.heliusWatch.getMintActivityMap(mints),
   );
+  private readonly graduation = new GraduationEngine(
+    this.birdeye,
+    this.helius,
+    this.execution,
+    this.risk,
+    this.config,
+    this.adaptiveContext,
+    this.adaptiveThresholds,
+  );
+  private readonly desk = new OperatorDeskService(this.config, this.risk, this.providerBudget);
+  private readonly heliusWatch = new HeliusWatchService({
+    getSettings: () => this.config.getSettings(),
+    getPauseReason: async () => (await this.risk.getSnapshot()).pauseReason,
+    triggerDiscovery: () => this.graduation.discover(),
+  });
   private discoveryHandle?: NodeJS.Timeout;
   private evaluationHandle?: NodeJS.Timeout;
   private exitHandle?: NodeJS.Timeout;
@@ -111,7 +127,7 @@ export class BotRuntime {
     await this.risk.ensureState();
     await this.packRepo.ensure();
     await this.runRunner.ensure();
-    await this.migrationWatcher.start();
+    await this.heliusWatch.start();
 
     const startupSettings = await this.config.getSettings();
     const startupState = await this.armLiveStartupPause(startupSettings.tradeMode);
@@ -160,7 +176,7 @@ export class BotRuntime {
       if (this.evaluationHandle) clearTimeout(this.evaluationHandle);
       if (this.exitHandle) clearTimeout(this.exitHandle);
       if (this.maintenanceHandle) clearTimeout(this.maintenanceHandle);
-      await this.migrationWatcher.stop();
+      await this.heliusWatch.stop();
       await db.$disconnect();
       process.exit(0);
     };
@@ -226,6 +242,7 @@ export class BotRuntime {
       ) => this.strategyRuns.applyRunToLive(input),
       getRunMarketRegime: (runId: string) => this.strategyRunResults.getMarketRegime(runId),
       getRunTokenInsight: (input: { runId?: string; mint?: string }) => this.strategyRunResults.getTokenInsight(input),
+      getAdaptiveActivity: (limit?: number) => this.adaptiveThresholds.getActivity(limit),
       enterRunManualTrade: (input: {
         runId?: string;
         mint?: string;
@@ -284,6 +301,12 @@ export class BotRuntime {
           requestIp?: string | null;
         },
       ) => this.applyDiscoveryLabLiveStrategy(input),
+      ingestHeliusSmartWalletWebhook: (body: unknown, rawBody: string, signature?: string) =>
+        this.heliusWatch.ingestSmartWalletWebhook(body, rawBody, signature),
+      ingestHeliusLpWebhook: (body: unknown, rawBody: string, signature?: string) =>
+        this.heliusWatch.ingestLpWebhook(body, rawBody, signature),
+      ingestHeliusHoldersWebhook: (body: unknown, rawBody: string, signature?: string) =>
+        this.heliusWatch.ingestHoldersWebhook(body, rawBody, signature),
     };
   }
 
@@ -326,7 +349,7 @@ export class BotRuntime {
 
   private async getSnapshot() {
     const settings = await this.config.getSettings();
-    const [botState, entryGate, openPositions, queuedCandidates, latestCandidates, latestFills, providerSummary, providerBudget] = await Promise.all([
+    const [botState, entryGate, openPositions, queuedCandidates, latestCandidates, latestFills, providerSummary, providerBudget, heliusWatch] = await Promise.all([
       this.risk.getSnapshot(),
       this.risk.canOpenPosition(settings),
       db.position.count({ where: { status: "OPEN" } }),
@@ -335,6 +358,7 @@ export class BotRuntime {
       db.fill.findMany({ take: 20, orderBy: { createdAt: "desc" } }),
       this.getProviderSummaryForSnapshot(),
       this.providerBudget.getBirdeyeBudgetSnapshot(),
+      this.heliusWatch.getSummary(),
     ]);
 
     return {
@@ -363,6 +387,7 @@ export class BotRuntime {
       providerSummary,
       providerBudget,
       adaptiveModel: buildAdaptiveModelState(settings),
+      heliusWatch,
       currentSession: await this.tradingSessions.getCurrentSession(),
     };
   }
@@ -674,37 +699,6 @@ export class BotRuntime {
     if (!this.exitHandle) {
       this.scheduleExit();
     }
-  }
-
-  private async handleMigrationSignal(programId: string, signature: string): Promise<void> {
-    await this.sharedFacts.rememberMigrationSignal({ programId, signature });
-
-    const [settings, state] = await Promise.all([
-      this.config.getSettings(),
-      this.risk.getSnapshot(),
-    ]);
-    const livePreset = getStrategyPreset(settings.strategy.livePresetId);
-    if (
-      settings.tradeMode !== "LIVE"
-      || Boolean(state.pauseReason)
-      || !settings.strategy.heliusWatcherEnabled
-      || !livePreset.requiresHeliusWatcher
-    ) {
-      return;
-    }
-
-    await recordOperatorEvent({
-      kind: "provider_signal",
-      title: "Helius migration signal",
-      detail: `Observed watched migration program ${programId}; triggering an immediate discovery sweep.`,
-      metadata: {
-        programId,
-        signature,
-        strategyPresetId: settings.strategy.livePresetId,
-      },
-    });
-
-    await this.graduation.discover();
   }
 
   private isUsHours(now = new Date()): boolean {

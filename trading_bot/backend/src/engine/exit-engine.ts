@@ -1,6 +1,8 @@
 import { db } from "../db/client.js";
 import { BirdeyeClient } from "../services/birdeye-client.js";
 import { RuntimeConfigService } from "../services/runtime-config.js";
+import { AdaptiveContextBuilder } from "../services/adaptive/adaptive-context-builder.js";
+import { AdaptiveThresholdService } from "../services/adaptive/adaptive-threshold-service.js";
 import {
   getExitDecision,
   computeAtrFromPrices,
@@ -13,6 +15,7 @@ import { BOT_STATE_ID } from "./constants.js";
 import { logger } from "../utils/logger.js";
 import { recordOperatorEvent } from "../services/operator-events.js";
 import type { TradeDataSnapshot } from "../types/domain.js";
+import type { SmartWalletMintActivity } from "../services/helius/helius-watch-service.js";
 
 const IN_FLIGHT_TIMEOUT_MS = 90_000;
 
@@ -45,10 +48,16 @@ export class ExitEngine {
     private readonly execution: ExecutionEngine,
     private readonly config: RuntimeConfigService,
     private readonly risk: RiskEngine,
+    private readonly adaptiveContextBuilder: AdaptiveContextBuilder,
+    private readonly adaptiveThresholds: AdaptiveThresholdService,
+    private readonly getSmartWalletActivityMap: (mints: string[]) => Promise<Map<string, SmartWalletMintActivity>>,
   ) {}
 
   async run(): Promise<void> {
     const settings = await this.config.getSettings();
+    const adaptiveContext = settings.strategy.liveStrategy.enabled
+      ? await this.adaptiveContextBuilder.buildContext()
+      : null;
     const openPositions = await db.position.findMany({
       where: { status: "OPEN" },
       orderBy: { openedAt: "asc" },
@@ -56,6 +65,7 @@ export class ExitEngine {
         id: true,
         mint: true,
         openedAt: true,
+        amountUsd: true,
         entryPriceUsd: true,
         peakPriceUsd: true,
         stopLossPriceUsd: true,
@@ -67,6 +77,7 @@ export class ExitEngine {
         metadata: true,
         exitPlan: {
           select: {
+            strategyPackId: true,
             profile: true,
             stopLossPercent: true,
             tp1Multiplier: true,
@@ -97,6 +108,7 @@ export class ExitEngine {
       this.birdeye.getMultiPrice(openPositions.map((p) => p.mint)),
       this.fetchTradeDataForMints(openPositions.map((p) => p.mint)),
     ]);
+    const smartWalletActivityMap = await this.getSmartWalletActivityMap(openPositions.map((position) => position.mint));
 
     for (const position of openPositions) {
       if (!markInFlight(position.id)) {
@@ -133,6 +145,7 @@ export class ExitEngine {
       const atrUsd = computeAtrFromPrices(history);
 
       const tradeData = tradeDataMap.get(position.mint) ?? null;
+      const smartWalletActivity = smartWalletActivityMap.get(position.mint) ?? null;
       const volume5mAtEntry = extractVolume5mAtEntry(position.metadata);
       const liveContext: LiveExitContext = {
         volume5mUsd: tradeData?.volume5mUsd ?? null,
@@ -140,6 +153,46 @@ export class ExitEngine {
         atrUsd,
         volume5mAtEntry,
       };
+      const adaptedExits = adaptiveContext
+        ? await this.adaptiveThresholds.mutateExits(settings, adaptiveContext, {
+            positionId: position.id,
+            packId: position.exitPlan?.strategyPackId ?? settings.strategy.liveStrategy.packId,
+          })
+        : null;
+      const adaptedExitPlan = position.exitPlan && adaptedExits
+        ? {
+            ...position.exitPlan,
+            stopLossPercent: adaptedExits.exits.stopLossPercent,
+            tp1Multiplier: adaptedExits.exits.tp1Multiplier,
+            tp2Multiplier: adaptedExits.exits.tp2Multiplier,
+            trailingStopPercent: adaptedExits.exits.trailingStopPercent,
+            timeStopMinutes: adaptedExits.exits.timeStopMinutes,
+            timeLimitMinutes: adaptedExits.exits.timeLimitMinutes,
+          }
+        : position.exitPlan;
+      const pnlPercent = ((priceUsd - Number(position.entryPriceUsd)) / Number(position.entryPriceUsd)) * 100;
+
+      if (
+        smartWalletActivity
+        && smartWalletActivity.sellWalletCount90s >= 2
+        && pnlPercent > 10
+      ) {
+        const reason = Math.abs(smartWalletActivity.netAmountUsd90s) >= Number(position.amountUsd)
+          ? "smart_money_full_exit"
+          : "smart_money_trim";
+        try {
+          await this.execution.closePosition({
+            positionId: position.id,
+            reason,
+            priceUsd,
+            fraction: reason === "smart_money_full_exit" ? 1 : settings.exits.tp1SellFraction,
+            peakPriceUsd: Math.max(Number(position.peakPriceUsd), priceUsd),
+          });
+        } finally {
+          clearInFlight(position.id);
+        }
+        continue;
+      }
 
       const exitDecision = getExitDecision(
         {
@@ -153,36 +206,36 @@ export class ExitEngine {
           tp1Done: position.tp1Done,
           tp2Done: position.tp2Done,
           metadata: position.metadata,
-          exitPlan: position.exitPlan
+          exitPlan: adaptedExitPlan
             ? {
-                profile: position.exitPlan.profile,
-                stopLossPercent: Number(position.exitPlan.stopLossPercent),
-                tp1Multiplier: Number(position.exitPlan.tp1Multiplier),
-                tp2Multiplier: Number(position.exitPlan.tp2Multiplier),
-                tp1SellFraction: Number(position.exitPlan.tp1SellFraction),
-                tp2SellFraction: Number(position.exitPlan.tp2SellFraction),
-                postTp1RetracePercent: Number(position.exitPlan.postTp1RetracePercent),
-                trailingStopPercent: Number(position.exitPlan.trailingStopPercent),
-                timeStopMinutes: Number(position.exitPlan.timeStopMinutes),
-                timeStopMinReturnPercent: Number(position.exitPlan.timeStopMinReturnPercent),
-                timeLimitMinutes: Number(position.exitPlan.timeLimitMinutes),
-                partialStopLossEnabled: position.exitPlan.partialStopLossEnabled,
-                partialSlThresholdPercent: Number(position.exitPlan.partialSlThresholdPercent),
-                partialSlSellFraction: Number(position.exitPlan.partialSlSellFraction),
-                momentumTpExtensionEnabled: position.exitPlan.momentumTpExtensionEnabled,
-                recalibrateIntervalMinutes: Number(position.exitPlan.recalibrateIntervalMinutes),
+                profile: adaptedExitPlan.profile,
+                stopLossPercent: Number(adaptedExitPlan.stopLossPercent),
+                tp1Multiplier: Number(adaptedExitPlan.tp1Multiplier),
+                tp2Multiplier: Number(adaptedExitPlan.tp2Multiplier),
+                tp1SellFraction: Number(adaptedExitPlan.tp1SellFraction),
+                tp2SellFraction: Number(adaptedExitPlan.tp2SellFraction),
+                postTp1RetracePercent: Number(adaptedExitPlan.postTp1RetracePercent),
+                trailingStopPercent: Number(adaptedExitPlan.trailingStopPercent),
+                timeStopMinutes: Number(adaptedExitPlan.timeStopMinutes),
+                timeStopMinReturnPercent: Number(adaptedExitPlan.timeStopMinReturnPercent),
+                timeLimitMinutes: Number(adaptedExitPlan.timeLimitMinutes),
+                partialStopLossEnabled: adaptedExitPlan.partialStopLossEnabled,
+                partialSlThresholdPercent: Number(adaptedExitPlan.partialSlThresholdPercent),
+                partialSlSellFraction: Number(adaptedExitPlan.partialSlSellFraction),
+                momentumTpExtensionEnabled: adaptedExitPlan.momentumTpExtensionEnabled,
+                recalibrateIntervalMinutes: Number(adaptedExitPlan.recalibrateIntervalMinutes),
               }
             : null,
         },
         priceUsd,
         {
-          tp1SellFraction: settings.exits.tp1SellFraction,
-          tp2SellFraction: settings.exits.tp2SellFraction,
-          postTp1RetracePercent: settings.exits.postTp1RetracePercent,
-          trailingStopPercent: Number(position.trailingStopPercent),
-          timeStopMinutes: settings.exits.timeStopMinutes,
-          timeStopMinReturnPercent: settings.exits.timeStopMinReturnPercent,
-          timeLimitMinutes: settings.exits.timeLimitMinutes,
+          tp1SellFraction: adaptedExits?.exits.tp1SellFraction ?? settings.exits.tp1SellFraction,
+          tp2SellFraction: adaptedExits?.exits.tp2SellFraction ?? settings.exits.tp2SellFraction,
+          postTp1RetracePercent: adaptedExits?.exits.postTp1RetracePercent ?? settings.exits.postTp1RetracePercent,
+          trailingStopPercent: adaptedExits?.exits.trailingStopPercent ?? Number(position.trailingStopPercent),
+          timeStopMinutes: adaptedExits?.exits.timeStopMinutes ?? settings.exits.timeStopMinutes,
+          timeStopMinReturnPercent: adaptedExits?.exits.timeStopMinReturnPercent ?? settings.exits.timeStopMinReturnPercent,
+          timeLimitMinutes: adaptedExits?.exits.timeLimitMinutes ?? settings.exits.timeLimitMinutes,
           partialStopLossEnabled: true,
           partialSlThresholdPercent: 10,
           partialSlSellFraction: 0.5,
