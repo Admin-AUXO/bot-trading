@@ -1,6 +1,6 @@
 # Dashboard Plan — Next.js Pages, Layout, UI/UX (Page-by-Page)
 
-Companion to [draft_index.md](draft_index.md), [draft_backend_plan.md](draft_backend_plan.md), [draft_workflow_principles.md](draft_workflow_principles.md).
+Companion to [draft_index.md](draft_index.md), [draft_backend_plan.md](draft_backend_plan.md), [draft_workflow_principles.md](draft_workflow_principles.md), [draft_credit_tracking.md](draft_credit_tracking.md), [draft_execution_plan.md](draft_execution_plan.md).
 
 **Stack (already in place — reuse, don't reinvent):** Next.js 16, React 19, AG Grid 35, Radix (dialog / tabs / tooltip), Tailwind 4, TanStack Form, Recharts, react-resizable-panels, cmdk (command palette), sonner (toasts), lucide icons, motion, zod.
 
@@ -497,6 +497,42 @@ components/
 - `/market/token/:mint` first-paint p95 ≤1.5 s with all enrichment cards on.
 - Lighthouse accessibility score ≥90 on every new page.
 - Bundle size (Next.js build report) doesn't grow more than 15 % vs. pre-phase-4 baseline.
+
+---
+
+## 9a. Panel budget quick reference
+
+Every page's panel count must fit below. Add a panel → delete one.
+
+| Page | Budget | Current |
+|---|---:|---|
+| `/operational-desk/overview` | 5 | 4 stats row + 2 charts + 1 feed → 5 after collapsing stats |
+| `/operational-desk/trading` | 2 | tab strip + one grid + drawer |
+| `/operational-desk/settings` | 5 | one form per tab |
+| `/workbench/packs` | 2 | filter bar + grid |
+| `/workbench/editor/[id]` | 6 | meta + 4 form tabs + live preview |
+| `/workbench/sandbox` | 2 | strip + trace table |
+| `/workbench/grader/[runId]` | 4 | summary + tokens grid + review + suggestions |
+| `/workbench/sessions` | 3 | current card + dials + history |
+| `/market/trending` | 2 | smart-money strip + grid |
+| `/market/token/[mint]` | 6 | identity + price + 4 enrichment cards (other cards collapsed) |
+| `/market/watchlist` | 1 | one grid |
+| `/candidates/[id]` | 4 | 4 tabs |
+| `/positions/[id]` | 4 | 4 tabs |
+
+Any page over budget in PR review gets the reviewer's auto-block. The page's job-sentence in the page.tsx header must still hold; if it doesn't, the page is split.
+
+---
+
+## 9b. Cross-doc surface links
+
+| Surface | Backed by |
+|---|---|
+| Session banner capital/PnL today | [draft_credit_tracking.md](draft_credit_tracking.md) adds "credits spent today" chip |
+| `/positions/:id` Exit Plan tab | [draft_execution_plan.md §6](draft_execution_plan.md) drives SL/TP markers + lane info |
+| `/workbench/sessions` start dialog | [draft_credit_tracking.md §5](draft_credit_tracking.md) forecast output rendered inline |
+| `/market/token/:mint` enrichment cards | [draft_market_stats_upgrade.md §A](draft_market_stats_upgrade.md) client-by-client |
+| Shell incident banner | [draft_execution_plan.md §8](draft_execution_plan.md) stale-exit + land-failed escalate here |
 
 ---
 

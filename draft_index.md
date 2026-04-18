@@ -2,7 +2,7 @@
 
 Design + planning for the bot-trading rewrite. All docs are drafts — once a phase lands, its content migrates into `notes/reference/*` and the draft is deleted.
 
-**Status:** partial implementation landed. These docs are still the blueprint, but the rewrite has now moved past four tiny transition slices and into the first real phase-2 operator pack/run/session pass.
+**Status:** phases 1–5 implementation partial; phase 6 planning docs have landed. The rewrite has moved past phase-2 operator seams into a coordinated phase-6 push covering execution depth, enrichment fabric, credit tracking, adaptive engine, and Grafana v2.
 
 **Progress snapshot (2026-04-18):**
 - Backend phase-1 seam extraction landed:
@@ -70,22 +70,16 @@ Design + planning for the bot-trading rewrite. All docs are drafts — once a ph
 - Draft dashboard phase beyond the first real `/workbench/sessions` screen:
   true `/workbench/editor`, `/workbench/grader`, and `/market/*` implementations instead of discovery-lab delegation or redirects.
 
-**Recommended next pass for the next agent:**
-1. Start from `draft_rollout_plan.md`, `draft_database_plan.md`, and `draft_backend_plan.md`.
-2. Treat the current work as transition scaffolding, not end state.
-3. The repo now has enough scaffolding. The next pass should be a major phase-2 push, not another narrow transition-only patch.
-4. Preferred next target:
-   use the now-real session seam plus the landed pack/run routes as the cut-in point, then finish the editor/grader side and keep shrinking discovery-lab-only route ownership.
-5. The next agent should be willing to add and remove files aggressively where that clarifies ownership:
-   keep session lifecycle ownership behind `TradingSessionService`,
-   add the first real operator pack/run route surface beyond `discovery-lab/*`,
-   move more live-pack/run/session reads out of runtime glue and discovery-lab route glue into dedicated pack/session services,
-   replace at least one more compatibility-only `/workbench/*` surface with a backend-owned implementation in the same pass,
-   trim or replace transitional code paths that become dead once the new seams are authoritative.
-6. Keep compatibility aliases and discovery-lab editing/source surfaces intact, but do not preserve internal duplication just because it already exists.
-7. If the pass still leaves pack/run/session ownership obviously split across runtime, discovery-lab glue, and compatibility-only dashboard pages, the agent did not go far enough.
-8. Do not pretend we are still in pure phase-1 hardening.
-   The next agent should push the rewrite forward according to plan with a larger coordinated refactor, not another cautious micro-step.
+**Recommended next pass for the next agent (phase 6 push):**
+1. Start from `draft_rollout_plan.md` §2 (phase 6 sub-phases) and `draft_database_plan.md` Phase 6+ additions.
+2. Preferred cut-in point: land the phase 6+ schema adds first (`ProviderCreditLog`, `FillAttempt`, `MutatorOutcome`, `ConfigReplay`), so every subsequent sub-phase writes against the real tables.
+3. After schema, run **6a Helius** + **6b Execution** + **6d Credit tracking** in parallel — each has a different seam and they compose cleanly.
+4. 6c Enrichment fabric lands next (depends on 6d for proper credit accounting on free/paid providers).
+5. 6e Adaptive engine + packs before 6f Smart-money. Adaptive must be live before smart-money pack rides on top of it.
+6. 6g Workbench completion (editor + grader + market) in a dedicated worktree; reuse the backend-owned routes that already exist.
+7. 6h Grafana last — it consumes views from every prior sub-phase.
+8. The agent should be willing to add and remove files aggressively where that clarifies ownership: delete the remaining `discovery-lab/*` compatibility code once backend-owned workbench/market routes are authoritative; collapse metadata-blob read paths that dual-write is replacing.
+9. If the pass leaves `Fill.metadata.live.*` still being read, or Jito lane still not integrated, or any paid-provider call path still bypassing `ProviderBudgetService`, the agent did not go far enough.
 
 
 ## Start here
@@ -100,16 +94,19 @@ Design + planning for the bot-trading rewrite. All docs are drafts — once a ph
 
 | Doc | Covers |
 |---|---|
-| [draft_database_plan.md](draft_database_plan.md) | 12 new tables, column promotions, 25 views, deletions |
+| [draft_database_plan.md](draft_database_plan.md) | Core + phase 6+ tables (ProviderCreditLog, FillAttempt, MutatorOutcome, ConfigReplay, ThresholdSearch*), column promotions, views, deletions |
 | [draft_backend_plan.md](draft_backend_plan.md) | Service-by-service spec, engine pipeline, API routes, webhooks, Smart-Money build |
-| [draft_dashboard_plan.md](draft_dashboard_plan.md) | Next.js page-by-page UI/UX, shell, IA, component decomposition |
-| [draft_grafana_plan.md](draft_grafana_plan.md) | 6 new dashboards + auto-generator extension recipe + compose hardening |
+| [draft_helius_integration.md](draft_helius_integration.md) | Per-endpoint audit + verdicts for 13 Helius capabilities; stream-vs-webhook decision guide; service wiring |
+| [draft_execution_plan.md](draft_execution_plan.md) | Jupiter + Jito + priority-fee execution: MC-tier slippage caps, entry/exit decision trees, lane rules, 25-row recommendation→surface map |
+| [draft_credit_tracking.md](draft_credit_tracking.md) | Per-call credit ledger, session-start forecast, alert thresholds, Credit Burn dashboard spec |
+| [draft_dashboard_plan.md](draft_dashboard_plan.md) | Next.js page-by-page UI/UX, panel budgets, shell, IA, component decomposition |
+| [draft_grafana_plan.md](draft_grafana_plan.md) | 7 new dashboards + auto-generator extension recipe + alert rules + compose hardening |
 
 ## Reference
 
 | Doc | Covers |
 |---|---|
-| [draft_market_stats_upgrade.md](draft_market_stats_upgrade.md) | Free-API provider table (Trench / Bubblemaps / Solsniffer / Pump.fun / Jupiter / GeckoTerminal / Cielo / DefiLlama) + bundle-stats source ranking |
+| [draft_market_stats_upgrade.md](draft_market_stats_upgrade.md) | 8 free-API providers: call pattern · TTL · rate limit · role · composite-score weight · call-sequence diagram |
 
 ## Skills + codex agents (for sub-agent delegation)
 
@@ -131,5 +128,8 @@ Existing skills (`strategy-safety`, `database-safety`, `grafana`, `dashboard-*`,
 - **New to the project:** principles → packs v2 → rollout. Skip deep specs on first pass.
 - **Implementing a phase:** rollout plan → the deep spec for that surface → principles for guardrails.
 - **Authoring a pack:** packs v2 + `strategy-pack-authoring` skill.
-- **Adding an enrichment provider:** backend plan §4.4 + market-stats reference + `token-enrichment` skill.
-- **Shipping the Smart-Money pack:** backend plan §4.5 + packs v2 §B.1 pack 2 + `smart-money-watcher` skill.
+- **Adding an enrichment provider:** market-stats upgrade + credit-tracking + `token-enrichment` skill.
+- **Shipping the Smart-Money pack:** backend plan §4.5 + packs v2 §B.1 pack 2 + helius integration §2 + `smart-money-watcher` skill.
+- **Touching execution (entry/exit/fees):** execution plan → helius integration (priority fee + Sender sections) → packs v2 exit table.
+- **Wiring Helius deeper:** helius integration → backend plan §4 → execution plan §5 → credit tracking.
+- **Adding a Grafana dashboard:** grafana plan → database plan phase 6+ views → credit tracking §7 (if credit-related).

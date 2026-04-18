@@ -79,3 +79,55 @@ Every view must include `config_version` (join on `ConfigSnapshot`) and `strateg
 - Every new table queried from Grafana is covered by a committed view.
 - No new JSON blob reads from `Position.metadata.exitPlan` after phase 2 cutover.
 - All new tables are indexed on the FK used by Grafana filters.
+
+---
+
+## Phase 6+ additions
+
+Schema adds that land alongside phase 6 (execution depth, credit tracking, adaptive telemetry RCA, config replay). All schema-only edits; views under [create_views.sql](trading_bot/backend/prisma/views/create_views.sql).
+
+### 8. New tables (phase 6+)
+
+| Table | Purpose | Key columns |
+|---|---|---|
+| `ProviderCreditLog` | Credit ledger (Birdeye/Helius/all) | `id`, `provider` enum, `endpoint`, `purpose` enum, `creditsUsed`, `sessionId?`, `packId?`, `configVersion?`, `mint?`, `candidateId?`, `positionId?`, `httpStatus`, `latencyMs`, `errorCode?`, `recordedAt` |
+| `FillAttempt` | Every live/paper entry/exit attempt (promoted from `Fill.metadata`) | `id`, `positionId?`, `candidateId?`, `side`, `packId`, `packVersion`, `sessionId`, `mint`, `mcUsdAtQuote`, `tierBucket`, `slippageCapBps`, `slippageUsedBps`, `priceImpactBps`, `cuPriceMicroLamports`, `tipLamports`, `lane` enum, `bundleLanded`, `quoteLatencyMs`, `signLatencyMs`, `submitLatencyMs`, `confirmLatencyMs`, `retries`, `failureCode?`, `txSig?` |
+| `ExitPlanMutation` | Audit trail for every `ExitPlan` change (trail tighten, time-stop reduce, etc.) | `planId`, `positionId`, `field`, `before`, `after`, `reasonCode`, `mutator`, `mutatedAt` |
+| `ConfigReplay` | Point-in-time snapshot table, lets us answer "what did pack/settings look like at T" | `id`, `configVersion`, `packId`, `packVersion`, `settings` JSON, `takenAt`, indexed on `takenAt` |
+| `ThresholdSearchRun` | Grid/bayes searches over pack axes for auto-tuning | `id`, `packId`, `axisSpec` JSON, `status`, `startedAt`, `completedAt`, `bestScore`, `bestConfig` JSON |
+| `ThresholdSearchTrial` | One evaluation within a search | `runId`, `config` JSON, `score`, `simPnlUsd`, `simWinRate`, `simTrades`, `evaluatedAt` |
+| `MutatorOutcome` | Post-exit attribution — was the adaptive mutator right? | `positionId`, `mutatorCode`, `axis`, `beforeValue`, `afterValue`, `exitPnlUsd`, `counterfactualPnlUsd?`, `verdict` enum (`HELPED\|HURT\|NEUTRAL`), `recordedAt` |
+| `SmartWalletFunding` | `getWalletFundedBy` cache for pack 2 | `address PK`, `source` enum (`CEX\|FRESH\|BRIDGE\|MIXER\|UNKNOWN`), `firstFundedAt`, `lastCheckedAt` |
+
+### 9. Column promotions (phase 6+)
+
+| Currently blob field | Promote to column |
+|---|---|
+| `Fill.metadata.live.*` remaining latency fields | `Fill.*LatencyMs`, `Fill.lane`, `Fill.tipLamports`, `Fill.slippageUsedBps` (or migrate to `FillAttempt`) |
+| `Candidate.metadata.priceImpactBps` | `Candidate.priceImpactBps` |
+| `Position.metadata.entryTipLamports` | `Position.entryTipLamports` |
+
+### 10. New views (phase 6+)
+
+- `v_api_provider_daily`, `v_api_provider_hourly`, `v_api_purpose_daily`, `v_api_endpoint_efficiency`, `v_api_session_cost` — see [draft_credit_tracking.md §4](draft_credit_tracking.md).
+- `v_submit_lane_daily` — `lane × day` → count, land rate, avg tip, avg confirmLatencyMs.
+- `v_exit_plan_mutation_daily` — `field × reasonCode × day` → count, avg delta.
+- `v_mutator_outcome_daily` — `mutatorCode × verdict × day` → counts + pnlDelta.
+- `v_threshold_search_leaderboard` — top-10 trials per run; surfaces on the grader UI.
+- `v_config_replay_for_session` — `sessionId` → full config at start + stop.
+- `v_enrichment_quality_daily` — per-source success / stale / p95-latency rollup.
+
+### 11. Deletions (phase 6+)
+
+- `Fill.metadata.live.*` after `FillAttempt` rows cover two weeks of live traffic.
+- `Position.metadata.exitPlan.*` fully removed (deprecated in phase 2; final cutover here).
+- Stale `v_raw_api_payload_recent` if `RawApiPayload` is replaced by slot-tagged `ProviderCreditLog` + body-on-disk storage.
+
+### 12. Acceptance criteria (phase 6+)
+
+- `ProviderCreditLog` row written for every paid-provider call; test walks one discovery + evaluate + exit tick and counts rows.
+- `FillAttempt` row written for every buy/sell attempt; `Fill.metadata.live.*` reads go away after two-week dual-write window.
+- `ConfigReplay` lets `/api/operator/sessions/:id/config` return the exact snapshot at start.
+- `MutatorOutcome` populated on every position close; powers the Adaptive Telemetry dashboard's mutator-correlation panel.
+- Every new table has its Grafana-facing view committed before the dashboard ships.
+- Every view that filters by session/pack/config exposes those columns on every row.
