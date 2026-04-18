@@ -1,0 +1,10 @@
+{
+  "bundleSupplyPct": 0.18,
+  "sniperCount": 7,
+  "devBundle": false,
+  "bundles": [
+    { "wallet": "walletA", "holdingPct": 0.12, "soldPct": 0.04 },
+    { "wallet": "walletB", "holdingPct": 0.06, "soldPct": 0.0 }
+  ]
+}
+

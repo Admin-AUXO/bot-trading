@@ -1,0 +1,17 @@
+{
+  "items": [
+    {
+      "wallet": "wallet1",
+      "action": "buy",
+      "usdAmount": 1200.5,
+      "timestamp": "2026-04-18T03:00:00.000Z"
+    },
+    {
+      "wallet": "wallet2",
+      "action": "sell",
+      "usdAmount": 400.0,
+      "timestamp": "2026-04-18T03:10:00.000Z"
+    }
+  ]
+}
+

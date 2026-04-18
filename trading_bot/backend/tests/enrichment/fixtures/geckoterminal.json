@@ -1,0 +1,23 @@
+{
+  "data": [
+    {
+      "id": "pool_1",
+      "attributes": {
+        "dex_name": "raydium",
+        "pool_created_at": "2026-04-18T00:00:00.000Z",
+        "reserve_in_usd": 125000.5,
+        "swap_fee_bps": 25
+      }
+    },
+    {
+      "id": "pool_2",
+      "attributes": {
+        "dex_name": "meteora",
+        "pool_created_at": "2026-04-17T00:00:00.000Z",
+        "reserve_in_usd": 80000.0,
+        "swap_fee_bps": 30
+      }
+    }
+  ]
+}
+

@@ -1,0 +1,7 @@
+{
+  "clusters": [
+    { "id": "c1", "holders": 123, "percentage": 0.22 },
+    { "id": "c2", "holders": 77, "percentage": 0.11 }
+  ]
+}
+
