@@ -684,6 +684,42 @@ model TradingSession {
   @@index([sourceRunId, startedAt])
 }
 
+model BundleStats {
+  mint            String    @id
+  bundleCount     Int?
+  bundleSupplyPct Float?
+  devBundle       Boolean?
+  sniperCount     Int?
+  source          String?
+  checkedAt       DateTime  @default(now())
+  expiresAt       DateTime?
+
+  @@index([expiresAt])
+  @@index([source, checkedAt])
+}
+
+model EnrichmentFact {
+  id        String         @id @default(cuid())
+  mint      String
+  source    ProviderSource
+  factType  String
+  payload   Json
+  fetchedAt DateTime       @default(now())
+  expiresAt DateTime
+
+  @@unique([mint, source, factType])
+  @@index([mint, source])
+  @@index([expiresAt])
+}
+
+model CreatorLineage {
+  creatorAddress String               @id
+  tokenCount24h  Int?
+  rugRate        Float?
+  fundingSource  WalletFundingSource?
+  lastSampledAt  DateTime             @default(now())
+}
+
 model ProviderCreditLog {
   id            BigInt          @id @default(autoincrement())
   provider      ProviderSource

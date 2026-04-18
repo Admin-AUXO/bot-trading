@@ -1,15 +1,24 @@
 import { Suspense } from "react";
 import { CompactPageHeader, EmptyState, Panel, StatusPill } from "@/components/dashboard-primitives";
+import { CopyButton } from "@/components/copy-button";
 import { serverFetch } from "@/lib/server-api";
-import { formatCompactCurrency, formatInteger, formatPercent, formatRelativeMinutes } from "@/lib/format";
+import {
+  formatCompactCurrency,
+  formatInteger,
+  formatPercent,
+  formatRelativeMinutes,
+  formatTimestamp,
+} from "@/lib/format";
 import type {
-  MarketTokenStatsPayload,
-  SmartWalletActivityPayload,
   DiscoveryLabTokenInsight,
+  EnrichmentSourceState,
+  MarketTokenStatsPayload,
 } from "@/lib/types";
 import { shortMint } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
+
+type TokenEnrichmentPayload = DiscoveryLabTokenInsight;
 
 export default async function MarketTokenPage({
   params,
@@ -18,7 +27,7 @@ export default async function MarketTokenPage({
 }) {
   const { mint } = await params;
   const [enrichment, stats] = await Promise.all([
-    safeFetch<DiscoveryLabTokenInsight>(`/api/operator/enrichment/${encodeURIComponent(mint)}`),
+    safeFetch<TokenEnrichmentPayload>(`/api/operator/enrichment/${encodeURIComponent(mint)}`),
     safeFetch<MarketTokenStatsPayload>(`/api/operator/market/stats/${encodeURIComponent(mint)}`),
   ]);
 
@@ -26,10 +35,11 @@ export default async function MarketTokenPage({
     return <EmptyState title="Token detail unavailable" detail={enrichment.error ?? stats.error ?? "No token payload available."} />;
   }
 
-  const symbol = enrichment.data?.symbol ?? shortMint(mint, 5);
+  const insight = enrichment.data;
+  const symbol = insight?.symbol ?? shortMint(mint, 5);
   const birdeyeHref = `https://birdeye.so/token/${mint}?chain=solana`;
-  const dexscreenerHref = enrichment.data?.toolLinks.dexscreener ?? `https://dexscreener.com/solana/${mint}`;
-  const solscanHref = enrichment.data?.toolLinks.solscanToken ?? `https://solscan.io/token/${mint}`;
+  const dexscreenerHref = insight?.toolLinks.dexscreener ?? `https://dexscreener.com/solana/${mint}`;
+  const solscanHref = insight?.toolLinks.solscanToken ?? `https://solscan.io/token/${mint}`;
 
   return (
     <div className="space-y-5">
@@ -37,8 +47,15 @@ export default async function MarketTokenPage({
         eyebrow="Market intel"
         title={`${symbol} token detail`}
         description={`Mint ${mint}`}
+        badges={(
+          <>
+            <StatusPill value={stats.data?.ageMinutes != null ? `${formatRelativeMinutes(stats.data.ageMinutes)} since grad` : "age unknown"} />
+            <StatusPill value={insight?.compositeScore != null ? `score ${Math.round(insight.compositeScore * 100)}` : "score pending"} />
+          </>
+        )}
         actions={(
           <div className="flex flex-wrap items-center gap-2 text-xs">
+            <CopyButton value={mint} label="Copy mint" />
             <a href="/operational-desk/trading" className="text-text-secondary hover:text-text-primary">Manual entry</a>
             <a href="/market/trending" className="text-text-secondary hover:text-text-primary">Pin</a>
             <a href={birdeyeHref} target="_blank" rel="noreferrer" className="text-text-secondary hover:text-text-primary">Open in Birdeye</a>
@@ -49,10 +66,11 @@ export default async function MarketTokenPage({
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
         <div className="space-y-4">
           <Panel title="Identity" eyebrow="Token overview">
-            <div className="space-y-2 text-sm">
+            <div className="space-y-3 text-sm">
               <div className="flex flex-wrap items-center gap-2">
                 <StatusPill value={symbol} />
-                <StatusPill value={stats.data?.ageMinutes != null ? `${formatRelativeMinutes(stats.data.ageMinutes)} since grad` : "age unknown"} />
+                <StatusPill value={insight?.providers?.jupiter.data?.strict ? "strict-listed" : "strict unknown"} />
+                <StatusPill value={insight?.providers?.jupiter.data?.verified ? "verified" : "unverified"} />
               </div>
               <div className="font-mono text-xs text-text-secondary break-all">{mint}</div>
               <div className="flex flex-wrap gap-2 text-xs">
@@ -60,20 +78,42 @@ export default async function MarketTokenPage({
                 <a href={birdeyeHref} target="_blank" rel="noreferrer" className="text-text-secondary hover:text-text-primary">Birdeye</a>
                 <a href={dexscreenerHref} target="_blank" rel="noreferrer" className="text-text-secondary hover:text-text-primary">DexScreener</a>
               </div>
+              <div className="grid gap-2 sm:grid-cols-2 text-xs text-text-secondary">
+                <div>Price: <span className="text-text-primary">{formatCompactCurrency(insight?.market.priceUsd ?? null)}</span></div>
+                <div>MC: <span className="text-text-primary">{formatCompactCurrency(stats.data?.mc ?? insight?.market.marketCapUsd ?? null)}</span></div>
+                <div>Liq: <span className="text-text-primary">{formatCompactCurrency(stats.data?.liq ?? insight?.market.liquidityUsd ?? null)}</span></div>
+                <div>Holders: <span className="text-text-primary">{formatInteger(insight?.market.holders ?? null)}</span></div>
+              </div>
             </div>
           </Panel>
 
-          <Panel title="Creator lineage" eyebrow="Funding and launches">
-            <div className="text-sm text-text-secondary">
-              Creator lineage feed is not exposed by current API payload for this route set.
-            </div>
+          <Panel title="Creator lineage" eyebrow="Funding and launch history">
+            {insight?.creatorLineage ? (
+              <div className="space-y-2 text-sm">
+                <div className="flex flex-wrap gap-2">
+                  <StatusPill value={insight.creatorLineage.fundingSource ?? "unknown"} />
+                  <StatusPill value={insight.creatorLineage.tokenCount24h != null ? `${insight.creatorLineage.tokenCount24h} launches 24h` : "launch rate unknown"} />
+                </div>
+                <div className="text-text-secondary">
+                  Creator {shortMint(insight.creatorLineage.creatorAddress, 4)} · rug rate {formatPercent(
+                    insight.creatorLineage.rugRate != null ? insight.creatorLineage.rugRate * 100 : null,
+                  )}
+                </div>
+                <div className="text-xs text-text-muted">
+                  Last sampled {formatTimestamp(insight.creatorLineage.lastSampledAt)}
+                </div>
+              </div>
+            ) : (
+              <div className="text-sm text-text-secondary">Creator lineage unavailable in current cache.</div>
+            )}
           </Panel>
 
           <Panel title="Mint and authority flags" eyebrow="Security posture">
             <div className="flex flex-wrap gap-2 text-xs">
-              <StatusPill value={enrichment.data?.security.mintAuthorityEnabled ? "mint authority enabled" : "mint authority disabled"} />
-              <StatusPill value={enrichment.data?.security.freezeable ? "freeze enabled" : "freeze disabled"} />
-              <StatusPill value={enrichment.data?.security.mutableMetadata ? "metadata mutable" : "metadata immutable"} />
+              <StatusPill value={insight?.security.mintAuthorityEnabled ? "mint authority enabled" : "mint authority disabled"} />
+              <StatusPill value={insight?.security.freezeable ? "freeze enabled" : "freeze disabled"} />
+              <StatusPill value={insight?.security.mutableMetadata ? "metadata mutable" : "metadata immutable"} />
+              <StatusPill value={insight?.security.token2022 ? "token-2022" : "legacy token"} />
             </div>
           </Panel>
 
@@ -95,26 +135,152 @@ export default async function MarketTokenPage({
 
         <div className="space-y-4">
           <Suspense fallback={<LoadingPanel title="Bundle (Trench)" />}>
-            <UnavailableCard title="Bundle (Trench)" reason="Trench unavailable — provider client not wired in this runtime." />
+            <TrenchCard mint={mint} />
           </Suspense>
           <Suspense fallback={<LoadingPanel title="Cluster (Bubblemaps)" />}>
-            <UnavailableCard title="Cluster (Bubblemaps)" reason="Bubblemaps unavailable — provider client not wired in this runtime." />
+            <BubblemapsCard mint={mint} />
           </Suspense>
           <Suspense fallback={<LoadingPanel title="Security (Solsniffer)" />}>
-            <SecurityCard mint={mint} />
+            <SolsnifferCard mint={mint} />
           </Suspense>
           <Suspense fallback={<LoadingPanel title="Pools (GeckoTerminal)" />}>
-            <UnavailableCard title="Pools (GeckoTerminal)" reason="GeckoTerminal unavailable — provider client not wired in this runtime." />
+            <GeckoPoolsCard mint={mint} />
           </Suspense>
           <Suspense fallback={<LoadingPanel title="Smart money (Cielo)" />}>
-            <SmartMoneyCard mint={mint} />
+            <CieloCard mint={mint} />
           </Suspense>
           <Suspense fallback={<LoadingPanel title="Pump.fun origin" />}>
-            <UnavailableCard title="Pump.fun origin" reason="Pump.fun origin details unavailable in current enrichment payload." />
+            <PumpfunCard mint={mint} />
           </Suspense>
         </div>
       </div>
     </div>
+  );
+}
+
+async function TrenchCard(props: { mint: string }) {
+  const state = await fetchSourceState("trench", props.mint);
+  if (!state?.data) {
+    return <UnavailableCard title="Bundle (Trench)" state={state} defaultReason="Trench unavailable" />;
+  }
+
+  return (
+    <Panel title="Bundle (Trench)" eyebrow={sourceEyebrow(state)}>
+      <div className="space-y-2 text-sm">
+        <div>Bundle pct: <span className="text-text-primary">{formatPercent(toPercent(state.data.bundleSupplyPct))}</span></div>
+        <div>Snipers: <span className="text-text-primary">{formatInteger(state.data.sniperCount)}</span></div>
+        <div>Dev bundle: <span className="text-text-primary">{state.data.devBundle ? "yes" : "no"}</span></div>
+        <div className="space-y-1 text-xs text-text-secondary">
+          {state.data.bundles.slice(0, 3).map((bundle) => (
+            <div key={bundle.wallet}>
+              {shortMint(bundle.wallet, 4)} · hold {formatPercent(toPercent(bundle.holdingPct))} · sold {formatPercent(toPercent(bundle.soldPct))}
+            </div>
+          ))}
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+async function BubblemapsCard(props: { mint: string }) {
+  const state = await fetchSourceState("bubblemaps", props.mint);
+  if (!state?.data) {
+    return <UnavailableCard title="Cluster (Bubblemaps)" state={state} defaultReason="Bubblemaps unavailable" />;
+  }
+
+  const tone = state.data.topClusterPct != null && state.data.topClusterPct > 0.2 ? "warning" : "default";
+  return (
+    <Panel title="Cluster (Bubblemaps)" eyebrow={sourceEyebrow(state)} tone={tone}>
+      <div className="space-y-2 text-sm">
+        <div>Top cluster: <span className="text-text-primary">{formatPercent(toPercent(state.data.topClusterPct))}</span></div>
+        <div>Clusters: <span className="text-text-primary">{formatInteger(state.data.clusterCount)}</span></div>
+        {state.data.topClusterPct != null && state.data.topClusterPct > 0.2 ? (
+          <div className="rounded-[10px] border border-[rgba(250,204,21,0.24)] bg-[rgba(250,204,21,0.08)] px-3 py-2 text-xs text-[var(--warning)]">
+            One cluster controls more than 20% of supply.
+          </div>
+        ) : null}
+      </div>
+    </Panel>
+  );
+}
+
+async function SolsnifferCard(props: { mint: string }) {
+  const state = await fetchSourceState("solsniffer", props.mint);
+  if (!state?.data) {
+    return <UnavailableCard title="Security (Solsniffer)" state={state} defaultReason="Solsniffer unavailable" />;
+  }
+
+  return (
+    <Panel title="Security (Solsniffer)" eyebrow={sourceEyebrow(state)}>
+      <div className="space-y-2 text-sm">
+        <div>Score: <span className="text-text-primary">{formatInteger(state.data.score)}</span></div>
+        <div className="text-xs text-text-secondary">
+          {state.data.topFlags.length > 0 ? state.data.topFlags.join(" · ") : "No major flags in provider payload."}
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+async function GeckoPoolsCard(props: { mint: string }) {
+  const state = await fetchSourceState("geckoterminal", props.mint);
+  if (!state?.data) {
+    return <UnavailableCard title="Pools (GeckoTerminal)" state={state} defaultReason="GeckoTerminal unavailable" />;
+  }
+
+  return (
+    <Panel title="Pools (GeckoTerminal)" eyebrow={sourceEyebrow(state)}>
+      <div className="space-y-2 text-xs text-text-secondary">
+        {state.data.pools.slice(0, 4).map((pool) => (
+          <div key={pool.address} className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2">
+            <span className="truncate text-text-primary">{pool.dexName ?? shortMint(pool.address, 4)}</span>
+            <span>{pool.createdAt ? formatTimestamp(pool.createdAt) : "age unknown"}</span>
+            <span>{formatCompactCurrency(pool.liquidityUsd)}</span>
+          </div>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+async function CieloCard(props: { mint: string }) {
+  const state = await fetchSourceState("cielo", props.mint);
+  if (!state?.data) {
+    return <UnavailableCard title="Smart money (Cielo)" state={state} defaultReason="Cielo unavailable" />;
+  }
+
+  return (
+    <Panel title="Smart money (Cielo)" eyebrow={sourceEyebrow(state)}>
+      <div className="space-y-2 text-sm">
+        <div>Net 24h: <span className="text-text-primary">{formatCompactCurrency(state.data.netFlowUsd24h)}</span></div>
+        <div>Buys / sells: <span className="text-text-primary">{formatInteger(state.data.buys24h)} / {formatInteger(state.data.sells24h)}</span></div>
+        <div className="space-y-1 text-xs text-text-secondary">
+          {state.data.events.slice(0, 3).map((event) => (
+            <div key={`${event.wallet}-${event.occurredAt ?? "none"}`}>
+              {shortMint(event.wallet, 4)} · {(event.side ?? "unknown").toUpperCase()} · {formatCompactCurrency(event.amountUsd)}
+            </div>
+          ))}
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+async function PumpfunCard(props: { mint: string }) {
+  const state = await fetchSourceState("pumpfun", props.mint);
+  if (!state?.data) {
+    return <UnavailableCard title="Pump.fun origin" state={state} defaultReason="Pump.fun unavailable" />;
+  }
+
+  return (
+    <Panel title="Pump.fun origin" eyebrow={sourceEyebrow(state)}>
+      <div className="space-y-2 text-sm">
+        <div>Grad timestamp: <span className="text-text-primary">{formatTimestamp(state.data.graduatedAt)}</span></div>
+        <div>KOTH duration: <span className="text-text-primary">{formatRelativeMinutes(secondsToMinutes(state.data.kothDurationSeconds))}</span></div>
+        <div>Replies: <span className="text-text-primary">{formatInteger(state.data.replyCount)}</span></div>
+        <div>Initial buy: <span className="text-text-primary">{state.data.initialBuySol != null ? `${state.data.initialBuySol.toFixed(2)} SOL` : "—"}</span></div>
+      </div>
+    </Panel>
   );
 }
 
@@ -139,53 +305,6 @@ async function PricePanel(props: { mint: string }) {
   );
 }
 
-async function SecurityCard(props: { mint: string }) {
-  const result = await safeFetch<DiscoveryLabTokenInsight>(`/api/operator/enrichment/${encodeURIComponent(props.mint)}`);
-  if (!result.data) {
-    return <UnavailableCard title="Security (Solsniffer)" reason={`Solsniffer unavailable — ${result.error ?? "no data"}`} />;
-  }
-
-  const security = result.data.security;
-  const flags = [
-    security.honeypot ? "honeypot risk" : null,
-    security.fakeToken ? "fake token risk" : null,
-    security.transferFeeEnabled ? "transfer fee enabled" : null,
-  ].filter((item): item is string => Boolean(item));
-
-  return (
-    <Panel title="Security (Solsniffer)" eyebrow="Compile-safe fallback">
-      <div className="space-y-2 text-sm">
-        <div>Top10 holder: <span className="text-text-primary">{formatPercent(security.top10HolderPercent)}</span></div>
-        <div>Largest holder: <span className="text-text-primary">{formatPercent(security.ownerBalancePercent)}</span></div>
-        <div className="text-xs text-text-secondary">{flags.length > 0 ? flags.join(" · ") : "No high-signal flags in current payload."}</div>
-      </div>
-    </Panel>
-  );
-}
-
-async function SmartMoneyCard(props: { mint: string }) {
-  const result = await safeFetch<SmartWalletActivityPayload[]>(
-    `/api/operator/market/smart-wallet-events?limit=3&mints=${encodeURIComponent(props.mint)}`,
-  );
-  if (!result.data || result.data.length === 0) {
-    return <UnavailableCard title="Smart money (Cielo)" reason={`Smart-money unavailable — ${result.error ?? "no recent events"}`} />;
-  }
-
-  const net = result.data.reduce((acc, row) => acc + (row.side === "BUY" ? row.amountUsd : -row.amountUsd), 0);
-  return (
-    <Panel title="Smart money (Cielo)" eyebrow="Last 3 events">
-      <div className="space-y-2 text-sm">
-        <div>Net flow: <span className="text-text-primary">{formatCompactCurrency(net)}</span></div>
-        {result.data.map((row) => (
-          <div key={row.id} className="text-xs text-text-secondary">
-            {(row.walletLabel ?? shortMint(row.walletAddress, 4))} · {row.side} · {formatCompactCurrency(row.amountUsd)}
-          </div>
-        ))}
-      </div>
-    </Panel>
-  );
-}
-
 function LoadingPanel(props: { title: string }) {
   return (
     <Panel title={props.title} eyebrow="Loading">
@@ -194,12 +313,65 @@ function LoadingPanel(props: { title: string }) {
   );
 }
 
-function UnavailableCard(props: { title: string; reason: string }) {
+function UnavailableCard<T>(props: {
+  title: string;
+  state: EnrichmentSourceState<T> | null;
+  defaultReason: string;
+}) {
+  const reason = props.state?.error
+    ? `${props.defaultReason} — ${describeStaleness(props.state)}`
+    : props.defaultReason;
+
   return (
-    <Panel title={props.title} eyebrow="Unavailable">
-      <div className="text-sm text-text-secondary">{props.reason}</div>
+    <Panel title={props.title} eyebrow={props.state ? sourceEyebrow(props.state) : "Unavailable"}>
+      <div className="text-sm text-text-secondary">{reason}</div>
     </Panel>
   );
+}
+
+async function fetchSourceState<K extends keyof NonNullable<TokenEnrichmentPayload["providers"]>>(
+  key: K,
+  mint: string,
+): Promise<NonNullable<TokenEnrichmentPayload["providers"]>[K] | null> {
+  const result = await safeFetch<TokenEnrichmentPayload>(`/api/operator/enrichment/${encodeURIComponent(mint)}`);
+  if (!result.data?.providers) {
+    return null;
+  }
+  return result.data.providers[key] ?? null;
+}
+
+function sourceEyebrow<T>(state: EnrichmentSourceState<T>): string {
+  if (state.status === "stale") {
+    return `Stale · ${formatRelativeMinutes(state.staleMinutes ?? null)}`;
+  }
+  if (state.status === "fresh") {
+    return "Fresh";
+  }
+  if (state.status === "error") {
+    return "Unavailable";
+  }
+  return "Empty";
+}
+
+function describeStaleness<T>(state: EnrichmentSourceState<T>): string {
+  if (state.status === "stale") {
+    return `${state.error ?? "provider stale"} — ${formatRelativeMinutes(state.staleMinutes ?? null)} stale`;
+  }
+  return state.error ?? "provider unavailable";
+}
+
+function toPercent(value: number | null | undefined): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return value * 100;
+}
+
+function secondsToMinutes(value: number | null | undefined): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return value / 60;
 }
 
 async function safeFetch<T>(path: string): Promise<{ data: T | null; error: string | null }> {

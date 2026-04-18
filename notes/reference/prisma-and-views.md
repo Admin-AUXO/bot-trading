@@ -66,6 +66,13 @@ Evidence and telemetry:
 - `SharedTokenFactMigrationSignal`: append-only Helius watcher signal log keyed by signature so duplicate websocket events do not multiply
 - `ResearchFill`: research-mode fill records with mint, side, price, amount, slippage, mint source, and score. Used for backtesting and research analysis.
 - `ExitEvent`: audit trail for position exits with positionId, reason (TP1_HIT, TP2_HIT, STOP_LOSS, TRAILING_STOP, TIME_STOP, MANUAL), optional profile, price, and PnL.
+- `BundleStats`: cache of bundle and sniper telemetry per mint, currently fed by Trench and reused by enrichment/UI reads
+- `EnrichmentFact`: per-mint, per-provider, per-fact cache row with payload JSON, fetch time, and expiry. `TokenEnrichmentService` owns writes.
+- `CreatorLineage`: cached creator launch-rate, rug-rate, and funding-source facts for market/detail views and future entry gating
+- `ProviderCreditLog`: append-only provider-call telemetry with provider, endpoint, purpose, credits used, latency, status, and optional session/pack/mint attribution
+- `FillAttempt`: execution-attempt audit row for quote/build/submit outcomes, retry count, lane, fee settings, and terminal failure code
+- `MutatorOutcome`: adaptive exit mutator verdict trail with before/after values and realized vs counterfactual PnL
+- `SmartWalletFunding`: cached wallet funding-source classification for smart-money curation
 
 ## View Contract
 
@@ -92,13 +99,19 @@ These views are repo-owned and currently exposed through `GET /api/views/:name`.
 - `v_runtime_overview`: Bot state at a glance (capital, positions, config version)
 - `v_api_telemetry_daily`: Daily API usage and error rates by provider/endpoint
 - `v_api_provider_daily`: Compatibility provider rollup derived from `v_api_telemetry_daily`
+- `v_api_provider_hourly`: Hourly provider burn/latency/error rollup from `ProviderCreditLog`
+- `v_api_purpose_daily`: Daily provider-purpose burn rollup from `ProviderCreditLog`
 - `v_api_endpoint_efficiency`: Compatibility endpoint rollup with latest call timestamp
+- `v_api_session_cost`: Session-level provider burn rollup from `ProviderCreditLog`
 - `v_position_pnl_daily`: Compatibility closed-position daily PnL rollup derived from `Position` and `Fill`
 
 **Discovery Lab:**
 - `v_discovery_lab_run_summary`: Run performance summary with computed duration
 - `v_discovery_lab_pack_performance`: Pack-level aggregated stats
 - `v_strategy_pack_performance_daily`: Daily rollup by `StrategyPack` id with run counts, winner counts, evaluation totals, winner-rate percentage, and latest applied config version when present
+- `v_mutator_outcome_daily`: Daily adaptive mutator verdict and PnL rollup
+- `v_enrichment_freshness`: Per-provider cache freshness and staleness summary from `EnrichmentFact`
+- `v_enrichment_quality_daily`: Daily enrichment success/latency/coverage rollup
 
 **Shared:**
 - `v_shared_token_fact_cache`: Token fact cache with freshness metrics

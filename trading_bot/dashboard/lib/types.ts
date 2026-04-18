@@ -887,6 +887,100 @@ export type DiscoveryLabTokenInsight = {
     honeypot: boolean | null;
     fakeToken: boolean | null;
   };
+  compositeScore?: number | null;
+  compositeSourceCount?: number;
+  creatorLineage?: {
+    creatorAddress: string;
+    tokenCount24h: number | null;
+    rugRate: number | null;
+    fundingSource: "CEX" | "FRESH" | "BRIDGE" | "MIXER" | "UNKNOWN" | null;
+    lastSampledAt: string | null;
+  } | null;
+  providers?: {
+    trench: EnrichmentSourceState<{
+      mint: string;
+      bundleSupplyPct: number | null;
+      sniperCount: number | null;
+      devBundle: boolean | null;
+      bundles: Array<{
+        wallet: string;
+        holdingPct: number | null;
+        soldPct: number | null;
+      }>;
+    }>;
+    bubblemaps: EnrichmentSourceState<{
+      mint: string;
+      topClusterPct: number | null;
+      clusterCount: number | null;
+      clusters: Array<{
+        id: string;
+        holderCount: number | null;
+        supplyPct: number | null;
+      }>;
+    }>;
+    solsniffer: EnrichmentSourceState<{
+      mint: string;
+      score: number | null;
+      topFlags: string[];
+    }>;
+    pumpfun: EnrichmentSourceState<{
+      mint: string;
+      symbol: string | null;
+      creator: string | null;
+      graduatedAt: string | null;
+      kothDurationSeconds: number | null;
+      replyCount: number | null;
+      initialBuySol: number | null;
+    }>;
+    jupiter: EnrichmentSourceState<{
+      mint: string;
+      symbol: string | null;
+      name: string | null;
+      strict: boolean;
+      verified: boolean;
+      tags: string[];
+    }>;
+    geckoterminal: EnrichmentSourceState<{
+      mint: string;
+      pools: Array<{
+        address: string;
+        dexName: string | null;
+        createdAt: string | null;
+        liquidityUsd: number | null;
+        feeBps: number | null;
+      }>;
+    }>;
+    defillama: EnrichmentSourceState<{
+      mint: string;
+      tvlUsd: number | null;
+      volume24hUsd: number | null;
+      volume7dUsd: number | null;
+      protocols: string[];
+    }>;
+    cielo: EnrichmentSourceState<{
+      mint: string;
+      buys24h: number | null;
+      sells24h: number | null;
+      netFlowUsd24h: number | null;
+      events: Array<{
+        wallet: string;
+        side: "buy" | "sell" | null;
+        amountUsd: number | null;
+        occurredAt: string | null;
+      }>;
+    }>;
+  };
+};
+
+export type EnrichmentSourceState<T> = {
+  source: string;
+  factType: string;
+  status: "fresh" | "stale" | "empty" | "error";
+  fetchedAt: string | null;
+  expiresAt: string | null;
+  staleMinutes: number | null;
+  data: T | null;
+  error: string | null;
 };
 
 export type DiscoveryLabManualEntryResponse = {

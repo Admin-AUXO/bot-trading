@@ -63,7 +63,7 @@ Transport model:
 - `POST /api/operator/runs/:id/manual-entry`: run-owned trade-ticket/manual-entry route for discovery-lab results and future sandbox consumers; discovery-lab manual-entry is now a compatibility alias over this seam
 - `GET /api/operator/market/trending?mint=&limit=&refresh=&focusOnly=`: dedicated market-intel surface for ranked market pulse plus optional single-token focus payload. `refresh=true` performs the provider pull, while default reads stay cache-backed. This is now the production owner for market-wide discovery pulse.
 - `GET /api/operator/market/strategy-suggestions?refresh=`: dedicated market-owned strategy-ideas surface built from the market-intel snapshot. `refresh=true` refreshes the market snapshot first, then recomputes the suggestion set.
-- `GET /api/operator/enrichment/:mint`: dedicated enrichment surface for one mint's token-intel payload, including socials, creator/tool links, market pulse, and security flags
+- `GET /api/operator/enrichment/:mint`: dedicated enrichment surface for one mint's token-intel payload, including socials, creator/tool links, market pulse, Birdeye security flags, per-source enrichment states (`trench`, `bubblemaps`, `solsniffer`, `pumpfun`, `jupiter`, `geckoterminal`, `defillama`, `cielo`), creator-lineage cache, and a cache-aware `compositeScore`
 - `GET /api/operator/candidates?bucket=ready|risk|provider|data`: backend-assigned candidate workbench buckets
 - `GET /api/operator/candidates/:id`: candidate detail, backend-built adaptive explanation, snapshot history, and persisted provider payloads
 - `GET /api/operator/positions?book=open|closed`: position workbench book, with open positions sorted by backend-computed intervention priority and desk-facing row metrics (`unrealizedPnlUsd`, `returnPct`, `lastFillAt`, `latestExecutionLatencyMs`)
@@ -225,7 +225,10 @@ Dashboard navigation conventions:
 - `v_candidate_funnel_daily`
 - `v_api_telemetry_daily`
 - `v_api_provider_daily`
+- `v_api_provider_hourly`
+- `v_api_purpose_daily`
 - `v_api_endpoint_efficiency`
+- `v_api_session_cost`
 - `v_position_pnl_daily`
 - `v_candidate_decision_facts`
 - `v_discovery_lab_run_summary`

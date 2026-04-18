@@ -60,7 +60,9 @@ export class BotRuntime {
   private readonly discoveryLabMarketRegime = new DiscoveryLabMarketRegimeService({
     getRun: (runId) => this.strategyRunReads.getRun(runId),
   });
-  private readonly tokenEnrichment = new TokenEnrichmentService(this.birdeye);
+  private readonly tokenEnrichment = new TokenEnrichmentService(this.birdeye, {
+    providerBudget: this.providerBudget,
+  });
   private readonly marketIntel = new MarketIntelService({
     birdeye: this.birdeye,
     enrichment: this.tokenEnrichment,
