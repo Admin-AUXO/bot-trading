@@ -2,6 +2,11 @@
 
 Companion to [draft_index.md](draft_index.md), [draft_database_plan.md](draft_database_plan.md), [draft_credit_tracking.md](draft_credit_tracking.md).
 
+Status snapshot as of **2026-04-18**:
+- The 7 dashboard builders and `scripts/build-dashboards.mjs` wiring already landed in `trading_bot/grafana/src/dashboard-generator/`.
+- Generator output builds cleanly.
+- Remaining work is operational hardening: alert provisioning, data validation against live traffic, and Grafana container / compose hardening.
+
 **Scope:** keep the 9 existing dashboards, backfill the missing views, add **7 new dashboards** via the generator, harden docker-compose. **Never hand-author JSON.**
 
 Confirmed path: **extend the auto-generator in [dashboard-generator/index.mjs](trading_bot/grafana/src/dashboard-generator/index.mjs)** and its theme modules.
@@ -9,6 +14,8 @@ Confirmed path: **extend the auto-generator in [dashboard-generator/index.mjs](t
 ---
 
 ## 1. Seven new dashboards
+
+**Implementation status:** `LANDED IN GENERATOR; HARDENING REMAINS`.
 
 | # | Dashboard | Primary job | Key panels | Backing views |
 |---|---|---|---|---|
@@ -43,6 +50,8 @@ The generator lives at [trading_bot/grafana/src/dashboard-generator/](trading_bo
 Each new module exports a single builder: `buildCreditBurnDashboard(ctx)` etc. Each builder returns `{ uid, title, panels, variables, annotations }`.
 
 ### 2.2 Wire in `build-dashboards.mjs`
+
+**Implementation status:** `LANDED`.
 
 Append each new builder to the dashboard list; pass the shared `ctx` (datasources, folder uids, config-version variable). Never push a handwritten dashboard JSON through.
 
@@ -92,6 +101,8 @@ Emitted JSON goes to `trading_bot/grafana/dashboards/**`. **Never hand-edit emit
 
 ### 2.6 Alerting rules
 
+**Implementation status:** `PENDING`.
+
 Alerts on symptoms (not on "metric went up"). Pending periods required. Annotations: `summary`, `description`, `runbook_url`, `__dashboardUid__`, `__panelId__`. Provision in repo; no browser-only rules.
 
 Phase 6 alert set:
@@ -111,6 +122,8 @@ Phase 6 alert set:
 ---
 
 ## 3. Docker-compose hardening
+
+**Implementation status:** `PENDING`.
 
 Ship alongside Grafana v2 (phase 6):
 

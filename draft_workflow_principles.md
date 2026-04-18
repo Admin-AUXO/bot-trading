@@ -2,6 +2,11 @@
 
 Companion to all other `draft_*.md` planning docs. This is the "why" doc — read before implementing any phase.
 
+Status snapshot as of **2026-04-18**:
+- The repo has moved well past planning-only mode.
+- Several workflow seams in this doc are already real (`TradingSession`, pack/version ownership, workbench pages, market pages).
+- The remaining value here is guardrails: keep the workflow linear, delete bypasses, and finish the production-hardening gaps without re-introducing side paths.
+
 ---
 
 ## 1. Target workflow

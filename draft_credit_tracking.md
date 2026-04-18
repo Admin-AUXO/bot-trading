@@ -2,6 +2,11 @@
 
 Companion to [draft_index.md](draft_index.md), [draft_helius_integration.md](draft_helius_integration.md), [draft_database_plan.md](draft_database_plan.md), [draft_grafana_plan.md](draft_grafana_plan.md).
 
+Status snapshot as of **2026-04-18**:
+- `ProviderBudgetService` has already been generalized beyond Birdeye, and `ProviderCreditLog` plus the core credit-reporting SQL views are already in the schema / view layer.
+- The Credit Burn Grafana generator work also landed.
+- Remaining work is the operational layer: `CreditForecastService`, session-start budget enforcement, live alert rollout, and verification that real discovery / evaluate ticks write the expected credit rows.
+
 **Scope:** account for every external API credit consumed, estimate per-session burn before starting, and alert before a day/month budget breach. Today we have `ProviderBudgetService` gating Birdeye; this doc generalizes it to all paid providers (Birdeye, Helius) and wires reporting + alerts.
 
 **Non-goals:** no per-request billing integration with providers (their dashboards remain source of truth for invoicing). No automated throttling that silences a lane — we prefer operator-visible back-pressure.
@@ -70,7 +75,7 @@ Attribution: every Birdeye response body carries `x-credits-used` header; persis
 
 ## 3. Schema — `ProviderCreditLog`
 
-New Prisma model (see [draft_database_plan.md Phase 6+ additions](draft_database_plan.md#phase-6-additions)).
+This Prisma model is already landed (see [draft_database_plan.md Phase 6+ additions](draft_database_plan.md#phase-6-additions)). The remaining work is making every intended call path prove it writes rows in production conditions.
 
 ```prisma
 model ProviderCreditLog {
@@ -106,7 +111,7 @@ Rows write-batched (flush every 500 ms or 100 rows, whichever first) so the hot 
 
 ## 4. Views
 
-Added to [create_views.sql](trading_bot/backend/prisma/views/create_views.sql):
+These views are already added to [create_views.sql](trading_bot/backend/prisma/views/create_views.sql):
 
 ```sql
 -- Daily totals per provider
@@ -174,6 +179,8 @@ group by 1, 2;
 
 ## 5. Session budget estimator
 
+**Implementation status:** `PENDING`. This section is still a target design; no session-start estimator or over-budget block is wired yet.
+
 A session is **not allowed to start** without an up-front estimate. `SessionStartService` calls `CreditForecastService.estimate(packId, mode, durationH)` and blocks if the forecast exceeds remaining daily budget.
 
 Estimator formula (one tick of the discovery → exit pipeline):
@@ -223,6 +230,8 @@ If forecast > 70 % of remaining daily budget: requires `--allow-overbudget` flag
 
 ## 6. Alert thresholds
 
+**Implementation status:** `PENDING`. Thresholds are designed here, but alert-rule provisioning and runtime enforcement are not fully wired.
+
 Alert rules provisioned in Grafana (see [draft_grafana_plan.md §2.6](draft_grafana_plan.md)). Provider refers to Birdeye or Helius.
 
 | Alert | Condition | Severity | Action |
@@ -241,6 +250,8 @@ Alert rules provisioned in Grafana (see [draft_grafana_plan.md §2.6](draft_graf
 ---
 
 ## 7. Grafana panel spec — Credit Burn dashboard
+
+**Implementation status:** `PARTIAL LANDED`. The dashboard generator module and panel set landed, but live alert provisioning and production data validation remain.
 
 One dashboard (also listed in [draft_grafana_plan.md §1](draft_grafana_plan.md)). Panels fit a 12-column Grafana grid.
 

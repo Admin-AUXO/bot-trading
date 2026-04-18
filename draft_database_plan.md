@@ -2,6 +2,11 @@
 
 Companion to [draft_index.md](draft_index.md), [draft_strategy_packs_v2.md](draft_strategy_packs_v2.md), [draft_backend_plan.md](draft_backend_plan.md).
 
+Status snapshot as of **2026-04-18**:
+- Core pack/session/exit/enrichment schema slices are already landed.
+- Phase-6 schema work is now mixed: some tables and views exist, others remain planned.
+- This draft should be read as "what already exists plus what still needs to land", not as an untouched proposal.
+
 **Scope:** Prisma 7 schema + PostgreSQL 16 views. Schema-only edits (per project rules — no hand-authored migrations). All new tables carry `createdAt` / `updatedAt` and FK indexes.
 
 **Principle:** promote hot fields out of `metadata` JSON; make strategy packs first-class; back every Grafana panel with a committed view.
@@ -90,14 +95,14 @@ Schema adds that land alongside phase 6 (execution depth, credit tracking, adapt
 
 | Table | Purpose | Key columns |
 |---|---|---|
-| `ProviderCreditLog` | Credit ledger (Birdeye/Helius/all) | `id`, `provider` enum, `endpoint`, `purpose` enum, `creditsUsed`, `sessionId?`, `packId?`, `configVersion?`, `mint?`, `candidateId?`, `positionId?`, `httpStatus`, `latencyMs`, `errorCode?`, `recordedAt` |
-| `FillAttempt` | Every live/paper entry/exit attempt (promoted from `Fill.metadata`) | `id`, `positionId?`, `candidateId?`, `side`, `packId`, `packVersion`, `sessionId`, `mint`, `mcUsdAtQuote`, `tierBucket`, `slippageCapBps`, `slippageUsedBps`, `priceImpactBps`, `cuPriceMicroLamports`, `tipLamports`, `lane` enum, `bundleLanded`, `quoteLatencyMs`, `signLatencyMs`, `submitLatencyMs`, `confirmLatencyMs`, `retries`, `failureCode?`, `txSig?` |
-| `ExitPlanMutation` | Audit trail for every `ExitPlan` change (trail tighten, time-stop reduce, etc.) | `planId`, `positionId`, `field`, `before`, `after`, `reasonCode`, `mutator`, `mutatedAt` |
-| `ConfigReplay` | Point-in-time snapshot table, lets us answer "what did pack/settings look like at T" | `id`, `configVersion`, `packId`, `packVersion`, `settings` JSON, `takenAt`, indexed on `takenAt` |
-| `ThresholdSearchRun` | Grid/bayes searches over pack axes for auto-tuning | `id`, `packId`, `axisSpec` JSON, `status`, `startedAt`, `completedAt`, `bestScore`, `bestConfig` JSON |
-| `ThresholdSearchTrial` | One evaluation within a search | `runId`, `config` JSON, `score`, `simPnlUsd`, `simWinRate`, `simTrades`, `evaluatedAt` |
-| `MutatorOutcome` | Post-exit attribution — was the adaptive mutator right? | `positionId`, `mutatorCode`, `axis`, `beforeValue`, `afterValue`, `exitPnlUsd`, `counterfactualPnlUsd?`, `verdict` enum (`HELPED\|HURT\|NEUTRAL`), `recordedAt` |
-| `SmartWalletFunding` | `getWalletFundedBy` cache for pack 2 | `address PK`, `source` enum (`CEX\|FRESH\|BRIDGE\|MIXER\|UNKNOWN`), `firstFundedAt`, `lastCheckedAt` |
+| `ProviderCreditLog` | Credit ledger (Birdeye/Helius/all) | `id`, `provider` enum, `endpoint`, `purpose` enum, `creditsUsed`, `sessionId?`, `packId?`, `configVersion?`, `mint?`, `candidateId?`, `positionId?`, `httpStatus`, `latencyMs`, `errorCode?`, `recordedAt` — **LANDED** |
+| `FillAttempt` | Every live/paper entry/exit attempt (promoted from `Fill.metadata`) | `id`, `positionId?`, `candidateId?`, `side`, `packId`, `packVersion`, `sessionId`, `mint`, `mcUsdAtQuote`, `tierBucket`, `slippageCapBps`, `slippageUsedBps`, `priceImpactBps`, `cuPriceMicroLamports`, `tipLamports`, `lane` enum, `bundleLanded`, `quoteLatencyMs`, `signLatencyMs`, `submitLatencyMs`, `confirmLatencyMs`, `retries`, `failureCode?`, `txSig?` — **LANDED** |
+| `ExitPlanMutation` | Audit trail for every `ExitPlan` change (trail tighten, time-stop reduce, etc.) | `planId`, `positionId`, `field`, `before`, `after`, `reasonCode`, `mutator`, `mutatedAt` — **PENDING** |
+| `ConfigReplay` | Point-in-time snapshot table, lets us answer "what did pack/settings look like at T" | `id`, `configVersion`, `packId`, `packVersion`, `settings` JSON, `takenAt`, indexed on `takenAt` — **PENDING** |
+| `ThresholdSearchRun` | Grid/bayes searches over pack axes for auto-tuning | `id`, `packId`, `axisSpec` JSON, `status`, `startedAt`, `completedAt`, `bestScore`, `bestConfig` JSON — **PENDING** |
+| `ThresholdSearchTrial` | One evaluation within a search | `runId`, `config` JSON, `score`, `simPnlUsd`, `simWinRate`, `simTrades`, `evaluatedAt` — **PENDING** |
+| `MutatorOutcome` | Post-exit attribution — was the adaptive mutator right? | `positionId`, `mutatorCode`, `axis`, `beforeValue`, `afterValue`, `exitPnlUsd`, `counterfactualPnlUsd?`, `verdict` enum (`HELPED\|HURT\|NEUTRAL`), `recordedAt` — **LANDED** |
+| `SmartWalletFunding` | `getWalletFundedBy` cache for pack 2 | `address PK`, `source` enum (`CEX\|FRESH\|BRIDGE\|MIXER\|UNKNOWN`), `firstFundedAt`, `lastCheckedAt` — **LANDED** |
 
 ### 9. Column promotions (phase 6+)
 
@@ -109,13 +114,13 @@ Schema adds that land alongside phase 6 (execution depth, credit tracking, adapt
 
 ### 10. New views (phase 6+)
 
-- `v_api_provider_daily`, `v_api_provider_hourly`, `v_api_purpose_daily`, `v_api_endpoint_efficiency`, `v_api_session_cost` — see [draft_credit_tracking.md §4](draft_credit_tracking.md).
-- `v_submit_lane_daily` — `lane × day` → count, land rate, avg tip, avg confirmLatencyMs.
-- `v_exit_plan_mutation_daily` — `field × reasonCode × day` → count, avg delta.
-- `v_mutator_outcome_daily` — `mutatorCode × verdict × day` → counts + pnlDelta.
-- `v_threshold_search_leaderboard` — top-10 trials per run; surfaces on the grader UI.
-- `v_config_replay_for_session` — `sessionId` → full config at start + stop.
-- `v_enrichment_quality_daily` — per-source success / stale / p95-latency rollup.
+- `v_api_provider_daily`, `v_api_provider_hourly`, `v_api_purpose_daily`, `v_api_endpoint_efficiency`, `v_api_session_cost` — **LANDED**; see [draft_credit_tracking.md §4](draft_credit_tracking.md).
+- `v_submit_lane_daily` — `lane × day` → count, land rate, avg tip, avg confirmLatencyMs. **PENDING**
+- `v_exit_plan_mutation_daily` — `field × reasonCode × day` → count, avg delta. **PENDING**
+- `v_mutator_outcome_daily` — `mutatorCode × verdict × day` → counts + pnlDelta. **LANDED**
+- `v_threshold_search_leaderboard` — top-10 trials per run; surfaces on the grader UI. **PENDING**
+- `v_config_replay_for_session` — `sessionId` → full config at start + stop. **PENDING**
+- `v_enrichment_quality_daily` — per-source success / stale / p95-latency rollup. **LANDED**
 
 ### 11. Deletions (phase 6+)
 

@@ -2,9 +2,14 @@
 
 Companion to [draft_index.md](draft_index.md), [draft_backend_plan.md](draft_backend_plan.md), [draft_helius_integration.md](draft_helius_integration.md), [draft_strategy_packs_v2.md](draft_strategy_packs_v2.md).
 
+Status snapshot as of **2026-04-18**:
+- `services/helius/priority-fee-service.ts`, `services/execution/quote-builder.ts`, `swap-builder.ts`, and `swap-submitter.ts` are already landed.
+- This draft is now mostly a hardening / cutover checklist for those seams, not a greenfield design.
+- The older live execution path still exists, so any "production ready" pass must verify which path the engine actually uses before pretending the cutover is done.
+
 **Scope:** how we turn an accepted candidate into a filled position (and later, a closed one) on Solana. Covers slippage sizing, quote construction, route restrictions, priority fees, Jito bundling, and retry ladders. Target latencies and failure modes are service-owned by `QuoteBuilder`, `SwapBuilder`, `SwapSubmitter`, `ExitLoop`, and `LiveExitMutator` (see [draft_backend_plan.md §3](draft_backend_plan.md)).
 
-**Non-goals:** no new router integrations (we stay on Jupiter v6). No self-signed bundles to Jito without going through the lite-rpc Sender path Helius already exposes. No LaserStream.
+**Non-goals:** no new router integrations (we stay on Jupiter v6). No LaserStream.
 
 ---
 
@@ -101,6 +106,8 @@ Fill timing (p95 targets):
 
 ## 5. Priority fees and Jito tipping
 
+**Implementation status:** `PARTIAL LANDED`. The priority-fee service and submitter exist. Remaining work is real cutover, soak verification, and making the retry / stale-exit behavior prove itself under live and mocked failure paths.
+
 ### 5.1 Priority fee via `getPriorityFeeEstimate`
 
 We call Helius `getPriorityFeeEstimate` for every entry and every exit. Response feeds `computeUnitPriceMicroLamports` on the quote request.
@@ -136,7 +143,7 @@ Tip sizing (`tipLamports` routed via Jito-accepting Sender endpoint):
 
 Bundle composition: `(compute-budget ix, priority-fee ix, swap ix, tip ix)` — tip ix is last, directed to a randomized tip account from the Jito tip accounts list. Never bundle more than one swap.
 
-Bundles are always submitted via the Helius Sender endpoint the Sender integration already uses; we do not maintain a direct gRPC connection to block-engine.
+Current landed implementation uses the Helius Sender RPC endpoint for the regular lane and a direct Jito block-engine submission path for bundles. Keep that distinction straight; pretending everything routes through Sender is how people debug the wrong thing for two hours.
 
 ---
 

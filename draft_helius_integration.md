@@ -2,9 +2,14 @@
 
 Companion to [draft_index.md](draft_index.md), [draft_backend_plan.md](draft_backend_plan.md), [draft_credit_tracking.md](draft_credit_tracking.md), [draft_execution_plan.md](draft_execution_plan.md).
 
+Status snapshot as of **2026-04-18**:
+- Narrow Helius usage is already landed: migration watching, Sender-backed execution on the regular lane, and `getPriorityFeeEstimate` via `HeliusPriorityFeeService`.
+- The broader watch / webhook / smart-wallet / creator-lineage plan in this draft is still mostly unimplemented.
+- Treat this file as a remaining-work audit, not as a claim that the deeper Helius surface is already owned.
+
 **Scope:** audit every Helius surface on the Developer plan, rank by trading value, assign each a service owner and a phase-6 verdict. Existing use today is narrow (migration logs + priority-fee estimate). This doc maps how to pull more signal out of a plan we are already paying for.
 
-**Non-goals:** no LaserStream gRPC (Business-plan only). No Helius Sender behavior changes — execution uses it already; see [draft_execution_plan.md](draft_execution_plan.md).
+**Non-goals:** no LaserStream gRPC (Business-plan only). No Helius Sender behavior changes beyond the already-landed priority-fee / submitter seams; see [draft_execution_plan.md](draft_execution_plan.md).
 
 ---
 
@@ -96,7 +101,7 @@ Each block: signal · when to call · credit cost · rate limit · cache TTL · 
 - **Rate limit:** 50 rps on Developer.
 - **Cache TTL:** 3 s (one slot). Cache per `priorityLevel`.
 - **Bucket:** execution-priority-fees.
-- **Verdict:** **ALREADY WIRED; FORMALIZE CACHE.** Add `PriorityFeeCache` with 3 s TTL and a purpose-code tag so burn is attributable.
+- **Verdict:** **ALREADY PARTIALLY WIRED.** The repo now has `HeliusPriorityFeeService` with a short TTL cache and ProviderBudget logging. Remaining work is verifying real usage from the final engine path and tuning fallback behavior from live observations.
 
 ### 2.9 Enhanced webhooks
 
@@ -122,7 +127,7 @@ Each block: signal · when to call · credit cost · rate limit · cache TTL · 
 
 - **Signal:** low-latency tx submission across 7 regions + parallel Jito routing.
 - **Credit cost:** 0 (tip only, min 0.001 SOL).
-- **Verdict:** **ALREADY WIRED.** No phase-6 change here beyond the fee/tip strategy in [draft_execution_plan.md](draft_execution_plan.md).
+- **Verdict:** **ALREADY PARTIALLY WIRED.** Regular-lane submission already uses Sender. Bundle submission does not; it uses a direct Jito block-engine path in the landed submitter. Keep the docs honest.
 
 ### 2.12 `getAssetsByOwner`, `getAsset`
 
@@ -213,7 +218,7 @@ Rule of thumb: if we already own the address list, use webhooks. If we need to f
 2. **WSS idle disconnect** — enhanced websocket drops after ~10 min silent. Ping every 60 s; auto-reconnect with jittered backoff.
 3. **Subscription cap** — 100 per connection, 150 concurrent connections. `HeliusWatchService.subscriptionCount()` must page `operator-events` before hitting 90 %.
 4. **DAS pagination** — `searchAssets`, `getSignaturesForAsset`, `getTokenAccounts` cap at 1000/page. Batch carefully inside 10 rps.
-5. **Streaming credit metering** — billed monthly in arrears per 0.1 MB. Log bytes streamed per filter to `ApiCreditLog` so Grafana can show live vs. steady-state.
+5. **Streaming credit metering** — billed monthly in arrears per 0.1 MB. Log bytes streamed per filter to `ProviderCreditLog` so Grafana can show live vs. steady-state.
 6. **Sender vs Jito** — both consume SOL tip (separate lines). Tag priority-fee calls with `purpose=entry|exit|mutator` so credit attribution is clean.
 
 ---
@@ -252,7 +257,7 @@ SmartWalletIngest
 - Every webhook endpoint returns 204 within p95 50 ms, idempotent under replay (test with fixture).
 - `HeliusWatchService.subscriptionCount()` logged per minute; alarm at ≥90 % of cap.
 - All DAS calls flow through `ProviderBudgetService.requestSlot('helius', <purpose>)`; grep-enforced in CI.
-- `ApiCreditLog` records bytes streamed per filter, credits per DAS call, credits per event.
+- `ProviderCreditLog` records bytes streamed per filter, credits per DAS call, credits per event.
 - Smart-wallet webhook + `transactionSubscribe` dedupe test: same `txSig` via both paths produces exactly one `SmartWalletEvent` row.
 - Priority-fee cache 3 s TTL enforced; miss-vs-hit ratio visible on the Credit Burn dashboard.
 

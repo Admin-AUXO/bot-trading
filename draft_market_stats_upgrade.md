@@ -2,6 +2,11 @@
 
 Reference doc on the free/paid data providers the Market Intel surfaces call. See [draft_index.md](draft_index.md) for the docs map. Clients wire into `TokenEnrichmentService` (backend plan §4.4).
 
+Status snapshot as of **2026-04-18**:
+- The 8 free-provider client files already exist.
+- `TokenEnrichmentService` fanout and `/api/operator/enrichment/:mint` also landed.
+- The market pages now consume this data, but evaluator ownership, live hardening, and provider-specific validation still remain.
+
 ---
 
 ## A. Free provider reference — call pattern · TTL · limits · role · weight

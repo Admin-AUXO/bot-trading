@@ -2,6 +2,11 @@
 
 Companion to [draft_index.md](draft_index.md), [draft_backend_plan.md](draft_backend_plan.md), [draft_workflow_principles.md](draft_workflow_principles.md), [draft_credit_tracking.md](draft_credit_tracking.md), [draft_execution_plan.md](draft_execution_plan.md).
 
+Status snapshot as of **2026-04-18**:
+- The workbench routes are no longer theoretical; `/workbench/packs`, `/workbench/editor`, `/workbench/sandbox`, `/workbench/grader`, and `/workbench/sessions` all exist.
+- `/market/trending`, `/market/token/[mint]`, and `/market/watchlist` also exist as real pages, not compatibility aliases.
+- This draft is now mostly a cleanup / hardening map: layout polish, browser verification, and deletion of remaining discovery-lab compatibility code.
+
 **Stack (already in place — reuse, don't reinvent):** Next.js 16, React 19, AG Grid 35, Radix (dialog / tabs / tooltip), Tailwind 4, TanStack Form, Recharts, react-resizable-panels, cmdk (command palette), sonner (toasts), lucide icons, motion, zod.
 
 **Shell (keep):** [components/app-shell.tsx](trading_bot/dashboard/components/app-shell.tsx) — sidebar + command palette + 15 s poll of `/desk/shell`. Extend, do not replace.

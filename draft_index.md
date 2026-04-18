@@ -2,9 +2,32 @@
 
 Design + planning for the bot-trading rewrite. All docs are drafts — once a phase lands, its content migrates into `notes/reference/*` and the draft is deleted.
 
-**Status:** phases 1–5 implementation partial; phase 6 planning docs have landed. The rewrite has moved past phase-2 operator seams into a coordinated phase-6 push covering execution depth, enrichment fabric, credit tracking, adaptive engine, and Grafana v2.
+**Status:** phases 1–5 are largely landed; phase 6 is **partially implemented**. The repo now has the phase-6 schema slice, provider-credit logging, execution helper services, enrichment clients/fanout, backend-owned market pages, and Grafana generator expansion on `main`. Remaining work is mostly production hardening, deeper Helius wiring, adaptive/pack rollout, and final workbench cleanup.
 
 **Progress snapshot (2026-04-18):**
+- Phase 6 schema slice landed:
+  `ProviderCreditLog`, `FillAttempt`, `MutatorOutcome`, and `SmartWalletFunding` now exist in `trading_bot/backend/prisma/schema.prisma`, along with the new provider telemetry views in `trading_bot/backend/prisma/views/create_views.sql`.
+- Execution helper services landed:
+  `trading_bot/backend/src/services/helius/priority-fee-service.ts`,
+  `services/execution/quote-builder.ts`,
+  `swap-builder.ts`,
+  and `swap-submitter.ts`
+  now exist and build cleanly, but they are not yet the sole production execution path.
+- Provider-budget generalization landed:
+  `trading_bot/backend/src/services/provider-budget-service.ts`
+  is now provider-keyed and writes `ProviderCreditLog` rows.
+- Enrichment fabric landed partially:
+  the 8 provider clients exist,
+  `TokenEnrichmentService` now fans out through `EnrichmentFact`,
+  `/api/operator/enrichment/:mint` returns provider states + `compositeScore`,
+  and `/market/token/:mint` renders those cards.
+- Market compatibility pages became real backend-owned pages:
+  `/market/trending`,
+  `/market/token/[mint]`,
+  `/market/watchlist`
+  now read operator-owned routes instead of delegating to the old discovery-lab market client.
+- Grafana phase-6 generator work landed:
+  the 7 new dashboard builders exist and `node scripts/build-dashboards.mjs` emits valid JSON on `main`.
 - Backend phase-1 seam extraction landed:
   `trading_bot/backend/src/api/server.ts` is now a composition root and route registration is split under `trading_bot/backend/src/api/routes/`.
 - Operator-desk seam extraction landed:
@@ -63,23 +86,23 @@ Design + planning for the bot-trading rewrite. All docs are drafts — once a ph
 - `cd trading_bot/backend && npm run db:setup` still fails from the host shell under the checked-in `.env` because `DATABASE_URL` points at `postgres:5432`, which does not resolve outside Docker. The schema and views do apply cleanly when the host overrides `DATABASE_URL` to `localhost:56432`.
 
 **Not landed yet:**
-- Draft database phase beyond the first three contract slices:
-  adaptive/enrichment tables, promoted metadata columns, additional SQL views, and the `ExitPlan` metadata-read cutover/removal work.
-- Draft backend phase beyond seam extraction and the first real session operator pass:
-  session revert-from-config-version flow, broader engine decomposition, richer pack/editor/grader mutation flows beyond the first operator surface, enrichment clients, and webhook/watch services.
-- Draft dashboard phase beyond the first real `/workbench/sessions` screen:
-  true `/workbench/editor`, `/workbench/grader`, and `/market/*` implementations instead of discovery-lab delegation or redirects.
+- Draft database phase beyond the current phase-6 slice:
+  `ExitPlanMutation`, `ConfigReplay`, `ThresholdSearchRun`, `ThresholdSearchTrial`, wider metadata-column promotions, and the final `Position.metadata.exitPlan` read-path removal.
+- Draft backend phase beyond the current partial phase-6 push:
+  deeper `HeliusWatchService` / webhook ownership, smart-wallet ingest, session budget forecasting, config replay, adaptive mutator attribution, and full engine cutover onto the new execution services.
+- Draft dashboard/workbench phase beyond the market pass:
+  true `/workbench/editor` and `/workbench/grader/[runId]` production surfaces, browser verification of the market pages under degraded providers, and deletion of the remaining discovery-lab compatibility code.
+- Draft strategy-pack/adaptive rollout:
+  the 10 pack seeds are still docs-only, adaptive mutators are not yet production-grade, and smart-money pack automation is still pending data/ingest hardening.
 
-**Recommended next pass for the next agent (phase 6 push):**
-1. Start from `draft_rollout_plan.md` §2 (phase 6 sub-phases) and `draft_database_plan.md` Phase 6+ additions.
-2. Preferred cut-in point: land the phase 6+ schema adds first (`ProviderCreditLog`, `FillAttempt`, `MutatorOutcome`, `ConfigReplay`), so every subsequent sub-phase writes against the real tables.
-3. After schema, run **6a Helius** + **6b Execution** + **6d Credit tracking** in parallel — each has a different seam and they compose cleanly.
-4. 6c Enrichment fabric lands next (depends on 6d for proper credit accounting on free/paid providers).
-5. 6e Adaptive engine + packs before 6f Smart-money. Adaptive must be live before smart-money pack rides on top of it.
-6. 6g Workbench completion (editor + grader + market) in a dedicated worktree; reuse the backend-owned routes that already exist.
-7. 6h Grafana last — it consumes views from every prior sub-phase.
-8. The agent should be willing to add and remove files aggressively where that clarifies ownership: delete the remaining `discovery-lab/*` compatibility code once backend-owned workbench/market routes are authoritative; collapse metadata-blob read paths that dual-write is replacing.
-9. If the pass leaves `Fill.metadata.live.*` still being read, or Jito lane still not integrated, or any paid-provider call path still bypassing `ProviderBudgetService`, the agent did not go far enough.
+**Recommended next pass for the next agent (production hardening push):**
+1. Start from `draft_rollout_plan.md` §2 and treat the current repo as **phase-6 partial**, not a fresh blank slate.
+2. Finish **6a Helius** first: real webhook/watch ownership, smart-wallet ingest, creator-lineage completion, and account/transaction subscriptions.
+3. Finish **6b/6d** cutover work next: wire the new execution services into the authoritative live path, then land session budget forecasting + alert enforcement on top of `ProviderCreditLog`.
+4. Finish **6e/6f** after that: adaptive engine, mutator attribution, pack seeding, then smart-money pack rollout.
+5. Finish **6g** only after the backend seams are authoritative: complete `/workbench/editor` + `/workbench/grader`, then delete stale `discovery-lab/*` compatibility code instead of feeding it forever.
+6. Use **6h** mostly for alerting and compose hardening now that the dashboard generator work itself is already landed.
+7. If the pass leaves live execution split between old and new services, leaves Helius watch/webhook ownership half-built, or leaves session budgeting/alerts as docs-only, it still is not production-ready.
 
 
 ## Start here

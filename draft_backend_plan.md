@@ -2,6 +2,11 @@
 
 Companion to [draft_index.md](draft_index.md), [draft_database_plan.md](draft_database_plan.md), [draft_dashboard_plan.md](draft_dashboard_plan.md), [draft_workflow_principles.md](draft_workflow_principles.md).
 
+Status snapshot as of **2026-04-18**:
+- `TokenEnrichmentService`, the free-provider clients, `QuoteBuilder`, `SwapBuilder`, `SwapSubmitter`, and `HeliusPriorityFeeService` are already present in the repo.
+- The market pages and dedicated workbench surfaces also landed, so this draft is now a decomposition / remaining-work map, not a fresh build sheet.
+- The biggest backend gaps left are deeper Helius watch ownership, adaptive engine wiring, session-budget enforcement, and deletion of discovery-lab compatibility seams.
+
 **Stack (already in place):** Node.js + TypeScript, Prisma 7, PostgreSQL 16, Express-style `createApiServer`, Helius RPC + webhooks + laserstream, Birdeye Lite, Jupiter + Jito for execution, SSE for streaming. Reuse — don't introduce new frameworks.
 
 **Runtime model (today):** one `BotRuntime` process with 13 in-process services + 4 timers (discovery, evaluation, exit, maintenance). Keep this model; tighten ownership.
@@ -109,6 +114,8 @@ Each new or restructured service lists: **responsibility · inputs · outputs ·
 
 ### 4.4 `TokenEnrichmentService`
 
+**Implementation status:** `PARTIAL LANDED`. The service exists, fans out across the free-provider clients, persists cache-backed enrichment, and serves `/api/operator/enrichment/:mint`. Remaining work is mostly deeper evaluator ownership, more Helius-backed lineage / holder inputs, and production verification under degraded-provider conditions.
+
 **Responsibility:** single entry for enrichment. Owns per-source caches (`EnrichmentFact`, `BundleStats`, `CreatorLineage`). Fans out to provider clients.
 **Clients it owns:** Rugcheck, DexScreener, Trench, Bubblemaps, Solsniffer, Pump.fun public, Jupiter, GeckoTerminal, Cielo, DefiLlama, Helius creator/holder.
 **Cache TTL by source:** Trench 10 m · Bubblemaps 30 m · Solsniffer 15 m · Pump.fun 60 s · Jupiter 1 h · GeckoTerminal 5 m · DefiLlama 15 m · Cielo 60 s · Creator 6 h · Rugcheck existing · DexScreener existing.
@@ -118,6 +125,8 @@ Each new or restructured service lists: **responsibility · inputs · outputs ·
 **Size:** orchestrator ≤350 L; each client ≤150 L. **Tests:** per-client mock + fan-out dedupe test.
 
 ### 4.5 `HeliusWatchService`
+
+**Implementation status:** `PENDING`. The repo still relies on narrower Helius wiring; this unified watch owner has not landed.
 
 **Responsibility:** unify every Helius sub (websocket + webhook). Replaces stand-alone `HeliusMigrationWatcher`.
 **Subscriptions owned:**
@@ -134,6 +143,8 @@ Each new or restructured service lists: **responsibility · inputs · outputs ·
 **Size:** orchestrator ≤300 L; per-kind handler ≤120 L. **Tests:** replay-safety + cap-enforcement.
 
 ### 4.6 `SmartWalletIngest` (sibling of `HeliusWatchService`)
+
+**Implementation status:** `PENDING`. Schema primitives exist (`SmartWallet`, `SmartWalletEvent`, `SmartWalletFunding`), but the ingest seam is not yet the production owner.
 
 **Responsibility:** parse enhanced-webhook SWAP payloads → `SmartWalletEvent` rows; feed `v_smart_wallet_mint_activity` rollup.
 **Signal emit:** when ≥2 distinct tracked wallets buy a mint within 15 min, net flow ≥$3 k, and no tracked sell in prior 30 min, publish `smart-money-signal(mint)` to the runtime event bus.
@@ -174,6 +185,11 @@ Each new or restructured service lists: **responsibility · inputs · outputs ·
 
 ### 4.10 Execution split (from `execution-engine` 866 L + `live-trade-executor` 771 L)
 
+**Implementation status:** `PARTIAL LANDED`.
+- `services/execution/quote-builder.ts`, `swap-builder.ts`, and `swap-submitter.ts` now exist as new siblings.
+- `services/helius/priority-fee-service.ts` also exists.
+- The remaining gap is cutover: the older live execution path still exists, so the engine has not fully consolidated on these new seams.
+
 | New file | Responsibility | Size |
 |---|---|---|
 | `engine/execution/QuoteBuilder.ts` | Jupiter quote + route; records `quoteLatencyMs` | ≤200 L |
@@ -201,6 +217,8 @@ Each new or restructured service lists: **responsibility · inputs · outputs ·
 | `services/desk/DiagnosticsBuilder.ts` | `/api/operator/diagnostics` | ≤200 L |
 
 ### 4.13 Discovery-lab split (from `discovery-lab-service` 1321 L and siblings)
+
+**Implementation status:** `PARTIAL`. Pack/run/session seams and the real workbench pages landed, but the repo still carries compatibility route families and retained discovery-lab ownership for some result / market / manual-entry paths.
 
 | New file | Responsibility | Size |
 |---|---|---|

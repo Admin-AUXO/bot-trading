@@ -2,6 +2,11 @@
 
 Canonical pack catalog + adaptive engine. See [draft_index.md](draft_index.md) for the docs map. This doc covers:
 
+Status snapshot as of **2026-04-18**:
+- The pack/session storage contract largely exists.
+- The adaptive engine and the full 10-pack production seeding plan do not.
+- Treat this file as a remaining strategy-contract spec, not as a claim that the pack catalog is fully deployed.
+
 1. **Removal / deletion audit** — low-value surfaces to cut (reduces latency and context bloat).
 2. **6 packs optimized for >100% PnL range** (runners, high-conviction).
 3. **4 packs optimized for 30–70% PnL range** (scalps, balanced).
