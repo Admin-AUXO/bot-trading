@@ -1,300 +1,163 @@
-# Helius Integration — Deeper Wire-Up (phase 6)
+# Helius Integration — Streaming, Webhooks, Smart Money
 
-Companion to [draft_index.md](draft_index.md), [draft_backend_plan.md](draft_backend_plan.md), [draft_credit_tracking.md](draft_credit_tracking.md), [draft_execution_plan.md](draft_execution_plan.md).
+Companion to [draft_backend_plan.md §2.3](draft_backend_plan.md), [draft_rollout_plan.md §3.5](draft_rollout_plan.md). Snapshot **2026-04-18**.
 
-Status snapshot as of **2026-04-18**:
-- Narrow Helius usage is already landed: migration watching, Sender-backed execution on the regular lane, and `getPriorityFeeEstimate` via `HeliusPriorityFeeService`.
-- The broader watch / webhook / smart-wallet / creator-lineage plan in this draft is still mostly unimplemented.
-- Treat this file as a remaining-work audit, not as a claim that the deeper Helius surface is already owned.
-
-**Scope:** audit every Helius surface on the Developer plan, rank by trading value, assign each a service owner and a phase-6 verdict. Existing use today is narrow (migration logs + priority-fee estimate). This doc maps how to pull more signal out of a plan we are already paying for.
-
-**Non-goals:** no LaserStream gRPC (Business-plan only). No Helius Sender behavior changes beyond the already-landed priority-fee / submitter seams; see [draft_execution_plan.md](draft_execution_plan.md).
+The repo uses the Helius Developer plan. This plan covers Helius surface ownership: what's landed, what's shallow, and what remains before the smart-money pack can flip LIVE.
 
 ---
 
-## 1. Design principles
+## 1. What's landed
 
-1. **One webhook per concern.** Smart-wallet, LP, holders, token-mint — each has its own endpoint, handler, and idempotency index.
-2. **Stream first, poll second.** Any signal available via enhanced websocket or webhook must use that path before polling an RPC endpoint.
-3. **Credit before call.** Every RPC/DAS call is routed through `ProviderBudgetService.requestSlot('helius', purpose)` — nothing reaches Helius without a slot and a purpose code.
-4. **Dedupe at boundary.** Webhooks dedupe on `txSig + eventType`; streams dedupe on `(slot, txSig)`. Raw payloads are dropped after parse.
-5. **Backpressure loud.** Enhanced websocket subscription cap = 100 per connection. Exceeding that pages — we do not silently drop.
-
----
-
-## 2. Per-endpoint audit
-
-Each block: signal · when to call · credit cost · rate limit · cache TTL · bucket · verdict. All credit costs cite [Helius billing docs](https://www.helius.dev/docs/billing/credits) unless marked "verify".
-
-### 2.1 `getWalletFundedBy` (Wallet API)
-
-- **Signal:** funding source of a wallet (CEX / mixer / fresh / bridge). Tags "bot farm" wallets vs. real hands.
-- **When to call:** on demand — only during creator-lineage enrichment or smart-wallet curation. Never on every candidate.
-- **Credit cost:** 100 / call. Expensive.
-- **Rate limit:** not documented for Wallet API — verify empirically, cap at 1 rps.
-- **Cache TTL:** 24 h (funding source is effectively static).
-- **Bucket:** pre-entry filtering (creator lineage only).
-- **Verdict:** **DEFER.** 100 credits × every creator is a budget killer. Only call for the top-20 creators by recent launch rate. Cache in `CreatorLineage.fundingSource`.
-
-### 2.2 `getSignaturesForAsset`
-
-- **Signal:** ordered tx history for a mint → enables rug-pattern detection and LP-exit timeline reconstruction.
-- **When to call:** (a) once at enrichment on creator's prior mints (walk top 3), (b) post-hoc on a closed position to attribute an exit cause.
-- **Credit cost:** 10 / call (DAS).
-- **Rate limit:** 10 rps (DAS baseline on Developer).
-- **Cache TTL:** 30 s for live positions, 24 h for closed / historical.
-- **Bucket:** pre-entry filtering + smart-money stream quality (backfill).
-- **Verdict:** **WIRE NOW.** Cheap, high-signal, already used by one codepath. Extend to creator-lineage walk.
-
-### 2.3 `getTokenHolders`
-
-- **Signal:** full holder distribution snapshot. Confirms top-N concentration and identifies whales not already in `SmartWallet`.
-- **When to call:** once per accepted candidate (post-filter, pre-entry) to double-check concentration vs. Birdeye; optional re-check at position open.
-- **Credit cost:** ~20 / call base; paginates at 1000 holders/page — large tokens cost 40–60.
-- **Rate limit:** 10 rps (DAS).
-- **Cache TTL:** 30 min. Top-10 set does not change fast outside of a dump.
-- **Bucket:** pre-entry filtering.
-- **Verdict:** **WIRE (gated).** Use for pre-entry confirm only when Birdeye top-10 % looks borderline (30–40 %). Do not poll; Helius `accountSubscribe` on the top-3 ATAs is the runtime signal.
-
-### 2.4 `laserstreamSubscribe`
-
-- **Signal:** sub-100 ms shred-level block stream.
-- **Availability:** **Business plan only ($499/mo).** Developer does not get gRPC.
-- **Verdict:** **SKIP** on current plan. Re-evaluate if we ever move pack 1 (`HIGH_CONVICTION_RUNNER`) to a same-block entry posture; until then the gap vs enhanced websocket is ~20–50 ms and not worth $475/mo.
-
-### 2.5 `transactionSubscribe` (enhanced websocket)
-
-- **Signal:** filtered transaction stream by program / account. For us: Pump.fun program (graduation + KOTH), Jupiter program (live swaps on a watched mint), Raydium LP program (LP add/remove).
-- **When to call:** always-on from boot. One persistent connection per program family, ≤100 filters per connection.
-- **Credit cost:** 2 per 0.1 MB streamed. Budget ~30 k credits/day steady-state for the filters we need.
-- **Rate limit:** 100 filters/conn, 150 concurrent conns on Developer.
-- **Cache TTL:** N/A (stream).
-- **Bucket:** smart-money stream quality + open-position management (via LP filter).
-- **Verdict:** **WIRE NOW.** Backbone of `HeliusWatchService`. Replaces the existing RPC `logsSubscribe` on migration with enhanced filters that actually carry parsed action + token delta, saving a `parseTransactions` follow-up in most cases.
-
-### 2.6 `accountSubscribe` (enhanced websocket)
-
-- **Signal:** account-state write events. For us: top-3 holder ATAs (holder dump), Raydium/Meteora LP reserve account (LP pull), dev wallet (dev dump).
-- **When to call:** subscribe on position open; unsubscribe on position close. 3-5 subs per open position.
-- **Credit cost:** 2 / 0.1 MB.
-- **Rate limit:** 100 subs/conn. At 5 subs × 20 open positions = 100 — right at the cap; shard into 2 connections.
-- **Cache TTL:** N/A.
-- **Bucket:** open-position management.
-- **Verdict:** **WIRE NOW.** Primary input to the `holder-dump` and `lp-removed` events consumed by `LiveExitMutator`.
-
-### 2.7 `parseTransactions`
-
-- **Signal:** Helius-decoded tx description + source + actions array. Disambiguates swap vs. withdraw vs. migration on a specific signature.
-- **When to call:** only on signatures we already have (from webhook retry fallback, or after an accountSubscribe fires and we need the swap-in/out context). Never for discovery.
-- **Credit cost:** 100 / call (up to 100 sigs per request — batch aggressively).
-- **Rate limit:** 10 rps.
-- **Cache TTL:** forever (tx is immutable); persist to `EnrichmentFact` where useful.
-- **Bucket:** open-position management + smart-money stream quality (fallback).
-- **Verdict:** **WIRE NOW (batched).** Never call with <20 sigs per batch — waste of credits. Used for LP-pull forensic confirmation and smart-wallet event deep-parse.
-
-### 2.8 `getPriorityFeeEstimate`
-
-- **Signal:** microlamport fee floor at `Min|Low|Medium|High|VeryHigh|UnsafeMax`.
-- **When to call:** once per entry, once per exit, plus a 3-s cached value on the maintenance loop. See [draft_execution_plan.md §3](draft_execution_plan.md).
-- **Credit cost:** 1 / call (RPC baseline — verify).
-- **Rate limit:** 50 rps on Developer.
-- **Cache TTL:** 3 s (one slot). Cache per `priorityLevel`.
-- **Bucket:** execution-priority-fees.
-- **Verdict:** **ALREADY PARTIALLY WIRED.** The repo now has `HeliusPriorityFeeService` with a short TTL cache and ProviderBudget logging. Remaining work is verifying real usage from the final engine path and tuning fallback behavior from live observations.
-
-### 2.9 Enhanced webhooks
-
-- **Signal:** server-push per-address or per-program events (SWAP, TRANSFER, ADD_LIQUIDITY, WITHDRAW_LIQUIDITY, TOKEN_MINT, NFT_MINT).
-- **When to call:** boot-time registration via `ensureWebhooks()`; ongoing reconciliation on pack / position change. Helius supports up to 100 000 addresses per webhook, but we shard so one webhook endpoint = one concern (smart-wallet / LP / holders).
-- **Credit cost:** 1 / event delivered. Predictable.
-- **Rate limit:** delivery retries 3× at 1 s gap — always return 204, never 5xx (that triggers extra retries and doubles credit burn).
-- **Cache TTL:** N/A.
-- **Bucket:** all three (filtering + position mgmt + smart-money).
-- **Verdict:** **WIRE NOW.** Three endpoints per [draft_backend_plan.md §7](draft_backend_plan.md). Dedupe on `txSig + kind` — Helius may deliver the same event 2-3×.
-
-### 2.10 `searchAssets` (DAS by creator / authority)
-
-- **Signal:** every asset minted by a creator wallet → rug-rate + launch-cadence history.
-- **When to call:** once per unique creator seen (cached 6 h in `CreatorLineage`).
-- **Credit cost:** 10 / call.
-- **Rate limit:** 10 rps.
-- **Cache TTL:** 6 h.
-- **Bucket:** pre-entry filtering.
-- **Verdict:** **WIRE NOW.** Feeds the creator-lineage banner on `/market/token/[mint]` and an entry-gate boolean (`creator.rugRate > 0.4 → reject`).
-
-### 2.11 Helius Sender
-
-- **Signal:** low-latency tx submission across 7 regions + parallel Jito routing.
-- **Credit cost:** 0 (tip only, min 0.001 SOL).
-- **Verdict:** **ALREADY PARTIALLY WIRED.** Regular-lane submission already uses Sender. Bundle submission does not; it uses a direct Jito block-engine path in the landed submitter. Keep the docs honest.
-
-### 2.12 `getAssetsByOwner`, `getAsset`
-
-- **Signal:** wallet holdings / single-asset metadata.
-- **Verdict:** **DEFER.** `getAsset` is useful for a rare manual-entry metadata fetch; `getAssetsByOwner` is not needed — we track wallets via webhooks + `accountSubscribe`, not periodic polls.
-
-### 2.13 Not covered / skipped
-
-- `getBlock`, `getProgramAccounts`, `getTokenAccounts` (paginated holder dump) — all have better alternatives on our plan. Flag in `TokenEnrichmentService` so they can't be added on a whim.
-
----
-
-## 3. Outcome maps
-
-### 3.1 Pre-entry filtering
-
-| Endpoint | Signal | Trigger | Credits | TTL | Owner |
-|---|---|---|---|---|---|
-| `searchAssets` (creator) | prior mints by creator → rug rate | first time we see this creator | 10 | 6 h | `TokenEnrichmentService` |
-| `getSignaturesForAsset` | creator-lineage backfill (top 3 prior mints) | chained after `searchAssets` | 10 × 3 | 24 h | `TokenEnrichmentService` |
-| `getWalletFundedBy` | creator funding source | creator rug rate > 0 but < block threshold | 100 | 24 h | `TokenEnrichmentService` |
-| `getTokenHolders` | confirm Birdeye top-10 % when borderline | Birdeye top-10 ∈ [30 %, 40 %] | 20–60 | 30 min | `TokenEnrichmentService` |
-
-Compiled feed: `CreatorLineage{ creatorAddress, priorMints, rugRate, fundingSource, lastSampledAt }`.
-
-### 3.2 Open-position management
-
-| Endpoint | Signal | Trigger | Credits | TTL | Owner |
-|---|---|---|---|---|---|
-| `accountSubscribe` (LP reserve) | LP pulled | reserve → 0 or decrease > 80 % in 1 slot | 2 / 0.1 MB | stream | `HeliusWatchService` |
-| `accountSubscribe` (top-3 ATA) | holder dump | balance delta > 20 % in 5 min | 2 / 0.1 MB | stream | `HeliusWatchService` |
-| `accountSubscribe` (dev wallet) | dev dump | dev SOL-out > 50 % | 2 / 0.1 MB | stream | `HeliusWatchService` |
-| webhook `WITHDRAW_LIQUIDITY` | LP pull, forensic | fallback if `accountSubscribe` missed | 1 / event | event | `HeliusWatchService` |
-| `getPriorityFeeEstimate` | priority fee for exit swap | every exit fire | 1 | 3 s | `ExecutionEngine` |
-| `parseTransactions` (batched) | confirm LP-pull tx | after `lp-removed` event emitted | 100 / batch | immutable | `HeliusWatchService` |
-
-### 3.3 Smart-money stream quality
-
-| Endpoint | Signal | Trigger | Credits | TTL | Owner |
-|---|---|---|---|---|---|
-| webhook `SWAP` on tracked cohort | smart-wallet buy/sell | continuous | 1 / event | event | `SmartWalletIngest` |
-| `transactionSubscribe` (Jupiter, filtered by account list) | same as above — backup | always-on | 2 / 0.1 MB | stream | `HeliusWatchService` |
-| `getSignaturesForAsset` | wallet backfill after webhook gap | drop-rate alert trigger | 10 | 30 s | `SmartWalletIngest` |
-| `getWalletFundedBy` | new wallet curation | when an unknown wallet gets added to `SmartWallet` | 100 | 24 h | `SmartWalletCurator` (pack-2 tool, out of loop) |
-
-Cohorting rule: 40–60 tracked addresses, sharded ≤25 per webhook → 2-3 webhooks. The duplicate `transactionSubscribe` filter acts as a dead-letter fallback if webhook delivery drops; dedupe on `txSig`.
-
----
-
-## 4. Webhook transaction types — what to wire
-
-Helius exposes 100+ parsed types. Memecoin-useful subset:
-
-| Type | Use | Endpoint |
+| Service | File | Scope |
 |---|---|---|
-| `TOKEN_MINT` | pump.fun mint confirmation (cross-check migration) | `lp` (reuses infra) |
-| `SWAP` | smart-wallet trades | `smart-wallet` |
-| `ADD_LIQUIDITY` | new pool detected | `lp` |
-| `WITHDRAW_LIQUIDITY` | LP pull (forensic / backup) | `lp` |
-| `TRANSFER` | top-holder movement fallback | `holders` |
-| `UNKNOWN_*` | unparsed — log, do not react | dropped at parse |
+| `HeliusPriorityFeeService` | [priority-fee-service.ts](trading_bot/backend/src/services/helius/priority-fee-service.ts) | `getPriorityFeeEstimate` with caching |
+| `HeliusWatchService` | [helius-watch-service.ts](trading_bot/backend/src/services/helius/helius-watch-service.ts) | Webhook ingest (smart-wallet, LP, holders) with signature verify + replay dedupe |
+| `HeliusClient` (thin RPC wrapper) | [helius-client.ts](trading_bot/backend/src/services/helius-client.ts) | DAS + RPC wrapper |
+| `HeliusMigrationWatcher` | [helius-migration-watcher.ts](trading_bot/backend/src/services/helius-migration-watcher.ts) | Pumpfun migration detection |
 
-Everything else (NFT, staking, lending, governance) is irrelevant — reject at parse so an accidental subscription doesn't burn credits.
+Webhook routes already wired:
 
----
+- `POST /webhooks/helius/smart-wallet` → `HeliusWatchService.ingestSmartWalletWebhook`
+- `POST /webhooks/helius/lp` → `HeliusWatchService.ingestLpWebhook`
+- `POST /webhooks/helius/holders` → `HeliusWatchService.ingestHoldersWebhook`
 
-## 5. Stream-vs-webhook decision guide
-
-```
-  REQUIREMENT                           PICK
-  ───────────────────────────────────── ─────────────────────
-  sub-100 ms, same-slot reaction         laserstream gRPC        (Business only — SKIP)
-  continuous program-wide filter         transactionSubscribe    (enhanced WSS)
-  per-position account watching          accountSubscribe        (enhanced WSS)
-  server-push for bounded address set    enhanced webhook
-  historical backfill on a mint          getSignaturesForAsset
-  historical forensic on a tx            parseTransactions
-  priority-fee floor                     getPriorityFeeEstimate
-```
-
-Rule of thumb: if we already own the address list, use webhooks. If we need to filter by program and can't enumerate addresses ahead of time, use `transactionSubscribe`. Never poll for something that streams.
+`HELIUS_WEBHOOK_SECRET` is required; every webhook verifies the signature before parse.
 
 ---
 
-## 6. Gotchas (codify in tests)
+## 2. Endpoint usage audit
 
-1. **Webhook retries** — Helius sends each event up to 3× at 1 s intervals on non-2xx. Always return 204, dedupe on `txSig + kind`.
-2. **WSS idle disconnect** — enhanced websocket drops after ~10 min silent. Ping every 60 s; auto-reconnect with jittered backoff.
-3. **Subscription cap** — 100 per connection, 150 concurrent connections. `HeliusWatchService.subscriptionCount()` must page `operator-events` before hitting 90 %.
-4. **DAS pagination** — `searchAssets`, `getSignaturesForAsset`, `getTokenAccounts` cap at 1000/page. Batch carefully inside 10 rps.
-5. **Streaming credit metering** — billed monthly in arrears per 0.1 MB. Log bytes streamed per filter to `ProviderCreditLog` so Grafana can show live vs. steady-state.
-6. **Sender vs Jito** — both consume SOL tip (separate lines). Tag priority-fee calls with `purpose=entry|exit|mutator` so credit attribution is clean.
-
----
-
-## 7. Service wiring summary
-
-```
-HeliusWatchService (one class, many connections)
-  ├── conn:A  transactionSubscribe  [Pump.fun program]      → runtime event: migration
-  ├── conn:A  transactionSubscribe  [Raydium LP program]    → runtime event: lp-added
-  ├── conn:B  accountSubscribe      [per-position LP × N]   → runtime event: lp-removed
-  ├── conn:B  accountSubscribe      [per-position top-3 × N]→ runtime event: holder-dump
-  ├── conn:C  accountSubscribe      [per-position dev × N]  → runtime event: dev-dump
-  └── webhooks /helius/{smart-wallet,lp,holders}            → same event bus
-
-TokenEnrichmentService (on-demand DAS)
-  ├── searchAssets(creator)           → CreatorLineage.priorMints
-  ├── getSignaturesForAsset(prior)    → CreatorLineage.rugRate (backfill)
-  ├── getWalletFundedBy(creator)      → CreatorLineage.fundingSource  (gated)
-  └── getTokenHolders(mint)           → EnrichmentFact(source=helius-holders)
-
-ExecutionEngine
-  └── getPriorityFeeEstimate          (3 s cache, per purpose-code)
-
-SmartWalletIngest
-  ├── webhook SWAP                    → SmartWalletEvent
-  ├── transactionSubscribe (backup)   → SmartWalletEvent (dedupe)
-  └── parseTransactions (batched 20+) → deep-parse on suspicious entries only
-```
+| Helius surface | Status | Notes |
+|---|---|---|
+| DAS `getAsset` / `searchAssets` | Used ad-hoc | Should route via `HeliusClient` with budget slot |
+| DAS `getAssetsByOwner` | Used in creator-lineage path | Non-centralized; belongs in `HeliusWatchService.loadCreatorLineage(creator)` |
+| RPC `getSignaturesForAsset` | Used in creator + bundle fallback | Credit heavy; cap to post-accept only |
+| RPC `getTokenHolders` | Not used yet | Will be needed for the Bubblemaps fallback |
+| Enhanced websocket (`accountSubscribe`, `transactionSubscribe`) | Not centralized | Plan: single connection managed by `HeliusWatchService`, fan out to subscribers |
+| Priority fee estimate | Centralized in `HeliusPriorityFeeService` | Good |
+| Webhook management (`createWebhook`, `deleteWebhook`) | Not wired | Webhooks today are provisioned manually — operator creates in Helius dashboard |
+| Sender endpoint | Used in `SwapSubmitter` | Good |
+| Laserstream | Not used | Deferred |
 
 ---
 
-## 8. Acceptance criteria
+## 3. Remaining work
 
-- Enhanced webhooks registered by `ensureWebhooks()` on boot, reconciled on pack/session change.
-- Every webhook endpoint returns 204 within p95 50 ms, idempotent under replay (test with fixture).
-- `HeliusWatchService.subscriptionCount()` logged per minute; alarm at ≥90 % of cap.
-- All DAS calls flow through `ProviderBudgetService.requestSlot('helius', <purpose>)`; grep-enforced in CI.
-- `ProviderCreditLog` records bytes streamed per filter, credits per DAS call, credits per event.
-- Smart-wallet webhook + `transactionSubscribe` dedupe test: same `txSig` via both paths produces exactly one `SmartWalletEvent` row.
-- Priority-fee cache 3 s TTL enforced; miss-vs-hit ratio visible on the Credit Burn dashboard.
+### 3.1 Webhook auto-provisioning
+
+Today webhooks are manual — the operator registers them in the Helius dashboard. This breaks in two ways: fresh boots don't know which webhooks exist, and per-position webhooks can't respect the 5-cap.
+
+Plan:
+- On `HeliusWatchService` boot, call `getAllWebhooks` and reconcile against expected webhooks for active positions + curated smart wallets.
+- On position open → call `createWebhook` with the mint as the account. On position close → `deleteWebhook`.
+- Enforce cap: max 5 per active position + 60 smart-wallet subscriptions. Refuse new webhooks past cap with `OperatorEvent { severity: warning }`.
+- Expose `GET /api/operator/helius/webhooks` (list) and `DELETE /api/operator/helius/webhooks/:id` (force clean).
+
+### 3.2 Enhanced websocket ownership
+
+`transactionSubscribe` + `accountSubscribe` should have one owner. Today `ExitEngine` imports `SmartWalletMintActivity` directly from `HeliusWatchService`, but holder-delta and LP-change subscriptions live outside.
+
+Plan:
+- `HeliusWatchService.subscribe({ kind: 'holders' | 'lp' | 'price', mint })` returns an async iterator.
+- Consumers: `ExitEngine` (holder dump detection, LP pull detection), `TokenEnrichmentService` (live composite refresh on hot candidates).
+- Single shared connection; reconnect with exponential backoff; metric `helius_ws_reconnects_total`.
+
+### 3.3 Smart-wallet stream + 7-day gate
+
+`SmartWalletEvent` rows populate from the `smart-wallet` webhook. Missing:
+
+- Curated wallet list in `SmartWallet` table — seed from Birdeye gainers/losers (7-day PnL > $50k) + operator adds.
+- Funding-source attribution: on wallet add, call `getWalletFundedBy` and persist as `SmartWalletFunding` (table exists).
+- 7-day clean-ingest counter: a query on `SmartWalletEvent.createdAt` distinct-day count must return 7 before the `SMART_MONEY_RUNNER` pack can flip LIVE. Enforce in `PackRoute` on the `LIVE` flip.
+
+### 3.4 Creator lineage live hooks
+
+`CreatorLineage` rows populate only on `/market/token/:mint` navigation today. Plan: on candidate accept, kick off a background `loadCreatorLineage(creator)` that writes to the table. If already present and < 24 h old, skip.
+
+Budget: ~50 credits per creator. Gated by `ProviderBudgetService` with purpose `ENRICHMENT_CREATOR_LINEAGE`.
+
+### 3.5 Priority fee service hardening
+
+- Cache TTL: 2 seconds is aggressive enough for meme-scale markets; confirm.
+- Fallback: if Helius fee endpoint fails, use a static `p75` default (`200_000` micro-lamports) with an `OperatorEvent` warning.
+- Cap: never exceed `1_000_000` micro-lamports per tx (see [draft_execution_plan.md §6](draft_execution_plan.md)).
 
 ---
 
-## 9. Open questions (verify during build)
+## 4. Stream vs webhook — when to use which
 
-- `getPriorityFeeEstimate` exact credit cost — docs ambiguous; instrument and measure.
-- `getWalletFundedBy` rate limit — undocumented; cap at 1 rps until tested.
-- Webhook burst ceiling — Helius has not published a concurrent-delivery cap. Instrument `webhook-dropped` on the event bus and trend it.
-- `transactionSubscribe` parsed-payload stability — some obscure programs decode to `UNKNOWN_*`; maintain a fallback to `parseTransactions` on first sight.
-
----
-
-## 10. Phase-6 ordering
-
-1. `ensureWebhooks()` + three endpoints + signature middleware. Wire smart-wallet flow end-to-end in paper mode.
-2. `accountSubscribe` per-position block. Flip `lp-removed` / `holder-dump` to real events.
-3. `transactionSubscribe` for Pump.fun + Raydium LP (replaces `logsSubscribe` migration).
-4. `searchAssets` + `getSignaturesForAsset` creator-lineage walker.
-5. Formalize `getPriorityFeeEstimate` cache with purpose codes.
-6. Batched `parseTransactions` forensic path (LP-pull / smart-wallet deep-parse).
-7. Ship `getWalletFundedBy` last, gated behind `settings.enrichment.helius.fundingSourceProbe=false` until credit burn is well understood.
-
-All of the above lands behind `settings.helius.<feature>.enabled` flags; default off; flip per rollout-plan guardrails.
+| Signal | Mechanism | Why |
+|---|---|---|
+| Smart-wallet buys/sells | Webhook | Low volume, per-wallet subscription matches Helius pricing |
+| LP pull | Webhook (pool-level) | Event-driven; rare but critical — must not miss |
+| Holder-count delta | Enhanced websocket | High volume; webhook would thrash |
+| Price tick | Enhanced websocket | High volume |
+| Bundle detection | `getSignaturesForAsset` fallback | Only when Trench is degraded |
 
 ---
 
-## Sources
+## 5. Credit budget per surface
 
-- [Helius pricing](https://www.helius.dev/pricing)
-- [Plans & billing](https://www.helius.dev/docs/billing/plans)
-- [Credits catalog](https://www.helius.dev/docs/billing/credits)
-- [Enhanced websockets (next-gen)](https://www.helius.dev/blog/introducing-next-generation-enhanced-websockets)
-- [Laserstream powers all websockets](https://www.helius.dev/blog/laserstream-websockets)
-- [Webhook transaction types](https://www.helius.dev/docs/webhooks/transaction-types)
-- [Priority-fee API](https://www.helius.dev/docs/priority-fee-api)
-- [Zero-slot execution blog](https://www.helius.dev/blog/zero-slot)
-- [Wallet API overview](https://www.helius.dev/docs/wallet-api/overview)
-- [DAS API overview](https://www.helius.dev/docs/das-api)
+Every Helius call is gated by `ProviderBudgetService.requestSlot('helius', purpose)`. Purposes:
+
+| Purpose | Expected calls/day | Credits/call |
+|---|---|---|
+| `DISCOVERY` (never for Helius — reject) | 0 | — |
+| `ENRICHMENT_CREATOR_LINEAGE` | ~200 | ~50 |
+| `ENRICHMENT_HOLDERS` | ~500 | ~20 |
+| `ENRICHMENT_BUNDLE_FALLBACK` | rare | ~80 |
+| `EXEC_PRIORITY_FEE` | ~high (cached) | 1 |
+| `EXEC_SENDER` | per submit | 0 (plan-covered) |
+| `WEBHOOK_MGMT` | low | 0 |
+
+Daily Helius budget projection feeds the Credit Burn dashboard.
+
+---
+
+## 6. Parallel Work Packages
+
+Helius-surface WPs. WP-HE-1 collides only with itself; the rest are additive and safe to run alongside.
+
+### WP-HE-1 — Webhook auto-prov + WS ownership (= rollout WP6)
+
+**Owner:** `helius-watcher`.
+**Scope:** [services/helius/helius-watch-service.ts](trading_bot/backend/src/services/helius/helius-watch-service.ts), new [api/routes/helius-admin-routes.ts](trading_bot/backend/src/api/routes/helius-admin-routes.ts), engine runtime wiring at [engine/runtime.ts](trading_bot/backend/src/engine/runtime.ts), new `tests/helius/helius-watch-service.test.ts`.
+**Acceptance:** boot reconciles via `getAllWebhooks`; position open → `ensurePositionWebhook`; position close → `removePositionWebhook`; 5+60 cap enforced; `GET /api/operator/helius/webhooks`, `DELETE /api/operator/helius/webhooks/:id` gated by auth.
+
+**Prompt:**
+> Extend `HeliusWatchService`: add `reconcileAtBoot()` (calls `getAllWebhooks`, logs drift into `OperatorEvent`), `ensurePositionWebhook(mint)` + `removePositionWebhook(mint)` (uses `HeliusClient.createWebhook` / `deleteWebhook`), `subscribe({ kind: 'holders'|'lp'|'price', mint })` returning an async iterator over a single shared enhanced-websocket connection with exponential-backoff reconnect. Enforce cap: max 5 webhooks per active position + 60 smart-wallet subscriptions — refuse with `OperatorEvent { severity: 'warning', detail: 'helius webhook cap reached' }`. Wire `engine/runtime.ts` to fire `ensurePositionWebhook` on position open and `removePositionWebhook` on close. Add `api/routes/helius-admin-routes.ts` exposing `GET /api/operator/helius/webhooks` (list) and `DELETE /api/operator/helius/webhooks/:id` under the auth middleware used by other operator routes. Write `tests/helius/helius-watch-service.test.ts` covering signature verify, replay dedupe, cap enforcement, reconnect.
+
+### WP-HE-2 — Smart-wallet 7-day gate
+
+**Owner:** `helius-watcher`.
+**Scope:** [services/workbench/strategy-pack-service.ts](trading_bot/backend/src/services/workbench/strategy-pack-service.ts) LIVE-flip path, new `services/helius/smart-wallet-gate.ts`.
+**Acceptance:** `SMART_MONEY_RUNNER` pack LIVE flip blocks until `SmartWalletEvent` has 7+ distinct days of rows; operator sees `smart-wallet-gate` rejection reason.
+
+**Prompt:**
+> Create `services/helius/smart-wallet-gate.ts` exporting `async function checkSmartWalletCleanIngest(days = 7): Promise<{ ok: boolean; distinctDays: number }>` — query `SmartWalletEvent` `SELECT COUNT(DISTINCT date_trunc('day', createdAt))` and return whether ≥ 7. Wire into `StrategyPackService.setStatus(packId, 'LIVE')`: if the pack's `kind === 'SMART_MONEY_RUNNER'` and `checkSmartWalletCleanIngest().ok === false`, throw `PackGateRefused({ reason: 'smart-wallet-gate', distinctDays })`. Test at `tests/workbench/smart-wallet-gate.test.ts` with fixture data (6 distinct days → refuse, 7 → pass).
+
+### WP-HE-3 — Creator lineage background load
+
+**Owner:** `enrichment-integrator`.
+**Scope:** [services/helius/helius-watch-service.ts](trading_bot/backend/src/services/helius/helius-watch-service.ts) (add `loadCreatorLineage(creator)`), [engine/graduation-engine.ts](trading_bot/backend/src/engine/graduation-engine.ts) candidate-accept hook.
+**Acceptance:** on every candidate accept, a `CreatorLineage` row exists for the creator within 60 s (or was already < 24 h old); budget gated by `ProviderBudgetService` with purpose `ENRICHMENT_CREATOR_LINEAGE`.
+
+**Prompt:**
+> Add `HeliusWatchService.loadCreatorLineage(creator: string): Promise<void>` that: (a) checks `CreatorLineage` for this creator and returns early if row exists and `updatedAt > now() - 24h`, (b) calls `ProviderBudgetService.requestSlot('helius', 'ENRICHMENT_CREATOR_LINEAGE')`, (c) on slot, calls `HeliusClient.searchAssets({ creator })` + `getSignaturesForAsset(creator)`, (d) upserts `CreatorLineage` with prior launches + rug-rate estimate. Wire into `GraduationEngine` candidate-accept path as a fire-and-forget background task (do not block the accept decision). Do NOT touch the market-page path — it stays as-is. Test at `tests/helius/creator-lineage.test.ts` covering fresh fetch, 24 h cache hit, budget-denied skip.
+
+### WP-HE-4 — Priority fee service hardening (= WP-EX-2)
+
+**Owner:** `execution-builder`.
+**Scope:** `services/helius/priority-fee-service.ts`. See [draft_execution_plan.md](draft_execution_plan.md) WP-EX-2 for the full prompt.
+**Acceptance:** cap clamp + fallback + one test. Shared between this draft and execution — owned by `execution-builder`.
+
+---
+
+## 7. Acceptance
+
+- Webhook auto-provisioning lands; fresh boot reconciles and enforces cap.
+- `HeliusWatchService.subscribe` owns all websocket traffic; ad-hoc connections elsewhere grep clean.
+- `SmartWalletEvent` has 7+ distinct-day rows before `SMART_MONEY_RUNNER` pack is allowed to flip LIVE.
+- `CreatorLineage` populates on candidate accept.
+- `HeliusPriorityFeeService` fallback path exercised in a test.
+- `/api/operator/helius/webhooks` returns the active list.

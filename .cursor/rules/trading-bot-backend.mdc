@@ -1,0 +1,14 @@
+---
+description: Express Prisma trading bot backend — engine runtime discovery exits execution, services providers, engine/ vs services/, db generate and setup
+globs: trading_bot/backend/**/*.ts
+alwaysApply: false
+---
+
+# trading_bot backend
+
+- **Engines:** `trading_bot/backend/src/engine/` — runtime loops, discovery, evaluation, exits, execution orchestration
+- **Services:** `trading_bot/backend/src/services/` — provider clients, persistence, telemetry, config helpers
+
+After **`schema.prisma`** or **`create_views.sql`** changes: from `trading_bot/backend`, run `npm run db:generate`, then `npm run db:setup` when the schema changed.
+
+Strategy behavior must stay consistent with [`notes/reference/strategy.md`](../../notes/reference/strategy.md).

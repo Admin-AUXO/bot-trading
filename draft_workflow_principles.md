@@ -1,72 +1,78 @@
-# Workflow Principles — Trading, Guardrails, Session Flow
+# Workflow Principles — Durable Guardrails
 
-Companion to all other `draft_*.md` planning docs. This is the "why" doc — read before implementing any phase.
+Referenced by every other draft. Snapshot **2026-04-18**.
 
-Status snapshot as of **2026-04-18**:
-- The repo has moved well past planning-only mode.
-- Several workflow seams in this doc are already real (`TradingSession`, pack/version ownership, workbench pages, market pages).
-- The remaining value here is guardrails: keep the workflow linear, delete bypasses, and finish the production-hardening gaps without re-introducing side paths.
+These are durable rules, not phase-specific work items. They should outlive the draft set.
 
 ---
 
-## 1. Target workflow
+## 1. Repo rules
 
-One linear operator path:
+- **Schema-only Prisma.** No migration files. `prisma generate` only. `db push` on operator machines.
+- **Views are managed separately.** `create_views.sql` is the source of truth; run against Postgres manually. Drop + replace is safe.
+- **Never hand-edit emitted grafana JSON.** The generator rewrites it. Edit the theme module, regenerate, commit both.
+- **Dual-write for 7 days** on any metadata → column promotion before deleting the metadata side.
+- **Drafts are not reference docs.** When the work in a draft is done, migrate durable content to `notes/reference/*` and delete the draft.
 
-```
-[1] Pack Editor      →  [2] Sandbox Run     →  [3] Pack Grader     →  [4] Session Launcher
-    edit filters/        run vs. live tape      review winners,       apply to LIVE or DRY,
-    exits + adaptive     capture eval trace     mark TP/FP,           start/pause/revert,
-    axes + enrichment    no real capital        auto-suggest tuning   watch live health
-```
+---
 
-One job per page. No shortcut from Editor to LIVE — a pack must graduate via Sandbox → Grader → Session.
+## 2. Trading rules
 
-## 2. Trading principles (non-negotiable)
+- **No live capital without a grade.** Only packs with `grade ∈ {A, B}` may flip to LIVE. Enforced server-side.
+- **Adaptive off by default.** `settings.adaptive.enabled = false` in fresh configs. Operator must opt in per session.
+- **Exit mutator gate.** Every mutator code needs 30 paper exits at neutral-or-better PnL before it can fire in LIVE.
+- **Smart-money pack gate.** `SMART_MONEY_RUNNER` requires 7 days of clean `SmartWalletEvent` ingest + 48 h sandbox before LIVE.
+- **Webhook caps.** 5 Helius webhooks per active position + 60 smart-wallet subscriptions. Enforced in `HeliusWatchService`.
+- **Stop loss is non-negotiable.** SL submission uses the highest-priority lane; fee is always a small fraction of the stopped loss. Never route SL through a slow lane to save credits.
 
-1. **Protect capital first.** Every change that touches the execution path must name the new failure modes and verification steps before it merges.
-2. **Pack is the contract.** Filters, exits, sort column, capital modifier, adaptive axes — all live on the `StrategyPack` row. No hidden constants. No scattered `settings.*.threshold`.
-3. **Adaptive mutates down, not up.** Sizing multipliers compose to **≤1** in negative regimes; in positive regimes they multiply upward only within `RiskEngine.canOpenPosition` bounds. The risk engine remains authoritative.
-4. **One session, one pack.** `TradingSession` stores `previousPackVersion` so revert is a one-call operation. Multiple concurrent live packs require separate sessions and separate risk budgets.
-5. **Manual entries are first-class risk surfaces.** They honor the same reserve, sizing, cooldown, and capital constraints as automated entries.
-6. **Provider-heavy logic reuses shared services.** Birdeye, Helius, Rugcheck, Trench etc. go through the budget-aware clients so cache, batching, and purpose stay visible.
-7. **Evidence before behavior change.** Every threshold or rejection-reason change persists an audit row (`AdaptiveThresholdLog`, `ConfigSnapshot`, `StrategyPackVersion`).
+---
 
-## 3. Guardrails (what must not break)
+## 3. Credit discipline
 
-1. **No live-capital code path changes in phases 1–3.** Reads, writes-behind-flag, and dual-write verification only.
-2. **Pack publish to LIVE is two explicit steps:** `publish(pack → TESTING)` then `startSession(pack, mode=LIVE)` with operator confirmation. No silent promotion.
-3. **Rollback is always one call.** `TradingSession.previousPackVersion` → `revert` re-applies to runtime-config.
-4. **Every metadata→column promotion is dual-write ≥7 days** before the blob read path is removed.
-5. **Exit-engine live mutators** ship behind `settings.exits.liveMutators.enabled`, paper-verified on 30 exits per mutator before touching live capital.
-6. **Webhook churn ceiling:** Helius webhooks capped at 5 per active position + 60 smart-wallet. Exceeding cap = dashboard warning, never silent failure.
-7. **Pack grade propagation:** `status=LIVE` requires `grade ∈ {A, B}`. Enforced at the API layer, not trusted to UI.
-8. **Capital brake owns the last word.** `RiskEngine.canOpenPosition` stays authoritative; adaptive sizing only multiplies downward within its bounds.
-9. **No backtest-only fitness.** A pack promotes to `GRADED` only if sandbox live-tape run matches backtest outcome within tolerance (see `PackGradingService`).
-10. **No quota-blind enrichment.** New providers must declare TTL and budget class; `ProviderBudgetService` gates every fetch.
+- Every paid call logs `ProviderCreditLog` with a non-UNKNOWN `purpose`.
+- Every paid call passes through `ProviderBudgetService.requestSlot(...)` first.
+- Discovery never calls free providers; only post-accept or on operator navigation.
+- `CreditForecastService` gates session-start; operator can override with explicit `allowOverBudget: true`.
 
-## 4. Session flow (operator's day)
+---
 
-1. Open `Overview` — lane status green, capital free > threshold.
-2. Open `Sessions` — confirm the LIVE pack + version, check last session's realized PnL + grade.
-3. If tuning: `Packs` → clone LIVE → `Editor` → adjust → `Sandbox` (≥30 min) → `Grader` → accept tuning deltas → publish `DRAFT → TESTING`.
-4. If promoting: TESTING pack → 48 h sandbox ≥10 triggered candidates → `GRADED`.
-5. Start `TradingSession(mode=LIVE)` — `previousPackVersion` stored automatically. 2FA + IP gate on mode=LIVE.
-6. Watch `Live Session Health` (Grafana). Pause on symptoms, never on hunches.
-7. At end-of-day: `Grader` review of today's winners/losers, optional Notion/Obsidian recap.
+## 4. Code rules
 
-## 5. Strategy packs — design principles
+- **One owner per surface.** Enrichment → `TokenEnrichmentService`. Execution → `SwapSubmitter`. Helius streams → `HeliusWatchService`. Credits → `ProviderBudgetService`. Adaptive → `AdaptiveThresholdService`. If a second service starts calling the same external API, consolidate.
+- **No ad-hoc Jupiter/RPC calls.** Route through `QuoteBuilder` / `SwapBuilder` / `SwapSubmitter`.
+- **No ad-hoc Birdeye calls in the evaluator.** Route through `TokenEnrichmentService`.
+- **Test before declaring done.** A landed service without a test is not done; file the test gap in the draft and track it.
 
-1. **4 filters + grad + time.** Keep the filter set tight (see [draft_strategy_packs_v2.md](draft_strategy_packs_v2.md)). More filters = brittle, backtest-flattering, live-poor.
-2. **Sort column is part of the pack.** The Birdeye meme-list query changes by pack; sort column determines which tokens surface first under budget.
-3. **Capital modifier is per-pack.** Runners 1.3–1.5×, scalps 0.55–1.1×. No global scalar; packs own their risk appetite inside `RiskEngine` bounds.
-4. **Adaptive axes mutate baseline, never override sort or filter identity.** If a pack's sort column is `volume_24h_usd`, the adaptive engine cannot change that — only filter thresholds and exit deltas.
-5. **Runners and scalps do not share exit tables.** Runners use MC-tiered base with wide TP2. Scalps use tight SL / TP1.
-6. **Graduation-age taper is non-optional.** Every pack's exits taper with minutes-since-graduation (see v2 doc §C).
+---
 
-## 6. Documentation responsibilities
+## 5. Session bookends
 
-- Strategy contract changes → update [notes/reference/strategy.md](notes/reference/strategy.md) in the same pass.
-- New providers → update market-stats doc + add TTL/budget in `TokenEnrichmentService`.
-- Pack changes → update the pack's DB row; `StrategyPackVersion` captures history. No loose markdown as source of truth.
-- Planning docs (`draft_*.md`) are transient. Once a phase lands, migrate its content into `notes/reference/*` and delete the draft.
+- At start: read [draft_index.md](draft_index.md) + the draft(s) for the surface you're touching. Check `git log --oneline -20`. Check `notes/sessions/index.md` for the last entry.
+- At end: write a session log under `notes/sessions/<date>-<topic>.md` listing diffs and verification; update the relevant draft's "Remaining" list; if a whole draft is now empty, delete it (or migrate durable content to `notes/reference/*`).
+
+---
+
+## 6. Sub-agent usage
+
+Delegate read-heavy investigations to `Explore` / `code-explorer` sub-agents. Use `research-scout` for external docs (provider APIs, changelog checks). Don't duplicate work across agents — one owner per question.
+
+Each phase has a recommended owner (see [draft_rollout_plan.md §3](draft_rollout_plan.md)). Spawn agents in parallel only when the work is genuinely independent.
+
+---
+
+## 7. Risky operations — confirm first
+
+- `git push --force` to main — never without explicit approval.
+- `git reset --hard` — only after confirming no uncommitted work.
+- Dropping a Postgres table / column — always via a schema edit + `db push`, never raw SQL.
+- Deleting webhook providers — confirm cap + active-position count first.
+- Flipping a pack to LIVE — always requires the IP + 2FA + grade gate.
+
+---
+
+## 8. The draft lifecycle
+
+1. A draft is written when a multi-PR initiative is about to kick off.
+2. Each PR within the initiative updates the draft's "Remaining" section.
+3. When the initiative is complete, the draft's durable content migrates to `notes/reference/`, and the draft is deleted.
+4. A draft older than 30 days with no matching PRs is stale — check whether it's still real or should be deleted.

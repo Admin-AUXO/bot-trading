@@ -8,7 +8,7 @@ Maintenance & smoke-test scripts for the agent harness config in this repo
 | `lint-skills.mjs` | Validate `.agents/skills/*/SKILL.md` frontmatter | missing/invalid frontmatter |
 | `lint-codex-agents.mjs` | Validate `.codex/agents/*.toml` required keys | missing required key |
 | `check-parity.mjs` | Skill ↔ Codex agent parity matrix | unmapped pair on either side |
-| `validate-mcp.mjs` | Cross-check `.mcp.json` / `.claude/settings.json` / `.codex/config.toml` | doc reference without declaration |
+| `validate-mcp.mjs` | Cross-check `.mcp.json` / `.cursor/mcp.json` / `.claude/settings.json` / `.codex/config.toml` | doc reference without declaration |
 | `test-hooks.sh` | Smoke-test SessionStart hook + presence of helper scripts | hook returns wrong shape |
 | `run-all.sh` | Run everything sequentially | any step fails |
 

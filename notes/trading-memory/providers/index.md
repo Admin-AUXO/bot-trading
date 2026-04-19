@@ -1,12 +1,12 @@
 ---
-type: reference
+
+## type: trading-memory
 status: active
 area: trading/providers
 date: 2026-04-10
 source_files: []
 graph_checked:
 next_action:
----
 
 # Provider Memory
 

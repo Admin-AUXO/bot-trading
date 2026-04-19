@@ -1,6 +1,6 @@
 # trading_bot — Agent Guide
 
-Package-scoped rules. Read [`../AGENTS.md`](../AGENTS.md) first for repo-wide guidance; this file only adds what's specific to `trading_bot/`.
+Package-scoped rules. Read `[../AGENTS.md](../AGENTS.md)` first for repo-wide guidance; this file only adds what's specific to `trading_bot/`.
 
 ## Reality
 
@@ -12,22 +12,22 @@ Package-scoped rules. Read [`../AGENTS.md`](../AGENTS.md) first for repo-wide gu
 
 ## Work areas
 
-- [`backend/src/engine/`](backend/src/engine/) — runtime loops, discovery, exits, execution.
-- [`backend/src/services/`](backend/src/services/) — provider clients, telemetry, config, budget pacing, snapshots.
-- [`backend/prisma/`](backend/prisma/) — schema + SQL views.
-- [`dashboard/`](dashboard/) — operator UI + proxy.
+- `[backend/src/engine/](backend/src/engine/)` — runtime loops, discovery, exits, execution.
+- `[backend/src/services/](backend/src/services/)` — provider clients, telemetry, config, budget pacing, snapshots.
+- `[backend/prisma/](backend/prisma/)` — schema + SQL views.
+- `[dashboard/](dashboard/)` — operator UI + proxy.
 
 ## Package-specific rules
 
-- When strategy logic changes, touch `backend/src/engine/` and [`../notes/reference/strategy.md`](../notes/reference/strategy.md) in the same pass.
+- When strategy logic changes, touch `backend/src/engine/` and `[../notes/reference/strategy.md](../notes/reference/strategy.md)` in the same pass.
 - Schema + views matter together → `npm run db:setup`.
-- All other rules (safety-critical boundaries, no migration files, provider calls inside `services/`, dashboard writes via the proxy route) live in [`../AGENTS.md`](../AGENTS.md).
+- All other rules (safety-critical boundaries, no migration files, provider calls inside `services/`, dashboard writes via the proxy route) live in `[../AGENTS.md](../AGENTS.md)`.
 
 ## Verification
 
 - Prisma changed → `npm run db:generate` before trusting TypeScript output.
 - Dashboard changed → confirm `trading_bot/dashboard` still builds.
-- Backend runtime/routes/schema changed → update the matching doc under [`../notes/reference/`](../notes/reference/).
+- Backend runtime/routes/schema changed → update the matching doc under `[../notes/reference/](../notes/reference/)`.
 
 ## Graphify
 

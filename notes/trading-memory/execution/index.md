@@ -1,12 +1,12 @@
 ---
-type: reference
+
+## type: trading-memory
 status: active
 area: trading/execution
 date: 2026-04-10
 source_files: []
 graph_checked:
 next_action:
----
 
 # Execution Memory
 

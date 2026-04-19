@@ -1,0 +1,41 @@
+---
+description: bot-trading monorepo — AGENTS.md startup, trading_bot boundaries, Prisma/views without migrations, dashboard API proxy, notes vault, MCP/skills sync, strategy safety
+alwaysApply: true
+---
+
+# bot-trading (Cursor)
+
+This rule **always applies** in Agent chat. It does not apply to Tab or inline edit ([Cursor rules](https://cursor.com/docs/rules)).
+
+## Read order
+
+1. Repo root [`AGENTS.md`](../../AGENTS.md)
+2. [`notes/reference/index.md`](../../notes/reference/index.md) when you need contracts or depth
+3. [`trading_bot/AGENTS.md`](../../trading_bot/AGENTS.md) when touching `trading_bot/`
+
+## Safety and verification
+
+Entries, exits, and capital are safety-critical. Treat strategy claims as unverified until checked against [`notes/reference/strategy.md`](../../notes/reference/strategy.md) and the matching engine code.
+
+## Repo boundaries
+
+| Area | Location |
+|------|-----------|
+| Prisma schema | `trading_bot/backend/prisma/schema.prisma` — **no** checked-in migration workflow |
+| SQL views | `trading_bot/backend/prisma/views/create_views.sql` |
+| Providers | `trading_bot/backend/src/services/` |
+| Browser → backend writes | `trading_bot/dashboard/app/api/[...path]/route.ts` |
+
+Use **relative paths** in committed code and docs.
+
+## Changes and docs
+
+Prefer the smallest correct change. When contracts or runtime behavior change, update the owning note under `notes/reference/` in the same pass when this repo expects that pairing.
+
+Do not add or expand comments in TS/TSX/JS unless you are only editing text inside an existing comment the file already relied on.
+
+## MCP and skills
+
+- Tool choice and defaults: [`notes/reference/tool-routing.md`](../../notes/reference/tool-routing.md)
+- Cursor loads [`.cursor/mcp.json`](../../.cursor/mcp.json). Keep `mcpServers` **keys** aligned with repo root [`.mcp.json`](../../.mcp.json); then run `node scripts/claude-harness/validate-mcp.mjs` (see [`.cursor/README.md`](../../.cursor/README.md)).
+- Skills: [`.agents/skills/`](../../.agents/skills/) — when a task matches a skill’s `description`, read that `SKILL.md` first. After skill edits: `node scripts/claude-harness/lint-skills.mjs`.

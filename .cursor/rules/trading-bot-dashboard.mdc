@@ -1,0 +1,14 @@
+---
+description: Next.js 16 App Router operator dashboard — Tailwind UI, server components, app/api proxy route for browser writes to backend
+globs: trading_bot/dashboard/**
+alwaysApply: false
+---
+
+# trading_bot dashboard
+
+Code lives under `trading_bot/dashboard/`.
+
+- **Browser → backend:** `trading_bot/dashboard/app/api/[...path]/route.ts` is the supported write and proxy surface unless a task says otherwise.
+- **UI contract:** [`notes/reference/dashboard-operator-ui.md`](../../notes/reference/dashboard-operator-ui.md)
+
+After material changes: `cd trading_bot/dashboard && npm run build`.

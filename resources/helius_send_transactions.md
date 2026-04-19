@@ -65,7 +65,7 @@ transaction.sign([fromKeypair]);
 
 ### 2. Optimize Compute Unit (CU) Usage
 
-To avoid wasting fees or having your transaction fail, you should set the compute unit (CU) limit as precisely as possible. You can do this by simulating the transaction using the [`simulateTransaction`](/api-reference/rpc/http/simulatetransaction) RPC method.
+To avoid wasting fees or having your transaction fail, you should set the compute unit (CU) limit as precisely as possible. You can do this by simulating the transaction using the `[simulateTransaction](/api-reference/rpc/http/simulatetransaction)` RPC method.
 
 It's a best practice to first simulate with a high CU limit to ensure the simulation itself succeeds, and then use the `unitsConsumed` from the response to set your actual limit.
 
@@ -148,7 +148,7 @@ const setPriorityFeeInstruction = ComputeBudgetProgram.setComputeUnitPrice({
 
 Now, assemble the final transaction with the new compute budget instructions, send it, and implement a robust polling mechanism to confirm it has landed.
 
-> Warning: Do not rely on the RPC provider's default retry logic (`maxRetries` in [`sendTransaction`](/api-reference/rpc/http/sendtransaction)). While Helius's staked connections forward your transaction directly to the leader, it can still be dropped. You must implement your own rebroadcasting logic for reliable confirmation.
+> Warning: Do not rely on the RPC provider's default retry logic (`maxRetries` in `[sendTransaction](/api-reference/rpc/http/sendtransaction)`). While Helius's staked connections forward your transaction directly to the leader, it can still be dropped. You must implement your own rebroadcasting logic for reliable confirmation.
 
 A common pattern is to re-send the same transaction periodically until the blockhash expires. **Only re-sign the transaction if you are also fetching a new blockhash.** Re-signing with the same blockhash can lead to duplicate transactions being confirmed.
 
@@ -209,3 +209,4 @@ This example provides a basic polling loop. A production-grade application would
 - [getSignatureStatuses](/api-reference/rpc/http/getsignaturestatuses): Check confirmation status of transactions
 - [getLatestBlockhash](/api-reference/rpc/http/getlatestblockhash): Get a recent blockhash for transaction signing
 - [getBlockHeight](/api-reference/rpc/http/getblockheight): Get current block height for expiry checks
+

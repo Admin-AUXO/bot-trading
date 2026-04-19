@@ -1,0 +1,103 @@
+{
+  "mcpServers": {
+    "browsermcp": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${workspaceFolder}/.codex/scripts/start-stdio-command.cjs",
+        "npx",
+        "-y",
+        "@browsermcp/mcp"
+      ]
+    },
+    "desktop_commander": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${workspaceFolder}/.codex/scripts/start-desktop-commander.cjs"]
+    },
+    "birdeye-mcp": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${workspaceFolder}/.codex/scripts/start-birdeye-mcp.cjs"]
+    },
+    "helius": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${workspaceFolder}/.codex/scripts/start-stdio-command.cjs",
+        "npx",
+        "-y",
+        "helius-mcp@latest"
+      ]
+    },
+    "firecrawl": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${workspaceFolder}/.codex/scripts/start-firecrawl-mcp.cjs"]
+    },
+    "context7": {
+      "type": "http",
+      "url": "https://mcp.context7.com/mcp"
+    },
+    "github": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${workspaceFolder}/.codex/scripts/start-github-mcp.cjs"]
+    },
+    "grafana": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${workspaceFolder}/.codex/scripts/start-grafana-mcp.cjs"]
+    },
+    "postgres": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${workspaceFolder}/.codex/scripts/start-stdio-command.cjs",
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-postgres",
+        "postgresql://botuser:botpass@127.0.0.1:56432/trading_bot"
+      ]
+    },
+    "fetch": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${workspaceFolder}/.codex/scripts/start-stdio-command.cjs",
+        "uvx",
+        "mcp-server-fetch"
+      ]
+    },
+    "time": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${workspaceFolder}/.codex/scripts/start-stdio-command.cjs",
+        "uvx",
+        "mcp-server-time"
+      ]
+    },
+    "chrome_devtools": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${workspaceFolder}/.codex/scripts/start-stdio-command.cjs",
+        "npx",
+        "-y",
+        "chrome-devtools-mcp@latest"
+      ]
+    },
+    "shadcn": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${workspaceFolder}/.codex/scripts/start-stdio-command.cjs",
+        "npx",
+        "-y",
+        "shadcn@latest",
+        "mcp"
+      ]
+    }
+  }
+}

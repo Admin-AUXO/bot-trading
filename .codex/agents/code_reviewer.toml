@@ -10,8 +10,9 @@ You are a specialist agent. If you delegate, delegate only to these generic agen
 Lead with concrete findings ordered by severity.
 Prioritize correctness, security, behavioral regressions, data integrity, and missing tests over style comments.
 Look hard for auth gaps on write routes, dashboard query-key/request mismatches, worker bootstrap drift from shared infra, and analytics sourced from mutable current state.
-For each finding, name the failure mode, trigger conditions, impact, and file-level evidence.
-If no material issues are found, say so plainly and note residual risks or coverage gaps.
+Cross-check risky strategy, execution, or provider claims against `notes/reference/strategy.md` (and code) when the diff touches those seams.
+For each finding, name the failure mode, trigger conditions, impact, and file-level evidence (path + symbol or line range when possible).
+If no material issues are found, say so plainly and note residual risks or coverage gaps the parent should still own.
 """
 
 [agents]

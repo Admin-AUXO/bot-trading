@@ -1,5 +1,6 @@
 ---
-type: reference
+
+## type: reference
 status: active
 area: grafana
 date: 2026-04-11
@@ -15,7 +16,6 @@ source_files:
   - trading_bot/docker-compose.yml
 graph_checked:
 next_action: Add repo-owned alerting provisioning once the team decides the first symptom-based paging targets and receiver strategy.
----
 
 # Grafana Portfolio
 
@@ -39,13 +39,13 @@ The portfolio is generated, not hand-maintained.
 
 ## Source Of Truth
 
-- entrypoint: [`../../trading_bot/grafana/scripts/build-dashboards.mjs`](../../trading_bot/grafana/scripts/build-dashboards.mjs)
-- shared generator helpers: [`../../trading_bot/grafana/src/dashboard-generator/core.mjs`](../../trading_bot/grafana/src/dashboard-generator/core.mjs)
+- entrypoint: `[../../trading_bot/grafana/scripts/build-dashboards.mjs](../../trading_bot/grafana/scripts/build-dashboards.mjs)`
+- shared generator helpers: `[../../trading_bot/grafana/src/dashboard-generator/core.mjs](../../trading_bot/grafana/src/dashboard-generator/core.mjs)`
 - domain modules:
-  - [`../../trading_bot/grafana/src/dashboard-generator/scorecards.mjs`](../../trading_bot/grafana/src/dashboard-generator/scorecards.mjs)
-  - [`../../trading_bot/grafana/src/dashboard-generator/operations.mjs`](../../trading_bot/grafana/src/dashboard-generator/operations.mjs)
-  - [`../../trading_bot/grafana/src/dashboard-generator/analytics.mjs`](../../trading_bot/grafana/src/dashboard-generator/analytics.mjs)
-  - [`../../trading_bot/grafana/src/dashboard-generator/research.mjs`](../../trading_bot/grafana/src/dashboard-generator/research.mjs)
+  - `[../../trading_bot/grafana/src/dashboard-generator/scorecards.mjs](../../trading_bot/grafana/src/dashboard-generator/scorecards.mjs)`
+  - `[../../trading_bot/grafana/src/dashboard-generator/operations.mjs](../../trading_bot/grafana/src/dashboard-generator/operations.mjs)`
+  - `[../../trading_bot/grafana/src/dashboard-generator/analytics.mjs](../../trading_bot/grafana/src/dashboard-generator/analytics.mjs)`
+  - `[../../trading_bot/grafana/src/dashboard-generator/research.mjs](../../trading_bot/grafana/src/dashboard-generator/research.mjs)`
 - emitted JSON: `../../trading_bot/grafana/dashboards/**`
 
 Rule:
@@ -60,7 +60,7 @@ Rule:
 - categorical filters are multi-select by default
 - text filters for `mint`, `symbol`, and row ids use contains search
 - keep only shallow dependency chains
-  current example: `provider -> endpoint`
+current example: `provider -> endpoint`
 - preserve time range and variable values in dashboard links
 
 Common variables now in use:
@@ -112,7 +112,7 @@ Confirmed from the official Grafana alerting best-practices docs on 2026-04-11:
 
 Confirmed from Grafana alert annotation docs on 2026-04-11:
 
-- useful annotations include `summary`, `description`, `runbook_url`, `__dashboardUid__`, and `__panelId__`
+- useful annotations include `summary`, `description`, `runbook_url`, `__dashboardUid_`_, and `__panelId__`
 
 Repo-facing translation:
 
@@ -124,15 +124,15 @@ Repo-facing translation:
 Relevant features from official Grafana docs:
 
 - dashboard links and panel-context pivots
-  use now
+use now
 - annotations
-  useful for change markers and alert investigation context
+useful for change markers and alert investigation context
 - library panels
-  only worth adopting if the same panel contract truly repeats
+only worth adopting if the same panel contract truly repeats
 - reporting and shared dashboards
-  available in Grafana docs, but not part of the current repo workflow by default
+available in Grafana docs, but not part of the current repo workflow by default
 - query and resource caching
-  documented by Grafana, but likely not a fit for the current local OSS-first setup unless edition support and freshness needs are reviewed first
+documented by Grafana, but likely not a fit for the current local OSS-first setup unless edition support and freshness needs are reviewed first
 
 Inference:
 
@@ -169,6 +169,6 @@ Portfolio sanity check can be done through the logged-in Grafana API:
 ## Related Notes
 
 - [Reference Index](index.md)
-- [Decision - Grafana Dashboard Plan](../decisions/2026-04-10-grafana-dashboard-plan.md)
 - [API Surface](api-surface.md)
 - [Prisma And Views](prisma-and-views.md)
+

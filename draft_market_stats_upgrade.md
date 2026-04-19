@@ -1,171 +1,195 @@
-# Market Stats Page Upgrade + Bundle Stats + Free-Provider Integration
+# Market Stats + Enrichment Fabric — Remaining
 
-Reference doc on the free/paid data providers the Market Intel surfaces call. See [draft_index.md](draft_index.md) for the docs map. Clients wire into `TokenEnrichmentService` (backend plan §4.4).
+Companion to [draft_backend_plan.md §2.4](draft_backend_plan.md), [draft_rollout_plan.md §3.4](draft_rollout_plan.md). Snapshot **2026-04-18**.
 
-Status snapshot as of **2026-04-18**:
-- The 8 free-provider client files already exist.
-- `TokenEnrichmentService` fanout and `/api/operator/enrichment/:mint` also landed.
-- The market pages now consume this data, but evaluator ownership, live hardening, and provider-specific validation still remain.
+The enrichment fabric is mostly landed. This plan covers the remaining pieces: evaluator ownership, composite-score tuning, degraded-provider hardening, and live-mode policy.
 
 ---
 
-## A. Free provider reference — call pattern · TTL · limits · role · weight
+## 1. What's landed
 
-Eight providers complement the paid Birdeye/Helius surface. Every client is gated by `ProviderBudgetService.requestSlot('...', purpose)` even though the call is free — so rate limits count against a global slot quota.
+**Clients** — 8 free-provider clients at [trading_bot/backend/src/services/enrichment/](trading_bot/backend/src/services/enrichment/):
 
-| # | Provider | Endpoint used | Free-tier limit | Cache TTL | Role | Composite weight |
-|---|---|---|---|---|---|---:|
-| 1 | **Trench.bot** | `GET api.trench.bot/api/v1/bundle/bundle_advanced/{mint}` | public (≈ 10 rps observed; no documented cap — verify) | 10 m (30 s for hot candidates in evaluator) | Bundle / sniper detection; dev-bundle flag | 25 % |
-| 2 | **Bubblemaps** | `GET api-legacy.bubblemaps.io/map-data?token={mint}&chain=sol` | public, unthrottled in practice; cap self to 1 rps | 30 m | Wallet-cluster concentration + decentralization score | 15 % |
-| 3 | **Solsniffer** | `GET solsniffer.com/api/v2/token/{mint}` | 10 req/min free | 15 m | Broad security score (freeze / mint / upgradeable / sellable test) | 20 % |
-| 4 | **Pump.fun public** | `GET frontend-api.pump.fun/coins/{mint}` | public (unofficial — unannounced limits, self-cap 2 rps) | 60 s | Bonding-curve progress, creator, KOTH, replies | 5 % |
-| 5 | **Jupiter Token API** | `GET tokens.jup.ag/token/{mint}` | free, unlimited (community hygiene) | 60 m | Strict-list / verified tag, organic-volume proxy | 5 % |
-| 6 | **GeckoTerminal** | `GET api.geckoterminal.com/api/v2/networks/solana/tokens/{mint}/pools` | 30 req/min free | 5 m | Per-pool age + liquidity split (fake-LP detection) | 10 % |
-| 7 | **DefiLlama** | `GET api.llama.fi/summary/dexs/{mint}` (when present) | free, unlimited | 15 m | LP TVL + 7-day holder chart (when indexed) | 5 % |
-| 8 | **Cielo Finance** | `GET api.cielo.finance/v1/feed?token={mint}` | free with key; ~100 req/min | 2 m | Smart-wallet buys vs sells last 24 h | 15 % |
+| Client | File | Test |
+|---|---|---|
+| Trench.bot | `trench-client.ts` | `tests/enrichment/trench-client.test.ts` |
+| Bubblemaps | `bubblemaps-client.ts` | `tests/enrichment/bubblemaps-client.test.ts` |
+| Solsniffer | `solsniffer-client.ts` | `tests/enrichment/solsniffer-client.test.ts` |
+| Pump.fun public | `pumpfun-public-client.ts` | `tests/enrichment/pumpfun-public-client.test.ts` |
+| Jupiter Token | `jupiter-token-client.ts` | `tests/enrichment/jupiter-token-client.test.ts` |
+| GeckoTerminal | `geckoterminal-client.ts` | `tests/enrichment/geckoterminal-client.test.ts` |
+| DefiLlama | `defillama-client.ts` | `tests/enrichment/defillama-client.test.ts` |
+| Cielo Finance | `cielo-client.ts` | `tests/enrichment/cielo-client.test.ts` |
 
-Weights sum to 100 %. See §C for the composite security/signal score formula.
+All clients gate through `ProviderBudgetService.requestSlot(...)`.
 
-### A.1 Per-provider integration notes
+**Fanout + cache** — [token-enrichment-service.ts](trading_bot/backend/src/services/enrichment/token-enrichment-service.ts) (868 lines) fans out in parallel, caches via `EnrichmentFact(mint, source)`, writes `BundleStats`, and returns the unified bundle.
 
-- **Trench.bot** — the single highest-signal free add. Response returns `bundles[]`, `bundleSupplyPct`, `devBundle`, `sniperCount`. Persist into `BundleStats` (see [draft_database_plan.md](draft_database_plan.md)). Fall back to Padre.gg or self-build via Helius `getSignaturesForAsset` if Trench returns 5xx for > 30 s.
-- **Bubblemaps** — 30 min TTL is generous; clusters are stable at the timescale we trade at. Store top-cluster % and cluster-count in `EnrichmentFact` with `factType='cluster'`.
-- **Solsniffer** — rate-limit-bound; never enrich > 8 mints/min. Response includes 20+ flags; we persist the score + the top-3 flags only.
-- **Pump.fun public** — single most volatile endpoint. If it 5xx's for > 2 min, flip the panel to "Pump.fun unavailable" rather than fall back silently.
-- **Jupiter Token API** — cheap; call on every accepted candidate. `tags[]` includes `'strict'`, `'verified'`, `'birdeye-trending'`.
-- **GeckoTerminal** — 30/min cap is the binding constraint. Call only post-accept, never during discovery.
-- **DefiLlama** — only covers mints with a named DEX protocol; skip gracefully for unknown mints.
-- **Cielo** — poll-based today; if they ship a websocket we drop the polling client. For now, 2 m TTL matches a reasonable "smart-money warm" feel on the market page.
+**API** — `GET /api/operator/enrichment/:mint` at [enrichment-routes.ts:5](trading_bot/backend/src/api/routes/enrichment-routes.ts).
 
-### A.2 Composite security/signal score (one sortable number)
+**UI** — `/market/token/[mint]` page consumes the bundle.
+
+---
+
+## 2. Provider budgets + TTLs (reference)
+
+| # | Provider | Call | Free limit | TTL | Composite weight |
+|---|---|---|---|---|---:|
+| 1 | Trench.bot | `api.trench.bot/api/v1/bundle/bundle_advanced/{mint}` | ~10 rps (unpublished) | 10 m | 25% |
+| 2 | Bubblemaps | `api-legacy.bubblemaps.io/map-data?token={mint}&chain=sol` | public; self-cap 1 rps | 30 m | 15% |
+| 3 | Solsniffer | `solsniffer.com/api/v2/token/{mint}` | 10 req/min | 15 m | 20% |
+| 4 | Pump.fun | `frontend-api.pump.fun/coins/{mint}` | unofficial; 2 rps | 60 s | 5% |
+| 5 | Jupiter | `tokens.jup.ag/token/{mint}` | unlimited | 60 m | 5% |
+| 6 | GeckoTerminal | `api.geckoterminal.com/api/v2/networks/solana/tokens/{mint}/pools` | 30 req/min | 5 m | 10% |
+| 7 | DefiLlama | `api.llama.fi/summary/dexs/{mint}` | unlimited | 15 m | 5% |
+| 8 | Cielo | `api.cielo.finance/v1/feed?token={mint}` | ~100 req/min | 2 m | 15% |
+
+Weights sum to 100%. Each pack may override weights via pack config.
+
+---
+
+## 3. Composite score formula
 
 ```
 score =
-    0.20 * solsniffer.normalizedScore          // 0..1, (100 - their score) inverted
-  + 0.25 * trench.bundleRisk                   // 1 - min(bundleSupplyPct / 0.25, 1)
-  + 0.15 * bubblemaps.clusterRisk              // 1 - min(topClusterPct / 0.20, 1)
-  + 0.10 * rugcheck.riskComposite              // existing Rugcheck
-  + 0.15 * cielo.smartMoneyNet24h              // positive net buys → 1
-  + 0.05 * jupiter.strictOrVerified            // 1 if strict/verified
-  + 0.05 * pumpFun.grad500kOk                  // 1 if past $500k MC grad
-  + 0.05 * geckoTerminal.liquidityConcentrated // 1 if liq in single healthy pool
+    0.20 * solsniffer.normalizedScore
+  + 0.25 * trench.bundleRisk                // 1 - min(bundleSupplyPct / 0.25, 1)
+  + 0.15 * bubblemaps.clusterRisk           // 1 - min(topClusterPct / 0.20, 1)
+  + 0.10 * rugcheck.riskComposite
+  + 0.15 * cielo.smartMoneyNet24h
+  + 0.05 * jupiter.strictOrVerified
+  + 0.05 * pumpFun.grad500kOk
+  + 0.05 * geckoTerminal.liquidityConcentrated
 ```
 
-Normalize to 0..1; surface on `/market/trending` as a sortable column and on `/market/token/:mint` as a ring. Weights live in pack config so each pack can tune.
+Normalize to 0..1. Surface as a sortable column on `/market/trending` and a ring on `/market/token/:mint`.
 
-### A.3 Concrete additions to the market-stats page
-
-1. **Bundle & Snipers panel** (Trench) — bundle %, sniper count, dev-bundle flag, top-5 bundle wallets linked to Solscan. Single highest-signal add for meme filtering.
-2. **Cluster map thumbnail** (Bubblemaps) — top-cluster % of supply. Red banner if one cluster > 20 %.
-3. **Creator history row** (Helius — see [draft_helius_integration.md §2.2](draft_helius_integration.md)) — `searchAssets(creator)` + `getSignaturesForAsset` on creator: prior launches, rug rate, funding source (CEX vs fresh).
-4. **Pools mini-table** (GeckoTerminal) — pools with age + liquidity split; catches fake-liquidity splits.
-5. **Security composite** — the weighted score in §A.2, sortable.
-6. **Pump.fun origin** — replies, KOTH duration, grad timestamp, initial buy size, creator % cashed at grad.
-7. **Holder velocity sparkline** — computed from existing snapshots; rising line during price chop = continuation signal.
-8. **Smart-money activity strip** — Cielo + Birdeye `smart-money-v1/token-list`: last 6 smart-wallet actions on this mint.
-
-New clients as siblings to existing `RugcheckClient` / `DexScreenerClient`:
-
-```
-trading_bot/backend/src/services/enrichment/
-  trench-client.ts
-  bubblemaps-client.ts
-  solsniffer-client.ts
-  pumpfun-public-client.ts
-  jupiter-token-client.ts
-  geckoterminal-client.ts
-  defillama-client.ts
-  cielo-client.ts
-  token-enrichment-service.ts     (fanout, polymorphic cache on EnrichmentFact)
-```
+When < 4 sources respond, emit `?` and skip. Never silent-fallback.
 
 ---
 
-## B. Call-sequence — when each provider fires
+## 4. Remaining work
 
-```
-                            ┌──────────────────────────────────┐
-candidate accepted by       │  TokenEnrichmentService.load(m)  │
-evaluator                   └──────────────────────────────────┘
-                                          │
-                                          ▼
-                            ┌─────────────┴──────────────┐
-                            │ cache lookup per (mint,    │
-                            │   source) in EnrichmentFact│
-                            └─────────────┬──────────────┘
-                                          │  some miss / stale
-                                          ▼
-          parallel fanout (each guarded by requestSlot)
-    ┌─────────────┬─────────────┬─────────────┬───────────────┐
-    │   Trench    │ Bubblemaps  │  Solsniffer │  Jupiter tag  │
-    │  (10 m TTL) │  (30 m)     │  (15 m)     │  (60 m)       │
-    └─────────────┴─────────────┴─────────────┴───────────────┘
-    ┌─────────────┬─────────────┬─────────────┬───────────────┐
-    │  GeckoTerm  │   Cielo     │  Pump.fun   │   DefiLlama   │
-    │   (5 m)     │   (2 m)     │  (60 s)     │   (15 m)      │
-    └─────────────┴─────────────┴─────────────┴───────────────┘
-                                          │
-                                          ▼
-                               writes → EnrichmentFact
-                               computes → composite score
-                                          │
-                                          ▼
-                              returns EnrichmentBundle
-                                          │
-                                          ├──▶ evaluator (filter gates)
-                                          ├──▶ /api/operator/enrichment/:mint
-                                          └──▶ /market/token/:mint cards
-```
+### 4.1 Evaluator ownership (priority)
 
-Discovery stage never calls free providers — discovery only pulls Birdeye trending + DexScreener. Free providers fire only post-accept or on operator navigation to `/market/token/:mint`.
+`GraduationEngine.evaluate(candidate)` still calls ad-hoc Birdeye + rugcheck paths directly. Route it through `TokenEnrichmentService.load(mint)` as the single contract. See [draft_backend_plan.md §2.4](draft_backend_plan.md).
 
----
+Behavior:
+- Bundle fetched first; filters consume bundle fields.
+- Degraded bundle (< 4 sources) → candidate rejected with reason `enrichment-degraded`.
+- Never fall back to ad-hoc. If a field is missing, the filter fails closed.
 
-## C. Bundle stats — three sources ranked
+### 4.2 Pack-config weight overrides
 
-1. **Trench.bot** *(recommended primary)* — `GET /bundle/bundle_advanced/{mint}` returns bundle count, bundle supply %, dev-bundle flag, per-bundle wallet list, holding %, sold %.
-2. **Padre.gg public scraper** — similar data, less stable. Only if Trench is out.
-3. **Self-build via Helius** *(fallback)* — `getSignaturesForAsset` on mint → first 50 buy txs → cluster by slot (same/adjacent slot, shared fee payer / funded wallet). Accurate but ~50–100 Helius credits per token.
+Composite weights live in pack config (default: §3 above). Each `StrategyPackVersion.config.composite.weights` may override. Validate at pack save:
+- Weights sum within `[0.99, 1.01]`.
+- No negative weight.
+- No weight on a provider the pack has globally disabled.
 
-Persist to `BundleStats` (see [draft_database_plan.md §1](draft_database_plan.md)). Stale > 30 min triggers a refresh on next evaluator hit.
+### 4.3 Degraded-provider hardening
 
----
+Per-provider behavior when a client 5xx's for > 2 min:
 
-## D. Failure / unavailability policy
-
-| Provider | Behavior if degraded | Surface message |
+| Provider | UI surface | Composite behavior |
 |---|---|---|
-| Trench | Flip to self-build via Helius; bump mint cost to ~80 credits | "Trench unavailable — using on-chain bundle build" |
-| Bubblemaps | Skip cluster card; keep trade | "Clusters unavailable — check Bubblemaps later" |
-| Solsniffer | Omit from composite; weight redistributes | "Security partial (Solsniffer 5xx)" |
-| Pump.fun | Omit panel | "Pump.fun unavailable" |
-| Jupiter token | Omit tag | silent (not user-visible) |
-| GeckoTerminal | Omit pool list | "Pool list unavailable" |
-| Cielo | Omit smart-money strip | "Smart-money feed unavailable" |
-| DefiLlama | Silent skip | — |
+| Trench | "Trench unavailable — using Helius bundle fallback" | Switch to `getSignaturesForAsset` self-build (80 credits) |
+| Bubblemaps | "Clusters unavailable" | Weight redistributed |
+| Solsniffer | "Security partial (Solsniffer 5xx)" | Weight redistributed |
+| Pump.fun | "Pump.fun unavailable" | Weight redistributed |
+| Jupiter | silent | Weight redistributed |
+| GeckoTerminal | "Pool list unavailable" | Weight redistributed |
+| DefiLlama | silent | Weight redistributed |
+| Cielo | "Smart-money feed unavailable" | Weight redistributed |
 
-Composite score always emits when ≥ 4 sources responded; otherwise shows as `?` in the UI.
+"Weight redistributed" = lost weight spreads proportionally across responsive sources. Do not set it to zero without redistribution — that silently lowers scores.
+
+One integration test per row in this table.
+
+### 4.4 Discovery-stage boundary
+
+Discovery (the `DiscoveryLabService` loop) must never call free providers. Only post-accept. This is currently enforced by construction (enrichment is called in `GraduationEngine`, not `DiscoveryLabService`), but add a lint: grep for enrichment imports inside discovery paths returns zero.
+
+### 4.5 Market-stats page — remaining panels
+
+`/market/token/[mint]` exists. Remaining panels to surface:
+
+1. **Bundle & Snipers** — Trench: bundle %, sniper count, dev-bundle flag, top-5 bundle wallets linked to Solscan.
+2. **Cluster map** — Bubblemaps thumbnail + top-cluster %; red banner if > 20%.
+3. **Creator history** — Helius `searchAssets(creator)` + `getSignaturesForAsset`: prior launches, rug rate.
+4. **Pools** — GeckoTerminal: pools with age + liquidity split.
+5. **Security composite ring** — §3 formula.
+6. **Pump.fun origin** — replies, KOTH duration, grad timestamp, creator % cashed at grad.
+7. **Holder velocity sparkline** — computed from `TokenMetrics` snapshots.
+8. **Smart-money strip** — last 6 smart-wallet actions (Cielo + Birdeye smart-money list).
+
+Grader: load `/market/token/[mint]` on 3 mints and confirm every panel either renders data or shows the degraded banner.
+
+### 4.6 Live-mode policy
+
+In `mode=LIVE`:
+- Enrichment cache TTL halved for hot candidates (mint is on an active session's watchlist).
+- Composite score must have ≥ 5 sources responded (not just the 4-source minimum).
+- Trench must be among the responsive sources — it's the highest-signal source for meme filtering; if it's degraded, reject.
+
+Enforce in `TokenEnrichmentService.load(mint, { mode: 'LIVE' })`.
 
 ---
 
-## E. Acceptance criteria
+## 5. Parallel Work Packages
 
-- Each of the 8 clients exists as a single file with typed response shape and a test fixture.
-- `TokenEnrichmentService` calls are idempotent and respect TTLs (no double-fetch within TTL window).
-- `EnrichmentFact` row count is bounded (composite index on `(mint, source)` + daily prune of rows stale > 7 days).
-- Composite score formula lives in pack config; each pack can override weights.
-- `/api/operator/enrichment/:mint` p95 < 1.5 s on warm cache; < 4 s on full cold fanout with one provider slow.
-- Degraded-provider paths tested — no panel hard-fails when a single client 5xx's.
+Enrichment + market-UI slice. WP-MK-1 is the same as rollout WP5; WP-MK-4 is the same as rollout WP13 — cross-referenced so an agent reading only this draft has enough context.
+
+### WP-MK-1 — Evaluator cutover (= rollout WP5, = WP-BE-3)
+
+**Owner:** `enrichment-integrator`.
+**Scope:** [engine/graduation-engine.ts](trading_bot/backend/src/engine/graduation-engine.ts) filter-gate block only.
+**Acceptance:** grep for direct Birdeye/Rugcheck calls in `GraduationEngine` returns zero; filters consume `bundle.fields`; degraded bundle (< 4 sources) rejects with `rejectReason: 'enrichment-degraded'`.
+
+**Prompt:** See WP-BE-3 in [draft_backend_plan.md §4](draft_backend_plan.md) — identical scope.
+
+### WP-MK-2 — Pack-config weight override validator
+
+**Owner:** `enrichment-integrator`.
+**Scope:** [services/workbench/strategy-pack-draft-validator.ts](trading_bot/backend/src/services/workbench/strategy-pack-draft-validator.ts) (extend), `tests/workbench/pack-weight-validator.test.ts` (new).
+**Acceptance:** pack save rejects weights summing outside [0.99, 1.01], any negative weight, or any weight on a globally-disabled provider.
+
+**Prompt:**
+> Extend `strategy-pack-draft-validator.ts` to validate the `config.composite.weights` object on save: (a) sum within `[0.99, 1.01]`, (b) every value ≥ 0, (c) no key matches a provider in `settings.providers.disabled` list. Return structured errors `{ code, field, message }` consumed by the editor UI's red banner. Test each rule at `tests/workbench/pack-weight-validator.test.ts`. Do NOT modify the pack editor UI — that's WP-UI-B in [draft_dashboard_plan.md](draft_dashboard_plan.md).
+
+### WP-MK-3 — Degraded-provider integration tests
+
+**Owner:** `enrichment-integrator`.
+**Scope:** 8 new test files under `trading_bot/backend/tests/enrichment/degraded/*.test.ts`.
+**Acceptance:** one test per row in §4.3; each covers: client returns 5xx → bundle marks source `degraded` → UI copy matches the table → composite weight redistributes without setting source weight to 0.
+
+**Prompt:**
+> For each provider in §4.3 of [draft_market_stats_upgrade.md](draft_market_stats_upgrade.md), write `tests/enrichment/degraded/<provider>-degraded.test.ts` that mocks the client to return 5xx for > 2 min, calls `TokenEnrichmentService.load(mint)`, and asserts: `bundle.sources[<name>].status === 'degraded'`, `bundle.sources[<name>].degradedMessage === <exact UI copy from the table>`, composite score uses redistributed weights (no zeroing), `bundle.responsiveSourceCount` decremented. Use existing fixtures under `tests/enrichment/fixtures/` as templates; create new fixtures for the 5xx case.
+
+### WP-MK-4 — 8 market panels (= rollout WP13)
+
+**Owner:** `dashboard-decomposer`.
+**Scope:** `dashboard/app/market/token/[mint]/components/*.tsx` (8 new components + compose in `page.tsx`).
+**Acceptance:** every panel renders from `/api/operator/enrichment/:mint` bundle; each shows its degraded copy (from §4.3) when the source status is `degraded`.
+
+**Prompt:**
+> Under `trading_bot/dashboard/app/market/token/[mint]/components/`, implement 8 panel components consuming the enrichment bundle: `bundle-snipers-panel.tsx` (Trench), `cluster-map-panel.tsx` (Bubblemaps + red banner if top-cluster > 20%), `creator-history-panel.tsx` (Helius searchAssets + signatures), `pools-panel.tsx` (GeckoTerminal pools with age + LP split), `security-composite-ring.tsx` (§3 formula as a ring), `pumpfun-origin-panel.tsx` (replies, KOTH duration, grad ts, creator cashed %), `holder-velocity-sparkline.tsx` (from `TokenMetrics` snapshots via the existing trending API), `smart-money-strip.tsx` (last 6 Cielo + Birdeye smart-money events). Each panel reads `bundle.sources[<name>].status` — on `degraded`, render the exact UI copy from §4.3 of [draft_market_stats_upgrade.md](draft_market_stats_upgrade.md). Compose into `page.tsx`. Use shadcn + AG Grid 35 + Recharts per conventions. Do NOT modify the API route or enrichment service.
+
+### WP-MK-5 — LIVE-mode source gate
+
+**Owner:** `enrichment-integrator`.
+**Scope:** [services/enrichment/token-enrichment-service.ts](trading_bot/backend/src/services/enrichment/token-enrichment-service.ts), `tests/enrichment/live-mode-gate.test.ts` (new).
+**Acceptance:** `TokenEnrichmentService.load(mint, { mode: 'LIVE' })` returns `degraded` when < 5 sources responded or Trench is not among responders; TTL halved when mint is on an active session watchlist.
+
+**Prompt:**
+> Extend `TokenEnrichmentService.load(mint, options)`: when `options.mode === 'LIVE'`, require `responsiveSourceCount >= 5` AND Trench among responders — else mark bundle `degraded` with `reason: 'live-source-floor'`. When mint is on an active session watchlist (check via `TradingSessionService.getActiveWatchlist()`), halve the cache TTL for every `EnrichmentFact` read. Do NOT change behavior for non-LIVE modes. Test at `tests/enrichment/live-mode-gate.test.ts` covering: LIVE + 4 sources (degraded), LIVE + 5 sources without Trench (degraded), LIVE + 5 sources with Trench (ok), PAPER + 4 sources (ok), watchlist TTL (half).
 
 ---
 
-## F. Sources
+## 6. Acceptance
 
-- [Trench.bot](https://trench.bot/)
-- [Bubblemaps Solana](https://bubblemaps.io/)
-- [Chainstack Pump.fun guide](https://docs.chainstack.com/docs/solana-creating-a-pumpfun-bot)
-- [Solsniffer](https://solsniffer.com/)
-- [Jupiter Token API](https://station.jup.ag/docs/token-list/token-list-api)
-- [GeckoTerminal API](https://apiguide.geckoterminal.com/)
-- [DefiLlama API](https://defillama.com/docs/api)
-- [Cielo Finance](https://cielo.finance/)
+- `GraduationEngine` consumes the bundle; grep for direct Birdeye calls in it is clean.
+- 8 clients × 1 degraded-path integration test each, green.
+- `/market/token/[mint]` renders all 8 panels with degraded fallback.
+- `/api/operator/enrichment/:mint` p95 < 1.5 s warm, < 4 s cold (measured).
+- Pack-config weight overrides validated at save.
+- LIVE mode enforces the stricter source gate.

@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "node .cursor/hooks/session-start.cjs",
+        "timeout": 8
+      }
+    ],
+    "postToolUse": [
+      {
+        "command": "node .cursor/hooks/post-write-reminder.cjs",
+        "matcher": "Write|StrReplace|MultiEdit",
+        "timeout": 5
+      }
+    ]
+  }
+}

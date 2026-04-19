@@ -1,5 +1,6 @@
 ---
-type: runbook
+
+## type: runbook
 status: active
 area: providers/research
 date: 2026-04-13
@@ -11,12 +12,11 @@ source_files:
   - trading_bot/backend/src/services/discovery-lab-created-packs.ts
 graph_checked: 2026-04-15
 next_action: Keep the Telegram alert runner aligned with the saved workspace pack and the backend discovery-lab API if the pack defaults, poll timings, or alert policy change again.
----
 
 # Runbook - Birdeye Discovery Lab
 
 The procedure now lives in the repo skill:
-[`.agents/skills/birdeye-discovery-lab/SKILL.md`](../../.agents/skills/birdeye-discovery-lab/SKILL.md)
+`[.agents/skills/birdeye-discovery-lab/SKILL.md](../../.agents/skills/birdeye-discovery-lab/SKILL.md)`
 
 Use the skill when you need repeatable Birdeye `meme/list` experiments instead of one-off curls.
 
@@ -69,11 +69,11 @@ Runner behavior:
 - quiet-skips if another discovery-lab run is already active
 - sends Telegram only when the completed run has at least one winner
 - optional local test overrides:
-  `DISCOVERY_LAB_ALERT_API_URL`
-  `DISCOVERY_LAB_ALERT_FORCE_WINDOW`
-  `DISCOVERY_LAB_ALERT_POLL_INTERVAL_MS`
-  `DISCOVERY_LAB_ALERT_MAX_WAIT_MS`
-  `TELEGRAM_API_BASE_URL`
+`DISCOVERY_LAB_ALERT_API_URL`
+`DISCOVERY_LAB_ALERT_FORCE_WINDOW`
+`DISCOVERY_LAB_ALERT_POLL_INTERVAL_MS`
+`DISCOVERY_LAB_ALERT_MAX_WAIT_MS`
+`TELEGRAM_API_BASE_URL`
 
 ## Durable Rules
 
@@ -85,29 +85,30 @@ Runner behavior:
 - Helius mint authorities and Helius holder concentration are batch-fetched once per unique uncached mint in the run, then reused across recipes
 - repo-owned created packs now replace the old starter JSON pack files
 - the current repo-created packs are:
-  `created-early-grad-scalp-tape-surge`
-  `created-early-grad-scalp-buyer-stack`
-  `created-early-grad-scalp-liquidity-ramp`
-  `created-early-grad-scalp-momentum-retest`
-  `created-early-grad-scalp-quality-guard`
+`created-early-grad-scalp-tape-surge`
+`created-early-grad-scalp-buyer-stack`
+`created-early-grad-scalp-liquidity-ramp`
+`created-early-grad-scalp-momentum-retest`
+`created-early-grad-scalp-quality-guard`
 - non-winning created packs from recent runs were retired from the default set so the desk can stay focused on early graduated scalp lanes.
 - the workspace control pack is still:
-  `scalp-tape-structure` (`Scalp tape + structure`)
+`scalp-tape-structure` (`Scalp tape + structure`)
 - keep the pack ladder and threshold ownership in:
-  `notes/investigations/2026-04-11-birdeye-discovery-lab-quality-pack-sweep.md`
+`notes/investigations/2026-04-11-birdeye-discovery-lab-quality-pack-sweep.md`
 - pass-grade results in the dashboard can now open a live manual trade directly from the token board; that path reuses the real execution engine, creates a linked candidate row for traceability, and drops the position into the normal managed-exit and open-position surfaces
 - the new `scalp` profile is the current small-ticket grading lens for recipe experiments; it matches the calibrated proxy lens:
-  `minLiquidityUsd=8000`
-  `maxMarketCapUsd=2000000`
-  `minHolders=35`
-  `minVolume5mUsd=1500`
-  `minUniqueBuyers5m=12`
-  `minBuySellRatio=1.05`
-  `maxTop10HolderPercent=45`
-  `maxSingleHolderPercent=25`
-  `maxNegativePriceChange5mPercent=18`
+`minLiquidityUsd=8000`
+`maxMarketCapUsd=2000000`
+`minHolders=35`
+`minVolume5mUsd=1500`
+`minUniqueBuyers5m=12`
+`minBuySellRatio=1.05`
+`maxTop10HolderPercent=45`
+`maxSingleHolderPercent=25`
+`maxNegativePriceChange5mPercent=18`
 - that exact scalp rerun produced `18` pass-grade hits across `5` unique tokens in the sampled window, with `grad_60m_trade5m` leading by total good names
 - if discovery lab is launched from the running bot container through the dashboard API, the container image must include both `tsx` and the backend `src/` tree because `npm run lab:discovery` executes the TypeScript script directly
 - the Telegram alert runner now depends on the local backend API being reachable at `DISCOVERY_LAB_ALERT_API_URL` or `http://127.0.0.1:${BOT_PORT}` by default
 - inspect reject reasons before touching thresholds
 - keep the durable takeaway in trading memory, not in the runbook
+

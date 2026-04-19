@@ -9,18 +9,22 @@ Obsidian vault for durable context across sessions. Agents use this instead of r
 3. one durable note from `sessions/`, `investigations/`, `decisions/`, `runbooks/`, or `trading-memory/`
 4. code
 
+Handoff continuation: `[next-session-prompt.md](next-session-prompt.md)` → `[reference/drafts-and-implementation-truth.md](reference/drafts-and-implementation-truth.md)`.
+
 ## Folders
 
-| Folder | Purpose |
-|--------|---------|
-| `reference/` | Canonical repo docs (contracts, API, stack, strategy) |
-| `sessions/` | Active workstream summaries |
-| `sessions/archive/` | Old handoffs |
-| `investigations/` | Debugging and research |
-| `decisions/` | Durable choices and why |
-| `runbooks/` | Repeatable procedures |
-| `trading-memory/` | Provider, market, and strategy lessons |
-| `templates/` | Note templates |
+
+| Folder              | Purpose                                               |
+| ------------------- | ----------------------------------------------------- |
+| `reference/`        | Canonical repo docs (contracts, API, stack, strategy) |
+| `sessions/`         | Active workstream summaries                           |
+| `sessions/archive/` | Old handoffs                                          |
+| `investigations/`   | Debugging and research                                |
+| `decisions/`        | Durable choices and why                               |
+| `runbooks/`         | Repeatable procedures                                 |
+| `trading-memory/`   | Provider, market, and strategy lessons                |
+| `templates/`        | Note templates                                        |
+
 
 ## Rules
 
@@ -46,9 +50,4 @@ source_files: []
 
 ## Vault Access
 
-```bash
-cd trading_bot
-docker compose --profile notes up -d obsidian
-```
-
-Open `https://127.0.0.1:3111` → vault: `/config/vaults/bot-trading`
+See [reference/obsidian.md](reference/obsidian.md) for the Docker sidecar, bind mount path, and localhost URLs.

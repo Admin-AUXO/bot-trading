@@ -4,10 +4,12 @@ Pricing summary trimmed for the only plans that matter here.
 
 ## Plan Snapshot
 
-| Plan | Monthly Price | Included CUs | Rate Limit | Overage per 1M CUs |
-| --- | --- | --- | --- | --- |
-| Lite | $39 | 1,500,000 | 15 rps | $23 |
-| Starter | $99 | 5,000,000 | 15 rps | $19.9 |
+
+| Plan    | Monthly Price | Included CUs | Rate Limit | Overage per 1M CUs |
+| ------- | ------------- | ------------ | ---------- | ------------------ |
+| Lite    | $39           | 1,500,000    | 15 rps     | $23                |
+| Starter | $99           | 5,000,000    | 15 rps     | $19.9              |
+
 
 ## Recommendation Frame
 

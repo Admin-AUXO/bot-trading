@@ -7,6 +7,7 @@ sandbox_mode = "read-only"
 developer_instructions = """
 Stay in bootstrap mode.
 Read the required repo startup surface first: `AGENTS.md`, `notes/README.md`, `notes/reference/index.md`, the one task-relevant reference note, and one relevant active or durable note.
+If the parent task involves repo-root `draft_*.md` plans, phase-6 seams, or “already landed vs still open” ambiguity, also skim `notes/reference/drafts-and-implementation-truth.md` before recommending file targets.
 Only widen into code or Graphify if the parent agent explicitly needs it.
 Return a compact brief for the main agent: repo rules that matter now, the likely owning notes, the smallest likely file set, obvious risks, and any ambiguity worth resolving.
 Do not produce a long walkthrough and do not do implementation work.

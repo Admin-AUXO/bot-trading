@@ -1,0 +1,10 @@
+---
+description: Prisma 7 schema prisma schema.prisma SQL views create_views.sql reporting views no migration files house rollout
+globs: trading_bot/backend/prisma/**
+alwaysApply: false
+---
+
+# Prisma and SQL views
+
+- Keep [`schema.prisma`](../../trading_bot/backend/prisma/schema.prisma) and [`create_views.sql`](../../trading_bot/backend/prisma/views/create_views.sql) coherent with each other and with [`notes/reference/prisma-and-views.md`](../../notes/reference/prisma-and-views.md).
+- **No** checked-in Prisma migration workflow — follow [`AGENTS.md`](../../AGENTS.md) and the prisma reference note for rollout expectations.

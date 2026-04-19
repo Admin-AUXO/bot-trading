@@ -1,138 +1,217 @@
-# Database Plan — Schema, Views, Deletions
+# Database Plan — Schema + Views Remaining
 
-Companion to [draft_index.md](draft_index.md), [draft_strategy_packs_v2.md](draft_strategy_packs_v2.md), [draft_backend_plan.md](draft_backend_plan.md).
+Companion to [draft_rollout_plan.md §3.1](draft_rollout_plan.md). Snapshot **2026-04-18**.
 
-Status snapshot as of **2026-04-18**:
-- Core pack/session/exit/enrichment schema slices are already landed.
-- Phase-6 schema work is now mixed: some tables and views exist, others remain planned.
-- This draft should be read as "what already exists plus what still needs to land", not as an untouched proposal.
-
-**Scope:** Prisma 7 schema + PostgreSQL 16 views. Schema-only edits (per project rules — no hand-authored migrations). All new tables carry `createdAt` / `updatedAt` and FK indexes.
-
-**Principle:** promote hot fields out of `metadata` JSON; make strategy packs first-class; back every Grafana panel with a committed view.
+This plan only covers deltas. The current schema is [trading_bot/backend/prisma/schema.prisma](trading_bot/backend/prisma/schema.prisma) (~970 lines, 47 models + enums). The current views are [trading_bot/backend/prisma/views/create_views.sql](trading_bot/backend/prisma/views/create_views.sql) (~696 lines, 23 views).
 
 ---
 
-## 1. New tables
+## 1. Migration policy
 
-| Table | Purpose | Key columns |
-|---|---|---|
-| `StrategyPack` | First-class versioned pack (replaces hardcoded presets + dangling FKs) | `id`, `name`, `version`, `status (DRAFT\|TESTING\|GRADED\|LIVE\|RETIRED)`, `grade (A\|B\|C\|D\|F)`, `recipe` JSON, `baseFilters` JSON, `baseExits` JSON, `adaptiveAxes` JSON, `capitalModifier`, `sortColumn`, `sortOrder`, `publishedAt`, `createdBy` |
-| `StrategyPackVersion` | Append-only history, enables rollback | `packId`, `version`, `configSnapshot` JSON, `parentVersion`, `notes` |
-| `StrategyRun` | One test/live run of a pack vs. tape | `packId`, `packVersion`, `mode (SANDBOX\|LIVE\|DRY)`, `status`, `startedAt`, `completedAt`, `candidateCount`, `acceptedCount`, `winnerCount`, `realizedPnlUsd`, `gradeNotes` |
-| `StrategyRunGrade` | Per-token grader verdict | `runId`, `mint`, `operatorVerdict (TRUE_POS\|FALSE_POS\|MISSED_EXIT\|GOOD_EXIT\|UNGRADED)`, `notes` |
-| `ExitPlan` | Normalized exit config, replaces `Position.metadata.exitPlan` | `positionId UNIQUE`, `exitProfile`, 11 TP/SL/time fields, `derivedFromScore`, `strategyPackId` |
-| `AdaptiveThresholdLog` | Every runtime mutation (telemetry) | `positionId?`, `candidateId?`, `axis`, `originalValue`, `mutatedValue`, `reasonCode`, `ctxJson`, `appliedAt` |
-| `BundleStats` | Trench.bot / self-built bundle cache | `mint PK`, `bundleCount`, `bundleSupplyPct`, `devBundle`, `sniperCount`, `source`, `checkedAt`, `expiresAt` |
-| `EnrichmentFact` | Polymorphic cache (Bubblemaps / Solsniffer / Jupiter / GeckoTerminal / Cielo / Pump.fun) | `mint`, `source` enum, `factType`, `payload` JSON, `fetchedAt`, `expiresAt`, composite index `(mint, source)` |
-| `CreatorLineage` | Helius `searchAssets(creator)` cache | `creatorAddress PK`, `tokenCount24h`, `rugRate`, `fundingSource`, `lastSampledAt` |
-| `SmartWallet` | Registry of tracked wallets for pack 2 | `address PK`, `label`, `pnlUsd`, `winRate`, `source`, `active`, `refreshedAt` |
-| `SmartWalletEvent` | Webhook-ingested buys/sells | `walletAddress`, `mint`, `side`, `amountUsd`, `slot`, `txSig`, `receivedAt`, index `(mint, receivedAt)` |
-| `TradingSession` | A live period where one pack is deployed | `packId`, `packVersion`, `previousPackVersion`, `mode`, `startedAt`, `stoppedAt`, `stoppedReason`, `realizedPnlUsd`, `tradeCount` |
-
-## 2. Column promotions (kill metadata sprawl)
-
-| Currently blob field | Promote to column on |
-|---|---|
-| `Candidate.metadata.entryScore`, `.exitProfile`, `.confidenceScore` | `Candidate.entryScore`, `.exitProfile`, `.confidenceScore` |
-| `Position.metadata.exitPlan.*`, `.exitProfile` | **delete** — superseded by `ExitPlan` row |
-| `Position.metadata.discoveryLabReportAgeMsAtEntry` (3 fields) | `Position.discoveryLabReportAgeMsAtEntry`, `...RunAgeMsAtEntry`, `...CompletionLagMsAtEntry` |
-| `Fill.metadata.live.timing.*` (5 latency fields) | `Fill.quoteLatencyMs`, `...swapBuildLatencyMs`, etc. (partial column set exists — finish) |
-
-Dual-write for ≥7 days before removing the metadata read path (see [draft_rollout_plan.md](draft_rollout_plan.md) guardrails).
-
-## 3. Fix dangling FKs
-
-- `Candidate.liveStrategyPackId` ([schema.prisma:161](trading_bot/backend/prisma/schema.prisma)) → real relation to `StrategyPack`.
-- `DiscoveryLabRun.liveStrategyPackId` ([schema.prisma:241](trading_bot/backend/prisma/schema.prisma)) → real relation to `StrategyPack`.
-
-## 4. Views — backfill the 20 missing
-
-Grafana dashboards reference views that don't exist yet. Add in [create_views.sql](trading_bot/backend/prisma/views/create_views.sql):
-
-**Daily aggregates:** `v_source_outcome_daily`, `v_candidate_cohort_daily`, `v_position_cohort_daily`, `v_position_exit_reason_daily`, `v_fill_pnl_daily`, `v_snapshot_trigger_daily`, `v_candidate_funnel_daily_source`.
-
-**Hourly telemetry:** `v_api_provider_hourly`, `v_api_endpoint_hourly`, `v_payload_failure_hourly`.
-
-**Live state:** `v_runtime_live_status`, `v_open_position_monitor`, `v_runtime_lane_health`, `v_recent_fill_activity`.
-
-**Recent / detail:** `v_raw_api_payload_recent`, `v_token_snapshot_enriched`, `v_candidate_latest_filter_state`.
-
-**Config impact:** `v_config_change_log`, `v_config_field_change`, `v_kpi_by_config_window`.
-
-## 5. New views for pack workflow
-
-- `v_strategy_pack_performance_daily` — `packId × day` → candidates, accepts, wins, avg winner %, avg loser %, realized PnL, EV.
-- `v_strategy_pack_exit_profile_mix` — `packId × exit reason × profile` → counts.
-- `v_adaptive_threshold_activity` — `axis × reasonCode × hour` → mutation counts; drives Adaptive Telemetry dashboard.
-- `v_smart_wallet_mint_activity` — `mint × hour` rollup from `SmartWalletEvent` for the Smart-Money pack.
-- `v_enrichment_freshness` — source × age buckets to diagnose stale caches.
-
-Every view must include `config_version` (join on `ConfigSnapshot`) and `strategyPackId` for Grafana pack filter.
-
-## 6. Deletions / consolidations
-
-- `DiscoveryLabRun.metadata` — unused; drop.
-- `DiscoveryLabRunToken.tradeSetup` — redundant once pack is first-class; drop after phase 2.
-- `/api/candidates`, `/api/positions`, `/api/fills` — superseded by `/api/operator/*`; delete routes (keep tables).
-- `/api/views/:name` — restrict to an allowlist of ≤6 views that dashboards actually query.
-
-## 7. Acceptance criteria
-
-- `npm run db:generate` succeeds.
-- Existing tests green; no prod migration needed (schema-only).
-- Every new table queried from Grafana is covered by a committed view.
-- No new JSON blob reads from `Position.metadata.exitPlan` after phase 2 cutover.
-- All new tables are indexed on the FK used by Grafana filters.
+- **No Prisma migrations.** The project uses `db push` only. Never add a file under `prisma/migrations/`.
+- Schema edits are done in `schema.prisma` + `prisma generate` only. Operators sync their dev DB with `prisma db push`.
+- Views are managed separately — edits go into `create_views.sql` and are run manually against Postgres. A view drop + replace is safe; never CASCADE a table.
+- Dual-write any metadata → column promotion for ≥ 7 days before removing the metadata side. This policy has caught misreads twice in prior phases.
+- When adding enums, keep them in `schema.prisma` only; Postgres auto-creates the native enum on `db push`.
 
 ---
 
-## Phase 6+ additions
+## 2. Tables already landed (reference)
 
-Schema adds that land alongside phase 6 (execution depth, credit tracking, adaptive telemetry RCA, config replay). All schema-only edits; views under [create_views.sql](trading_bot/backend/prisma/views/create_views.sql).
+Confirm with `grep '^model' schema.prisma` before planning. Already present:
 
-### 8. New tables (phase 6+)
+- **Core trade path**: `TokenMetrics`, `Candidate`, `Position`, `Fill`, `BotState`, `RuntimeConfig`, `RuntimeConfigVersion`.
+- **Pack + session**: `StrategyPack`, `StrategyPackVersion`, `ExitPlan`, `TradingSession`.
+- **Discovery lab (legacy, slated for deletion)**: `DiscoveryLabPack`, `DiscoveryLabRun`, `DiscoveryLabRunQuery`, `DiscoveryLabRunToken`.
+- **Enrichment**: `BundleStats`, `EnrichmentFact`, `CreatorLineage`.
+- **Provider telemetry**: `ProviderCreditLog`, `ApiEvent`, `RawApiPayload`.
+- **Execution + adaptive**: `FillAttempt`, `MutatorOutcome`, `AdaptiveThresholdLog`.
+- **Smart money**: `SmartWallet`, `SmartWalletEvent`, `SmartWalletFunding`.
+- **Shared facts**: `SharedTokenFact`, `SharedTokenFactMigrationSignal`.
+- **Events**: `OperatorEvent`, `ExitEvent`.
 
-| Table | Purpose | Key columns |
+Enums landed: `CandidateStatus`, `PositionStatus`, `FillSide`, `DiscoveryLabRunStatus`, `DiscoveryLabPackKind`, `StrategyPackStatus`, `StrategyPackGrade`, `ExitPlanProfile`, `TradingSessionMode`, `SmartWalletEventSide`, `ProviderName`, `ProviderSource`, `ProviderPurpose`, `SubmitLane`, `MutatorVerdict`, `WalletFundingSource`.
+
+---
+
+## 3. Tables to add
+
+### 3.1 `ExitPlanMutation`
+
+Tracks each adaptive change applied to a live `ExitPlan`. Powers `v_exit_plan_mutation_daily` and the Adaptive Telemetry dashboard.
+
+```prisma
+model ExitPlanMutation {
+  id          BigInt   @id @default(autoincrement())
+  positionId  BigInt
+  exitPlanId  BigInt
+  axis        String   // "stopLossPercent", "trailingStopPercent", etc.
+  beforeValue Float?
+  afterValue  Float?
+  reason      String   // operator | adaptive | pack-version-bump
+  mutatorCode String?
+  appliedAt   DateTime @default(now())
+  position    Position @relation(fields: [positionId], references: [id])
+  exitPlan    ExitPlan @relation(fields: [exitPlanId], references: [id])
+
+  @@index([positionId, appliedAt])
+  @@index([mutatorCode, appliedAt])
+}
+```
+
+Writers: adaptive engine (mutator apply), exit engine (operator manual override), pack route (version bump propagation).
+
+### 3.2 `ConfigReplay`
+
+Records a replay of a prior config-version against current telemetry — used by the Config Impact dashboard and the "what-if" tool in the session page.
+
+```prisma
+model ConfigReplay {
+  id                 BigInt   @id @default(autoincrement())
+  fromConfigVersion  Int
+  toConfigVersion    Int
+  replayedAt         DateTime @default(now())
+  candidatesCovered  Int
+  summaryJson        Json     // counts, deltas, rejection-reason diff
+  operatorId         String?
+
+  @@index([replayedAt])
+  @@index([fromConfigVersion, toConfigVersion])
+}
+```
+
+No live-capital impact. Writer: a new `ConfigReplayService` invoked from the settings page.
+
+### 3.3 `ThresholdSearchRun` + `ThresholdSearchTrial`
+
+Offline threshold-search harness. Blocks only pack-tuning UI — not urgent.
+
+```prisma
+model ThresholdSearchRun {
+  id          BigInt   @id @default(autoincrement())
+  packId      BigInt
+  startedAt   DateTime @default(now())
+  completedAt DateTime?
+  objective   String   // "maxEV" | "maxSharpe" | "minDrawdown"
+  status      String   // "running" | "complete" | "failed"
+  trials      ThresholdSearchTrial[]
+  pack        StrategyPack @relation(fields: [packId], references: [id])
+}
+
+model ThresholdSearchTrial {
+  id         BigInt   @id @default(autoincrement())
+  runId      BigInt
+  params     Json     // axis → value
+  ev         Float
+  winRate    Float
+  avgWinner  Float
+  avgLoser   Float
+  sampleSize Int
+  run        ThresholdSearchRun @relation(fields: [runId], references: [id])
+
+  @@index([runId, ev])
+}
+```
+
+Writer: a background worker in the workbench service.
+
+---
+
+## 4. Views to backfill
+
+Each dashboard panel cites its view in the panel description. Dashboards fail loudly when the view is missing — ship view before panel.
+
+| View | Consumer | Columns (minimum) |
 |---|---|---|
-| `ProviderCreditLog` | Credit ledger (Birdeye/Helius/all) | `id`, `provider` enum, `endpoint`, `purpose` enum, `creditsUsed`, `sessionId?`, `packId?`, `configVersion?`, `mint?`, `candidateId?`, `positionId?`, `httpStatus`, `latencyMs`, `errorCode?`, `recordedAt` — **LANDED** |
-| `FillAttempt` | Every live/paper entry/exit attempt (promoted from `Fill.metadata`) | `id`, `positionId?`, `candidateId?`, `side`, `packId`, `packVersion`, `sessionId`, `mint`, `mcUsdAtQuote`, `tierBucket`, `slippageCapBps`, `slippageUsedBps`, `priceImpactBps`, `cuPriceMicroLamports`, `tipLamports`, `lane` enum, `bundleLanded`, `quoteLatencyMs`, `signLatencyMs`, `submitLatencyMs`, `confirmLatencyMs`, `retries`, `failureCode?`, `txSig?` — **LANDED** |
-| `ExitPlanMutation` | Audit trail for every `ExitPlan` change (trail tighten, time-stop reduce, etc.) | `planId`, `positionId`, `field`, `before`, `after`, `reasonCode`, `mutator`, `mutatedAt` — **PENDING** |
-| `ConfigReplay` | Point-in-time snapshot table, lets us answer "what did pack/settings look like at T" | `id`, `configVersion`, `packId`, `packVersion`, `settings` JSON, `takenAt`, indexed on `takenAt` — **PENDING** |
-| `ThresholdSearchRun` | Grid/bayes searches over pack axes for auto-tuning | `id`, `packId`, `axisSpec` JSON, `status`, `startedAt`, `completedAt`, `bestScore`, `bestConfig` JSON — **PENDING** |
-| `ThresholdSearchTrial` | One evaluation within a search | `runId`, `config` JSON, `score`, `simPnlUsd`, `simWinRate`, `simTrades`, `evaluatedAt` — **PENDING** |
-| `MutatorOutcome` | Post-exit attribution — was the adaptive mutator right? | `positionId`, `mutatorCode`, `axis`, `beforeValue`, `afterValue`, `exitPnlUsd`, `counterfactualPnlUsd?`, `verdict` enum (`HELPED\|HURT\|NEUTRAL`), `recordedAt` — **LANDED** |
-| `SmartWalletFunding` | `getWalletFundedBy` cache for pack 2 | `address PK`, `source` enum (`CEX\|FRESH\|BRIDGE\|MIXER\|UNKNOWN`), `firstFundedAt`, `lastCheckedAt` — **LANDED** |
+| `v_runtime_live_status` | Session Overview | `sessionId, packId, packVersion, mode, status, pauseReason, capitalFreeUsd, openCount, lastFillAt` |
+| `v_runtime_lane_health` | Session Overview, Exit RCA | `bucket, lane, attempts, successes, failures, p95LatencyMs, webhookUsage` |
+| `v_open_position_monitor` | Session Overview | `positionId, mint, entryAt, ageSec, unrealizedPnlUsd, exitProfile, nextTrigger` |
+| `v_candidate_funnel_daily_source` | Candidate Funnel | `bucket, source, discovered, queued, evaluated, accepted, filled, exited` |
+| `v_candidate_latest_filter_state` | Candidate Funnel | `candidateId, filterName, passed, value, threshold, evaluatedAt` |
+| `v_position_exit_reason_daily` | Exit RCA | `bucket, exitReason, count, avgHoldSec, avgPnlUsd, exitLatencyP95Ms` |
+| `v_recent_fill_activity` | Exit RCA, Session Overview | `fillId, positionId, side, lane, submittedAt, landedAt, latencyMs, retries` |
+| `v_submit_lane_daily` | Exit RCA | `bucket, lane, attempts, landed, landRate, avgRetries, topFailureCode` |
+| `v_exit_plan_mutation_daily` | Adaptive Telemetry | `bucket, axis, mutatorCode, applies, helped, hurt, neutral, avgDelta` |
+| `v_mutator_outcome_daily` | Adaptive Telemetry | `bucket, mutatorCode, axis, verdictCounts, avgPnlDelta, counterfactualDelta` |
+| `v_enrichment_freshness` | Enrichment Quality | `source, staleRatio, medianAgeSec, maxAgeSec` |
+| `v_enrichment_quality_daily` | Enrichment Quality | `bucket, source, successes, failures, cacheHits, p95LatencyMs` |
+| `v_strategy_pack_exit_profile_mix` | Pack Leaderboard | `packId, profile, positions, avgPnlUsd` |
+| `v_kpi_by_config_window` | Pack Leaderboard | `configVersion, packId, windowStart, windowEnd, wr, ev, avgWinner, avgLoser` |
 
-### 9. Column promotions (phase 6+)
+All views filter on `$__timeFilter(bucket)` and expose `strategyPackId` + `configVersion` columns so the grafana variables work uniformly.
 
-| Currently blob field | Promote to column |
-|---|---|
-| `Fill.metadata.live.*` remaining latency fields | `Fill.*LatencyMs`, `Fill.lane`, `Fill.tipLamports`, `Fill.slippageUsedBps` (or migrate to `FillAttempt`) |
-| `Candidate.metadata.priceImpactBps` | `Candidate.priceImpactBps` |
-| `Position.metadata.entryTipLamports` | `Position.entryTipLamports` |
+---
 
-### 10. New views (phase 6+)
+## 5. Index adds (on existing tables)
 
-- `v_api_provider_daily`, `v_api_provider_hourly`, `v_api_purpose_daily`, `v_api_endpoint_efficiency`, `v_api_session_cost` — **LANDED**; see [draft_credit_tracking.md §4](draft_credit_tracking.md).
-- `v_submit_lane_daily` — `lane × day` → count, land rate, avg tip, avg confirmLatencyMs. **PENDING**
-- `v_exit_plan_mutation_daily` — `field × reasonCode × day` → count, avg delta. **PENDING**
-- `v_mutator_outcome_daily` — `mutatorCode × verdict × day` → counts + pnlDelta. **LANDED**
-- `v_threshold_search_leaderboard` — top-10 trials per run; surfaces on the grader UI. **PENDING**
-- `v_config_replay_for_session` — `sessionId` → full config at start + stop. **PENDING**
-- `v_enrichment_quality_daily` — per-source success / stale / p95-latency rollup. **LANDED**
+As the views above come in, check `EXPLAIN ANALYZE` and add:
 
-### 11. Deletions (phase 6+)
+- `ProviderCreditLog(createdAt, providerName, purpose)` — scans in forecast queries.
+- `FillAttempt(positionId, createdAt)` — scans in `v_recent_fill_activity`.
+- `MutatorOutcome(mutatorCode, recordedAt)` — scans in `v_mutator_outcome_daily`.
+- `SmartWalletEvent(mint, createdAt)` — scans on `/market/token/:mint`.
 
-- `Fill.metadata.live.*` after `FillAttempt` rows cover two weeks of live traffic.
-- `Position.metadata.exitPlan.*` fully removed (deprecated in phase 2; final cutover here).
-- Stale `v_raw_api_payload_recent` if `RawApiPayload` is replaced by slot-tagged `ProviderCreditLog` + body-on-disk storage.
+Only add the index after the view is live and a slow query is confirmed. Don't speculate.
 
-### 12. Acceptance criteria (phase 6+)
+---
 
-- `ProviderCreditLog` row written for every paid-provider call; test walks one discovery + evaluate + exit tick and counts rows.
-- `FillAttempt` row written for every buy/sell attempt; `Fill.metadata.live.*` reads go away after two-week dual-write window.
-- `ConfigReplay` lets `/api/operator/sessions/:id/config` return the exact snapshot at start.
-- `MutatorOutcome` populated on every position close; powers the Adaptive Telemetry dashboard's mutator-correlation panel.
-- Every new table has its Grafana-facing view committed before the dashboard ships.
-- Every view that filters by session/pack/config exposes those columns on every row.
+## 6. Daily maintenance jobs
+
+New `prisma-maintenance` cron (runs daily at 04:00 UTC):
+
+- Prune `EnrichmentFact` rows where `updatedAt < now() - 7d`.
+- Rollup `ProviderCreditLog` rows older than 30 d into a daily summary table (TBD: `ProviderCreditDaily`) and delete source rows.
+- Refresh any `MATERIALIZED VIEW` we add (none today; flagged for the day one is needed).
+
+Ship as a single script at `trading_bot/backend/scripts/prisma-maintenance.mjs`, invoked from `n8n`.
+
+---
+
+## 7. Parallel Work Packages
+
+Cross-refs: [draft_rollout_plan.md](draft_rollout_plan.md) WPs are the source of truth — these blocks are the DB-surface slice of that plan, self-contained for a sub-agent.
+
+### WP-DB-1 — Schema deltas (= rollout WP1)
+
+**Owner:** `schema-migrator` (haiku).
+**Scope:** [trading_bot/backend/prisma/schema.prisma](trading_bot/backend/prisma/schema.prisma) only.
+**Acceptance:** `cd trading_bot/backend && npx prisma generate` exits 0; no files under `prisma/migrations/`; reciprocal relations compile on `Position`, `ExitPlan`, `StrategyPack`.
+
+**Prompt:**
+> Add three Prisma models to `trading_bot/backend/prisma/schema.prisma` per §3.1–3.3 of [draft_database_plan.md](draft_database_plan.md): `ExitPlanMutation`, `ConfigReplay`, `ThresholdSearchRun`, `ThresholdSearchTrial`. Add reciprocal relation fields on `Position.exitPlanMutations`, `ExitPlan.mutations`, `StrategyPack.thresholdSearchRuns`. Run `cd trading_bot/backend && npx prisma generate`. Never create files under `prisma/migrations/`. Do not touch views. Commit: `schema: add ExitPlanMutation, ConfigReplay, ThresholdSearch*`.
+
+### WP-DB-2 — 14 views backfill (= rollout WP2)
+
+**Owner:** `schema-migrator`.
+**Scope:** [trading_bot/backend/prisma/views/create_views.sql](trading_bot/backend/prisma/views/create_views.sql) only (append to bottom).
+**Acceptance:** file parses via `psql -f`; every view in §4 of this draft exists as a `CREATE OR REPLACE VIEW`; every view exposes `bucket`, `strategyPackId`, `configVersion` where noted.
+
+**Prompt:**
+> Append 14 views to `trading_bot/backend/prisma/views/create_views.sql`. List + required columns in §4 of [draft_database_plan.md](draft_database_plan.md). Match the `CREATE OR REPLACE VIEW` style of the 23 existing views (look at `v_api_provider_daily` as the canonical pattern). Each view filters on a `bucket` column and exposes `strategyPackId` + `configVersion` columns where relevant (so Grafana variables work uniformly). Validate with `psql -f create_views.sql` against a scratch DB if available, else parse sanity check via `node -e "console.log(require('fs').readFileSync('prisma/views/create_views.sql','utf8').length)"`.
+
+### WP-DB-3 — Index adds (post-soak, conditional)
+
+**Owner:** `schema-migrator`.
+**Scope:** [schema.prisma](trading_bot/backend/prisma/schema.prisma) — add `@@index` directives only.
+**Acceptance:** only shipped after a slow query is confirmed on the target view; `EXPLAIN ANALYZE` before/after captured in the session log.
+
+**Prompt:**
+> Add the four indexes listed in §5 of [draft_database_plan.md](draft_database_plan.md) to `schema.prisma` — but only after Phase B3 (24 h paper soak) has surfaced the slow query. For each index, run `EXPLAIN ANALYZE` on the binding view before and after; paste both into `notes/sessions/<date>-index-adds.md`. Do not add any index speculatively. If a query is under 100 ms warm, skip that index.
+
+### WP-DB-4 — Maintenance cron (= rollout B5)
+
+**Owner:** `credit-bookkeeper`.
+**Scope:** new [trading_bot/backend/scripts/prisma-maintenance.mjs](trading_bot/backend/scripts/prisma-maintenance.mjs), new `trading_bot/n8n/workflows/prisma-maintenance.json`.
+**Acceptance:** script is idempotent; one dry run logs intended deletions without executing when `--dry-run`.
+
+**Prompt:**
+> Write `trading_bot/backend/scripts/prisma-maintenance.mjs` that (a) deletes `EnrichmentFact` rows where `updatedAt < now() - interval '7 days'`, (b) rolls up `ProviderCreditLog` rows older than 30 d into a `ProviderCreditDaily` table then deletes the source rows, (c) refreshes any `MATERIALIZED VIEW` (none today; log a no-op). Accept `--dry-run` to print counts without mutating. Register the workflow at `trading_bot/n8n/workflows/prisma-maintenance.json` to run 04:00 UTC daily. Depends on WP-DB-1 landing the `ProviderCreditDaily` model — if absent, add it in this PR matching the same shape as `ProviderCreditLog` grouped by day+provider+purpose.
+
+---
+
+## 8. Acceptance
+
+- `prisma generate` is clean after each schema edit.
+- `psql \df` lists every view named above.
+- No dashboard panel references a view missing from `create_views.sql` (enforced by the lint in [draft_grafana_plan.md §3.8](draft_grafana_plan.md)).
+- Every new table has at least one writer in the backend code — no schema-only additions that stay empty.

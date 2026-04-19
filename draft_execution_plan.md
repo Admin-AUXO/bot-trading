@@ -1,297 +1,149 @@
-# Execution Plan — Jupiter + Jito + Helius Priority Fees
+# Execution Plan — Depth, Lane Selection, Soak
 
-Companion to [draft_index.md](draft_index.md), [draft_backend_plan.md](draft_backend_plan.md), [draft_helius_integration.md](draft_helius_integration.md), [draft_strategy_packs_v2.md](draft_strategy_packs_v2.md).
+Companion to [draft_backend_plan.md §2.3](draft_backend_plan.md) and [draft_rollout_plan.md §3.3](draft_rollout_plan.md). Snapshot **2026-04-18**.
 
-Status snapshot as of **2026-04-18**:
-- `services/helius/priority-fee-service.ts`, `services/execution/quote-builder.ts`, `swap-builder.ts`, and `swap-submitter.ts` are already landed.
-- This draft is now mostly a hardening / cutover checklist for those seams, not a greenfield design.
-- The older live execution path still exists, so any "production ready" pass must verify which path the engine actually uses before pretending the cutover is done.
-
-**Scope:** how we turn an accepted candidate into a filled position (and later, a closed one) on Solana. Covers slippage sizing, quote construction, route restrictions, priority fees, Jito bundling, and retry ladders. Target latencies and failure modes are service-owned by `QuoteBuilder`, `SwapBuilder`, `SwapSubmitter`, `ExitLoop`, and `LiveExitMutator` (see [draft_backend_plan.md §3](draft_backend_plan.md)).
-
-**Non-goals:** no new router integrations (we stay on Jupiter v6). No LaserStream.
+Execution services already exist. This plan covers the remaining work to declare the execution stack production-ready.
 
 ---
 
-## 1. Design principles
+## 1. What's landed
 
-1. **One quote per decision.** A stale quote = a different decision. Quotes older than 800 ms are re-fetched before signing.
-2. **Slippage is a function of MC tier, not a constant.** Cap per tier; never let dynamic slippage exceed the cap.
-3. **Priority fee floors by lane.** Scalps pay more than runners; exits pay more than entries; stop-losses pay more than TPs.
-4. **Bundle only when it pays.** Jito tips cost SOL. Bundles are used for entries under pack 4/5 (`sub_10_mc_scalp`, `pump_fun_ape`) and for exit stop-loss legs where landing sequence matters. Otherwise we ride the regular lane.
-5. **No silent route loosening.** `onlyDirectRoutes=false` is explicit and logged; `maxAccounts` caps are logged; `dexes` filter is logged per trade.
-6. **Fail loud, once.** One retry after quote refresh, then surface to the operator. No exponential retry storms on the live path.
-
----
-
-## 2. Slippage tier table (MC-bucket driven)
-
-Slippage is the single biggest tax on memecoin entries. The tier below is the **cap** — Jupiter's dynamic slippage is allowed below it. Values are informed by observed pool impact on the 8–12 accepted buckets per day.
-
-| MC bucket | Pack | Base BPS | Max BPS (cap) | Dynamic OK? | Notes |
-|---|---|---:|---:|---|---|
-| ≤ $10k | `sub_10_mc_scalp`, `pump_fun_ape` | 500 | 1500 | yes | Routes shallow; quote refresh before sign. |
-| $10k–$50k | `early_graduation_runner`, `momentum_scalp` | 300 | 800 | yes | Most fills live here. |
-| $50k–$250k | `high_conviction_runner`, `smart_money_runner` | 150 | 400 | yes | Multi-pool; prefer `onlyDirectRoutes=false`. |
-| $250k–$1M | `bluechip_continuation_runner` | 100 | 250 | yes | Jupiter dynamic usually lands under 200. |
-| $1M–$10M | `bluechip_continuation_runner` | 75 | 150 | yes | — |
-| ≥ $10M | (rare) | 50 | 100 | yes | — |
-
-**Exit slippage** is one tier higher than entry for stop-losses; one tier lower for TPs (we prefer to miss a TP than chase).
-
-`pricePriorityLevel` on Jupiter quote: `veryHigh` for ≤ $50k, `high` for $50k–$1M, `medium` above. Always pass `restrictIntermediateTokens=true`.
-
----
-
-## 3. Quote builder parameters (entry)
-
-`QuoteBuilder.build({ mint, side, lamportsIn, packId, mcUsd })` emits the following Jupiter v6 `/quote` request. Every non-default is justified.
-
-| Param | Value | Why |
+| Service | File | Role |
 |---|---|---|
-| `inputMint` | SOL mint | — |
-| `outputMint` | candidate mint | — |
-| `amount` | `lamportsIn` | Lamports; integer. |
-| `slippageBps` | `dynamic` with `maxBps = tier.maxBps` | See §2. |
-| `onlyDirectRoutes` | `false` | We want multi-hop to split impact. |
-| `restrictIntermediateTokens` | `true` | Avoid exotic intermediates that trap lamports. |
-| `maxAccounts` | `24` for ≤ $50k MC, `40` above | Keeps tx size under 1232 bytes. |
-| `dexes` | include `Raydium, Meteora, Pump.fun, Orca, Phoenix, Lifinity` | Exclude long-tail to reduce failure surface. |
-| `asLegacyTransaction` | `false` | Always v0. |
-| `swapMode` | `ExactIn` | Entry. |
-| `platformFeeBps` | `0` | No referral skim. |
-| `dynamicSlippage` | `true` | Paired with `maxBps` cap. |
-| `computeUnitPriceMicroLamports` | resolved via `HeliusPriorityFeeService` (see §5) | — |
+| `QuoteBuilder` | [quote-builder.ts](trading_bot/backend/src/services/execution/quote-builder.ts) | Jupiter v6 quote, dynamic slippage, freshness window |
+| `SwapBuilder` | [swap-builder.ts](trading_bot/backend/src/services/execution/swap-builder.ts) | Builds `VersionedTransaction` from a quote |
+| `SwapSubmitter` | [swap-submitter.ts](trading_bot/backend/src/services/execution/swap-submitter.ts) | Sends + retries + writes `FillAttempt` rows + lane attribution |
+| `HeliusPriorityFeeService` | [priority-fee-service.ts](trading_bot/backend/src/services/helius/priority-fee-service.ts) | `getPriorityFeeEstimate` with caching |
+| `LiveTradeExecutor` | [live-trade-executor.ts](trading_bot/backend/src/services/live-trade-executor.ts) | Orchestrates the above; composed in `ExecutionEngine` |
 
-Exit quotes use `swapMode=ExactIn` with partial-size requests computed from `ExitPlan.tp1SizePct` / `tp2SizePct`. SL exits go `ExactIn` on the full remaining balance.
+The `FillAttempt` model at [schema.prisma:746](trading_bot/backend/prisma/schema.prisma) is the per-attempt ledger. `SubmitLane` enum (`JUPITER`, `JITO`, `SENDER`, `HELIUS_SENDER`) and `ProviderPurpose` flow through the submitter.
 
 ---
 
-## 4. Entry decision tree
+## 2. Lane selection policy
 
-```
-candidate accepted by evaluator (pack P, MC bucket M)
-    │
-    ▼
-capital brake OK? ───── no ──▶ reject.reason=CAPITAL_BRAKE
-    │ yes
-    ▼
-concurrent-fill cap OK? ── no ──▶ queue (max 30 s)
-    │ yes
-    ▼
-QuoteBuilder.build() ───── fail ─▶ retry once, then fail(reason=NO_ROUTE)
-    │ ok
-    ▼
-priceImpact > tier.maxImpact ? ── yes ──▶ reject(reason=IMPACT_TOO_HIGH)
-    │ no
-    ▼
-quote.age < 800ms ? ─ no ──▶ refetch
-    │ yes
-    ▼
-sign + submit via Helius Sender (tip lane)
-    │
-    ├── landed (confirmed) ──▶ Position created; ExitPlan row written
-    │
-    ├── expired (blockhash) ─▶ retry once with fresh blockhash + re-quoted price
-    │
-    └── dropped (leader skip) ▶ bump tip by +25%, one retry; else fail(reason=LAND_FAILED)
-```
+`SwapSubmitter.submit(input)` decides the lane. Policy below is the intended behavior; audit the submitter against it before declaring soak passed.
 
-Fill timing (p95 targets):
-- Quote round-trip: < 150 ms
-- Sign + serialize: < 80 ms
-- Sender submit → confirmed: < 2 s for pack 4/5, < 4 s for pack 1/3
+### 2.1 Buy side
 
----
-
-## 5. Priority fees and Jito tipping
-
-**Implementation status:** `PARTIAL LANDED`. The priority-fee service and submitter exist. Remaining work is real cutover, soak verification, and making the retry / stale-exit behavior prove itself under live and mocked failure paths.
-
-### 5.1 Priority fee via `getPriorityFeeEstimate`
-
-We call Helius `getPriorityFeeEstimate` for every entry and every exit. Response feeds `computeUnitPriceMicroLamports` on the quote request.
-
-Resolution table (per account-set involved in tx):
-
-| Lane | Helius `priorityLevel` | Fallback if Helius down |
-|---|---|---|
-| Pack 4/5 entry (scalp) | `veryHigh` | `max(50_000, last5minMedian × 2)` |
-| Pack 1/2/3 runner entry | `high` | `max(20_000, last5minMedian × 1.5)` |
-| TP1 / TP2 exit | `high` | same as entry fallback |
-| SL exit | `veryHigh` | double the entry fallback |
-| Time-stop exit | `medium` | last5minMedian |
-
-Cache `getPriorityFeeEstimate` response for 2 s (see [draft_helius_integration.md §2.7](draft_helius_integration.md)); always re-call on retry. Never let the microLamports go below 5_000 — we've seen unsigned txs drop under congested slots.
-
-### 5.2 Jito bundle path
-
-Conditions to bundle (all three must hold):
-
-1. Pack ∈ {`sub_10_mc_scalp`, `pump_fun_ape`, stop-loss leg of any pack}
-2. `routeAccounts.count ≤ 20` (bundle size ceiling fits three txs)
-3. `tipLamports ≥ 10_000` (avoid bundles that would be dropped by validators filtering ≥ 10k sol tips)
-
-Tip sizing (`tipLamports` routed via Jito-accepting Sender endpoint):
-
-| Scenario | Tip | Notes |
-|---|---|---|
-| SL exit, high-volatility MC (< $50k) | `max(0.002 SOL, priceMove_bps × 10)` | We pay to land the stop; slippage on miss >> tip. |
-| Pack 4 entry on fresh grad | 0.001 SOL | Sits above typical median tip. |
-| Pack 5 entry on KOTH | 0.0015 SOL | Slight premium. |
-| Retry after dropped bundle | previous tip × 1.5 | Single retry only. |
-
-Bundle composition: `(compute-budget ix, priority-fee ix, swap ix, tip ix)` — tip ix is last, directed to a randomized tip account from the Jito tip accounts list. Never bundle more than one swap.
-
-Current landed implementation uses the Helius Sender RPC endpoint for the regular lane and a direct Jito block-engine submission path for bundles. Keep that distinction straight; pretending everything routes through Sender is how people debug the wrong thing for two hours.
-
----
-
-## 6. Exit decision tree
-
-```
-position P open with ExitPlan E
-    │
-    ▼
-poll mark price (ExitLoop, cadence tier-dependent)
-    │
-    ▼
-SL tripped? ─────────────────────────────── yes ─▶ exit(reason=STOP_LOSS, lane=Jito, tip=high, slippage=tier+1)
-    │ no
-    ▼
-time-stop reached? ──────────────────────── yes ─▶ exit(reason=TIME_STOP, lane=regular, tip=med, slippage=tier)
-    │ no
-    ▼
-TP2 tripped? ────────────────────────────── yes ─▶ partial exit(tp2SizePct, regular lane); update ExitPlan.residualSize
-    │ no
-    ▼
-TP1 tripped? ────────────────────────────── yes ─▶ partial exit(tp1SizePct, regular lane); update ExitPlan.residualSize
-    │ no
-    ▼
-AdaptiveThresholdLog mutator fired?
-    ├── trail-tighten ──▶ update ExitPlan.trailBps; log
-    ├── grad-age-taper ▶ update ExitPlan.timeStopSec; log
-    └── sessionMult    ▶ noop on live position (session mult only affects new entries)
-    │
-    ▼
-continue loop; escalate to operator if ExitLoop misses a scheduled tick by > 10 s
-```
-
-### 6.1 Exit lane rules
-
-| Exit reason | Lane | Slippage | Priority fee |
+| Market cap tier | Lane | Priority fee tier | Slippage cap |
 |---|---|---|---|
-| `STOP_LOSS` | Jito bundle | tier + 1 | `veryHigh` |
-| `TP1` | regular | tier – 1 | `high` |
-| `TP2` | regular | tier | `high` |
-| `TIME_STOP` | regular | tier | `medium` |
-| `MANUAL_FORCE_EXIT` | Jito bundle | tier + 1 | `veryHigh` |
-| `ADAPTIVE_TRAIL` | regular | tier | `high` |
-| `LP_REMOVAL_WEBHOOK` | Jito bundle | tier + 2 | `veryHigh` + tip × 1.5 |
+| < $100k | `JITO` bundle | `p90` of `getPriorityFeeEstimate` | 15% |
+| $100k – $1M | `HELIUS_SENDER` | `p75` | 8% |
+| $1M – $10M | `JUPITER` (direct) | `p50` | 3% |
+| > $10M | `JUPITER` | `p50` | 1.5% |
 
-Never retry an exit more than once on the live path. If the second attempt fails, flip the position to `STALE_EXIT` state and page the operator. Manual exit overrides every automated attempt.
+Rationale: small caps live on sub-second landing and tolerate higher slippage; large caps are dominated by slippage cost, not landing speed.
 
----
+### 2.2 Exit side
 
-## 7. Mapping — recommendation → surface
+Stop loss takes precedence over landing cost.
 
-Each row is a concrete code change and the target file. Phase 6 slices are ordered to minimize coupling.
-
-| # | Recommendation | Owner | Target file / seam |
+| Exit reason | Lane | Priority fee tier | Slippage cap |
 |---|---|---|---|
-| 1 | MC-tier slippage cap table as config, not constants | `QuoteBuilder` | `trading_bot/backend/src/services/execution/quote-builder.ts` (new) |
-| 2 | Tier resolver uses `Candidate.mcUsd` (promoted column) | `QuoteBuilder` | same |
-| 3 | `restrictIntermediateTokens=true` default | `QuoteBuilder` | same |
-| 4 | `dexes` allowlist in pack JSON | `StrategyPack.recipe` | `StrategyPack.recipe.routing.dexes` |
-| 5 | `maxAccounts` per MC bucket | `QuoteBuilder` | same |
-| 6 | Quote TTL 800 ms before sign | `SwapBuilder` | `trading_bot/backend/src/services/execution/swap-builder.ts` (new) |
-| 7 | `getPriorityFeeEstimate` call + 2 s cache | `HeliusPriorityFeeService` | `trading_bot/backend/src/services/helius/priority-fee-service.ts` |
-| 8 | Fallback microLamports resolver | same | same |
-| 9 | Lane enum: `REGULAR \| JITO_BUNDLE` | `SwapSubmitter` | `trading_bot/backend/src/services/execution/swap-submitter.ts` |
-| 10 | Jito bundle composition (CU + fee + swap + tip) | same | same |
-| 11 | Tip-account rotation (randomized) | same | same |
-| 12 | One-retry ladder per lane | same | same |
-| 13 | SL exit always via Jito lane | `ExitLoop` | `trading_bot/backend/src/engine/exit-engine.ts` |
-| 14 | TP1/TP2 via regular lane | `ExitLoop` | same |
-| 15 | LP-removal webhook triggers Jito SL | `HeliusWatchService` → `ExitLoop` | `trading_bot/backend/src/services/helius/watch-service.ts` |
-| 16 | `MANUAL_FORCE_EXIT` goes Jito | `ExitLoop` | same |
-| 17 | Fee/slippage/cu/tip per-tx attribution | `Fill` promoted columns | schema.prisma columns |
-| 18 | Failure code enum: `NO_ROUTE, IMPACT_TOO_HIGH, LAND_FAILED, QUOTE_STALE, CAPITAL_BRAKE` | `SwapSubmitter` | same |
-| 19 | Stale-exit flip after 2 failed exit attempts | `ExitLoop` | same |
-| 20 | Operator page on stale-exit (toast + banner) | `events` stream | `trading_bot/dashboard/components/shell/*` |
-| 21 | Unit test: slippage cap is enforced against dynamic | tests | `trading_bot/backend/tests/execution/quote-builder.test.ts` |
-| 22 | Unit test: SL exits always go Jito lane | tests | `trading_bot/backend/tests/execution/exit-loop.test.ts` |
-| 23 | Integration test: `getPriorityFeeEstimate` failure path uses fallback | tests | `trading_bot/backend/tests/helius/priority-fee.test.ts` |
-| 24 | Grafana panel: "exit exec latency p95 by reason" | view + dashboard | `v_recent_fill_activity` + Grafana Exit RCA |
-| 25 | Grafana panel: "bundle vs. regular land rate" | view | new `v_submit_lane_daily` |
+| `STOP_LOSS` | `JITO` bundle | `p95` | 20% |
+| `TAKE_PROFIT_*` | `HELIUS_SENDER` | `p75` | 5% |
+| `TRAILING_STOP` | `HELIUS_SENDER` | `p75` | 8% |
+| `TIME_STOP` | `JUPITER` | `p50` | 3% |
+
+Rationale: SL must land; fee is a small fraction of the stopped loss.
+
+### 2.3 Fallback ladder
+
+1. Primary lane fails → retry once with +1 fee tier.
+2. Second failure → fall to the next lane in `[JITO → HELIUS_SENDER → JUPITER]`.
+3. Third failure on exit path with `STOP_LOSS` → escalate to operator via `OperatorEvent` with `severity: critical`.
+
+Each attempt writes a `FillAttempt` row with `failureCode` populated on loss.
 
 ---
 
-## 8. Failure taxonomy and retry policy
+## 3. Soak verification
 
-| Failure | Retry? | Max retries | Action |
-|---|---|---:|---|
-| Jupiter `/quote` HTTP 5xx | yes | 1 | 150 ms backoff, then fail |
-| Jupiter 400 (no route) | no | 0 | fail(`NO_ROUTE`) |
-| Quote impact > cap | no | 0 | reject(`IMPACT_TOO_HIGH`) |
-| Signer timeout | no | 0 | fail(`SIGNER_TIMEOUT`), page operator |
-| Sender submit 429 | yes | 2 | exponential 200 → 400 ms |
-| Sender submit 5xx | yes | 1 | bump priority fee × 1.25 |
-| Blockhash expired | yes | 1 | refresh blockhash + re-quote |
-| Jito bundle dropped | yes | 1 | +25 % tip |
-| Sim revert (slippage) | yes | 1 | refetch quote (assume tape moved) |
-| Sim revert (freeze / auth) | no | 0 | hard-reject; blacklist mint |
-| Exit loop misses tick > 10 s | no | 0 | flip to stale-exit, page |
+Before declaring execution-engine cutover production-ready:
+
+- Run a 24 h paper session with LIVE lane selection enabled (but submit lane set to `DRY_RUN` for send).
+- Session Overview dashboard: no panel red for > 15 m.
+- Exit RCA dashboard: SL bundle land rate ≥ 0.95.
+- `FillAttempt` counts match expectations: ~1 attempt per position for small caps, ~1.2 avg across tiers.
+- Provider Credit Burn dashboard: within daily budget.
+
+Document the soak run under `notes/sessions/<date>-execution-soak.md`.
 
 ---
 
-## 9. Observability
+## 4. Retry telemetry
 
-Every live trade emits one `FillAttempt` row with:
+`SwapSubmitter` writes `FillAttempt` rows. Missing on the dashboard side:
 
-- `packId`, `packVersion`, `sessionId`, `configVersion`
-- `mint`, `mcUsdAtQuote`, `tierBucket`, `slippageCapBps`, `slippageUsedBps`, `priceImpactBps`
-- `cuPriceMicroLamports`, `tipLamports`, `lane`, `bundleLanded`
-- `quoteLatencyMs`, `signLatencyMs`, `submitLatencyMs`, `confirmLatencyMs`
-- `retries`, `failureCode?`
-
-Grafana panels off these columns (see [draft_grafana_plan.md](draft_grafana_plan.md)):
-- Lane land rate (Jito vs regular)
-- Priority-fee microLamports over time by pack
-- Slippage used vs cap by bucket
-- Tip ROI (avg PnL on Jito-landed vs regular)
-- Failure-code histogram per pack
+- `v_submit_lane_daily` view (see [draft_database_plan.md §4](draft_database_plan.md)) grouping by `lane × failureCode × date`.
+- `v_recent_fill_activity` surfaces the last N attempts for live diagnostics.
+- Panel `SL Land Rate` on Exit RCA: `SUM(landed) / SUM(attempts) WHERE reason = 'STOP_LOSS'` — binding on the alert `sl_bundle_fail_rate`.
 
 ---
 
-## 10. Acceptance criteria
+## 5. Quote freshness
 
-- `QuoteBuilder` enforces the cap table from §2; test proves dynamic slippage cannot exceed the cap.
-- `SwapBuilder` re-quotes when the cached quote is ≥ 800 ms old at sign time.
-- `HeliusPriorityFeeService` serves both live and fallback paths; test simulates Helius 5xx and confirms fallback lamports.
-- `SwapSubmitter` supports both lanes and records `lane` + `bundleLanded` on every `FillAttempt`.
-- SL exits always take the Jito lane (test).
-- Operator receives a visible alert within 15 s of stale-exit.
-- Grafana panel for "bundle vs. regular land rate" renders on first load.
-- No retry loop exceeds the §8 max-retries budget in a 60 s window (alert rule covers this).
+`QuoteBuilder` caches quotes with a short TTL. Rule: a quote older than 2 seconds is invalid for submission. Enforce in `SwapSubmitter` — reject and re-quote rather than submitting stale.
+
+Add a metric: `quote_stale_rejections_total` surfaced via `ApiEvent` rows with `endpoint = 'jupiter.quote'` and `outcome = 'stale-reject'`. The Enrichment Quality dashboard can include this in a sibling panel.
 
 ---
 
-## 11. Open questions
+## 6. Priority fee tiers
 
-1. Do we want a kill-switch that forces all exits to Jito during a paused session? Leaning yes; cheap insurance.
-2. For pack 6 (`smart_money_runner`), should entry always ride Jito because signal latency is the whole edge? Revisit after 7-day ingest sample.
-3. Should `MANUAL_FORCE_EXIT` bypass the capital-free check? Proposed: yes — manual intent overrides brakes.
-4. Tip-ROI threshold for disabling bundle lane on a per-pack basis if observed ROI < break-even for 3 days.
+`HeliusPriorityFeeService` exposes `p50 / p75 / p90 / p95` estimates. Do not hardcode fee values. All tier references in `SwapSubmitter` should call the service.
+
+Cap the absolute fee at `1_000_000` micro-lamports per transaction; log and fall back to the cap if the provider returns higher.
 
 ---
 
-## 12. Sources
+## 7. Parallel Work Packages
 
-- [Jupiter API — Quote & Swap](https://station.jup.ag/docs/apis/swap-api)
-- [Jupiter — Dynamic Slippage](https://station.jup.ag/docs/apis/swap-api#dynamic-slippage)
-- [Helius — Priority Fee Estimate](https://www.helius.dev/docs/methods/priority-fee)
-- [Helius — Sender](https://www.helius.dev/docs/sender)
-- [Jito — Block Engine / Bundles](https://docs.jito.wtf/lowlatencytxnsend/)
-- [Jito — Tip Accounts](https://docs.jito.wtf/lowlatencytxnsend/#tip-accounts)
-- [Solana Cookbook — Compute Budget](https://solanacookbook.com/references/basic-transactions.html#how-to-add-a-memo-to-a-transaction)
+Execution-surface WPs. All independently mergeable; none touches files owned by other WPs in [draft_rollout_plan.md](draft_rollout_plan.md).
+
+### WP-EX-1 — Lane selection audit + unit tests
+
+**Owner:** `execution-builder`.
+**Scope:** [services/execution/swap-submitter.ts](trading_bot/backend/src/services/execution/swap-submitter.ts) (read-only audit + inline comments), new `tests/execution/lane-selection.test.ts`.
+**Acceptance:** one unit test per tier × side combination in §2.1 + §2.2 of this draft (8 rows); every test names the expected lane/fee tier/slippage cap; audit comment block in `swap-submitter.ts` above `selectLane(...)` cites the §2 policy.
+
+**Prompt:**
+> Read `services/execution/swap-submitter.ts` and verify the lane selection matches the policy tables in §2 of [draft_execution_plan.md](draft_execution_plan.md). Write `tests/execution/lane-selection.test.ts` with 8 cases (4 buy-tier + 4 exit-reason). Mock the RPC; assert chosen `SubmitLane`, `priorityFeeTier`, `slippageCap`. If the implementation diverges from §2, file a discrepancy in this draft's §4 (retry telemetry is separate) but do not silently fix — surface first. Add a comment block above `selectLane` citing §2. Do NOT touch `swap-builder.ts` or `quote-builder.ts`.
+
+### WP-EX-2 — Priority fee cap + fallback
+
+**Owner:** `execution-builder`.
+**Scope:** [services/helius/priority-fee-service.ts](trading_bot/backend/src/services/helius/priority-fee-service.ts), [services/execution/swap-submitter.ts](trading_bot/backend/src/services/execution/swap-submitter.ts) fee-read site.
+**Acceptance:** cap at `1_000_000` micro-lamports per tx; provider failure → static `p75` (200_000) + `OperatorEvent` warning; one test at `tests/helius/priority-fee-fallback.test.ts`.
+
+**Prompt:**
+> In `HeliusPriorityFeeService`, wrap `getPriorityFeeEstimate` with: (a) enforce cap of `1_000_000` micro-lamports — if provider returns higher, log and clamp; (b) on fetch failure, return static `{ p50: 100_000, p75: 200_000, p90: 400_000, p95: 600_000 }` and emit `OperatorEvent { severity: 'warning', detail: 'priority-fee fallback engaged' }`. In `swap-submitter.ts`, confirm every fee reference calls the service (no hardcoded values — grep `priorityFee.*= .*_000` returns zero). Write `tests/helius/priority-fee-fallback.test.ts` covering: healthy path, provider-5xx fallback, cap clamp.
+
+### WP-EX-3 — Quote freshness enforcement
+
+**Owner:** `execution-builder`.
+**Scope:** [services/execution/quote-builder.ts](trading_bot/backend/src/services/execution/quote-builder.ts), [services/execution/swap-submitter.ts](trading_bot/backend/src/services/execution/swap-submitter.ts) submit site.
+**Acceptance:** quote older than 2 s refuses submission; logged as `ApiEvent { endpoint: 'jupiter.quote', outcome: 'stale-reject' }`; one test covers the reject path.
+
+**Prompt:**
+> In `SwapSubmitter.submit(input)`, check `input.quote.fetchedAt` — if `Date.now() - fetchedAt > 2000`, reject with `StaleQuoteError` and emit `ApiEvent { endpoint: 'jupiter.quote', outcome: 'stale-reject', durationMs: age }`. `QuoteBuilder` already stamps `fetchedAt`; verify. Write `tests/execution/quote-freshness.test.ts` covering fresh (submits), 2 s stale (rejects), re-quote path. Do NOT change `QuoteBuilder`'s TTL — the enforcement lives at the submitter.
+
+### WP-EX-4 — 24 h paper soak (= rollout B3)
+
+**Owner:** manual operator + `execution-builder` for diagnostics.
+**Scope:** runtime session; no code changes.
+**Acceptance:** SL land rate ≥ 0.95 on Exit RCA; no dashboard alert fires > 15 m; `FillAttempt` avg retries ≤ 1.2 across tiers; credit burn within daily budget; session log under `notes/sessions/<date>-execution-soak.md`.
+
+**Prompt:**
+> Prerequisite: WP-EX-1/2/3 merged; rollout WP6 (helius) + WP11 (alerts) merged. Start a `mode=PAPER` session with `adaptive.enabled=true` for 24 h. Watch Session Overview, Exit RCA, Credit Burn, Adaptive Telemetry, Enrichment Quality dashboards. Log hourly snapshots. Green = SL land rate ≥ 0.95, no alert fires > 15 m, FillAttempt avg retries ≤ 1.2, credit burn within daily budget. At end, commit `notes/sessions/<date>-execution-soak.md` citing PR merges that made it into the soak and the measured metrics.
+
+---
+
+## 8. Acceptance
+
+- Lane selection audit matches §2 — one unit test per tier × side combination.
+- `v_submit_lane_daily` + `v_recent_fill_activity` landed and wired to Exit RCA.
+- 24 h soak run logged in `notes/sessions/` with green metrics.
+- SL land rate alert provisioned (see [draft_grafana_plan.md](draft_grafana_plan.md)).
+- No direct Jupiter/RPC calls live outside `QuoteBuilder` / `SwapBuilder` / `SwapSubmitter` (grep `jupiter.com` outside `services/execution/` returns zero).

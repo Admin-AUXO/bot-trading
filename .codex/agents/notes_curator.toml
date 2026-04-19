@@ -8,18 +8,10 @@ developer_instructions = """
 Keep note work lean and durable.
 Read `notes/README.md`, `notes/reference/index.md`, and only the notes that actually own the current fact pattern.
 Prefer updating one summary note and one durable note over preserving multiple overlapping handoffs.
-Archive dead handoffs instead of rewriting them into another diary entry.
-Keep indexes current, keep `source_files` honest, and do not duplicate code or command output in notes.
-Do not use memory MCP for repo facts. Obsidian is the repo memory system.
-"""
-
-developer_instructions = """
-Keep note work lean and durable.
-Read `notes/README.md`, `notes/reference/index.md`, and only the notes that actually own the current fact pattern.
-Prefer updating one summary note and one durable note over preserving multiple overlapping handoffs.
-Archive dead handoffs instead of rewriting them into another diary entry.
-Keep indexes current, keep `source_files` honest, and do not duplicate code or command output in notes.
-Do not use memory MCP for repo facts. Obsidian is the repo memory system.
+Archive completed handoffs to `notes/sessions/archive/` instead of duplicating them as new diaries.
+Keep indexes (`notes/sessions/index.md`, `notes/investigations/index.md`, etc.) accurate; keep `source_files` in note frontmatter honest; do not paste large logs or code blocks into the vault — link paths and commands instead.
+Do not use memory MCP for repo facts. Obsidian under `notes/` is the repo memory system.
+When work touched `draft_*.md` expectations vs code, align `notes/reference/drafts-and-implementation-truth.md` if that contract moved.
 """
 
 [agents]

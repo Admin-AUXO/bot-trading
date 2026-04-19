@@ -36,5 +36,5 @@ Keep Birdeye meme-list discovery requests at four provider-side filter condition
 
 ## Linked Notes
 
-- [`../../investigations/2026-04-11-birdeye-dry-run-filter-limit-and-failure-surfacing.md`](../../investigations/2026-04-11-birdeye-dry-run-filter-limit-and-failure-surfacing.md)
+- [`../../investigations/2026-04-11-birdeye-discovery-lab-quality-pack-sweep.md`](../../investigations/2026-04-11-birdeye-discovery-lab-quality-pack-sweep.md)
 - [`../../reference/api-surface.md`](../../reference/api-surface.md)

@@ -1,5 +1,5 @@
 ---
-type: reference
+type: trading-memory
 status: active
 area: trading/strategy
 date: 2026-04-10

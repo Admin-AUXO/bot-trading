@@ -1,34 +1,27 @@
 # Sessions
 
-Active workstream summaries. Keep short. Archive when done.
+Active workstream summaries. Keep short; archive when done.
 
-- Keep only the current summaries in the root of `sessions/`.
-- Move completed or superseded handoffs into `sessions/archive/`.
-- If the task changes runtime behavior, link the matching reference note under `../reference/`.
+## Rules
+
+- Keep only current summaries in this folder; move completed handoffs to [archive/](archive/).
+- Stable facts belong in [../reference/](../reference/), [../decisions/](../decisions/), or [../trading-memory/](../trading-memory/).
 
 ## Active
 
-- [2026-04-18 Dashboard UI UX Pass](2026-04-18-dashboard-ui-ux-pass.md) ← structured filters, stacked headers, compose + Playwright verified
-- [2026-04-18 Dashboard Backend Simplification Pass](2026-04-18-dashboard-backend-simplification-pass.md)
-- [2026-04-17 Audit Fix Session](2026-04-17-audit-fix-session.md) ← comprehensive backend+dashboard audit, Docker rebuild, all fixes applied
-- [2026-04-16 Firecrawl Sidecar](2026-04-16-firecrawl-sidecar.md)
-- [2026-04-16 Direct Apply Settings](2026-04-16-direct-apply-settings-and-live-strategy.md)
-- [2026-04-15 Discovery Lab Telegram Alerts](2026-04-15-discovery-lab-telegram-alerts.md)
-- [2026-04-15 Discovery Lab Trade Ticket](2026-04-15-discovery-lab-trade-ticket-and-pack-favorites.md)
-- [2026-04-15 Discovery Builder Field-First Filters](2026-04-15-discovery-builder-field-first-filters.md)
-- [2026-04-15 Dashboard Refactor](2026-04-15-dashboard-refactor-handoff.md)
-- [2026-04-15 Dashboard Compact Layout](2026-04-15-dashboard-compact-layout-handoff.md)
-- [2026-04-15 AG Grid Layout Pass](2026-04-15-dashboard-ag-grid-and-compact-layout-pass.md)
-- [2026-04-14 Compose Refresh Script](2026-04-14-compose-refresh-script-and-skill.md)
-- [2026-04-14 Dashboard Shell Sidebar](2026-04-14-dashboard-shell-contextual-sidebar-and-compact-headers.md)
-- [2026-04-14 Discovery Lab Redesign](2026-04-14-discovery-lab-redesign-and-shell-collapse.md)
-- [2026-04-12 Cross-Platform Bootstrap Hardening](2026-04-12-cross-platform-bootstrap-hardening.md)
-- [2026-04-12 GitHub And Grafana MCP Wiring](2026-04-12-github-and-grafana-mcp-wiring.md)
-- [2026-04-12 MCP Config Pruning](2026-04-12-mcp-config-pruning.md)
-- [2026-04-12 Obsidian Hooks Hardening](2026-04-12-obsidian-hooks-hardening.md)
-- [2026-04-11 Dashboard Workstream Summary](2026-04-11-dashboard-workstream-summary.md)
-- [2026-04-11 Provider And Runtime Workstream Summary](2026-04-11-provider-runtime-workstream-summary.md)
+
+| Session                                                                                                 | Focus                                                     |
+| ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| [2026-04-18 Dashboard UI UX Pass](2026-04-18-dashboard-ui-ux-pass.md)                                   | Shell, workbench/market routes, density, Playwright proof |
+| [2026-04-18 Dashboard Backend Simplification](2026-04-18-dashboard-backend-simplification-pass.md)      | Operator API / desk contracts                             |
+| [2026-04-17 Audit Fix Session](2026-04-17-audit-fix-session.md)                                         | Cross-cutting audit + Docker rebuild                      |
+| [2026-04-16 Firecrawl Sidecar](2026-04-16-firecrawl-sidecar.md)                                         | Sidecar wiring                                            |
+| [2026-04-16 Direct Apply Settings](2026-04-16-direct-apply-settings-and-live-strategy.md)               | Live strategy + settings apply path                       |
+| [2026-04-15 Discovery Lab Telegram Alerts](2026-04-15-discovery-lab-telegram-alerts.md)                 | Alerts                                                    |
+| [2026-04-15 Discovery Lab Trade Ticket](2026-04-15-discovery-lab-trade-ticket-and-pack-favorites.md)    | Results board + packs                                     |
+| [2026-04-15 Discovery Builder Field-First Filters](2026-04-15-discovery-builder-field-first-filters.md) | Builder UX                                                |
+
 
 ## Archive
 
-[Archive](archive/index.md) ← older handoffs
+[archive/index.md](archive/index.md) — older infra, shell, and superseded dashboard layout handoffs.

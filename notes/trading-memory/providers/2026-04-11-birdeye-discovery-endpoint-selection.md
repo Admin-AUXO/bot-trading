@@ -1,5 +1,6 @@
 ---
-type: trading-memory
+
+## type: trading-memory
 status: active
 area: trading/providers
 date: 2026-04-11
@@ -9,7 +10,6 @@ source_files:
   - trading_bot/backend/src/config/env.ts
 graph_checked: 2026-04-11
 next_action: Re-check Birdeye docs before widening discovery away from meme-list-first graduation scans.
----
 
 # Trading Memory - Birdeye Discovery Endpoint Selection
 
@@ -54,10 +54,10 @@ Birdeye `GET /defi/v3/token/meme/list` is the better primary discovery endpoint 
 
 ## External Sources
 
-- Birdeye Token List docs: https://docs.birdeye.so/reference/get-defi-v3-token-list
-- Birdeye Meme Token List docs: https://docs.birdeye.so/reference/get-defi-v3-token-meme-list
-- Birdeye changelog 2026-02-10: https://docs.birdeye.so/changelog/20260210-release-extra-intervals-for-token-meme-list
+- Birdeye Token List docs: [https://docs.birdeye.so/reference/get-defi-v3-token-list](https://docs.birdeye.so/reference/get-defi-v3-token-list)
+- Birdeye Meme Token List docs: [https://docs.birdeye.so/reference/get-defi-v3-token-meme-list](https://docs.birdeye.so/reference/get-defi-v3-token-meme-list)
+- Birdeye changelog 2026-02-10: [https://docs.birdeye.so/changelog/20260210-release-extra-intervals-for-token-meme-list](https://docs.birdeye.so/changelog/20260210-release-extra-intervals-for-token-meme-list)
 
 ## Linked Notes
 
-- [`2026-04-11-birdeye-quality-pack-source-ranking.md`](2026-04-11-birdeye-quality-pack-source-ranking.md)
+- `[2026-04-11-birdeye-quality-pack-source-ranking.md](2026-04-11-birdeye-quality-pack-source-ranking.md)`
