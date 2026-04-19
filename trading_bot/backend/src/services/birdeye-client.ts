@@ -42,6 +42,22 @@ function pickBoolean(source: Record<string, unknown>, ...paths: string[]): boole
   return null;
 }
 
+function resolveRecipeParamValue(value: string | number | boolean | null, nowUnix: number) {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (value === "now") return nowUnix;
+  if (/^now-\d+$/.test(value)) {
+    return nowUnix - Number.parseInt(value.slice(4), 10);
+  }
+  if (/^now\+\d+$/.test(value)) {
+    return nowUnix + Number.parseInt(value.slice(4), 10);
+  }
+  if (/^-?\d+(\.\d+)?$/.test(value)) {
+    return Number(value);
+  }
+  return value;
+}
+
 async function parseResponseBody(response: Response): Promise<unknown> {
   const text = await response.text();
   if (!text) return null;
@@ -396,6 +412,7 @@ export class BirdeyeClient {
     mode: "graduated" | "pregrad";
     limit: number;
   }): Promise<DiscoveryToken[]> {
+    const nowUnix = Math.floor(Date.now() / 1000);
     const requestParams: Record<string, string | number | boolean> = {
       sort_by: typeof params.recipeParams.sort_by === "string" && params.recipeParams.sort_by.trim().length > 0
         ? params.recipeParams.sort_by
@@ -417,10 +434,11 @@ export class BirdeyeClient {
       if (key === "sort_by" || key === "sort_type" || key === "source") {
         continue;
       }
-      if (value === null || value === undefined || value === "") {
+      const resolved = resolveRecipeParamValue(value, nowUnix);
+      if (resolved === null || resolved === undefined || resolved === "") {
         continue;
       }
-      requestParams[key] = value;
+      requestParams[key] = resolved;
     }
 
     const response = await this.request<{ data?: { items?: Record<string, unknown>[] } }>(

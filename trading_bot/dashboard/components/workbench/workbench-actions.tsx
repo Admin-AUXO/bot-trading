@@ -30,7 +30,7 @@ export function StartPackRunButton(props: { packId: string; className?: string }
       });
       const runId = payload.runId ?? payload.id ?? payload.run?.id ?? null;
       if (runId) {
-        router.push(`/workbench/sandbox/${encodeURIComponent(runId)}`);
+        router.push(`/workbench/runs?runId=${encodeURIComponent(runId)}`);
       } else {
         router.refresh();
       }
@@ -211,14 +211,14 @@ export function SessionLaunchPanel(props: {
       <div>
         <div className="text-xs uppercase tracking-[0.14em] text-text-muted">Start deployment</div>
         <div className="mt-1 text-sm text-text-secondary">
-          Pick one deployable run, choose mode, then type the exact confirmation phrase shown below.
+          Pick one deployable run, choose mode, then use the confirmation helper instead of retyping the phrase by hand.
         </div>
       </div>
 
       {availableRuns.length > 0 ? (
         <>
           <select
-            className="w-full rounded-[10px] border border-bg-border bg-[#0d1117] px-3 py-2 text-sm text-text-primary outline-none"
+            className="w-full rounded-[10px] border border-bg-border bg-[#0d1117] px-3 py-2 text-sm text-text-primary outline-none focus:ring-2 focus:ring-accent focus:border-accent"
             value={selectedRunId}
             onChange={(event) => setSelectedRunId(event.target.value)}
           >
@@ -403,7 +403,14 @@ function SessionModeFields(props: {
       <label className="block md:col-span-2">
         <div className="mb-1 flex items-center justify-between gap-2 text-[11px] uppercase tracking-[0.12em] text-text-muted">
           <span>Confirmation</span>
-          <span className="text-[10px] normal-case tracking-normal text-text-secondary">{expected}</span>
+          <button
+            type="button"
+            disabled={props.disabled}
+            onClick={() => props.onConfirmationChange(expected)}
+            className="rounded-full border border-bg-border px-2 py-0.5 text-[10px] normal-case tracking-normal text-text-secondary transition hover:border-[rgba(255,255,255,0.12)] hover:text-text-primary disabled:pointer-events-none disabled:opacity-50"
+          >
+            Use {expected}
+          </button>
         </div>
         <Input
           value={props.confirmation}
@@ -411,6 +418,9 @@ function SessionModeFields(props: {
           onChange={(event) => props.onConfirmationChange(event.target.value)}
           placeholder={expected}
         />
+        <div className="mt-1 text-[11px] text-text-muted">
+          Exact phrase required for {props.mode === "LIVE" ? "LIVE" : "DRY_RUN"} session changes.
+        </div>
       </label>
       {props.mode === "LIVE" ? (
         <label className="block md:col-span-3">

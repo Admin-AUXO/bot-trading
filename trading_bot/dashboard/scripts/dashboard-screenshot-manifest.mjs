@@ -6,7 +6,7 @@ const STATIC_ROUTES = [
   { name: "settings", path: "/operational-desk/settings" },
   { name: "packs", path: "/workbench/packs" },
   { name: "editor", path: "/workbench/editor" },
-  { name: "sandbox", path: "/workbench/sandbox" },
+  { name: "runs", path: "/workbench/runs" },
   { name: "sessions", path: "/workbench/sessions" },
   { name: "trending", path: "/market/trending" },
   { name: "watchlist", path: "/market/watchlist" },

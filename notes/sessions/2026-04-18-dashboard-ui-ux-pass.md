@@ -24,7 +24,7 @@ next_action: If the desk overview or trading route gets another density pass, ke
 
 ## Follow-up - Draft Architecture Cleanup
 
-- Re-read `draft_dashboard_plan.md` before touching shell/navigation again. The draft is now a cleanup map, not a speculative IA sketch.
+- Re-read [`../plans/dashboard.md`](../plans/dashboard.md) before touching shell/navigation again. The plan is now a cleanup map, not a speculative IA sketch.
 - Removed the shell’s duplicate discovery quick-link rail so the sidebar now exposes only the three primary route groups: operational desk, strategy workbench, and market intel.
 - Stopped main-nav route matching from aliasing discovery URLs as first-class workbench or market pages. Stale compatibility paths may still exist, but the shell no longer pretends they are the same surface.
 - Moved redirect-only compatibility handling into `trading_bot/dashboard/next.config.ts` only where the compatibility URL still exists, then deleted the dead app route wrappers for `/settings`, `/workbench`, `/market`, `/discovery-lab`, `/discovery-lab/overview`, and `/discovery-lab/run-lab`.

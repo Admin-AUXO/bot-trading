@@ -7,8 +7,6 @@ source_files:
   - trading_bot/dashboard/app/layout.tsx
   - trading_bot/dashboard/app/globals.css
   - trading_bot/dashboard/components/app-shell.tsx
-  - trading_bot/dashboard/components/ag-grid-shared.tsx
-  - trading_bot/dashboard/components/ag-grid-table.tsx
   - trading_bot/dashboard/components/candidates-grid.tsx
   - trading_bot/dashboard/components/positions-grid.tsx
   - trading_bot/dashboard/components/dashboard-primitives.tsx
@@ -19,11 +17,41 @@ source_files:
   - trading_bot/dashboard/app/candidates/[id]/page.tsx
   - trading_bot/dashboard/app/market/trending/page.tsx
   - trading_bot/dashboard/app/workbench/editor/page.tsx
-  - trading_bot/dashboard/app/workbench/sandbox/page.tsx
+  - trading_bot/dashboard/app/workbench/runs/page.tsx
   - trading_bot/dashboard/app/positions/[id]/page.tsx
   - trading_bot/backend/src/services/operator-desk.ts
 graph_checked: 2026-04-14
-next_action: Browser-verify the workbench and market routes against real Birdeye or Helius envs so pack editing, sandbox runs, grader review, and token lookup are checked outside build-only validation.
+next_action: Browser-verify the workbench and market routes against real Birdeye or Helius envs so pack editing, run review, deployment flow, and token lookup are checked outside build-only validation.
+
+## Audit Log — 2026-04-19
+
+### Docker API fix
+- `compose.env` `API_URL` changed from `127.0.0.1:3101` to `bot:3101`
+- Ensures container-to-container API routing works in Docker Compose setups
+
+### TTL fixes (token-enrichment-service.ts)
+- `pump.fun` TTL: increased to **60 min**
+- `cielo` TTL: increased to **15 min**
+- Both providers now have appropriately aggressive caching for production use
+
+### Stat grid optimization
+- Reduced stat columns from 5-6 to **3-4** per row
+- Improves readability on standard viewports
+
+### Back links
+- Added back links to `/market/token/[mint]` page
+- Preserves navigation context when drilling into token details
+
+### Workbench routes
+- `grader` and `sandbox` routes now show content instead of redirecting
+- `/workbench/grader` and `/workbench/sandbox` are functional
+
+### StatusTone utility
+- Extracted status tone logic to `dashboard/lib/status.ts`
+- Centralizes status coloring/tone decisions for reuse across components
+
+### API routes
+- All 12 API routes verified working end-to-end
 ---
 
 # Dashboard Operator UI
@@ -62,7 +90,7 @@ Purpose: document the current UI contract for the Next.js operator desk so later
 - Sidebar should present three grouped areas:
   `Operational desk`, `Strategy workbench`, and `Market intel`
 - Sidebar item labels should match the route job directly:
-  `Overview`, `Trading`, `Settings`, `Packs`, `Editor`, `Sandbox`, `Grader`, `Sessions`, `Trending`, `Watchlist`
+  `Overview`, `Trading`, `Settings`, `Packs`, `Editor`, `Runs`, `Sessions`, `Trending`, `Watchlist`
 - Sidebar active state must follow nested routes, so detail pages keep their parent section selected
 - Sidebar also carries one compact shell-state block:
   mode
@@ -83,6 +111,8 @@ Purpose: document the current UI contract for the Next.js operator desk so later
   command launcher
   refresh shell
   global runtime actions
+- Browser-side writes that go through the dashboard proxy should trigger a route-level data refresh so post-action screens do not sit stale after pack runs, session starts, or settings applies
+- Client components that seed local state from server props must resync when the route refreshes, unless they are intentionally preserving unsaved local edits
 - Sticky page bars under the shell must anchor from the real shell-header height, not a route-local magic number
 - When the backend boots in `LIVE`, the primary action should read as an explicit live-arm control rather than pretending live trading is already running
 - Do not duplicate shell truth in extra footer summaries or decorative chrome
@@ -101,8 +131,7 @@ Purpose: document the current UI contract for the Next.js operator desk so later
 - `/operational-desk/settings`: smaller runtime-control surface for desk-facing capital and cadence edits with direct apply
 - `/workbench/packs`: pack library with list-first selection, clone/open/start-run actions, and no fake analytics filler
 - `/workbench/editor`: pack editing and run launch in one focused workbench surface
-- `/workbench/sandbox`: recent-run inspection and reopen flow for live or failed sandbox runs
-- `/workbench/grader`: run grading, tuning suggestions, and apply-to-session review
+- `/workbench/runs`: recent-run inspection, token-result review, grading, tuning suggestions, and apply-to-session review
 - `/workbench/sessions`: deployment history and active session lifecycle
 - `/market/trending`: market-wide pulse check with real fields only
 - `/market/watchlist`: operator-owned watchlist for names worth reopening
@@ -124,30 +153,19 @@ Purpose: document the current UI contract for the Next.js operator desk so later
 ## Workbench Rules
 
 - Trading lifecycle keeps candidates and positions as dense tables, not card grids
-- Main operator tables use AG Grid with compact defaults:
-  sortable, filterable, resizable columns
-  pagination for long books
-  right-pinned action column
-  full-row modal for secondary or verbose fields so base rows stay scan-friendly
-  AG Grid chrome must stay near-black across cells, headers, pinned columns, menus, filters, and pagination; it should never flash a white or light-gray default surface
-- AG Grid defaults now target operator density:
-  generic tables `42/34`
-  candidate book `66/36`
-  position book `64/36`
-  discovery results board `80/36`
-  headers use `text-secondary` instead of muted gray and lighter tracking than the first compact pass
-  content-heavy text columns should be allowed to auto-wrap and expand row height instead of clipping into fixed-height rows
-  metric and other compact-dimension columns should center-align by default
-  internal cell padding should stay slightly roomier than the first compact pass so dense tables still scan cleanly
-  apply subtle heatmap treatment on score-driven metric columns when it improves ranking legibility without turning the table into a chart
+- Main operator tables use shared native dashboard table primitives with compact defaults:
+  sticky headers, compact inline actions, and scan-first columns
+  content-heavy text columns should auto-wrap and expand naturally
+  metric columns should align consistently and use subtle emphasis when ranking matters
+  row actions should behave like normal links and buttons without grid-specific event traps
 - Strategy workbench should feel like a compact operator toolchain:
   packs owns library and selection
   editor owns pack edits and run launch
-  sandbox owns reopen and run detail
-  grader owns verdict and tuning review
+  runs owns reopen, result review, verdict, and tuning review
   sessions owns deployment history
   the page header should stay compact and contextual; do not bring back a large local hero or a duplicated score-strip ahead of the editor
   workbench surfaces should not repeat the same pack or run facts in the header, sticky bars, and local cards at the same time; one compact context row plus one active-action bar is enough
+  workbench list and editor surfaces should refresh passively on an operator-friendly cadence so newly started runs or session state changes appear without requiring a manual reload
   the builder should no longer force raw JSON as the primary editing surface for recipes; structured controls with suggested values, selects, and numeric inputs should own the common path, with raw JSON kept as an advanced escape hatch
   created packs still need explicit `clone`, `edit`, `start run`, and `delete` actions so operators do not guess how to begin
   pack selection should use an inline list or dropdown field instead of a permanent duplicate route rail on desktop
@@ -175,7 +193,7 @@ Purpose: document the current UI contract for the Next.js operator desk so later
   result controls should read in one strip: filters, search, score timestamp, run duration, and a small amount of scan-critical summary
   token-board row actions should stay inline and compact; stacked vertical buttons in dense tables are wasted motion
   the result table should prioritize decision metrics over prose and include run-relative heatmap cells on selected columns
-  desktop token-board tables now run on AG Grid; mobile stays on stacked cards
+  desktop token-board tables now run on shared native tables; mobile stays on stacked cards
   token rows should expose direct external pivots that matter during triage: Axiom meme view, DexScreener, Rugcheck, Solscan token, and creator account when known
   token rows should surface tracked-open-position state inline so the operator does not accidentally re-enter the same mint from the results board
   each token row should expose a direct details action that opens a full-screen review surface, not a route jump
@@ -186,8 +204,10 @@ Purpose: document the current UI contract for the Next.js operator desk so later
   full-screen token review should keep secondary evidence such as security flags and watchouts collapsed by default so the primary decision path stays above the fold
   the token review modal should keep a persistent summary rail with outcome, overlap, best score, confidence-weighted setup profile, and manual-entry CTA visible while scrolling
   manual entry from results must open a full-screen trade ticket instead of a browser confirm; the ticket should let the operator customize final size and exit settings before sending the managed entry
+  compact run-review surfaces may use an inline ticket rail instead of a modal, but the manual-trade action still needs to stay on the run page with suggested size, optional exits, and a direct pivot into the opened position
   the trade ticket should expose quick size presets, exit-profile presets, derived stop and take-profit previews, validation feedback, and current open-slot or cash context so the operator does not edit a raw numeric wall blind
   the trade ticket should prefer two dense edit sections and one compact final-check rail rather than splitting every numeric field into its own card stack
+  session-start forms should keep the explicit confirmation contract while providing a one-click phrase fill so DRY_RUN starts do not feel like captcha
   result rows and modals should prefer progress bars, colored badges, compact percent deltas, and scan-first metric strips over nested box stacks
   manual entry should refuse duplicate-mint opens and clearly hand the operator into the tracked open position when one already exists
   a compact market-regime strip and refresh timestamp should remain visible above table controls so operators can interpret table scores in context
@@ -198,6 +218,7 @@ Purpose: document the current UI contract for the Next.js operator desk so later
   desktop market-stats and strategy-ideas carousels should target two cards per viewport, not three or four squeezed cards
   market-stats should mark Birdeye-derived slices as paid and Rugcheck/DexScreener-derived slices as free in both the source legend and the primary board scan path
   strategy-ideas should present confidence, session fit, threshold ranges, and pack shape without forcing the operator through raw JSON first
+  strategy-ideas should support a direct `create draft` handoff into the workbench editor so free-provider signal review can become an editable pack without manual copy-paste
   strategy-ideas should keep raw threshold override values behind disclosure; threshold bars and pack-shape summary own the first scan path
   discovery-owned config should keep the hot parameters dense and directly editable; two-column rows beat one long vertical wall when the page is in discovery mode
   market-regime suggestions belong in `Builder` with one-click apply to local threshold overrides; they must never silently rewrite runtime settings
@@ -263,6 +284,7 @@ Purpose: document the current UI contract for the Next.js operator desk so later
 - Default commands:
   `cd trading_bot/dashboard && npm run screenshots:manifest`
   `cd trading_bot/dashboard && npm run screenshots:capture`
+  `cd trading_bot/dashboard && npm run smoke:routes`
 - The manifest should include real app routes plus compatibility redirects and add one candidate or position detail route when the backend has records available
 
 ## Grafana Split

@@ -181,27 +181,45 @@ export class QuoteBuilder {
     let errorCode: string | null = null;
 
     try {
-      const url = new URL(`${this.jupiterBaseUrl}/quote`);
-      url.searchParams.set("inputMint", inputMint);
-      url.searchParams.set("outputMint", outputMint);
-      url.searchParams.set("amount", amount);
-      url.searchParams.set("swapMode", "ExactIn");
-      url.searchParams.set("onlyDirectRoutes", "false");
-      url.searchParams.set("restrictIntermediateTokens", "true");
-      url.searchParams.set("slippageBps", String(tier.baseSlippageBps));
-      url.searchParams.set("maxAccounts", String(tier.maxAccounts));
-      url.searchParams.set("dexes", dexes.join(","));
-      url.searchParams.set("asLegacyTransaction", "false");
-      url.searchParams.set("dynamicSlippage", "true");
-      url.searchParams.set("dynamicSlippageMaxBps", String(tier.maxSlippageBps));
-      url.searchParams.set("pricePriorityLevel", tier.priorityLevel);
+      const requestQuote = async (options?: { maxAccounts?: number; dexes?: string[] | null }) => {
+        const url = new URL(`${this.jupiterBaseUrl}/quote`);
+        url.searchParams.set("inputMint", inputMint);
+        url.searchParams.set("outputMint", outputMint);
+        url.searchParams.set("amount", amount);
+        url.searchParams.set("swapMode", "ExactIn");
+        url.searchParams.set("onlyDirectRoutes", "false");
+        url.searchParams.set("restrictIntermediateTokens", "true");
+        url.searchParams.set("slippageBps", String(tier.baseSlippageBps));
+        url.searchParams.set("maxAccounts", String(options?.maxAccounts ?? tier.maxAccounts));
+        if ((options?.dexes ?? dexes).length > 0) {
+          url.searchParams.set("dexes", (options?.dexes ?? dexes).join(","));
+        }
+        url.searchParams.set("asLegacyTransaction", "false");
+        url.searchParams.set("dynamicSlippage", "true");
+        url.searchParams.set("dynamicSlippageMaxBps", String(tier.maxSlippageBps));
+        url.searchParams.set("pricePriorityLevel", tier.priorityLevel);
+        const response = await this.fetchImpl(url, {
+          method: "GET",
+          headers: this.jupiterHeaders(),
+        });
+        const payload = await response.json() as JupiterQuoteResponse;
+        return { response, payload };
+      };
 
-      const response = await this.fetchImpl(url, {
-        method: "GET",
-        headers: this.jupiterHeaders(),
-      });
+      let { response, payload } = await requestQuote();
       statusCode = response.status;
-      const payload = await response.json() as JupiterQuoteResponse;
+
+      if (
+        (!response.ok || !payload.outAmount || !Array.isArray(payload.routePlan) || payload.routePlan.length === 0)
+        && (tier.maxAccounts < 40 || dexes.length > 0)
+      ) {
+        const fallback = await requestQuote({ maxAccounts: 40, dexes: [] });
+        if (fallback.response.ok && fallback.payload.outAmount && Array.isArray(fallback.payload.routePlan) && fallback.payload.routePlan.length > 0) {
+          response = fallback.response;
+          payload = fallback.payload;
+          statusCode = fallback.response.status;
+        }
+      }
 
       if (!response.ok) {
         errorCode = payload.error ?? `http_${response.status}`;

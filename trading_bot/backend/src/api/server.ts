@@ -24,6 +24,10 @@ export function createApiServer(deps: ApiServerDeps) {
   }));
 
   function authMiddleware(req: express.Request, res: express.Response, next: express.NextFunction): void {
+    if (process.env.NODE_ENV === "production") {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
     void req;
     void res;
     next();

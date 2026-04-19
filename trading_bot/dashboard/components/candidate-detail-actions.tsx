@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { Route } from "next";
 import { useState } from "react";
 import { ArrowUpRight } from "lucide-react";
 import { fetchJson } from "@/lib/api";
@@ -33,7 +34,7 @@ export function CandidateDetailActions(props: { mint: string }) {
         {isSubmitting ? "Opening…" : "Manual entry"}
       </Button>
       <Link
-        href={`${marketRoutes.tokenByMintPrefix}/${encodeURIComponent(props.mint)}`}
+        href={`${marketRoutes.tokenByMintPrefix}/${encodeURIComponent(props.mint)}` as Route}
         className={cn(buttonVariants({ variant: "ghost" }), "inline-flex")}
       >
         Token lookup

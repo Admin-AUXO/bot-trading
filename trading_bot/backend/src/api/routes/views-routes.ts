@@ -8,7 +8,7 @@ export function registerViewsRoutes(app: express.Express): void {
     if (!ALLOWED_SQL_VIEWS.has(viewName)) {
       return res.status(404).json({ error: "view not available" });
     }
-    const rows = await db.$queryRawUnsafe<unknown[]>(`SELECT * FROM "${viewName}" LIMIT 500`);
+    const rows = await db.$queryRaw<unknown[]>`SELECT * FROM ${viewName} LIMIT 500`;
     return res.json(rows);
   });
 }

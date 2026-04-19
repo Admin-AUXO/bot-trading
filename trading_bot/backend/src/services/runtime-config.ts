@@ -52,8 +52,8 @@ const botSettingsSchema = z.object({
     evaluationConcurrency: z.number().int().positive().max(10),
   }),
   strategy: z.object({
-    livePresetId: z.enum(["FIRST_MINUTE_POSTGRAD_CONTINUATION", "LATE_CURVE_MIGRATION_SNIPE"]),
-    dryRunPresetId: z.enum(["FIRST_MINUTE_POSTGRAD_CONTINUATION", "LATE_CURVE_MIGRATION_SNIPE"]),
+    livePresetId: z.enum(["FIRST_MINUTE_POSTGRAD_CONTINUATION", "LATE_CURVE_MIGRATION_SNIPE", "SCALP_30_60_FAST"]),
+    dryRunPresetId: z.enum(["FIRST_MINUTE_POSTGRAD_CONTINUATION", "LATE_CURVE_MIGRATION_SNIPE", "SCALP_30_60_FAST"]),
     heliusWatcherEnabled: z.boolean(),
     liveStrategy: z.object({
       enabled: z.boolean(),
@@ -97,7 +97,7 @@ const botSettingsSchema = z.object({
       }),
       capitalModifierPercent: z.number().min(40).max(180),
       dominantMode: z.enum(["graduated", "pregrad"]).nullable(),
-      dominantPresetId: z.enum(["FIRST_MINUTE_POSTGRAD_CONTINUATION", "LATE_CURVE_MIGRATION_SNIPE"]).nullable(),
+      dominantPresetId: z.enum(["FIRST_MINUTE_POSTGRAD_CONTINUATION", "LATE_CURVE_MIGRATION_SNIPE", "SCALP_30_60_FAST"]).nullable(),
       calibrationSummary: z.object({
         winnerCount: z.number().int().nonnegative(),
         avgWinnerScore: z.number().nonnegative().nullable(),
@@ -117,7 +117,7 @@ const botSettingsSchema = z.object({
         label: z.string().trim().min(1),
         tokenCount: z.number().int().nonnegative(),
         winnerCount: z.number().int().nonnegative(),
-        avgWinnerScore: z.number().min(0).max(1).nullable(),
+        avgWinnerScore: z.number().nonnegative().nullable(),
         avgWinnerVolume5mUsd: z.number().nonnegative().nullable(),
         avgWinnerAgeMin: z.number().nonnegative().nullable(),
       })),

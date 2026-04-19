@@ -1,12 +1,15 @@
 "use client";
 
 import { Component, type ReactNode } from "react";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, RefreshCcw } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
-export class ErrorBoundary extends Component<{ children: ReactNode; fallback?: ReactNode }> {
+export class ErrorBoundary extends Component<
+  { children: ReactNode; fallback?: ReactNode; onReset?: () => void }
+> {
   state: { hasError: boolean; error?: Error };
 
-  constructor(props: { children: ReactNode; fallback?: ReactNode }) {
+  constructor(props: { children: ReactNode; fallback?: ReactNode; onReset?: () => void }) {
     super(props);
     this.state = { hasError: false };
   }
@@ -14,6 +17,11 @@ export class ErrorBoundary extends Component<{ children: ReactNode; fallback?: R
   static getDerivedStateFromError(error: Error) {
     return { hasError: true, error };
   }
+
+  reset = () => {
+    this.setState({ hasError: false, error: undefined });
+    this.props.onReset?.();
+  };
 
   render() {
     if (this.state.hasError) {
@@ -27,6 +35,10 @@ export class ErrorBoundary extends Component<{ children: ReactNode; fallback?: R
           <div className="text-xs text-text-muted">
             {this.state.error?.message ?? "An unexpected error occurred"}
           </div>
+          <Button variant="secondary" size="sm" onClick={this.reset}>
+            <RefreshCcw className="h-3.5 w-3.5" />
+            Try again
+          </Button>
         </div>
       );
     }

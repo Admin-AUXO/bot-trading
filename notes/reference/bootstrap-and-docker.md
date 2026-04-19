@@ -167,10 +167,14 @@ Compose contract:
 - `db-setup` applies Prisma schema and SQL views before the bot starts
 - `bot` health checks `GET /health`
 - `dashboard` waits for backend health, injects `API_URL=http://bot:3101`, and reads only `dashboard/compose.env` for its API target and Grafana deep-link contract
+- `dashboard` also pins `HOSTNAME=0.0.0.0` in Compose so the Next.js standalone server binds on all interfaces and the container-local healthcheck can probe `127.0.0.1:3100`
 - `grafana` waits for Postgres and `db-setup`, mounts provisioning from `trading_bot/grafana/`, and binds locally on `127.0.0.1:${GRAFANA_PORT:-3400}`
 - `grafana` reads only `grafana/compose.env` for admin and datasource credentials
 - Grafana provisioning assumes a direct PostgreSQL datasource from inside Compose using `postgres:5432`
 - `./scripts/sync-compose-env.sh` is the supported way to derive those service env files from `backend/.env`
+- Runtime CPU and memory limits now use Compose-native `cpus`, `mem_limit`, and `mem_reservation` on the main services, not just `deploy.resources`, so local Docker Compose actually enforces the caps.
+- App containers now set `no-new-privileges` by default through the shared app-service anchor.
+- The dashboard image now builds in Next.js `standalone` mode so the runtime container only carries the standalone server, static assets, and public files instead of the full build workspace.
 - First login to Grafana with the default admin credentials will prompt for a password change. If you are only smoke-testing the local stack, you can skip that prompt and still reach the provisioned dashboards.
 
 ## Run Mode C: Obsidian Notes Sidecar

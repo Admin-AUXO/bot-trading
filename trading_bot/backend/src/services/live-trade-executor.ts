@@ -18,12 +18,14 @@ import {
   type JupiterQuote,
   type PackRecipe,
 } from "./execution/quote-builder.js";
+import { BirdeyeClient } from "./birdeye-client.js";
 import { SwapBuilder } from "./execution/swap-builder.js";
 import { SwapSubmitter } from "./execution/swap-submitter.js";
 import { HeliusPriorityFeeService } from "./helius/priority-fee-service.js";
 
 const DEFAULT_USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const DEFAULT_USDT_MINT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
+const SOL_MINT = "So11111111111111111111111111111111111111112";
 
 type TokenBalanceDelta = {
   preRaw: bigint;
@@ -196,6 +198,7 @@ export class LiveTradeExecutor {
   private readonly wallet: Keypair | null;
   private readonly budgetService: ProviderBudgetService;
   private readonly priorityFeeService: HeliusPriorityFeeService;
+  private readonly birdeye: BirdeyeClient;
   private readonly quoteBuilder: QuoteBuilder;
   private readonly swapBuilder: SwapBuilder;
   private readonly swapSubmitter: SwapSubmitter;
@@ -216,6 +219,7 @@ export class LiveTradeExecutor {
       rpcUrl: env.HELIUS_RPC_URL,
       budgetService: providerBudget,
     });
+    this.birdeye = new BirdeyeClient(env.BIRDEYE_API_KEY, providerBudget);
     this.quoteBuilder = deps.quoteBuilder ?? new QuoteBuilder({
       budgetService: providerBudget,
     });
@@ -269,7 +273,9 @@ export class LiveTradeExecutor {
     const wallet = this.requireWallet();
     const quoteMint = env.LIVE_QUOTE_MINT;
     const quoteDecimals = env.LIVE_QUOTE_DECIMALS;
-    const quoteAmountRaw = decimalToRawUnits(input.budgetUsd.toFixed(6), quoteDecimals);
+    const quoteUsdPrice = await this.resolveQuoteUsdPrice(quoteMint);
+    const quoteAmountValue = input.budgetUsd / quoteUsdPrice;
+    const quoteAmountRaw = decimalToRawUnits(quoteAmountValue.toFixed(6), quoteDecimals);
 
     if (quoteAmountRaw <= 0n) {
       throw new Error("live buy budget must be positive");
@@ -401,8 +407,8 @@ export class LiveTradeExecutor {
 
     return {
       signature: attempt.txSig,
-      entryPriceUsd: Number(settled.quoteAmount) / Math.max(Number(settled.baseAmount), Number.EPSILON),
-      amountUsd: settled.quoteAmount,
+      entryPriceUsd: (Number(settled.quoteAmount) * quoteUsdPrice) / Math.max(Number(settled.baseAmount), Number.EPSILON),
+      amountUsd: (Number(settled.quoteAmount) * quoteUsdPrice).toFixed(6),
       amountToken: settled.baseAmount,
       tokenDecimals: settled.baseDecimals,
       quoteMint,
@@ -412,6 +418,7 @@ export class LiveTradeExecutor {
         wallet: wallet.publicKey.toBase58(),
         quoteMint,
         quoteDecimals,
+        quoteUsdPrice,
         quotedInAmountRaw,
         quotedOutAmountRaw,
         actualInAmountRaw,
@@ -476,6 +483,7 @@ export class LiveTradeExecutor {
     const wallet = this.requireWallet();
     const quoteMint = env.LIVE_QUOTE_MINT;
     const quoteDecimals = env.LIVE_QUOTE_DECIMALS;
+    const quoteUsdPrice = await this.resolveQuoteUsdPrice(quoteMint);
     const baseAmountRaw = decimalToRawUnits(input.tokenAmount, input.tokenDecimals);
 
     if (baseAmountRaw <= 0n) {
@@ -609,14 +617,16 @@ export class LiveTradeExecutor {
     const quotedOutAmountRaw = currentQuote.outAmount ?? null;
     const actualInAmountRaw = settled.baseAmountRaw;
     const actualOutAmountRaw = settled.quoteAmountRaw;
-    const quotedOutAmountUsd = toDecimalNumber(quotedOutAmountRaw, quoteDecimals);
-    const actualOutAmountUsd = Number(settled.quoteAmount);
+    const quotedOutAmountUsdRaw = toDecimalNumber(quotedOutAmountRaw, quoteDecimals);
+    const actualOutAmountQuote = Number(settled.quoteAmount);
+    const quotedOutAmountUsd = quotedOutAmountUsdRaw === null ? null : quotedOutAmountUsdRaw * quoteUsdPrice;
+    const actualOutAmountUsd = actualOutAmountQuote * quoteUsdPrice;
     const executionSlippageBps = toBpsFromShortfall(quotedOutAmountUsd, actualOutAmountUsd);
 
     return {
       signature: attempt.txSig,
-      entryPriceUsd: Number(settled.quoteAmount) / Math.max(Number(settled.baseAmount), Number.EPSILON),
-      amountUsd: settled.quoteAmount,
+      entryPriceUsd: actualOutAmountUsd / Math.max(Number(settled.baseAmount), Number.EPSILON),
+      amountUsd: actualOutAmountUsd.toFixed(6),
       amountToken: settled.baseAmount,
       tokenDecimals: settled.baseDecimals,
       quoteMint,
@@ -626,12 +636,14 @@ export class LiveTradeExecutor {
         wallet: wallet.publicKey.toBase58(),
         quoteMint,
         quoteDecimals,
+        quoteUsdPrice,
         quotedInAmountRaw,
         quotedOutAmountRaw,
         actualInAmountRaw,
         actualOutAmountRaw,
         quotedOutAmountUsd,
         actualOutAmountUsd,
+        actualOutAmountQuote,
         executionSlippageBps,
         quoteSlippageBps: currentQuote.slippageBps ?? env.LIVE_SLIPPAGE_BPS,
         senderUrl: env.LIVE_HELIUS_SENDER_URL,
@@ -724,6 +736,20 @@ export class LiveTradeExecutor {
     budget: ProviderSlotContext & { purpose: ProviderPurpose },
   ): Promise<{ raw: bigint; decimals: number }> {
     const wallet = this.requireWallet();
+    if (mint === SOL_MINT) {
+      const lamports = await this.withHeliusRpcBudget(
+        "getBalance",
+        budget.purpose,
+        {
+          ...budget,
+          mint,
+        },
+        1,
+        () => this.connection.getBalance(wallet.publicKey, "confirmed"),
+      );
+      return { raw: BigInt(lamports), decimals: 9 };
+    }
+
     const response = await this.withHeliusRpcBudget(
       "getParsedTokenAccountsByOwner",
       budget.purpose,
@@ -749,6 +775,26 @@ export class LiveTradeExecutor {
     }
 
     return { raw, decimals };
+  }
+
+  private async resolveQuoteUsdPrice(quoteMint: string): Promise<number> {
+    if (isStableQuoteMint(quoteMint)) {
+      return 1;
+    }
+
+    if (quoteMint === SOL_MINT) {
+      const solPrice = await this.birdeye.getPrice(SOL_MINT);
+      if (typeof solPrice === "number" && Number.isFinite(solPrice) && solPrice > 0) {
+        return solPrice;
+      }
+    }
+
+    const quotePrice = await this.birdeye.getPrice(quoteMint);
+    if (typeof quotePrice === "number" && Number.isFinite(quotePrice) && quotePrice > 0) {
+      return quotePrice;
+    }
+
+    throw new Error(`quote mint USD price unavailable for ${quoteMint}`);
   }
 
   private async parseSettlement(input: {

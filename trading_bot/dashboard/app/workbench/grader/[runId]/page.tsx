@@ -1,4 +1,5 @@
-import { WorkbenchGraderSurface } from "@/components/workbench/workbench-grader-surface";
+import { redirect } from "next/navigation";
+import { workbenchRoutes } from "@/lib/dashboard-routes";
 
 export const dynamic = "force-dynamic";
 
@@ -8,5 +9,5 @@ export default async function WorkbenchGraderRunPage({
   params: Promise<{ runId: string }>;
 }) {
   const { runId } = await params;
-  return <WorkbenchGraderSurface selectedRunId={runId} />;
+  redirect(`${workbenchRoutes.runsByIdPrefix}/${encodeURIComponent(runId)}`);
 }

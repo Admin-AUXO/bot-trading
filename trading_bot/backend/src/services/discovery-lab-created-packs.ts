@@ -143,16 +143,16 @@ const CREATED_PACK_SEEDS: CreatedPackSeed[] = [
     targetPnlBand: { label: "30-60% buyer stack scalp", minPercent: 30, maxPercent: 60 },
     defaultProfile: "scalp",
     thresholdOverrides: {
-      minLiquidityUsd: 10_000,
+      minLiquidityUsd: 12_000,
       maxMarketCapUsd: 950_000,
       minHolders: 42,
       minVolume5mUsd: 2_000,
       minUniqueBuyers5m: 14,
-      minBuySellRatio: 1.10,
-      maxTop10HolderPercent: 40,
-      maxSingleHolderPercent: 20,
+      minBuySellRatio: 1.14,
+      maxTop10HolderPercent: 38,
+      maxSingleHolderPercent: 18,
       maxGraduationAgeSeconds: 1_200,
-      maxNegativePriceChange5mPercent: 12,
+      maxNegativePriceChange5mPercent: 8,
     },
     recipes: [
       buildGraduatedRecipe({
@@ -181,22 +181,22 @@ const CREATED_PACK_SEEDS: CreatedPackSeed[] = [
         name: "grad_15m_holder_confirmation",
         description: "Confirmation lane for setups that maintain active tape through fifteen minutes without losing trade participation.",
         sortBy: "trade_1m_count",
-        graduatedLookbackSeconds: 1_200,
+        graduatedLookbackSeconds: 720,
         targetPnlBand: { label: "45-57%", minPercent: 45, maxPercent: 57 },
         params: {
           min_last_trade_unix_time: "now-240",
-          min_trade_1m_count: 14,
+          min_trade_1m_count: 15,
         },
       }),
       buildGraduatedRecipe({
         name: "grad_24m_buyer_extension",
         description: "Latest early extension lane where low-cap names still print timely tape and high 5m churn.",
         sortBy: "trade_1m_count",
-        graduatedLookbackSeconds: 1_800,
+        graduatedLookbackSeconds: 1_080,
         targetPnlBand: { label: "52-60%", minPercent: 52, maxPercent: 60 },
         params: {
           min_last_trade_unix_time: "now-300",
-          min_trade_1m_count: 16,
+          min_trade_1m_count: 17,
         },
       }),
     ],
@@ -209,45 +209,45 @@ const CREATED_PACK_SEEDS: CreatedPackSeed[] = [
     targetPnlBand: { label: "30-60% liquidity ramp scalp", minPercent: 30, maxPercent: 60 },
     defaultProfile: "scalp",
     thresholdOverrides: {
-      minLiquidityUsd: 12_000,
+      minLiquidityUsd: 15_000,
       maxMarketCapUsd: 1_000_000,
       minHolders: 45,
       minVolume5mUsd: 2_200,
       minUniqueBuyers5m: 15,
-      minBuySellRatio: 1.10,
-      maxTop10HolderPercent: 39,
-      maxSingleHolderPercent: 19,
+      minBuySellRatio: 1.14,
+      maxTop10HolderPercent: 36,
+      maxSingleHolderPercent: 16,
       maxGraduationAgeSeconds: 1_200,
-      maxNegativePriceChange5mPercent: 12,
+      maxNegativePriceChange5mPercent: 8,
     },
     recipes: [
       buildGraduatedRecipe({
         name: "grad_5m_liquidity_ping",
         description: "Opening lane for lower-cap names with fresh tape and immediate five-minute trade confirmation.",
         sortBy: "trade_1m_count",
-        graduatedLookbackSeconds: 600,
+        graduatedLookbackSeconds: 480,
         targetPnlBand: { label: "30-42%", minPercent: 30, maxPercent: 42 },
         params: {
           min_last_trade_unix_time: "now-180",
-          min_trade_1m_count: 10,
+          min_trade_1m_count: 11,
         },
       }),
       buildGraduatedRecipe({
         name: "grad_11m_liquidity_ramp",
         description: "Ramp lane for names that keep printing current trades while 5m activity expands.",
         sortBy: "trade_1m_count",
-        graduatedLookbackSeconds: 1_000,
+        graduatedLookbackSeconds: 780,
         targetPnlBand: { label: "38-52%", minPercent: 38, maxPercent: 52 },
         params: {
           min_last_trade_unix_time: "now-210",
-          min_trade_1m_count: 12,
+          min_trade_1m_count: 13,
         },
       }),
       buildGraduatedRecipe({
         name: "grad_20m_flow_absorption",
         description: "Flow lane for low-cap continuations still printing active tape through the twenty-minute window.",
         sortBy: "trade_1m_count",
-        graduatedLookbackSeconds: 1_500,
+        graduatedLookbackSeconds: 1_200,
         targetPnlBand: { label: "45-56%", minPercent: 45, maxPercent: 56 },
         params: {
           min_last_trade_unix_time: "now-240",
@@ -258,11 +258,11 @@ const CREATED_PACK_SEEDS: CreatedPackSeed[] = [
         name: "grad_32m_liquidity_extension",
         description: "Latest extension lane for names still printing timely trades with strong five-minute churn.",
         sortBy: "trade_1m_count",
-        graduatedLookbackSeconds: 2_100,
+        graduatedLookbackSeconds: 1_560,
         targetPnlBand: { label: "52-60%", minPercent: 52, maxPercent: 60 },
         params: {
           min_last_trade_unix_time: "now-300",
-          min_trade_1m_count: 16,
+          min_trade_1m_count: 17,
         },
       }),
     ],
@@ -284,7 +284,7 @@ const CREATED_PACK_SEEDS: CreatedPackSeed[] = [
       maxTop10HolderPercent: 40,
       maxSingleHolderPercent: 19,
       maxGraduationAgeSeconds: 1_200,
-      maxNegativePriceChange5mPercent: 12,
+      maxNegativePriceChange5mPercent: 10,
     },
     recipes: [
       buildGraduatedRecipe({
@@ -295,7 +295,7 @@ const CREATED_PACK_SEEDS: CreatedPackSeed[] = [
         targetPnlBand: { label: "30-42%", minPercent: 30, maxPercent: 42 },
         params: {
           min_last_trade_unix_time: "now-90",
-          min_trade_5m_count: 30,
+          min_trade_5m_count: 28,
         },
       }),
       buildGraduatedRecipe({
@@ -306,7 +306,7 @@ const CREATED_PACK_SEEDS: CreatedPackSeed[] = [
         targetPnlBand: { label: "38-52%", minPercent: 38, maxPercent: 52 },
         params: {
           min_last_trade_unix_time: "now-120",
-          min_trade_5m_count: 34,
+          min_trade_5m_count: 32,
         },
       }),
       buildGraduatedRecipe({
@@ -317,7 +317,7 @@ const CREATED_PACK_SEEDS: CreatedPackSeed[] = [
         targetPnlBand: { label: "45-56%", minPercent: 45, maxPercent: 56 },
         params: {
           min_last_trade_unix_time: "now-150",
-          min_trade_5m_count: 38,
+          min_trade_5m_count: 35,
         },
       }),
       buildGraduatedRecipe({
@@ -328,7 +328,7 @@ const CREATED_PACK_SEEDS: CreatedPackSeed[] = [
         targetPnlBand: { label: "52-60%", minPercent: 52, maxPercent: 60 },
         params: {
           min_last_trade_unix_time: "now-180",
-          min_trade_5m_count: 42,
+          min_trade_5m_count: 38,
         },
       }),
     ],
@@ -343,9 +343,9 @@ const CREATED_PACK_SEEDS: CreatedPackSeed[] = [
     thresholdOverrides: {
       minLiquidityUsd: 14_000,
       maxMarketCapUsd: 1_200_000,
-      minHolders: 52,
-      minVolume5mUsd: 2_500,
-      minUniqueBuyers5m: 17,
+      minHolders: 48,
+      minVolume5mUsd: 2_200,
+      minUniqueBuyers5m: 15,
       minBuySellRatio: 1.12,
       maxTop10HolderPercent: 38,
       maxSingleHolderPercent: 18,
@@ -361,7 +361,7 @@ const CREATED_PACK_SEEDS: CreatedPackSeed[] = [
         targetPnlBand: { label: "30-42%", minPercent: 30, maxPercent: 42 },
         params: {
           min_last_trade_unix_time: "now-90",
-          min_trade_5m_count: 30,
+          min_trade_5m_count: 28,
         },
       }),
       buildGraduatedRecipe({
@@ -372,7 +372,7 @@ const CREATED_PACK_SEEDS: CreatedPackSeed[] = [
         targetPnlBand: { label: "38-52%", minPercent: 38, maxPercent: 52 },
         params: {
           min_last_trade_unix_time: "now-120",
-          min_trade_5m_count: 34,
+          min_trade_5m_count: 32,
         },
       }),
       buildGraduatedRecipe({
@@ -383,18 +383,18 @@ const CREATED_PACK_SEEDS: CreatedPackSeed[] = [
         targetPnlBand: { label: "45-56%", minPercent: 45, maxPercent: 56 },
         params: {
           min_last_trade_unix_time: "now-150",
-          min_trade_5m_count: 38,
+          min_trade_5m_count: 36,
         },
       }),
       buildGraduatedRecipe({
         name: "grad_42m_quality_scalp_runner",
         description: "Latest early runner lane for quality names still printing active tape and high five-minute churn.",
         sortBy: "last_trade_unix_time",
-        graduatedLookbackSeconds: 1_200,
+        graduatedLookbackSeconds: 1_440,
         targetPnlBand: { label: "52-60%", minPercent: 52, maxPercent: 60 },
         params: {
           min_last_trade_unix_time: "now-180",
-          min_trade_5m_count: 42,
+          min_trade_5m_count: 40,
         },
       }),
     ],

@@ -80,7 +80,14 @@ export type ApiServerDeps = {
   triggerDiscovery: () => Promise<void>;
   triggerEvaluation: () => Promise<void>;
   triggerExitCheck: () => Promise<void>;
-  getMarketTrending: (input?: { mint?: string; limit?: number; refresh?: boolean; focusOnly?: boolean }) => Promise<DiscoveryLabMarketStatsPayload>;
+  getMarketTrending: (input?: {
+    mint?: string;
+    limit?: number;
+    refresh?: boolean;
+    focusOnly?: boolean;
+    mints?: string[];
+    scope?: "trending" | "watchlist";
+  }) => Promise<DiscoveryLabMarketStatsPayload>;
   getMarketTokenStats: (mint: string) => Promise<MarketTokenStatsPayload>;
   getRecentSmartWalletActivity: (mints: string[], limit?: number) => Promise<SmartWalletActivityPayload[]>;
   getMarketStrategySuggestions: (input?: { refresh?: boolean }) => Promise<DiscoveryLabStrategySuggestionsPayload>;

@@ -22,9 +22,9 @@ readStdin()
       /* ignore malformed stdin; still emit safe defaults */
     }
 
-    const hasGraphReport = fs.existsSync("graphify-out/GRAPH_REPORT.md");
+    const hasGraphReport = fs.existsSync("graphify-out/GRAPH_REPORT_COMPACT.md");
     const graphLine = hasGraphReport
-      ? "Graphify: use `graphify-out/GRAPH_REPORT.md` only when architecture or ownership is unclear — not as a default first read."
+      ? "Graphify: use `graphify-out/GRAPH_REPORT_COMPACT.md` or `graphify-out/README.md` — not as a default first read."
       : "Graphify: skip unless ownership is ambiguous; build locally with repo graphify scripts when needed.";
 
     const additional_context = [

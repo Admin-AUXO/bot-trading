@@ -1,5 +1,5 @@
 import type { Route } from "next";
-import { Activity, FlaskConical, LineChart, Radar, Settings2, SlidersHorizontal, Sparkles } from "lucide-react";
+import { Activity, FlaskConical, LineChart, PlayCircle, Radar, Settings2, SlidersHorizontal, Sparkles } from "lucide-react";
 import { marketRoutes, operationalDeskRoutes, workbenchRoutes } from "@/lib/dashboard-routes";
 
 export type DashboardNavItem = {
@@ -72,27 +72,26 @@ export const dashboardNavGroups: DashboardNavGroup[] = [
         matchPrefixes: [workbenchRoutes.editor, workbenchRoutes.editorByIdPrefix],
       },
       {
-        id: "sandbox",
-        href: workbenchRoutes.sandbox,
-        label: "Sandbox",
-        detail: "Inspect recent runs before review",
+        id: "runs",
+        href: workbenchRoutes.runs,
+        label: "Runs",
+        detail: "Review one run, grade it, and move it forward",
         icon: Activity,
-        matchPrefixes: [workbenchRoutes.sandbox, workbenchRoutes.sandboxByRunPrefix],
-      },
-      {
-        id: "grader",
-        href: workbenchRoutes.grader,
-        label: "Grader",
-        detail: "Review evidence and create the next draft",
-        icon: LineChart,
-        matchPrefixes: [workbenchRoutes.grader, workbenchRoutes.graderByRunPrefix],
+        matchPrefixes: [
+          workbenchRoutes.runs,
+          workbenchRoutes.runsByIdPrefix,
+          workbenchRoutes.sandbox,
+          workbenchRoutes.sandboxByRunPrefix,
+          workbenchRoutes.grader,
+          workbenchRoutes.graderByRunPrefix,
+        ],
       },
       {
         id: "sessions",
         href: workbenchRoutes.sessions,
         label: "Sessions",
         detail: "Start, pause, stop, or replace deployment",
-        icon: Settings2,
+        icon: PlayCircle,
         matchPrefixes: [workbenchRoutes.sessions],
       },
     ],

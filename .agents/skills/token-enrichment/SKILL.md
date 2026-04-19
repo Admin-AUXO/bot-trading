@@ -6,6 +6,10 @@ allowed-tools: Read, Grep, Glob, Edit, Write, Bash, WebFetch
 
 # Token Enrichment
 
+## Graph Context
+
+Graph: read `graphify-out/GRAPH_CLIENTS.md` for full client list, `graphify-out/GRAPH_ACTIONS.md` for enrichment actions
+
 ## Use when
 
 - adding a new free-API provider (Trench.bot, Bubblemaps, Solsniffer, Pump.fun public, Jupiter Token, GeckoTerminal, Cielo, DefiLlama)

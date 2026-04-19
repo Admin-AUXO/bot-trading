@@ -12,6 +12,7 @@ Active workstream summaries. Keep short; archive when done.
 
 | Session                                                                                                 | Focus                                                     |
 | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| [2026-04-19 Live Pack Calibration And Execution](2026-04-19-live-pack-calibration-and-execution.md)     | Pack shortlist, live execution path, Docker handoff       |
 | [2026-04-18 Dashboard UI UX Pass](2026-04-18-dashboard-ui-ux-pass.md)                                   | Shell, workbench/market routes, density, Playwright proof |
 | [2026-04-18 Dashboard Backend Simplification](2026-04-18-dashboard-backend-simplification-pass.md)      | Operator API / desk contracts                             |
 | [2026-04-17 Audit Fix Session](2026-04-17-audit-fix-session.md)                                         | Cross-cutting audit + Docker rebuild                      |

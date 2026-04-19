@@ -34,7 +34,7 @@ export default async function WorkbenchPacksPage({
     ? await Promise.all([
         safeFetch<WorkbenchPackDetailPayload>(`/api/operator/packs/${encodeURIComponent(selectedPackId)}`),
         safeFetch<WorkbenchPackRunsPayload>(
-          `/api/operator/packs/${encodeURIComponent(selectedPackId)}/runs?limit=15`,
+          `/api/operator/packs/${encodeURIComponent(selectedPackId)}/runs?limit=12`,
         ),
       ])
     : [null, null];
@@ -80,7 +80,7 @@ export default async function WorkbenchPacksPage({
         />
       </CompactPageHeader>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(20rem,0.9fr)_minmax(0,1.2fr)]">
+      <div className="grid gap-4 xl:grid-cols-[minmax(20rem,0.9fr)_minmax(0,1.2fr)] 2xl:grid-cols-[minmax(20rem,0.75fr)_max-content]">
         <Panel
           title="Pack inventory"
           eyebrow="Catalog"
@@ -128,7 +128,7 @@ export default async function WorkbenchPacksPage({
                         prefetch={false}
                         className={buttonVariants({ variant: isSelected ? "secondary" : "ghost", size: "sm" })}
                       >
-                        {isSelected ? "Selected" : "Inspect"}
+                        {isSelected ? "Selected" : "Select"}
                       </Link>
                       <Link
                         href={`${workbenchRoutes.editor}?pack=${encodeURIComponent(pack.id)}`}
@@ -217,7 +217,7 @@ export default async function WorkbenchPacksPage({
                         </div>
                         <div className="flex flex-wrap gap-2 md:justify-end">
                           <Link
-                            href={`${workbenchRoutes.sandboxByRunPrefix}/${encodeURIComponent(run.id)}`}
+                            href={`${workbenchRoutes.runs}?runId=${encodeURIComponent(run.id)}`}
                             prefetch={false}
                             className={buttonVariants({ variant: "secondary", size: "sm" })}
                           >

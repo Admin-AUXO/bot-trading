@@ -1,8 +1,7 @@
 name = "research_scout"
-description = "One-off web/docs research and analysis routed through MiniMax M2.7-highspeed (Token Plan) — provider docs, library changelogs, protocol updates, market context. Read-only; hands a tight evidence-backed brief back to the parent."
-nickname_candidates = ["Research Scout", "Doc Hunter", "MiniMax Reader"]
-model = "MiniMax-M2.7-highspeed"
-model_provider = "minimax"
+description = "One-off web/docs research and analysis for provider docs, library changelogs, protocol updates, and market context. Read-only; hands a tight evidence-backed brief back to the parent."
+nickname_candidates = ["Research Scout", "Doc Hunter", "Evidence Scout"]
+model = "gpt-5.4-mini"
 model_reasoning_effort = "low"
 sandbox_mode = "read-only"
 

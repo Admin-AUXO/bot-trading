@@ -5,6 +5,10 @@ description: "Use for visual and interaction-focused dashboard work: hierarchy, 
 
 # Dashboard UI UX
 
+## Graph Context
+
+Graph: read `graphify-out/GRAPH_QUICKREF.md` for quick context, `graphify-out/GRAPH_MAPS.md` → Dashboard↔Grafana map
+
 ## Use When
 
 - the issue is readability, layout, interaction trust, or state clarity

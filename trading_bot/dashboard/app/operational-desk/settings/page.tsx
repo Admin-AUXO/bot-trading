@@ -24,7 +24,7 @@ export default async function OperationalDeskSettingsPage() {
         href: workbenchRoutes.editor,
         label: "Open workbench editor",
       }}
-      strategyLinkHref={workbenchRoutes.sandbox}
+      strategyLinkHref={workbenchRoutes.runs}
       saveBarLabel="Apply runtime changes directly from this page."
       emptySectionTitle="No operational settings in this view"
       emptySectionDetail="This surface only carries the capital and advanced runtime controls."

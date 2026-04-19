@@ -378,7 +378,12 @@ export function getExitDecision(
   const atrAdjustedSl = atr > 0
     ? position.entryPriceUsd - (atr * SL_ATR_MULTIPLIER)
     : 0;
-  const effectiveStop = Math.max(atrAdjustedSl, effectiveSlPrice);
+  const staticStopDistance = position.entryPriceUsd - effectiveSlPrice;
+  const maxAtrAdjustment = staticStopDistance * 3;
+  const cappedAtrAdjustedSl = atr > 0
+    ? Math.max(position.entryPriceUsd - maxAtrAdjustment, atrAdjustedSl)
+    : 0;
+  const effectiveStop = Math.max(cappedAtrAdjustedSl, effectiveSlPrice);
 
   if (!position.tp1Done && priceUsd <= effectiveStop) {
     if (

@@ -1,4 +1,5 @@
 import { db } from "../../db/client.js";
+import { env } from "../../config/env.js";
 import type {
   DiscoveryLabRunDetail,
   DiscoveryLabRunRequest,
@@ -203,6 +204,12 @@ function isDeployableCalibration(
   }
   if (!calibration || typeof calibration !== "object") {
     return false;
+  }
+
+  if (env.ALLOW_UNVERIFIED_LIVE_DEPLOY) {
+    const value = calibration as { packId?: string | null };
+    const calibratedPackId = typeof value.packId === "string" ? value.packId : null;
+    return Boolean(calibratedPackId) && calibratedPackId !== "__inline__";
   }
 
   const value = calibration as {

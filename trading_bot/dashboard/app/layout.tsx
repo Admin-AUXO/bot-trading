@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { AppShell } from "@/components/app-shell";
+import { LoadingSkeleton } from "@/components/dashboard-primitives";
 import { UiToast } from "@/components/ui-toast";
-import "ag-grid-community/styles/ag-grid.css";
-import "ag-grid-community/styles/ag-theme-quartz.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -26,7 +26,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             "\"Geist Mono\", ui-monospace, \"SFMono-Regular\", \"SF Mono\", Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace",
         }}
       >
-        <AppShell>{children}</AppShell>
+        <AppShell>
+          <Suspense
+            fallback={
+              <div className="space-y-4">
+                <LoadingSkeleton className="h-20 w-full" />
+                <LoadingSkeleton className="h-40 w-full" />
+              </div>
+            }
+          >
+            {children}
+          </Suspense>
+        </AppShell>
         <UiToast />
       </body>
     </html>

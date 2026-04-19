@@ -31,4 +31,10 @@ Package-scoped rules. Read `[../AGENTS.md](../AGENTS.md)` first for repo-wide gu
 
 ## Graphify
 
-Repo graph lives at `../graphify-out/` and is code-only (markdown excluded). Build from repo root with `node ./.codex/scripts/graphify.mjs build-local .`; rebuild after code changes with `node ./.codex/scripts/graphify-rebuild.mjs`.
+Repo graph at `../graphify-out/`. Quick start:
+- `graphify-out/GRAPH_QUICKREF.md` — entry point (~75 lines)
+- `graphify-out/GRAPH_ACTIONS.md` — "who does X" mutations
+- `graphify-out/GRAPH_WORKFLOWS.md` — trade/data flow diagrams
+- `graphify-out/GRAPH_SKILLS.md` — which skill to load
+
+Build: `node ./.codex/scripts/graphify.mjs build-local .` from repo root. Rebuild: `node ./.codex/scripts/graphify-rebuild.mjs`.

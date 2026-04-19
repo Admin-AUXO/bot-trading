@@ -229,3 +229,16 @@ export function derivePresetIdFromRecipeMode(mode: StrategyRecipeMode): Strategy
     ? "LATE_CURVE_MIGRATION_SNIPE"
     : "FIRST_MINUTE_POSTGRAD_CONTINUATION";
 }
+
+export function derivePresetIdForPack(input: {
+  mode?: StrategyRecipeMode | null;
+  profile?: "scalp" | "balanced" | "runner" | null;
+}): StrategyPresetId {
+  if (input.mode === "pregrad") {
+    return "LATE_CURVE_MIGRATION_SNIPE";
+  }
+  if (input.profile === "scalp") {
+    return "SCALP_30_60_FAST";
+  }
+  return "FIRST_MINUTE_POSTGRAD_CONTINUATION";
+}

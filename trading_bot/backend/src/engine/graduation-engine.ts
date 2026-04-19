@@ -357,7 +357,7 @@ export class GraduationEngine {
     }
   }
 
-  async evaluateDueCandidates(): Promise<void> {
+  async evaluateDueCandidates(forceQueued = false): Promise<void> {
     if (this.evaluationInFlight) return;
     this.evaluationInFlight = true;
 
@@ -369,10 +369,12 @@ export class GraduationEngine {
       const candidates = await db.candidate.findMany({
         where: {
           status: { in: DUE_CANDIDATE_STATUSES },
-          scheduledEvaluationAt: { lte: new Date() },
+          ...(forceQueued ? {} : { scheduledEvaluationAt: { lte: new Date() } }),
         },
         include: { latestMetrics: true },
-        orderBy: { scheduledEvaluationAt: "asc" },
+        orderBy: forceQueued
+          ? [{ discoveredAt: "desc" }, { scheduledEvaluationAt: "asc" }]
+          : { scheduledEvaluationAt: "asc" },
         take: settings.cadence.evaluationConcurrency * EVALUATION_POOL_MULTIPLIER,
       });
 

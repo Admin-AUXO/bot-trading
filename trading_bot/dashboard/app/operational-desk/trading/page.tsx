@@ -12,7 +12,7 @@ import { serverFetch } from "@/lib/server-api";
 import { operationalDeskRoutes } from "@/lib/dashboard-routes";
 import { formatCompactCurrency, formatInteger } from "@/lib/format";
 import { buildGrafanaDashboardLink } from "@/lib/grafana";
-import type { CandidateBucket, CandidateQueuePayload, PositionBookPayload } from "@/lib/types";
+import type { CandidateBucket, CandidateQueuePayload, DeskShellPayload, PositionBookPayload } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -62,9 +62,10 @@ export default async function OperationalDeskTradingPage(props: { searchParams?:
     : positionBook === "open" ? "priority" : "opened";
   const positionQuery = normalizeSearchQuery(requestedPositionQuery);
 
-  const [candidatePayload, positionPayload] = await Promise.all([
+  const [candidatePayload, positionPayload, shellPayload] = await Promise.all([
     serverFetch<CandidateQueuePayload>(`/api/operator/candidates?bucket=${candidateBucket}`),
     serverFetch<PositionBookPayload>(`/api/operator/positions?book=${positionBook}`),
+    serverFetch<DeskShellPayload>("/api/desk/shell"),
   ]);
 
   const sortedCandidates = [...candidatePayload.rows].sort((left, right) => compareCandidateRows(left, right, candidateSort));
@@ -189,7 +190,7 @@ export default async function OperationalDeskTradingPage(props: { searchParams?:
               : null}
           />
 
-          <CandidatesGrid rows={candidateRows} bucket={candidatePayload.bucket} sort={candidateSort} query={candidateQuery} />
+          <CandidatesGrid rows={candidateRows} bucket={candidatePayload.bucket} sort={candidateSort} query={candidateQuery} availableActions={shellPayload.availableActions} />
         </div>
       </WorkflowSection>
 
@@ -240,7 +241,7 @@ export default async function OperationalDeskTradingPage(props: { searchParams?:
               : null}
           />
 
-          <PositionsGrid rows={positionRows} book={positionBook} sort={positionSort} query={positionQuery} />
+          <PositionsGrid rows={positionRows} book={positionBook} sort={positionSort} query={positionQuery} availableActions={shellPayload.availableActions} />
         </div>
       </WorkflowSection>
     </div>

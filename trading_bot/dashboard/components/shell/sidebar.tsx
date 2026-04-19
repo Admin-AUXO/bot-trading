@@ -5,9 +5,11 @@ import clsx from "clsx";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Menu,
   PanelLeftClose,
   PanelLeftOpen,
   Radar,
+  X,
 } from "lucide-react";
 import { dashboardNavGroups, matchesDashboardRoute } from "@/lib/dashboard-navigation";
 import { formatInteger, formatMinutesAgo } from "@/lib/format";
@@ -65,7 +67,7 @@ export function Sidebar({ shell, sidebarCollapsed, onToggleCollapse }: SidebarPr
                 Sync {formatMinutesAgo(shell?.lastSyncAt)}
               </span>
             </div>
-            <div className="grid grid-cols-4 gap-1.5 text-xs text-text-secondary">
+            <div className="grid grid-cols-2 gap-2 text-xs text-text-secondary">
               <ShellMetric label="Mode" value={shortMode(shell?.mode)} />
               <ShellMetric label="Open" value={shell ? formatInteger(shell.statusSummary.openPositions) : "—"} />
               <ShellMetric label="Queue" value={shell ? formatInteger(shell.statusSummary.queuedCandidates) : "—"} />
@@ -101,15 +103,15 @@ export function Sidebar({ shell, sidebarCollapsed, onToggleCollapse }: SidebarPr
                     "relative flex items-center rounded-[14px] border transition",
                     sidebarCollapsed ? "justify-center px-0 py-3" : "justify-between gap-3 px-3 py-2.5",
                     active
-                      ? "border-[rgba(163,230,53,0.3)] bg-[#121511] text-text-primary"
+                      ? "border-l-2 border-l-accent border-[rgba(163,230,53,0.3)] bg-[#121511] text-text-primary"
                       : "border-bg-border/30 text-text-secondary hover:border-bg-border hover:bg-[#141417] hover:text-text-primary",
                   )}
                 >
                     <div className={clsx("flex items-center", sidebarCollapsed ? "justify-center" : "gap-3")}>
-                      <Icon className="h-4 w-4" />
+                      <Icon className={clsx("h-4 w-4", active && "text-accent")} />
                       {!sidebarCollapsed ? <div className="min-w-0 text-sm font-medium">{item.label}</div> : null}
                     </div>
-                  {active && !sidebarCollapsed ? <div className="h-2.5 w-2.5 rounded-full bg-accent" /> : null}
+                  {active && !sidebarCollapsed ? <div className="h-2 w-2 rounded-full bg-accent" /> : null}
                 </Link>
               );
 
@@ -122,7 +124,7 @@ export function Sidebar({ shell, sidebarCollapsed, onToggleCollapse }: SidebarPr
                     <Tooltip.Content
                       side={sidebarCollapsed ? "right" : "top"}
                       sideOffset={12}
-                      className="rounded-[12px] border border-bg-border bg-[#111214] px-3 py-2 text-xs font-medium text-text-primary shadow-2xl"
+                      className="rounded-[12px] border border-bg-border bg-[#111214] px-3 py-2 text-xs font-medium text-text-primary shadow-2xl z-50"
                     >
                       <div className="text-[10px] uppercase tracking-[0.14em] text-text-muted">{group.label}</div>
                       <div className="mt-1">{item.label}</div>

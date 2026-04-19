@@ -81,11 +81,11 @@ export default async function CandidateDetailPage(props: {
         }
       >
         <CompactStatGrid
-          className="xl:grid-cols-5"
+          className="xl:grid-cols-4"
           items={[
             {
               label: "Blocker",
-              value: detail.summary.primaryBlocker,
+              value: sanitizeBlocker(detail.summary.primaryBlocker),
               detail: detail.summary.rejectReason ?? "No reject reason stored",
               tooltip: "Primary blocker plus the stored rejection reason when one exists.",
               tone: candidateTone(detail.summary.status, detail.summary.primaryBlocker) === "critical" ? "danger" : "warning",
@@ -329,4 +329,15 @@ function readString(data: Record<string, unknown>, key: string) {
 function toDisplayValue(value: unknown) {
   if (value == null || value === "") return null;
   return smartFormatValue("value", value);
+}
+
+function sanitizeBlocker(blocker: string | null | undefined): string {
+  if (!blocker) return "—";
+  if (blocker.includes("prisma.") || blocker.includes("$queryRaw") || blocker.includes("Raw query failed")) {
+    return "System error - check backend logs";
+  }
+  if (blocker.length > 200) {
+    return blocker.slice(0, 200) + "...";
+  }
+  return blocker;
 }

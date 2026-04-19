@@ -51,16 +51,18 @@ export function buildCandidateDetailHref(
 }
 
 export function buildPositionBackHref(opts: {
-  book?: string;
+  bucket?: string;
   sort?: string;
+  book?: string;
+  psort?: string;
   focus?: string;
   q?: string;
 }) {
   const params = new URLSearchParams();
-  params.set("bucket", "ready");
-  params.set("sort", "recent");
+  if (opts.bucket) params.set("bucket", opts.bucket);
+  if (opts.sort) params.set("sort", opts.sort);
   if (opts.book) params.set("book", opts.book);
-  if (opts.sort) params.set("psort", opts.sort);
+  if (opts.psort) params.set("psort", opts.psort);
   if (opts.q && opts.q.trim().length > 0) params.set("pq", opts.q.trim());
   const query = params.toString();
   const hash = opts.focus ? `#position-${opts.focus}` : "";

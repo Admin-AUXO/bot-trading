@@ -5,6 +5,7 @@ import clsx from "clsx";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useEffectEvent, useRef, useState, useTransition } from "react";
 import {
+  Menu,
   PauseCircle,
   PlayCircle,
   RefreshCcw,
@@ -15,7 +16,9 @@ import type { ActionResponse, DeskShellPayload } from "@/lib/types";
 import { StatusPill } from "@/components/dashboard-primitives";
 import { PinnedItemsProvider } from "@/components/pinned-items";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Sidebar } from "./shell/sidebar";
+import { MobileNavDrawer } from "./shell/mobile-nav-drawer";
 import { CommandPalette } from "./shell/command-palette";
 import { ShellActions } from "./shell/shell-actions";
 
@@ -42,7 +45,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarReady, setSidebarReady] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const [isPending, startTransition] = useTransition();
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+  const lastRouteRefreshAtRef = useRef(0);
+  const [isShellActionPending, startShellActionTransition] = useTransition();
+  const [, startRouteRefreshTransition] = useTransition();
 
   const refreshShell = useEffectEvent(async () => {
     try {
@@ -53,6 +59,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       setShell(null);
       setShellError(error instanceof Error ? error.message : "shell refresh failed");
     }
+  });
+
+  const refreshRouteData = useEffectEvent((reason: "focus" | "visibility" | "interval" | "mutation") => {
+    const now = Date.now();
+    if (now - lastRouteRefreshAtRef.current < 1_500) {
+      return;
+    }
+    if (reason === "interval" && document.visibilityState !== "visible") {
+      return;
+    }
+    lastRouteRefreshAtRef.current = now;
+    startRouteRefreshTransition(() => {
+      router.refresh();
+    });
   });
 
   useEffect(() => {
@@ -98,7 +118,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const runAction = (actionId: DeskShellPayload["availableActions"][number]["id"], confirmation?: string) => {
     if (confirmation && !window.confirm(confirmation)) return;
 
-    startTransition(async () => {
+    startShellActionTransition(async () => {
       try {
         const body = actionId === "pause" ? { reason: "paused from control desk" } : undefined;
         const response = await fetchJson<ActionResponse>(actionEndpoint[actionId], {
@@ -149,10 +169,46 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [commandItems.length]);
 
   useEffect(() => {
+    const intervalMs = getRouteRefreshInterval(pathname ?? "/");
+    if (!intervalMs) return;
+
+    const timer = window.setInterval(() => {
+      refreshRouteData("interval");
+    }, intervalMs);
+
+    return () => window.clearInterval(timer);
+  }, [pathname, refreshRouteData]);
+
+  useEffect(() => {
+    const onFocus = () => refreshRouteData("focus");
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refreshRouteData("visibility");
+      }
+    };
+    const onMutation = () => refreshRouteData("mutation");
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("app-data-refresh", onMutation as EventListener);
+
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("app-data-refresh", onMutation as EventListener);
+    };
+  }, [refreshRouteData]);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setCommandOpen((open) => !open);
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "b") {
+        event.preventDefault();
+        setSidebarCollapsed((current) => !current);
         return;
       }
       if (!commandOpen) return;
@@ -203,6 +259,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="min-h-screen overflow-x-hidden bg-bg-primary">
           <Sidebar shell={shell} sidebarCollapsed={sidebarCollapsed} onToggleCollapse={() => setSidebarCollapsed((current) => !current)} />
 
+          <MobileNavDrawer
+            open={mobileDrawerOpen}
+            onOpenChange={setMobileDrawerOpen}
+            shell={shell}
+          />
+
           <div
             className={clsx(
               "min-h-screen transition-[padding] duration-200",
@@ -214,24 +276,30 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               className="sticky top-0 z-30 border-b border-bg-border/80 bg-bg-secondary/95 backdrop-blur-sm"
             >
               <div className="mx-auto flex w-full max-w-[1680px] flex-wrap items-center justify-between gap-2 px-4 py-2 lg:px-6">
+                <div className="flex items-center gap-2 lg:hidden">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setMobileDrawerOpen(true)}
+                    title="Open navigation"
+                  >
+                    <Menu className="h-5 w-5" />
+                  </Button>
+                </div>
+
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <StatusPill value={shell?.mode ?? "waiting"} />
                     <StatusPill value={shell?.health ?? "waiting"} />
-                    {currentNavGroup ? (
-                      <Badge variant="default" className="normal-case">
+                    {currentNavGroup && currentNavGroup.label !== currentNavItem?.label ? (
+                      <Badge variant="default" className="hidden normal-case lg:inline-flex">
                         {currentNavGroup.label}
                       </Badge>
                     ) : null}
-                    {shellError ? (
-                      <Badge variant="danger" className="normal-case">{shellError}</Badge>
-                    ) : null}
-                    {actionError ? (
-                      <Badge variant="danger" className="normal-case">{actionError}</Badge>
-                    ) : null}
                   </div>
                   {currentNavItem ? (
-                    <div className="mt-1 min-w-0">
+                    <div className="mt-0.5 min-w-0 lg:mt-1">
                       <div className="truncate text-sm font-medium text-text-primary">{currentNavItem.label}</div>
                     </div>
                   ) : null}
@@ -241,7 +309,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   shell={shell}
                   shellError={shellError}
                   actionError={actionError}
-                  isPending={isPending}
+                  isPending={isShellActionPending}
                   onRefresh={() => refreshShell()}
                   onCommandOpen={() => setCommandOpen(true)}
                   onRunAction={runAction}
@@ -267,4 +335,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </PinnedItemsProvider>
     </Tooltip.Provider>
   );
+}
+
+function getRouteRefreshInterval(pathname: string) {
+  if (pathname.startsWith("/workbench/runs") || pathname.startsWith("/workbench/grader") || pathname.startsWith("/workbench/sandbox")) {
+    return 5_000;
+  }
+  if (pathname.startsWith("/workbench/editor") || pathname.startsWith("/workbench/packs")) {
+    return 15_000;
+  }
+  if (pathname.startsWith("/workbench/sessions")) {
+    return 10_000;
+  }
+  if (
+    pathname.startsWith("/operational-desk/overview")
+    || pathname.startsWith("/operational-desk/trading")
+    || pathname.startsWith("/candidates/")
+    || pathname.startsWith("/positions/")
+  ) {
+    return 15_000;
+  }
+  return null;
 }

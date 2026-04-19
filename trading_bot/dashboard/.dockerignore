@@ -2,5 +2,8 @@ node_modules
 .next
 .env
 .git
+playwright-report
+test-results
+screenshots
 npm-debug.log
 Dockerfile

@@ -18,10 +18,11 @@ import { operationalDeskRoutes } from "@/lib/dashboard-routes";
 import { formatCurrency, formatNumber, formatTimestamp, humanizeKey, smartFormatValue } from "@/lib/format";
 import { buildGrafanaDashboardLink } from "@/lib/grafana";
 import type { PositionDetailPayload } from "@/lib/types";
+import { interventionPriorityLabel, isPositionClosed } from "@/components/intervention-priority";
 
 export const dynamic = "force-dynamic";
 
-type SearchParamsInput = Promise<{ book?: string | string[] | undefined; sort?: string | string[] | undefined; focus?: string | string[] | undefined; q?: string | string[] | undefined }>;
+type SearchParamsInput = Promise<{ bucket?: string | string[] | undefined; sort?: string | string[] | undefined; book?: string | string[] | undefined; psort?: string | string[] | undefined; focus?: string | string[] | undefined; q?: string | string[] | undefined }>;
 
 export default async function PositionDetailPage(props: {
   params: Promise<{ id: string }>;
@@ -29,12 +30,14 @@ export default async function PositionDetailPage(props: {
 }) {
   const params = await props.params;
   const searchParams = props.searchParams ? await props.searchParams : {};
-  const book = Array.isArray(searchParams.book) ? searchParams.book[0] : searchParams.book;
+  const bucket = Array.isArray(searchParams.bucket) ? searchParams.bucket[0] : searchParams.bucket;
   const sort = Array.isArray(searchParams.sort) ? searchParams.sort[0] : searchParams.sort;
+  const book = Array.isArray(searchParams.book) ? searchParams.book[0] : searchParams.book;
+  const psort = Array.isArray(searchParams.psort) ? searchParams.psort[0] : searchParams.psort;
   const focus = Array.isArray(searchParams.focus) ? searchParams.focus[0] : searchParams.focus;
   const q = Array.isArray(searchParams.q) ? searchParams.q[0] : searchParams.q;
   const detail = await serverFetch<PositionDetailPayload>(`/api/operator/positions/${params.id}`);
-  const backHref = buildPositionBackHref({ book, sort, focus, q });
+  const backHref = buildPositionBackHref({ bucket, sort, book, psort, focus, q });
   const grafanaHref = buildGrafanaDashboardLink("position", {
     from: Date.parse(detail.summary.openedAt) - 30 * 60 * 1000,
     to: detail.summary.closedAt ?? "now",
@@ -67,6 +70,7 @@ export default async function PositionDetailPage(props: {
             <CopyButton value={detail.summary.mint} label="Copy mint" />
             <PositionDetailActions
               mint={detail.summary.mint}
+              positionId={detail.summary.id}
             />
             {grafanaHref ? (
               <a
@@ -84,7 +88,7 @@ export default async function PositionDetailPage(props: {
         }
       >
         <CompactStatGrid
-          className="xl:grid-cols-5"
+          className="xl:grid-cols-4"
           items={[
             {
               label: "Intervention",
@@ -256,12 +260,12 @@ export default async function PositionDetailPage(props: {
   );
 }
 
-function buildPositionBackHref(props: { book?: string; sort?: string; focus?: string; q?: string }) {
+function buildPositionBackHref(props: { bucket?: string; sort?: string; book?: string; psort?: string; focus?: string; q?: string }) {
   const params = new URLSearchParams();
-  params.set("bucket", "ready");
-  params.set("sort", "recent");
+  if (props.bucket) params.set("bucket", props.bucket);
+  if (props.sort) params.set("sort", props.sort);
   if (props.book) params.set("book", props.book);
-  if (props.sort) params.set("psort", props.sort);
+  if (props.psort) params.set("psort", props.psort);
   if (props.q && props.q.trim().length > 0) params.set("pq", props.q.trim());
   const query = params.toString();
   const hash = props.focus ? `#position-${props.focus}` : "";
@@ -350,11 +354,11 @@ function readCandidateOrigin(data: Record<string, unknown>) {
   return parts.length > 0 ? parts.join(" · ") : null;
 }
 
-function positionTone(summary: PositionDetailPayload["summary"]) {
-  if (summary.status.toLowerCase().includes("closed")) return "passive" as const;
-  if (summary.interventionPriority >= 3 || summary.exitReason) return "critical" as const;
-  if (summary.interventionPriority >= 1) return "warning" as const;
-  return "default" as const;
+function positionTone(summary: PositionDetailPayload["summary"]): "default" | "warning" | "critical" | "passive" {
+  if (isPositionClosed(summary.status)) return "passive";
+  if (summary.interventionPriority >= 3 || summary.exitReason) return "critical";
+  if (summary.interventionPriority >= 1) return "warning";
+  return "default";
 }
 
 function namedValue(label: string, value: string | null) {

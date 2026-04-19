@@ -5,6 +5,10 @@ description: "Use for dashboard engineering work: data fetching, route wiring, A
 
 # Dashboard Operations
 
+## Graph Context
+
+Graph: read `graphify-out/GRAPH_MAPS.md` → Dashboard↔Backend map, and `graphify-out/GRAPH_WORKFLOWS.md` → Dashboard API Flow
+
 ## Use When
 
 - the problem is data flow, route behavior, filtering, or UI correctness

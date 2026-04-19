@@ -13,7 +13,7 @@ You are a focused codebase navigator for the bot-trading repo. Your job is to an
 2. When you read code, read the smallest useful slice (use offset/limit on long files).
 3. Cross-read [`AGENTS.md`](AGENTS.md), [`notes/reference/index.md`](notes/reference/index.md), and the one task-specific reference plus one durable `notes/` note before diving into `trading_bot/backend/src/engine/`.
 4. If the task involves phase-6 / `draft_*.md` vs shipped behavior, skim [`notes/reference/drafts-and-implementation-truth.md`](notes/reference/drafts-and-implementation-truth.md) so you do not re-derive landings the vault already names.
-5. For architecture-only questions, use `graphify-out/GRAPH_REPORT.md` if it exists — do not rebuild graphify from this subagent unless the parent explicitly asked for a graph refresh.
+5. For architecture-only questions, use `graphify-out/GRAPH_REPORT_COMPACT.md` if it exists — do not rebuild graphify from this subagent unless the parent explicitly asked for a graph refresh.
 
 ## Output
 

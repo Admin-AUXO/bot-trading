@@ -17,18 +17,22 @@ Canonical docs for agents. Each note is the single source of truth for its area.
 | [dashboard-operator-ui.md](dashboard-operator-ui.md) | UI naming, typography, layout |
 | [grafana-portfolio.md](grafana-portfolio.md) | Grafana dashboards, generator |
 | [graphify.md](graphify.md) | Repo graph workflow |
-| [drafts-and-implementation-truth.md](drafts-and-implementation-truth.md) | Repo-root `draft_*.md` vs code: landed seams, open proof, habits |
+| [drafts-and-implementation-truth.md](drafts-and-implementation-truth.md) | `notes/plans/*.md` vs code: landed seams, open proof, habits |
+
+> **graphify-out/ files** supplement these references. See Read Order below.
 
 ## Read Order
 
 1. `../../AGENTS.md`
 2. `../README.md`
-3. `drafts-and-implementation-truth.md` ← when work touches repo-root `draft_*.md` plans or phase-6 seams
+3. `drafts-and-implementation-truth.md` ← when work touches `notes/plans/*.md` or phase-6 seams
 4. `agent-workflow.md` ← only if planning-heavy or ambiguous
 5. one task-specific ref doc
 6. one task-specific durable note
-7. `../../graphify-out/GRAPH_REPORT.md` ← only if architecture/ownership matters
-8. `../../trading_bot/AGENTS.md` ← only if touching `trading_bot/`
+7. `../../graphify-out/GRAPH_QUICKREF.md` ← quick context before full graph
+8. `../../graphify-out/GRAPH_REPORT_COMPACT.md` ← architecture/ownership when needed
+9. `../../graphify-out/GRAPH_MAPS.md`, `GRAPH_ACTIONS.md`, etc. ← task-specific supplements as needed
+10. `../../trading_bot/AGENTS.md` ← only if touching `trading_bot/`
 
 ## Edit Rules
 

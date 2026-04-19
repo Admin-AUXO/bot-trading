@@ -36,7 +36,7 @@ export class SwapBuilder {
   async build(input: BuildSwapInput): Promise<VersionedTransaction | null> {
     const buildStartedAtMs = this.nowMs();
     const quoteAgeAtBuildStart = buildStartedAtMs - input.quote.fetchedAtMs;
-    if (quoteAgeAtBuildStart >= 800) {
+    if (quoteAgeAtBuildStart >= 2_500) {
       return null;
     }
 
@@ -50,11 +50,7 @@ export class SwapBuilder {
         quoteResponse: input.quote.raw,
         userPublicKey: input.wallet.publicKey.toBase58(),
         dynamicComputeUnitLimit: true,
-        prioritizationFeeLamports: {
-          computeBudget: {
-            microLamports: Math.max(5_000, Math.round(input.priorityFeeMicroLamports)),
-          },
-        },
+        computeUnitPriceMicroLamports: Math.max(5_000, Math.round(input.priorityFeeMicroLamports)),
       }),
     });
 
@@ -64,7 +60,7 @@ export class SwapBuilder {
     }
 
     const transaction = VersionedTransaction.deserialize(Buffer.from(payload.swapTransaction, "base64"));
-    if (this.nowMs() - input.quote.fetchedAtMs >= 800) {
+    if (this.nowMs() - input.quote.fetchedAtMs >= 2_500) {
       return null;
     }
 

@@ -1,20 +1,22 @@
 import { DashboardClient } from "@/components/dashboard-client";
 import { serverFetch } from "@/lib/server-api";
 import { buildGrafanaDashboardLink } from "@/lib/grafana";
-import type { DeskHomePayload, OperatorEvent } from "@/lib/types";
+import type { DeskHomePayload, DeskShellPayload, OperatorEvent } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 export default async function OperationalDeskOverviewPage() {
-  const [homeResult, eventsResult] = await Promise.allSettled([
+  const [homeResult, eventsResult, shellResult] = await Promise.allSettled([
     serverFetch<DeskHomePayload>("/api/desk/home"),
-    serverFetch<OperatorEvent[]>("/api/desk/events?limit=20"),
+    serverFetch<OperatorEvent[]>("/api/desk/events?limit=12"),
+    serverFetch<DeskShellPayload>("/api/desk/shell"),
   ]);
   const home = homeResult.status === "fulfilled" ? homeResult.value : degradedHomePayload(homeResult.reason);
   const events = eventsResult.status === "fulfilled" ? eventsResult.value : [];
+  const shell = shellResult.status === "fulfilled" ? shellResult.value : null;
   const grafanaHref = buildGrafanaDashboardLink("control");
 
-  return <DashboardClient initialHome={home} initialEvents={events} grafanaHref={grafanaHref} />;
+  return <DashboardClient initialHome={home} initialEvents={events} grafanaHref={grafanaHref} availableActions={shell?.availableActions ?? []} />;
 }
 
 function degradedHomePayload(error: unknown): DeskHomePayload {

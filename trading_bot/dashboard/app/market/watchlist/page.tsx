@@ -1,37 +1,27 @@
-import { CompactPageHeader } from "@/components/dashboard-primitives";
+import { CompactPageHeader, InlineNotice } from "@/components/dashboard-primitives";
 import { MarketTrendingGrid } from "@/components/market-trending-grid";
-import { serverFetch } from "@/lib/server-api";
 import { buildDegradedMarketStatsPayload } from "@/lib/market-fallback";
 import type { DiscoveryLabMarketStatsPayload, SmartWalletActivityPayload } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 export default async function MarketWatchlistPage() {
-  const payloadResult = await Promise.allSettled([
-    serverFetch<DiscoveryLabMarketStatsPayload>("/api/operator/market/trending?limit=50"),
-  ]);
-  const initialPayload = payloadResult[0]?.status === "fulfilled"
-    ? payloadResult[0].value
-    : buildDegradedMarketStatsPayload(
-      payloadResult[0]?.reason instanceof Error ? payloadResult[0].reason.message : "Failed to load watchlist dependencies.",
-    );
-  const mints = initialPayload.tokens.map((row) => row.mint).join(",");
-  const smartWalletResult = mints.length > 0
-    ? await Promise.allSettled([
-      serverFetch<SmartWalletActivityPayload[]>(
-        `/api/operator/market/smart-wallet-events?limit=10&mints=${encodeURIComponent(mints)}`,
-      ),
-    ])
-    : [];
-  const initialSmartWalletEvents = smartWalletResult[0]?.status === "fulfilled" ? smartWalletResult[0].value : [];
+  const initialPayload: DiscoveryLabMarketStatsPayload = buildDegradedMarketStatsPayload(
+    "Watchlist loads from your pinned mints after the browser syncs local storage.",
+    { scope: "watchlist", cacheState: "empty" },
+  );
+  const initialSmartWalletEvents: SmartWalletActivityPayload[] = [];
 
   return (
     <div className="space-y-5">
       <CompactPageHeader
         eyebrow="Market intel"
         title="Watchlist"
-        description="Pinned tokens only. Re-check conviction names without reopening the full market board."
+        description="Pinned tokens only. This board refreshes from your local watchlist and uses the lighter market path first."
       />
+      <InlineNotice tone="warning">
+        Your watchlist is stored in browser-local storage only. Clearing browser data or using a different browser will result in loss of your pinned tokens.
+      </InlineNotice>
       <MarketTrendingGrid
         mode="watchlist"
         initialPayload={initialPayload}

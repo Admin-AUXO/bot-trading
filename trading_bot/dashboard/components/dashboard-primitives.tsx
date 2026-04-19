@@ -1,8 +1,12 @@
 import * as Tooltip from "@radix-ui/react-tooltip";
 import clsx from "clsx";
 import type { LucideIcon } from "lucide-react";
+import Link from "next/link";
+import { type Route } from "next";
 import { AlertCircle, ChevronRight, CircleHelp } from "lucide-react";
-import { AgGridTable } from "@/components/ag-grid-table";
+import { NativeTable } from "@/components/ui/native-table";
+import { smartFormatValue } from "@/lib/format";
+import { deriveStatusTone } from "@/lib/status";
 
 type TableRow = Record<string, unknown>;
 
@@ -46,7 +50,7 @@ export function CompactPageHeader(props: {
   className?: string;
 }) {
   return (
-    <section className={clsx("panel-strong relative overflow-hidden rounded-[18px] px-3 py-3.5 md:px-4", props.className)}>
+    <section className={clsx("panel-strong relative overflow-hidden rounded-[16px] px-3 py-3.5 md:px-4", props.className)}>
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(166,241,135,0.08),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.02),transparent_72%)]" />
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,transparent,rgba(166,241,135,0.35),transparent)]" />
       <div className="relative flex flex-wrap items-start justify-between gap-3">
@@ -106,6 +110,7 @@ export function CompactStatGrid(props: {
 }
 
 export function Panel(props: {
+  id?: string;
   title: string;
   eyebrow?: string;
   description?: string;
@@ -117,12 +122,13 @@ export function Panel(props: {
   const toneClass = {
     default: "panel-shell",
     critical: "border-[rgba(251,113,133,0.24)] bg-[#141013]",
+    danger: "border-[rgba(251,113,133,0.24)] bg-[#141013]",
     warning: "border-[rgba(250,204,21,0.2)] bg-[#15140f]",
     passive: "panel-muted",
   }[props.tone ?? "default"];
 
   return (
-    <section className={clsx("rounded-[14px] p-3 md:p-3.5", toneClass, props.className)}>
+    <section id={props.id} className={clsx("rounded-[12px] p-3 md:p-3.5", toneClass, props.className)}>
       {props.eyebrow || props.action ? (
         <div className="mb-3 flex flex-wrap items-start justify-between gap-2.5 border-b border-bg-border/60 pb-2.5">
           <div>
@@ -153,14 +159,15 @@ export function Panel(props: {
 
 export function InlineNotice(props: {
   children: React.ReactNode;
-  tone?: "default" | "accent" | "warning" | "danger";
+  tone?: "default" | "accent" | "warning" | "danger" | "critical";
   className?: string;
 }) {
   const toneClass = {
     default: "border-bg-border bg-bg-hover/25 text-text-secondary",
     accent: "border-[rgba(163,230,53,0.22)] bg-[rgba(163,230,53,0.08)] text-text-primary",
-    warning: "border-[rgba(250,204,21,0.24)] bg-[rgba(250,204,21,0.08)] text-[var(--warning)]",
-    danger: "border-[rgba(251,113,133,0.24)] bg-[rgba(251,113,133,0.08)] text-[var(--danger)]",
+    warning: "border-[rgba(250,204,21,0.24)] bg-[rgba(250,204,21,0.08)] text-[var(--warning,#eab308)]",
+    danger: "border-[rgba(251,113,133,0.24)] bg-[rgba(251,113,133,0.08)] text-[var(--danger,#ef4444)]",
+    critical: "border-[rgba(251,113,133,0.24)] bg-[rgba(251,113,133,0.08)] text-[var(--danger,#ef4444)]",
   }[props.tone ?? "default"];
 
   return (
@@ -179,7 +186,11 @@ export function DisclosurePanel(props: {
 }) {
   return (
     <details className={clsx("group rounded-[14px] border border-bg-border bg-bg-secondary/70 p-3", props.className)}>
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+      <summary
+        className="flex cursor-pointer list-none items-center justify-between gap-3"
+        aria-expanded="false"
+        aria-controls={`disclosure-${props.title.replace(/\s+/g, "-").toLowerCase()}`}
+      >
         <div className="min-w-0">
           <div className="section-kicker">Details</div>
           <div className="mt-1 text-sm font-semibold text-text-primary">{props.title}</div>
@@ -191,7 +202,7 @@ export function DisclosurePanel(props: {
           <div className="hidden text-[11px] text-text-muted group-open:block">Hide</div>
         </div>
       </summary>
-      <div className="mt-3">{props.children}</div>
+      <div id={`disclosure-${props.title.replace(/\s+/g, "-").toLowerCase()}`} className="mt-3">{props.children}</div>
     </details>
   );
 }
@@ -233,17 +244,18 @@ export function ScanStat(props: {
   value: string;
   detail?: string;
   tooltip?: string;
-  tone?: "default" | "accent" | "warning" | "danger";
+  tone?: "default" | "accent" | "warning" | "danger" | "critical";
 }) {
   const toneClass = {
     default: "border-bg-border bg-[#101112]",
     accent: "border-[rgba(163,230,53,0.2)] bg-[#10140f]",
     warning: "border-[rgba(250,204,21,0.18)] bg-[#14120f]",
     danger: "border-[rgba(251,113,133,0.2)] bg-[#151012]",
+    critical: "border-[rgba(251,113,133,0.2)] bg-[#151012]",
   }[props.tone ?? "default"];
 
   return (
-    <div className={clsx("rounded-[14px] border px-3 py-2.5", toneClass)}>
+    <div className={clsx("rounded-[12px] border px-3 py-2.5", toneClass)}>
       <div className="scorecard-grid">
         <div className="flex items-center justify-center gap-1.5">
           <div className="scorecard-label wrap-anywhere">{props.label}</div>
@@ -260,27 +272,29 @@ export function ScanStat(props: {
 
 function StatTooltip(props: { content: string }) {
   return (
-    <Tooltip.Root>
-      <Tooltip.Trigger asChild>
-        <button
-          type="button"
-          className="inline-flex h-4 w-4 items-center justify-center rounded-full text-text-muted transition hover:text-text-primary"
-          aria-label="Show stat detail"
-        >
-          <CircleHelp className="h-3.5 w-3.5" />
-        </button>
-      </Tooltip.Trigger>
-      <Tooltip.Portal>
-        <Tooltip.Content
-          side="top"
-          sideOffset={8}
-          className="max-w-[18rem] rounded-[12px] border border-bg-border bg-[#111214] px-3 py-2 text-[11px] leading-5 text-text-primary shadow-2xl"
-        >
-          {props.content}
-          <Tooltip.Arrow className="fill-[#111214]" />
-        </Tooltip.Content>
-      </Tooltip.Portal>
-    </Tooltip.Root>
+    <Tooltip.Provider delayDuration={120}>
+      <Tooltip.Root>
+        <Tooltip.Trigger asChild>
+          <button
+            type="button"
+            className="inline-flex h-4 w-4 items-center justify-center rounded-full text-text-muted transition hover:text-text-primary"
+            aria-label="Show stat detail"
+          >
+            <CircleHelp className="h-3.5 w-3.5" />
+          </button>
+        </Tooltip.Trigger>
+        <Tooltip.Portal>
+          <Tooltip.Content
+            side="top"
+            sideOffset={8}
+            className="max-w-[18rem] rounded-[12px] border border-bg-border bg-[#111214] px-3 py-2 text-[11px] leading-5 text-text-primary shadow-2xl"
+          >
+            {props.content}
+            <Tooltip.Arrow className="fill-[#111214]" />
+          </Tooltip.Content>
+        </Tooltip.Portal>
+      </Tooltip.Root>
+    </Tooltip.Provider>
   );
 }
 
@@ -312,44 +326,99 @@ export function EmptyState(props: {
   );
 }
 
+export function LoadingSkeleton(props: { className?: string }) {
+  return (
+    <div
+      className={clsx(
+        "animate-pulse rounded-[14px] bg-[linear-gradient(90deg,rgba(255,255,255,0.03)_0%,rgba(255,255,255,0.06)_50%,rgba(255,255,255,0.03)_100%)]",
+        props.className,
+      )}
+      aria-hidden="true"
+      role="status"
+      aria-live="polite"
+    />
+  );
+}
+
+export function LoadingPage() {
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3">
+        <LoadingSkeleton className="h-20 w-full" />
+        <LoadingSkeleton className="h-12 w-3/4" />
+      </div>
+      <LoadingSkeleton className="h-40 w-full" />
+      <div className="grid gap-3">
+        <LoadingSkeleton className="h-24 w-full" />
+        <LoadingSkeleton className="h-24 w-full" />
+      </div>
+    </div>
+  );
+}
+
+export type BreadcrumbItem = {
+  label: string;
+  href?: Route;
+};
+
+export function Breadcrumbs(props: { items: BreadcrumbItem[]; className?: string }) {
+  if (props.items.length === 0) return null;
+
+  return (
+    <nav aria-label="Breadcrumb" className={clsx("flex items-center gap-1 text-xs", props.className)}>
+      {props.items.map((item, index) => {
+        const isLast = index === props.items.length - 1;
+        return (
+          <span key={index} className="flex items-center gap-1">
+            {item.href && !isLast ? (
+              <Link
+                href={item.href}
+                className="text-text-muted transition hover:text-text-primary"
+              >
+                {item.label}
+              </Link>
+            ) : (
+              <span className={isLast ? "text-text-primary font-medium" : "text-text-muted"}>
+                {item.label}
+              </span>
+            )}
+            {!isLast && <ChevronRight className="h-3 w-3 text-text-muted" />}
+          </span>
+        );
+      })}
+    </nav>
+  );
+}
+
 export function StatusPill(props: { value: string | null | undefined }) {
   const value = String(props.value ?? "unknown").toUpperCase();
-  const tone =
-    value.includes("REJECT") ||
-    value.includes("ERROR") ||
-    value.includes("BLOCK") ||
-    value.includes("FAIL") ||
-    value.includes("DANGER")
-      ? "border-[rgba(251,113,133,0.26)] bg-[rgba(251,113,133,0.12)] text-[var(--danger)]"
-      : value.includes("OPEN") ||
-          value.includes("ACCEPT") ||
-          value.includes("BOUGHT") ||
-          value.includes("READY") ||
-          value.includes("PASS") ||
-          value.includes("HEALTHY") ||
-          value.includes("LIVE") ||
-          value.includes("RUNNING") ||
-          value.includes("ENABLED") ||
-          value === "OK"
-        ? "border-[rgba(163,230,53,0.26)] bg-[rgba(163,230,53,0.12)] text-[var(--success)]"
-        : value.includes("WARNING") ||
-            value.includes("PAUSE") ||
-            value.includes("WAIT") ||
-            value.includes("QUEUE") ||
-            value.includes("STALE") ||
-            value.includes("DISCOVER") ||
-            value.includes("SKIP") ||
-            value.includes("CHANGED") ||
-            value.includes("DISABLED")
-          ? "border-[rgba(250,204,21,0.24)] bg-[rgba(250,204,21,0.12)] text-[var(--warning)]"
-          : "border-[var(--line)] bg-white/[0.05] text-text-secondary";
+  const tone = deriveStatusTone(props.value);
+  const toneClass = {
+    danger: "border-[rgba(251,113,133,0.26)] bg-[rgba(251,113,133,0.12)] text-[var(--danger)]",
+    accent: "border-[rgba(163,230,53,0.26)] bg-[rgba(163,230,53,0.12)] text-[var(--success)]",
+    warning: "border-[rgba(250,204,21,0.24)] bg-[rgba(250,204,21,0.12)] text-[var(--warning)]",
+    default: "border-[var(--line)] bg-white/[0.05] text-text-secondary",
+  }[tone];
+
+  const statusLabel = {
+    DRY_RUN: "Dry Run",
+    DRY: "Dry Run",
+    LIVE: "Live",
+    PAPER: "Paper Trade",
+    PAPR: "Paper Trade",
+    WAIT: "Waiting",
+    HEALTHY: "Healthy",
+    DEGRADED: "Degraded",
+    BLOCKED: "Blocked",
+  }[value] ?? value.replace(/_/g, " ").toLowerCase();
 
   return (
     <span
       className={clsx(
         "inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-semibold tracking-[0.14em]",
-        tone,
+        toneClass,
       )}
+      aria-label={`Status: ${statusLabel}`}
     >
       {value.replace(/_/g, " ")}
     </span>
@@ -424,15 +493,34 @@ export function DataTable(props: {
           }
         />
       ) : (
-        <AgGridTable
+        <NativeTable<TableRow>
           rows={rows}
-          preferredKeys={keys}
-          emptyTitle={props.emptyTitle}
-          emptyDetail={props.emptyDetail}
-          heightClassName="h-[20rem]"
-          pageSize={12}
+          rowKey={(row, index) => String(row.id ?? row.mint ?? row.symbol ?? index)}
+          columns={keys.map((key) => ({
+            id: key,
+            header: humanizeLabel(key),
+            align: isNumericColumn(key, rows) ? "center" : "left",
+            render: (row: TableRow) => (
+              <span className={clsx("inline-block", key.includes("reason") && "line-clamp-2")}>
+                {smartFormatValue(key, row[key])}
+              </span>
+            ),
+            cellClassName: key.includes("reason") ? "min-w-[16rem]" : undefined,
+          }))}
+          maxHeightClassName="max-h-[20rem]"
         />
       )}
     </Panel>
   );
+}
+
+function humanizeLabel(value: string) {
+  return value
+    .replace(/_/g, " ")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function isNumericColumn(key: string, rows: TableRow[]) {
+  return rows.some((row) => typeof row[key] === "number");
 }

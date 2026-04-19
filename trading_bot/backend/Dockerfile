@@ -1,6 +1,8 @@
 # syntax=docker/dockerfile:1
 
 FROM node:24-alpine AS base
+ENV npm_config_update_notifier=false \
+    npm_config_fund=false
 WORKDIR /app
 
 FROM base AS deps
@@ -15,7 +17,9 @@ RUN npm run build
 FROM base AS prod-deps
 COPY package.json package-lock.json ./
 COPY --from=builder /app/node_modules ./node_modules
-RUN npm prune --omit=dev && npm cache clean --force
+RUN npm prune --omit=dev \
+  && npm cache clean --force \
+  && rm -rf /root/.npm
 
 FROM base AS migrator
 ENV NODE_ENV=production
@@ -33,9 +37,10 @@ COPY --chown=node:node --from=builder /app/dist ./dist
 COPY --chown=node:node --from=builder /app/src ./src
 COPY --chown=node:node --from=builder /app/scripts ./scripts
 COPY --chown=node:node --from=builder /app/prisma ./prisma
+COPY --chown=node:node --from=builder /app/.local ./.local
 COPY --chown=node:node --from=prod-deps /app/node_modules ./node_modules
 COPY --chown=node:node --from=builder /app/package.json ./
-RUN mkdir -p /app/.local && chown -R node:node /app
+RUN install -d -o node -g node /app/.local
 USER node
 
 EXPOSE 3101

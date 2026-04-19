@@ -305,7 +305,14 @@ export function SettingsClient({
     href: workbenchRoutes.editor,
     label: "Workbench editor",
   };
-  const resolvedStrategyLinkHref = strategyLinkHref ?? workbenchRoutes.sandbox;
+  const resolvedStrategyLinkHref = strategyLinkHref ?? workbenchRoutes.runs;
+
+  useEffect(() => {
+    setServerSettings(initial);
+    if (!localDirty) {
+      setValues(initial);
+    }
+  }, [initial, localDirty]);
 
   const applySettings = () => startTransition(async () => {
     try {

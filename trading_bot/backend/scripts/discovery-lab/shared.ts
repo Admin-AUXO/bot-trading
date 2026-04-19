@@ -106,6 +106,7 @@ Options:
   --profile <runtime|high-value|scalp>
                               Scoring profile. Defaults to selected pack profile, then high-value
   --deep-eval-limit <n>       Override per-recipe deep evaluation cap. Default: recipe or 6
+  --include-pre-gate          Deep-evaluate the full returned union instead of only locally-qualified candidates
   --query-concurrency <n>     Concurrent meme/list requests. Default: 2
   --deep-concurrency <n>      Concurrent deep eval requests. Default: 4
   --cache-ttl-seconds <n>     Deep-eval cache TTL. Default: 300

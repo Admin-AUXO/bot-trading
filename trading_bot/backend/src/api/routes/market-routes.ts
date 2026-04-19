@@ -8,7 +8,11 @@ export function registerMarketRoutes(app: express.Express, { deps }: RouteRegist
     const limit = parseLimit(req.query.limit, 18, 30);
     const refresh = parseBooleanFlag(req.query.refresh);
     const focusOnly = parseBooleanFlag(req.query.focusOnly);
-    return res.json(await deps.getMarketTrending({ mint, limit, refresh, focusOnly }));
+    const scope = req.query.scope === "watchlist" ? "watchlist" : "trending";
+    const mints = typeof req.query.mints === "string"
+      ? req.query.mints.split(",").map((value) => value.trim()).filter((value) => value.length > 0)
+      : [];
+    return res.json(await deps.getMarketTrending({ mint, limit, refresh, focusOnly, mints, scope }));
   });
 
   app.get("/api/operator/market/stats/:mint", async (req, res) => {

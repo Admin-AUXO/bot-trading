@@ -28,7 +28,7 @@ export async function WorkbenchEditorSurface(props: { selectedPackId?: string | 
     ? await Promise.all([
         safeFetch<PackDetailPayload>(`/api/operator/packs/${encodeURIComponent(selectedPackId)}`),
         safeFetch<WorkbenchRunListPayload | { runs?: WorkbenchRunSummary[] }>(
-          `/api/operator/packs/${encodeURIComponent(selectedPackId)}/runs?limit=20`,
+          `/api/operator/packs/${encodeURIComponent(selectedPackId)}/runs?limit=12`,
         ),
       ])
     : [null, null];
@@ -41,7 +41,7 @@ export async function WorkbenchEditorSurface(props: { selectedPackId?: string | 
       <WorkbenchFlowStrip
         current="editor"
         focusLabel={pack?.name ?? "Choose a pack to edit"}
-        focusDetail="Tune the draft here, then launch a sandbox run. Save is not the end of the workflow."
+        focusDetail="Tune the draft here, then launch a run. Save is not the end of the workflow."
       />
 
       <CompactPageHeader
@@ -116,7 +116,7 @@ export async function WorkbenchEditorSurface(props: { selectedPackId?: string | 
                       prefetch={false}
                       className={buttonVariants({ variant: "ghost", size: "sm" })}
                     >
-                      Full page
+                      Open page
                     </Link>
                   </div>
                 </article>
@@ -173,7 +173,7 @@ export async function WorkbenchEditorSurface(props: { selectedPackId?: string | 
                 >
                   Back to packs
                 </Link>
-                <div className="text-xs text-text-muted">Launches a fresh sandbox run for the current pack.</div>
+                <div className="text-xs text-text-muted">Launches a fresh run and opens the run-owned review surface.</div>
               </div>
 
               {recentRuns.length > 0 ? (
@@ -200,18 +200,11 @@ export async function WorkbenchEditorSurface(props: { selectedPackId?: string | 
                         </div>
                         <div className="flex flex-wrap gap-2 md:justify-end">
                           <Link
-                            href={`${workbenchRoutes.graderByRunPrefix}/${encodeURIComponent(run.id)}`}
+                            href={`${workbenchRoutes.runs}?runId=${encodeURIComponent(run.id)}`}
                             prefetch={false}
                             className={buttonVariants({ variant: "secondary", size: "sm" })}
                           >
-                            Grade
-                          </Link>
-                          <Link
-                            href={`${workbenchRoutes.sandboxByRunPrefix}/${encodeURIComponent(run.id)}`}
-                            prefetch={false}
-                            className={buttonVariants({ variant: "ghost", size: "sm" })}
-                          >
-                            Sandbox
+                            Open run
                           </Link>
                         </div>
                       </article>
@@ -219,7 +212,7 @@ export async function WorkbenchEditorSurface(props: { selectedPackId?: string | 
                   </div>
                 </DisclosurePanel>
               ) : (
-                <EmptyState compact title="No runs yet" detail="Start a run from this editor to seed grader and sandbox." />
+                <EmptyState compact title="No runs yet" detail="Start a run from this editor to seed the run review surface." />
               )}
             </div>
           ) : (
@@ -287,10 +280,10 @@ function formatTimestamp(value: string | null | undefined): string {
 }
 
 function truncate(value: string): string {
-  if (value.length <= 18) {
+  if (value.length <= 16) {
     return value;
   }
-  return `${value.slice(0, 9)}...${value.slice(-6)}`;
+  return `${value.slice(0, 8)}...${value.slice(-6)}`;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

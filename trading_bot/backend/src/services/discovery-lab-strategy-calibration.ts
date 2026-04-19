@@ -8,7 +8,7 @@ import type {
 import type { DiscoveryLabRunDetail } from "./discovery-lab-service.js";
 import { buildAdaptiveDecisionBands, buildAdaptiveWinnerCohorts } from "./adaptive-model.js";
 import { buildExitPlan } from "./strategy-exit.js";
-import { derivePresetIdFromRecipeMode } from "./strategy-presets.js";
+import { derivePresetIdForPack, derivePresetIdFromRecipeMode } from "./strategy-presets.js";
 
 type WinnerEvaluation = NonNullable<DiscoveryLabRunDetail["report"]>["deepEvaluations"][number];
 
@@ -56,6 +56,17 @@ function inferDominantMode(run: DiscoveryLabRunDetail): StrategyRecipeMode | nul
     return null;
   }
   return pregrad > graduated ? "pregrad" : "graduated";
+}
+
+function inferPackMode(run: DiscoveryLabRunDetail): StrategyRecipeMode | null {
+  const modes = new Set(run.packSnapshot.recipes.map((recipe) => recipe.mode));
+  if (modes.size === 0) {
+    return null;
+  }
+  if (modes.size === 1) {
+    return modes.has("pregrad") ? "pregrad" : "graduated";
+  }
+  return inferDominantMode(run);
 }
 
 function deriveProfile(avgWinnerScore: number | null): "scalp" | "balanced" | "runner" | null {
@@ -517,9 +528,13 @@ export function buildDiscoveryLabLiveStrategy(
   const avgSoftIssueCount = average(winnerRows.map((winner) => winner.softIssues.length));
   const avgRecipeOverlap = average(winners.map((winner) => winner.whichRecipes.length));
   const dominantMode = inferDominantMode(run);
-  const dominantPresetId: StrategyPresetId | null = dominantMode
+  const packMode = inferPackMode(run);
+  const dominantPresetId: StrategyPresetId = dominantMode
     ? derivePresetIdFromRecipeMode(dominantMode)
-    : null;
+    : derivePresetIdForPack({
+      mode: packMode,
+      profile: run.packSnapshot.defaultProfile,
+    });
   const derivedProfile = deriveProfile(avgWinnerScore);
   const winnerCohorts = buildAdaptiveWinnerCohorts(run);
   const decisionBands = buildAdaptiveDecisionBands(winnerCohorts);
@@ -571,16 +586,24 @@ export function buildDiscoveryLabLiveStrategy(
     ...baseSettings,
     tradeMode: "LIVE",
   });
-  const baseExitPlan = dominantPresetId
-    ? buildExitPlan(baseStrategySettings, clamp(avgWinnerScore ?? 0.7, 0, 1), dominantPresetId, {
+  const baseExitPlan = buildExitPlan(
+    baseStrategySettings,
+    clamp(
+      avgWinnerScore
+        ?? (run.packSnapshot.defaultProfile === "scalp" ? 0.58 : 0.68),
+      0,
+      1,
+    ),
+    dominantPresetId,
+    {
       marketCapUsd: avgWinnerMarketCapUsd,
       timeSinceGraduationMin: avgWinnerTimeSinceGraduationMin,
       top10HolderPercent: avgWinnerTop10HolderPercent,
       largestHolderPercent: avgWinnerLargestHolderPercent,
       socialCount: avgSocialCount,
       softIssueCount: avgSoftIssueCount,
-    })
-    : null;
+    },
+  );
 
   return {
     enabled: true,
@@ -590,16 +613,14 @@ export function buildDiscoveryLabLiveStrategy(
     sources: run.sources,
     recipes: run.packSnapshot.recipes,
     thresholdOverrides,
-    exitOverrides: baseExitPlan
-      ? deriveExitOverrides({
-        exitPlan: baseExitPlan,
-        confidence: confidenceForSizing,
-        volumeStrength: winnerCount > 0 ? calibration.volumeStrength : 0.5,
-        graduationFreshness: winnerCount > 0 ? calibration.graduationFreshness : 0.5,
-        structureStrength: winnerCount > 0 ? calibration.structureStrength : 0.5,
-        socialStrength: winnerCount > 0 ? calibration.socialStrength : 0.4,
-      })
-      : {},
+    exitOverrides: deriveExitOverrides({
+      exitPlan: baseExitPlan,
+      confidence: confidenceForSizing,
+      volumeStrength: winnerCount > 0 ? calibration.volumeStrength : 0.5,
+      graduationFreshness: winnerCount > 0 ? calibration.graduationFreshness : 0.5,
+      structureStrength: winnerCount > 0 ? calibration.structureStrength : 0.5,
+      socialStrength: winnerCount > 0 ? calibration.socialStrength : 0.4,
+    }),
     capitalModifierPercent,
     dominantMode,
     dominantPresetId,

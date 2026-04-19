@@ -17,7 +17,7 @@ source_files:
   - trading_bot/dashboard/components/dashboard-client.tsx
   - trading_bot/dashboard/app/operational-desk/trading/page.tsx
   - trading_bot/dashboard/app/workbench/editor/page.tsx
-  - trading_bot/dashboard/app/workbench/sandbox/page.tsx
+  - trading_bot/dashboard/app/workbench/runs/page.tsx
   - trading_bot/dashboard/app/api/[...path]/route.ts
 graph_checked: 2026-04-13
 next_action:
@@ -59,13 +59,13 @@ Transport model:
 - `GET /api/operator/packs?limit=`: backend-owned workbench pack catalog, enriched from `DiscoveryLabPack`, `StrategyPack`, recent `DiscoveryLabRun` rows, and the current deployed session so `/workbench/packs` can stop delegating to discovery-lab chrome
 - `GET /api/operator/packs/:id`: backend-owned pack detail surface, including the editing/source draft contract, latest synced version metadata, and recent runs
 - `GET /api/operator/packs/:id/runs?limit=`: pack-scoped run history for the selected workbench pack
-- `GET /api/operator/runs?limit=`: backend-owned sandbox run list with apply state and current-session linkage
-- `GET /api/operator/runs/:id`: backend-owned sandbox run detail wrapper over the persisted discovery-lab run record, preserving the existing run/report shape while moving route ownership out of discovery-lab glue
-- `GET /api/operator/runs/:id/market-regime`: run-owned market-regime surface for results and sandbox consumers
+- `GET /api/operator/runs?limit=`: backend-owned run list with apply state and current-session linkage
+- `GET /api/operator/runs/:id`: backend-owned run detail wrapper over the persisted discovery-lab run record, preserving the existing run/report shape while moving route ownership out of discovery-lab glue
+- `GET /api/operator/runs/:id/market-regime`: run-owned market-regime surface for results consumers
 - `GET /api/operator/runs/:id/token-insight?mint=`: run-owned token-insight surface for results consumers. `StrategyRunResultsService` resolves this through the dedicated enrichment seam.
-- `POST /api/operator/runs/:id/manual-entry`: run-owned trade-ticket/manual-entry route for sandbox consumers
+- `POST /api/operator/runs/:id/manual-entry`: run-owned trade-ticket/manual-entry route for results consumers
 - `GET /api/operator/adaptive/activity?limit=`: backend-owned adaptive telemetry activity surface used by workbench and Grafana-adjacent operator views
-- `GET /api/operator/market/trending?mint=&limit=&refresh=&focusOnly=`: dedicated market-intel surface for ranked market pulse plus optional single-token focus payload. `refresh=true` performs the provider pull, while default reads stay cache-backed. This is now the production owner for market-wide discovery pulse.
+- `GET /api/operator/market/trending?mint=&limit=&refresh=&focusOnly=&scope=&mints=`: dedicated market-intel surface for ranked market pulse plus optional single-token focus payload. `refresh=true` performs the provider pull, while default reads stay cache-backed. `scope=watchlist&mints=<comma-list>` now returns a lighter watchlist board built from the supplied mints instead of reusing the paid-seeded trending universe. Payload meta now carries `scope`, `sourceMix.watchlistCount`, and `providerCoverage` so the dashboard can show paid-vs-free coverage clearly.
 - `GET /api/operator/market/stats/:mint`: backend-owned per-mint market stats surface for token detail pages, composed from Birdeye and Rugcheck-backed market intel
 - `GET /api/operator/market/smart-wallet-events?mints=&limit=`: backend-owned recent smart-wallet activity strip for trending, watchlist, and token detail surfaces
 - `GET /api/operator/market/strategy-suggestions?refresh=`: dedicated market-owned strategy-ideas surface built from the market-intel snapshot. `refresh=true` refreshes the market snapshot first, then recomputes the suggestion set.
@@ -106,7 +106,7 @@ Transport model:
 - `PATCH /api/operator/packs/:id`: dedicated pack-update route for the workbench surface; same save path, route ownership moved
 - `DELETE /api/operator/packs/:id`: dedicated pack-delete route for custom workbench packs
 - `POST /api/operator/packs/:id/runs`: dedicated pack-scoped run start for `/workbench/packs`, now owned by the dedicated `RunRunner` seam instead of `DiscoveryLabService`
-- `POST /api/operator/runs/:id/apply-live`: dedicated run-owned deployment route for `/workbench/sandbox`, still cutting into the existing session seam and runtime-config live-strategy path; inline `__inline__` draft runs are now rejected and must be saved as packs before deployment
+- `POST /api/operator/runs/:id/apply-live`: dedicated run-owned deployment route for `/workbench/runs`, still cutting into the existing session seam and runtime-config live-strategy path; inline `__inline__` draft runs are now rejected and must be saved as packs before deployment
 - `POST /api/operator/sessions`: the session seam is now the authoritative deployment start contract. The request must include `runId`, explicit `confirmation`, and optional `mode`; `mode=LIVE` also requires a trusted caller IP plus the separate live deploy token. Before mutating runtime config, the backend now runs `CreditForecastService` and blocks the start when forecasted Birdeye or Helius burn exceeds the remaining daily or monthly budget unless `ALLOW_START_ON_BUDGET_CRITICAL=true`. Successful responses now also include `budgetForecast`.
 - `PATCH /api/operator/sessions/:id`: now supports `{ action: "pause" | "resume" | "stop" | "revert" }`. `pause` and `resume` act on the active session runtime state, `stop` clears the deployed `strategy.liveStrategy` contract and pauses further entries, and `revert` re-applies the previous deployment from `RuntimeConfigVersion` through the same session seam.
 
@@ -162,17 +162,17 @@ Dashboard navigation conventions:
 - Discovery lab now owns nested routes:
   `/discovery-lab/overview`, `/discovery-lab/market-stats`, `/discovery-lab/studio`, `/discovery-lab/run-lab`, `/discovery-lab/results`, `/discovery-lab/strategy-ideas`, and `/discovery-lab/config`
 - Transitional compatibility routes now exist for the draft IA:
-  `/workbench/packs`, `/workbench/editor`, `/workbench/sandbox`, `/workbench/grader`, `/workbench/sessions`, `/market/trending`, `/market/token/:mint`, and `/market/watchlist`
+  `/workbench/packs`, `/workbench/editor`, `/workbench/runs`, `/workbench/sessions`, `/market/trending`, `/market/token/:mint`, and `/market/watchlist`
 - `/discovery-lab` now redirects to `/discovery-lab/studio`
 - `/discovery-lab/overview` is compatibility-only and redirects to `/discovery-lab/studio`
-- `/workbench/packs`, `/workbench/sandbox`, and `/workbench/sessions` now read dedicated backend-owned pack/run/session surfaces directly.
+- `/workbench/packs`, `/workbench/runs`, and `/workbench/sessions` now read dedicated backend-owned pack/run/session surfaces directly.
 - `/workbench/editor` now reads pack list/detail/run history from `/api/operator/packs*`, validates and saves through the dedicated pack seam, and launches pack-scoped runs through `/api/operator/packs/:id/runs`.
-- `/workbench/grader` now reads run list/detail from `/api/operator/runs*` and applies live through the run-owned live endpoint instead of redirecting to discovery-lab strategy ideas.
+- `/workbench/runs` now reads run list/detail from `/api/operator/runs*`, shows the dedicated token-result table, and applies live through the run-owned live endpoint instead of redirecting to discovery-lab strategy ideas.
 - `/workbench/sessions` now starts sessions through `POST /api/operator/sessions` and controls active deployments through `PATCH /api/operator/sessions/:id`. The page is no longer a read-only history pane.
 - `/discovery-lab/studio` now also consumes the dedicated operator pack/run routes under the hood while preserving the existing discovery-lab studio chrome and draft behavior.
 - `/market/trending` now reads the dedicated operator market seam directly through `/api/operator/market/trending`.
 - `/market/token/:mint` now reads `/api/operator/enrichment/:mint`, `/api/operator/market/stats/:mint`, and `/api/operator/market/smart-wallet-events`, rendering backend-owned provider cards instead of reusing the `focusOnly=true` trending payload.
-- `/market/watchlist` is now a real compatibility page over the market seam, using the same trending and smart-wallet backend routes as `/market/trending` while watchlist membership remains browser-local.
+- `/market/watchlist` now hydrates from browser-local watchlist membership and then calls the market seam with `scope=watchlist&mints=...`, so it no longer has to reload the full paid-seeded trending board just to filter locally.
 - `/discovery-lab/market-stats` now reads `/api/operator/market/trending` directly and uses the retained discovery-lab route only as a compatibility alias.
 - `/discovery-lab/strategy-ideas` now reads `/api/operator/market/strategy-suggestions` directly and keeps the old discovery-lab route only as a compatibility alias.
 - Discovery-lab route selection now sets the client’s initial workbench section, while recent-run reload still swaps the loaded result set without leaving the selected route
@@ -229,4 +229,4 @@ Dashboard navigation conventions:
 
 - `POST /api/operator/runs/:id/grade` is now a real backend-owned grader route. `PackGradingService` computes the rubric from the persisted run report and can optionally persist the resulting pack grade/status onto `StrategyPack`.
 - `POST /api/operator/runs/:id/suggest-tuning` is now a real backend-owned tuning route. `PackGradingService` computes threshold deltas from the persisted run evidence, returns a suggested draft, and can optionally clone that draft through `PackRepo`.
-- `/workbench/grader` now consumes those dedicated routes directly. Discovery-lab strategy ideas remain a separate market-intel read surface and should not regain pack-grading ownership.
+- `/workbench/runs` now consumes those dedicated routes directly. Discovery-lab strategy ideas remain a separate market-intel read surface and should not regain pack-grading ownership.

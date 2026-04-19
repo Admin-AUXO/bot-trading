@@ -9,6 +9,8 @@ export const workbenchRoutes = {
   packs: "/workbench/packs",
   editor: "/workbench/editor",
   editorByIdPrefix: "/workbench/editor",
+  runs: "/workbench/runs",
+  runsByIdPrefix: "/workbench/runs",
   sandbox: "/workbench/sandbox",
   sandboxByRunPrefix: "/workbench/sandbox",
   grader: "/workbench/grader",

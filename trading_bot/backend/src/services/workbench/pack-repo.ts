@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { Prisma } from "@prisma/client";
+import { env } from "../../config/env.js";
 import { db } from "../../db/client.js";
 import { toJsonValue } from "../../utils/json.js";
 import { listCreatedDiscoveryLabPacks } from "../discovery-lab-created-packs.js";
@@ -34,12 +35,14 @@ export class PackRepo {
   async ensure(): Promise<void> {
     await fs.mkdir(this.packsDir, { recursive: true });
     await this.seedWorkspacePacks();
-    await this.syncPacksToDb(await this.listPacks());
+    const packs = await this.listPacks();
+    await this.syncPacksToDb(packs);
+    await this.pruneStaleCustomPackRecords(packs);
   }
 
   async listPacks(): Promise<DiscoveryLabPack[]> {
     const [created, custom] = await Promise.all([
-      Promise.resolve(listCreatedDiscoveryLabPacks()),
+      Promise.resolve(env.DISCOVERY_LAB_DISABLE_CREATED_PACKS ? [] : listCreatedDiscoveryLabPacks()),
       this.listCustomPacks(),
     ]);
     return [...created, ...custom].sort((left, right) => {
@@ -146,15 +149,55 @@ export class PackRepo {
   }
 
   private async seedWorkspacePacks(): Promise<void> {
+    if (env.DISCOVERY_LAB_DISABLE_WORKSPACE_SEEDS) {
+      return;
+    }
     const seeds = listWorkspaceDiscoveryLabPackSeeds();
     for (const seed of seeds) {
       const filePath = this.packFilePath(seed.id);
-      try {
-        await fs.access(filePath);
-      } catch {
-        await writeJsonFileAtomic(filePath, seed);
-      }
+      await writeJsonFileAtomic(filePath, seed);
     }
+  }
+
+  private async pruneStaleCustomPackRecords(packs: DiscoveryLabPack[]): Promise<void> {
+    if (!env.DISCOVERY_LAB_PRUNE_STALE_CUSTOM_PACKS) {
+      return;
+    }
+
+    const currentPackIds = packs.map((pack) => pack.id);
+    const staleRows = await db.discoveryLabPack.findMany({
+      where: {
+        OR: [
+          {
+            kind: "CUSTOM",
+            id: currentPackIds.length > 0 ? { notIn: currentPackIds } : undefined,
+          },
+          ...(env.DISCOVERY_LAB_DISABLE_WORKSPACE_SEEDS
+            ? [{
+                kind: "WORKSPACE" as const,
+                id: currentPackIds.length > 0 ? { notIn: currentPackIds } : undefined,
+              }]
+            : []),
+          ...(env.DISCOVERY_LAB_DISABLE_CREATED_PACKS
+            ? [{
+                kind: "CREATED" as const,
+                id: currentPackIds.length > 0 ? { notIn: currentPackIds } : undefined,
+              }]
+            : []),
+        ],
+      },
+      select: { id: true },
+    });
+
+    if (staleRows.length === 0) {
+      return;
+    }
+
+    await db.discoveryLabPack.deleteMany({
+      where: {
+        id: { in: staleRows.map((row) => row.id) },
+      },
+    });
   }
 
   private async allocatePackId(name: string): Promise<string> {

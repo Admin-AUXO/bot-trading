@@ -223,9 +223,12 @@ if (prismaChanged && options.services.some((service) => service === "bot" || ser
 
 const rebuildChecks = {
   dashboard: [
+    path.join(repoRoot, "dashboard", "Dockerfile"),
+    path.join(repoRoot, "dashboard", ".dockerignore"),
     path.join(repoRoot, "dashboard", "app"),
     path.join(repoRoot, "dashboard", "components"),
     path.join(repoRoot, "dashboard", "lib"),
+    path.join(repoRoot, "dashboard", "next.config.ts"),
     path.join(repoRoot, "dashboard", "public"),
     path.join(repoRoot, "dashboard", "scripts"),
     path.join(repoRoot, "dashboard", "package.json"),
@@ -234,6 +237,8 @@ const rebuildChecks = {
     path.join(repoRoot, "dashboard", "postcss.config.mjs"),
   ],
   bot: [
+    path.join(repoRoot, "backend", "Dockerfile"),
+    path.join(repoRoot, "backend", ".dockerignore"),
     path.join(repoRoot, "backend", "src"),
     path.join(repoRoot, "backend", "prisma"),
     path.join(repoRoot, "backend", "scripts"),

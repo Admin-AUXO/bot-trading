@@ -308,7 +308,7 @@ next_action: Finish the next major phase-5 backend ownership slice: webhook/watc
 
 ## Follow-up - Pack Repo And Run Runner Ownership Pass
 
-- Compared the current implementation against `draft_rollout_plan.md`, `draft_database_plan.md`, and `draft_backend_plan.md` before coding.
+- Compared the current implementation against [`../plans/implementation-plan.md`](../plans/implementation-plan.md), [`../plans/database.md`](../plans/database.md), and [`../plans/backend.md`](../plans/backend.md) before coding.
   The biggest still-missing production-grade phase-2/phase-3 items were:
   run execution ownership still living in `DiscoveryLabService`,
   pack file/source editing ownership still living in `DiscoveryLabService`,
@@ -381,14 +381,14 @@ next_action: Finish the next major phase-5 backend ownership slice: webhook/watc
 - `DiscoveryLabService` still exists as retained compatibility and helper code.
   It is no longer the operator run-execution owner or pack persistence owner, but the monolith itself has not been deleted yet.
 - The discovery-lab market and strategy-idea surfaces still remain discovery-lab-owned compatibility areas.
-  They have not yet been moved onto the fuller market/enrichment seams expected by `draft_backend_plan.md`.
+  They have not yet been moved onto the fuller market/enrichment seams expected by [`../plans/backend.md`](../plans/backend.md).
 - `TradingSessionService` remains authoritative as required, but the draft session backlog is not finished:
   revert/resume-style session flows and the broader live deployment guard surface are still pending.
 - The additive index candidate for `TradingSession` rollups on `Position.liveStrategyRunId` remains deferred because this pass still did not produce query evidence strong enough to justify schema churn.
 
 ## Follow-up - Phase-2/Phase-3 Market And Enrichment Ownership Pass
 
-- Re-read `draft_rollout_plan.md`, `draft_database_plan.md`, `draft_backend_plan.md`, and `draft_dashboard_plan.md` against the actual code before touching anything.
+- Re-read [`../plans/implementation-plan.md`](../plans/implementation-plan.md), [`../plans/database.md`](../plans/database.md), [`../plans/backend.md`](../plans/backend.md), and [`../plans/dashboard.md`](../plans/dashboard.md) against the actual code before touching anything.
   The biggest still-missing production-grade items were not cosmetic:
   phase 2 still had split authority around market/intel behavior,
   phase 3 still had no real dedicated market/enrichment service slice,

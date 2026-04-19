@@ -5,6 +5,10 @@ description: "Use for strategy changes that touch discovery gates, evaluation lo
 
 # Strategy Safety
 
+## Graph Context
+
+Graph: read `graphify-out/GRAPH_ACTIONS.md` → Trading section, `graphify-out/GRAPH_WORKFLOWS.md` → Trade Entry/Exit Flow
+
 ## Use When
 
 - the task changes strategy, sizing, risk, or exit behavior

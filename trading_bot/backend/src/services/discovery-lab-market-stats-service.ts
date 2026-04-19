@@ -37,6 +37,7 @@ export type DiscoveryLabSnapshotMeta = {
   warnings: string[];
   focusMint: string | null;
   focusTokenCachedAt: string | null;
+  scope?: "trending" | "watchlist";
   sources: DiscoveryLabDataSource[];
 };
 
@@ -103,6 +104,12 @@ export type DiscoveryLabMarketStatsPayload = {
     birdeyeMomentumCount: number;
     rugcheckRecentCount: number;
     rugcheckVerifiedCount: number;
+    watchlistCount?: number;
+  };
+  providerCoverage?: {
+    dexscreenerPairCount: number;
+    rugcheckSummaryCount: number;
+    trackedPositionCount: number;
   };
   tokens: DiscoveryLabMarketTokenRow[];
   focusToken: DiscoveryLabMarketFocusToken | null;

@@ -41,7 +41,19 @@ child.on("exit", (code, signal) => {
     process.kill(process.pid, signal);
     return;
   }
-  process.exit(code ?? 0);
+  if (code !== 0) {
+    process.exit(code ?? 1);
+  }
+  const scrub = spawnSync(
+    pythonBin,
+    [path.join(repoRoot, ".codex", "scripts", "graphify-local-run.py"), "--relativize-out-only"],
+    {
+      cwd: repoRoot,
+      env: process.env,
+      stdio: "inherit",
+    },
+  );
+  process.exit(scrub.status ?? 0);
 });
 
 child.on("error", (error) => {

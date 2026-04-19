@@ -73,6 +73,8 @@ const ENDPOINT_LANE: Record<string, BirdeyeBudgetLane> = {
 
 const PROVIDER_CREDIT_LOG_BATCH_SIZE = 100;
 const PROVIDER_CREDIT_LOG_FLUSH_MS = 500;
+const MAX_ACTIVE_SLOTS = 10000;
+const MAX_PENDING_CREDIT_ROWS = 5000;
 
 const HELIUS_CREDIT_TABLE: Record<string, number> = {
   getBalance: 1,
@@ -226,6 +228,12 @@ export class ProviderBudgetService {
 
   requestSlot(provider: ProviderSource, purpose: ProviderPurpose, ctx?: ProviderSlotContext): ProviderSlot {
     try {
+      if (this.activeSlots.size >= MAX_ACTIVE_SLOTS) {
+        const oldestKey = this.findOldestActiveSlot();
+        if (oldestKey) {
+          this.activeSlots.delete(oldestKey);
+        }
+      }
       const id = crypto.randomUUID();
       this.activeSlots.set(id, {
         provider,
@@ -259,6 +267,9 @@ export class ProviderBudgetService {
       const creditsUsed = this.resolveCredits(slot.provider, endpoint, result.creditsUsed);
       const latencyMs = Number.isFinite(result.latencyMs) ? Math.max(Math.trunc(result.latencyMs), 0) : 0;
 
+      if (this.pendingCreditRows.length >= MAX_PENDING_CREDIT_ROWS) {
+        this.pendingCreditRows.splice(0, this.pendingCreditRows.length - MAX_PENDING_CREDIT_ROWS + PROVIDER_CREDIT_LOG_BATCH_SIZE);
+      }
       this.pendingCreditRows.push({
         provider: slot.provider,
         endpoint,
@@ -328,5 +339,26 @@ export class ProviderBudgetService {
 
   private clamp(value: number, min: number, max: number): number {
     return Math.min(Math.max(value, min), max);
+  }
+
+  private findOldestActiveSlot(): string | null {
+    let oldestKey: string | null = null;
+    let oldestTime = Infinity;
+    for (const [key, slot] of this.activeSlots) {
+      if (slot.startedAt < oldestTime) {
+        oldestTime = slot.startedAt;
+        oldestKey = key;
+      }
+    }
+    return oldestKey;
+  }
+
+  shutdown(): void {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    this.activeSlots.clear();
+    this.pendingCreditRows.length = 0;
   }
 }

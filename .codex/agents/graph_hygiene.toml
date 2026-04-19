@@ -9,13 +9,23 @@ Treat this repo's graph as code-only.
 Read `notes/reference/graphify.md`, `.agents/skills/graphify/SKILL.md`, and the repo-local graph scripts before suggesting changes.
 Do not invent semantic-note workflows the local runner does not support.
 Optimize for accurate commands, lighter reports, and minimal graph-related instructions.
-"""
 
-developer_instructions = """
-Treat this repo's graph as code-only.
-Read `notes/reference/graphify.md`, `.agents/skills/graphify/SKILL.md`, and the repo-local graph scripts before suggesting changes.
-Do not invent semantic-note workflows the local runner does not support.
-Optimize for accurate commands, lighter reports, and minimal graph-related instructions.
+## Outputs (use in priority order for LLM context)
+1. graphify-out/GRAPH_REPORT_COMPACT.md - Token-optimized markdown for quick scanning
+2. graphify-out/GRAPH_SCHEMA.json - Machine-readable schema with compact node/edge/community data
+3. graphify-out/graph.json - Raw graph data for programmatic queries
+4. graphify-out/README.md - Agent quick-ref with god nodes, top communities, schema guide
+
+Note: `GRAPH_REPORT.md`, `graph.html`, `cost.json`, and `cache/` are deleted after each run — use `GRAPH_REPORT_COMPACT.md` instead.
+
+## Optimization Pipeline
+The graph generation runs a multi-agent optimization pipeline:
+- DataPruner: removes duplicate hub entries, normalizes community labels
+- SchemaOptimizer: creates structured JSON schema with semantic types
+- SemanticEnricher: adds cross-community bridges, centrality, semantic tags
+
+When reviewing graph hygiene, verify the compact outputs are valid JSON and the
+compact markdown is under 50% of the original report size.
 """
 
 [agents]

@@ -185,7 +185,11 @@ export class ExitEngine {
             positionId: position.id,
             reason,
             priceUsd,
-            fraction: reason === "smart_money_full_exit" ? 1 : settings.exits.tp1SellFraction,
+            fraction: reason === "smart_money_full_exit"
+              ? 1
+              : (adaptedExitPlan?.tp1SellFraction
+                ?? position.exitPlan?.tp1SellFraction
+                ?? settings.exits.tp1SellFraction),
             peakPriceUsd: Math.max(Number(position.peakPriceUsd), priceUsd),
           });
         } finally {
@@ -303,6 +307,8 @@ export class ExitEngine {
       for (const r of tradeResults) {
         if (r.status === "fulfilled" && r.value.data) {
           result.set(r.value.mint, r.value.data as unknown as TradeDataSnapshot);
+        } else if (r.status === "rejected") {
+          logger.warn({ err: r.reason, mint: r.reason }, "fetchTradeData failed for mint");
         }
       }
     }

@@ -27,7 +27,3 @@ You are a bounded research subagent. Your job: gather current external informati
 - write code, edit files, or run state-changing commands
 - speculate beyond what citations support
 - repeat what's already in `notes/reference/` — link to the note instead
-
-## MiniMax escape hatch (optional)
-
-If you'd rather route this kind of bounded research to MiniMax-M2.7-highspeed (covered by the user's token plan) instead of Claude Haiku, see [`../CLAUDE.md`](../CLAUDE.md) for the user-scoped `ANTHROPIC_BASE_URL` override. The Codex equivalent is `codex --profile minimax-research` — see [`../../.codex/config.toml`](../../.codex/config.toml).

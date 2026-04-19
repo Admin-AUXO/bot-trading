@@ -1,4 +1,9 @@
+# syntax=docker/dockerfile:1
+
 FROM node:24-alpine AS base
+ENV npm_config_update_notifier=false \
+    npm_config_fund=false \
+    NEXT_TELEMETRY_DISABLED=1
 WORKDIR /app
 
 FROM base AS deps
@@ -12,15 +17,16 @@ RUN npm run build
 FROM base AS prod-deps
 COPY package.json package-lock.json ./
 COPY --from=builder /app/node_modules ./node_modules
-RUN npm prune --omit=dev && npm cache clean --force
+RUN npm prune --omit=dev \
+  && npm cache clean --force \
+  && rm -rf /root/.npm
 
 FROM base AS runner
 ENV NODE_ENV=production
-COPY --chown=node:node --from=builder /app/.next ./.next
+ENV NEXT_TELEMETRY_DISABLED=1
+COPY --chown=node:node --from=builder /app/.next/standalone ./
+COPY --chown=node:node --from=builder /app/.next/static ./.next/static
 COPY --chown=node:node --from=builder /app/public ./public
-COPY --chown=node:node --from=builder /app/scripts ./scripts
-COPY --chown=node:node --from=prod-deps /app/node_modules ./node_modules
-COPY --chown=node:node --from=builder /app/package.json ./package.json
 USER node
 EXPOSE 3100
-CMD ["npm", "run", "start"]
+CMD ["node", "server.js"]

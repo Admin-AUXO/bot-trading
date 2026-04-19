@@ -58,6 +58,7 @@ export async function runDiscoveryLabCli() {
     args,
   );
   const deepEvalLimitOverride = asInt(args["deep-eval-limit"], 0);
+  const includePreGate = args["include-pre-gate"] === true;
   const queryConcurrency = asInt(args["query-concurrency"], 2);
   const deepConcurrency = asInt(args["deep-concurrency"], 4);
   const cacheTtlSeconds = asInt(args["cache-ttl-seconds"], 300);
@@ -151,8 +152,10 @@ export async function runDiscoveryLabCli() {
           break;
         }
       }
-      const locallyQualified = response.items.filter((token) => passesLocalSelectionGate(token, thresholds, plan, nowUnix));
-      const ranked = locallyQualified
+      const candidatePool = includePreGate
+        ? response.items
+        : response.items.filter((token) => passesLocalSelectionGate(token, thresholds, plan, nowUnix));
+      const ranked = candidatePool
         .map((token) => ({
           token,
           preScore: preScoreToken(token, plan.recipe, nowUnix),
@@ -372,12 +375,16 @@ export async function runDiscoveryLabCli() {
             liquidityUsd: token.liquidityUsd ?? null,
             marketCapUsd: token.marketCapUsd ?? null,
             holders: token.holders ?? null,
+            volume1mUsd: deep.tradeData?.volume1mUsd ?? token.volume1mUsd ?? null,
             volume5mUsd: deep.tradeData?.volume5mUsd ?? token.volume5mUsd ?? null,
             volume30mUsd: deep.tradeData?.volume30mUsd ?? token.volume30mUsd ?? null,
+            trades1m: deep.tradeData?.trades1m ?? token.trades1m ?? null,
+            trades5m: deep.tradeData?.trades5m ?? token.trades5m ?? null,
             uniqueWallets5m: deep.tradeData?.uniqueWallets5m ?? null,
             buySellRatio: deep.tradeData
               ? (deep.tradeData.volumeBuy5mUsd ?? 0) / Math.max(deep.tradeData.volumeSell5mUsd ?? 0, 1)
               : null,
+            priceChange1mPercent: deep.tradeData?.priceChange1mPercent ?? token.priceChange1mPercent ?? null,
             priceChange5mPercent: deep.tradeData?.priceChange5mPercent ?? token.priceChange5mPercent ?? null,
             priceChange30mPercent: deep.tradeData?.priceChange30mPercent ?? token.priceChange30mPercent ?? null,
             top10HolderPercent: deep.holderConcentration?.top10Percent ?? null,

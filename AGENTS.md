@@ -15,7 +15,7 @@ Authoritative guide for all agent harnesses (Claude Code, Codex, etc.). Keep thi
 2. `[notes/README.md](notes/README.md)` → `[notes/reference/index.md](notes/reference/index.md)`.
 3. One task-specific reference doc + one relevant durable note.
 4. `[trading_bot/AGENTS.md](trading_bot/AGENTS.md)` if the task touches `trading_bot/`.
-5. `[graphify-out/GRAPH_REPORT.md](graphify-out/GRAPH_REPORT.md)` only when architecture/ownership context matters.
+5. `[graphify-out/README.md](graphify-out/README.md)` or `[graphify-out/GRAPH_REPORT_COMPACT.md](graphify-out/GRAPH_REPORT_COMPACT.md)` for architecture/ownership context.
 
 For non-trivial sessions, delegate a compact startup brief to a small model (Claude Haiku or `gpt-5.4-mini` via `session_briefer`) before broad code reads.
 
@@ -43,7 +43,13 @@ For non-trivial sessions, delegate a compact startup brief to a small model (Cla
 
 - MCP & tool routing → `[notes/reference/tool-routing.md](notes/reference/tool-routing.md)`.
 - Default MCP profile stays compact. Enable Grafana/Helius/browser/db MCPs only when the task needs them.
-- Graphify for architecture/ownership only — not a default preflight. Build path: `node ./.codex/scripts/graphify.mjs build-local .`; rebuild after code changes: `node ./.codex/scripts/graphify-rebuild.mjs`.
+- **Graph files** → `[graphify-out/README.md](graphify-out/README.md)` for guide, or:
+  - Quick context: `graphify-out/GRAPH_QUICKREF.md` (~75 lines)
+  - "Where is X implemented": `graphify-out/GRAPH_ACTIONS.md`
+  - Data flow: `graphify-out/GRAPH_WORKFLOWS.md`
+  - Skill selection: `graphify-out/GRAPH_SKILLS.md`
+  - Cross-boundary maps: `graphify-out/GRAPH_MAPS.md`
+  - Rebuild: `node ./.codex/scripts/graphify-rebuild.mjs` (after code changes)
 
 ## Harness specifics
 
@@ -52,7 +58,7 @@ For non-trivial sessions, delegate a compact startup brief to a small model (Cla
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
 | Claude Code | `[.claude/settings.json](.claude/settings.json)`, `[.claude/CLAUDE.md](.claude/CLAUDE.md)`                                                       | Subagents in `[.claude/agents/](.claude/agents/)`, commands in `[.claude/commands/](.claude/commands/)` |
 | Codex       | `[.codex/config.toml](.codex/config.toml)`, agent TOMLs in `[.codex/agents/](.codex/agents/)`                                                    | Baseline: `approval_policy = "on-request"`, `sandbox_mode = "workspace-write"`                          |
-| Cursor      | `[.cursor/rules/](.cursor/rules/)`, `[.cursor/mcp.json](.cursor/mcp.json)`, `[.cursor/hooks.json](.cursor/hooks.json)`                             | Rules (`.mdc`); MCP keys mirror `.mcp.json`; [`.cursor/README.md`](.cursor/README.md) documents hooks (`sessionStart`, `postToolUse`) |
+| OpenCode    | `[opencode.json](opencode.json)`, `[.opencode/agents/](.opencode/agents/)`, repo launcher at `[scripts/opencode.sh](scripts/opencode.sh)`       | Reuses repo `AGENTS.md`, `.agents/skills/`, and the shared MCP launchers from `.codex/` / `.mcp.json` |
 | Shared      | `[.mcp.json](.mcp.json)`, `[.agents/skills/](.agents/skills/)`, `[.codex/scripts/session-start-hook.cjs](.codex/scripts/session-start-hook.cjs)` | Skills are repo-owned, harness-agnostic                                                                 |
 
 
@@ -60,9 +66,10 @@ Run `[scripts/claude-harness/run-all.sh](scripts/claude-harness/run-all.sh)` to 
 
 ## Model routing (cost discipline)
 
-- **Claude Code**: default model; use Haiku subagents for bounded read-heavy work. Optional MiniMax-M2.7-highspeed override via user-scoped `~/.claude/settings.json` (see `[.claude/CLAUDE.md](.claude/CLAUDE.md)`).
+- **Claude Code**: default model; use Haiku subagents for bounded read-heavy work.
 - **Codex**: `gpt-5.4-mini` for read-heavy bounded tasks (briefs, note curation, research), `gpt-5.3-codex` for implementation, `gpt-5.4` for high-risk review.
-- **MiniMax-M2.7-highspeed**: opt-in via `codex --profile minimax-research` for one-off research/analysis. Agent: `research_scout`. See `[.codex/config.toml](.codex/config.toml)`.
+- **OpenCode**: default to `minimax/MiniMax-M2.7-highspeed` in this repo, with `minimax/MiniMax-M2.7` as the lighter companion model. Launch through `[scripts/opencode.sh](scripts/opencode.sh)` so the repo env is loaded and Anthropic overrides are cleared first.
+- **MiniMax-M2.7-highspeed**: use it via OpenCode in this repo, not through Codex routing. See `[opencode.json](opencode.json)` and `[scripts/opencode.sh](scripts/opencode.sh)`.
 
 ## Verification
 

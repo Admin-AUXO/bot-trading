@@ -214,6 +214,7 @@ model Candidate {
   status           CandidateStatus  @default(DISCOVERED)
   rejectReason     String?
   entryOrigin     String?
+  updatedAt        DateTime        @updatedAt
 
 
   discoveryRecipeName String?
@@ -282,6 +283,7 @@ model Position {
   strategyPresetId String         @default("FIRST_MINUTE_POSTGRAD_CONTINUATION")
   status           PositionStatus @default(OPEN)
   entryOrigin      String?
+  updatedAt        DateTime       @updatedAt
 
 
   entryPriceUsd    Decimal       @db.Decimal(18, 9)
@@ -718,6 +720,8 @@ model CreatorLineage {
   rugRate        Float?
   fundingSource  WalletFundingSource?
   lastSampledAt  DateTime             @default(now())
+
+  @@index([lastSampledAt])
 }
 
 model ProviderCreditLog {
@@ -769,6 +773,7 @@ model FillAttempt {
   failureCode          String?
   txSig                String?
   createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
 
   @@index([mint, createdAt])
   @@index([sessionId])
@@ -815,6 +820,7 @@ model AdaptiveThresholdLog {
   @@index([positionId, appliedAt])
   @@index([axis, appliedAt])
   @@index([field, appliedAt])
+  @@index([axis])
 }
 
 model SmartWallet {
@@ -863,6 +869,7 @@ model OperatorEvent {
   entityId    String?
   metadata    Json?
   createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@index([createdAt])
   @@index([kind, createdAt])

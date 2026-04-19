@@ -225,9 +225,12 @@ function withAutoRecipeIdentity(input: DiscoveryLabPackDraft): DiscoveryLabPackD
       input.recipes.map((recipe, index) => {
         const params = cleanQueryParams(recipe.params);
         const mode = deriveRecipeModeFromParams(params, recipe.mode);
+        const providedName = recipe.name?.trim();
         return {
           ...recipe,
-          name: deriveRecipeNameFromParams(params, mode, index),
+          name: providedName && providedName.length > 0
+            ? providedName
+            : deriveRecipeNameFromParams(params, mode, index),
           mode,
           description: recipe.description?.trim(),
           params,

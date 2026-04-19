@@ -37,21 +37,6 @@ Servers declared in [`../.mcp.json`](../.mcp.json). Set `enableAllProjectMcpServ
 
 `SessionStart` runs `../.codex/scripts/session-start-hook.cjs` — emits a startup nudge pointing at `AGENTS.md` and noting whether `graphify-out/` exists.
 
-## MiniMax escape hatch (optional)
-
-If you want to route a Claude Code session through **MiniMax M2.7-highspeed** (covered by your token plan) instead of Anthropic — useful for bounded one-off research that would otherwise burn Opus/Sonnet quota — set the following in your **user-scoped** `~/.claude/settings.json` (do NOT commit to this repo):
-
-```jsonc
-{
-  "env": {
-    "ANTHROPIC_BASE_URL": "https://api.minimax.io/anthropic",
-    "ANTHROPIC_AUTH_TOKEN": "${MINIMAX_API_KEY}"
-  }
-}
-```
-
-Unset (or open a new terminal without the override) to return to Anthropic. The Codex equivalent is `codex --profile minimax-research` — see [`../.codex/config.toml`](../.codex/config.toml) and the `research_scout` Codex agent.
-
 ## Maintenance
 
 ```bash

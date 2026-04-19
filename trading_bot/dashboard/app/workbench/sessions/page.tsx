@@ -25,10 +25,10 @@ export const dynamic = "force-dynamic";
 
 export default async function WorkbenchSessionsPage() {
   const [payload, status, runsPayload, adaptiveActivity] = await Promise.all([
-    serverFetch<TradingSessionHistoryPayload>("/api/operator/sessions?limit=20"),
+    serverFetch<TradingSessionHistoryPayload>("/api/operator/sessions?limit=12"),
     serverFetch<DiscoveryLabRuntimeSnapshot>("/api/status"),
     serverFetch<WorkbenchRunListPayload>("/api/operator/runs?limit=12"),
-    serverFetch<AdaptiveActivityPayload>("/api/operator/adaptive/activity?limit=24"),
+    serverFetch<AdaptiveActivityPayload>("/api/operator/adaptive/activity?limit=12"),
   ]);
   const isPaused = Boolean(payload.runtimePauseReason ?? status.botState.pauseReason);
   const adaptiveMutationCount = adaptiveActivity.points.reduce((sum, point) => sum + point.mutationCount, 0);
@@ -144,16 +144,6 @@ export default async function WorkbenchSessionsPage() {
           </div>
         )}
       </Panel>
-
-      {payload.currentSession ? (
-        <Panel
-          title="Start another session"
-          eyebrow="Replacement flow"
-          description="Starting a new session replaces the active deployment and stamps a fresh runtime window."
-        >
-          <SessionLaunchPanel runs={runsPayload.runs} />
-        </Panel>
-      ) : null}
 
       <Panel
         title="Recent history"

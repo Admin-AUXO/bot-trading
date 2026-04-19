@@ -11,10 +11,11 @@ import {
   formatRelativeMinutes,
   formatTimestamp,
 } from "@/lib/format";
-import type { DeskHomePayload, OperatorEvent } from "@/lib/types";
+import type { DeskHomePayload, DeskShellPayload, OperatorEvent } from "@/lib/types";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { DeskDiscoverButton } from "@/components/desk-action-button";
 import {
   CompactPageHeader,
   DisclosurePanel,
@@ -30,6 +31,7 @@ export function DashboardClient(props: {
   initialHome: DeskHomePayload;
   initialEvents: OperatorEvent[];
   grafanaHref: string | null;
+  availableActions?: DeskShellPayload["availableActions"];
 }) {
   const [home, setHome] = useState(props.initialHome);
   const [events, setEvents] = useState(props.initialEvents);
@@ -42,7 +44,7 @@ export function DashboardClient(props: {
       try {
         const [nextHome, nextEvents] = await Promise.all([
           fetchJson<DeskHomePayload>("/desk/home"),
-          fetchJson<OperatorEvent[]>("/desk/events?limit=20"),
+          fetchJson<OperatorEvent[]>("/desk/events?limit=12"),
         ]);
         setHome(nextHome);
         setEvents(nextEvents);
@@ -54,6 +56,13 @@ export function DashboardClient(props: {
       }
     });
   });
+
+  useEffect(() => {
+    setHome(props.initialHome);
+    setEvents(props.initialEvents);
+    setRefreshError(null);
+    setIsStale(false);
+  }, [props.initialEvents, props.initialHome]);
 
   useEffect(() => {
     const timer = window.setInterval(() => refresh(), 15_000);
@@ -171,6 +180,11 @@ export function DashboardClient(props: {
                 tooltip="Last discovery loop run, plus the most recent evaluation pass."
                 tone={home.diagnostics.staleComponents.includes("discovery") ? "warning" : "default"}
               />
+              {home.runtime.lastDiscoveryAt === null && props.availableActions?.some((a) => a.id === "discover-now" && a.enabled) ? (
+                <div className="mt-2">
+                  <DeskDiscoverButton size="sm" label="Run discovery" />
+                </div>
+              ) : null}
               <ScanStat
                 label="Exit checks"
                 value={safeTimestamp(home.runtime.lastExitCheckAt)}
@@ -244,16 +258,23 @@ export function DashboardClient(props: {
             {pnlTrend.length > 0 ? (
               <div className="mt-3 space-y-2">
                 {pnlTrend.map((day) => (
-                  <div key={day.label} className="grid grid-cols-[5rem_minmax(0,1fr)_5rem] items-center gap-3">
-                    <div className="text-[11px] text-text-muted">{day.label}</div>
-                    <div className="h-2 overflow-hidden rounded-full bg-bg-hover/50">
-                      <div
-                        className={cn("h-full rounded-full", day.value >= 0 ? "bg-[var(--accent)]/70" : "bg-[var(--danger)]/70")}
-                        style={{ width: `${Math.max(day.widthPercent, 6)}%` }}
-                      />
+                  <div key={day.label} className="space-y-1">
+                    <div className="text-[11px] font-semibold leading-none tabular-nums tracking-tight">
+                      <span className={cn(day.value >= 0 ? "text-[var(--accent)]" : "text-[var(--danger)]")}>
+                        {day.value >= 0 ? "+" : ""}{formatCompactCurrency(day.value)}
+                      </span>
                     </div>
-                    <div className={cn("text-right text-[11px] font-semibold", day.value >= 0 ? "text-[var(--accent)]" : "text-[var(--danger)]")}>
-                      {formatCompactCurrency(day.value)}
+                    <div className="grid grid-cols-[5rem_minmax(0,1fr)_5rem] items-center gap-3">
+                      <div className="text-[11px] text-text-muted">{day.label}</div>
+                      <div className="h-2 overflow-hidden rounded-full bg-bg-hover/50">
+                        <div
+                          className={cn("h-full rounded-full", day.value >= 0 ? "bg-[var(--accent)]/70" : "bg-[var(--danger)]/70")}
+                          style={{ width: `${Math.max(day.widthPercent, 6)}%` }}
+                        />
+                      </div>
+                      <div className={cn("text-right text-[11px] font-semibold", day.value >= 0 ? "text-[var(--accent)]" : "text-[var(--danger)]")}>
+                        {formatCompactCurrency(day.value)}
+                      </div>
                     </div>
                   </div>
                 ))}

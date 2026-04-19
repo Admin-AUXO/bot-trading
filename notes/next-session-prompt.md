@@ -5,7 +5,7 @@ You are not starting from scratch. Read the vault, then verify in code.
 ## Read first
 
 1. `[reference/drafts-and-implementation-truth.md](reference/drafts-and-implementation-truth.md)` — what is likely landed vs still open; agent habits; verification commands.
-2. Repo-root drafts (pick the slice you touch): start at `[../draft_index.md](../draft_index.md)`.
+2. Plans folder (pick the slice you touch): start at `[plans/README.md](plans/README.md)`.
 3. One task-specific reference from `[reference/index.md](reference/index.md)` (usually `api-surface.md`, `prisma-and-views.md`, or `strategy.md`).
 4. One active session note from `[sessions/index.md](sessions/index.md)` if you are continuing a thread.
 

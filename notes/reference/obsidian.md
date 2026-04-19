@@ -25,7 +25,7 @@ Purpose: keep repo docs and durable memory in one searchable vault so later agen
 3. [`agent-workflow.md`](agent-workflow.md) only when the task is planning-heavy, ambiguous, or should leave reusable guidance behind
 4. one task-specific reference note
 5. one task-specific durable note
-6. [`../../graphify-out/GRAPH_REPORT.md`](../../graphify-out/GRAPH_REPORT.md) only when architecture or ownership context matters
+6. [`../../graphify-out/GRAPH_REPORT_COMPACT.md`](../../graphify-out/GRAPH_REPORT_COMPACT.md) or [`../../graphify-out/README.md`](../../graphify-out/README.md) only when architecture or ownership context matters
 
 ## Note Ownership
 

@@ -11,7 +11,7 @@ source_files:
   - trading_bot/dashboard/components/discovery-lab-results-board.tsx
   - trading_bot/dashboard/lib/use-hydrated.ts
   - notes/reference/dashboard-operator-ui.md
-  - graphify-out/GRAPH_REPORT.md
+  - graphify-out/GRAPH_REPORT_COMPACT.md
 graph_checked: 2026-04-15
 next_action: Browser-check the refreshed discovery flow and verify the hydration warning is gone on Desk, Settings, and Discovery Results after deferring client-local timestamp formatting until after mount.
 ---

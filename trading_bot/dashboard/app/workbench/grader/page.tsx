@@ -1,6 +1,9 @@
+import { ErrorBoundary } from "@/components/error-boundary";
 import { WorkbenchGraderSurface } from "@/components/workbench/workbench-grader-surface";
 
-export const dynamic = "force-dynamic";
+function WorkbenchGraderBoundary({ children }: { children: React.ReactNode }) {
+  return <ErrorBoundary>{children}</ErrorBoundary>;
+}
 
 export default async function WorkbenchGraderPage({
   searchParams,
@@ -8,5 +11,9 @@ export default async function WorkbenchGraderPage({
   searchParams?: Promise<{ runId?: string }>;
 }) {
   const params = (await searchParams) ?? {};
-  return <WorkbenchGraderSurface selectedRunId={params.runId ?? null} />;
+  return (
+    <WorkbenchGraderBoundary>
+      <WorkbenchGraderSurface selectedRunId={params.runId ?? null} />
+    </WorkbenchGraderBoundary>
+  );
 }

@@ -24,7 +24,7 @@ type ListedSeed = {
   name: string | null;
   source: string | null;
   graduationAgeMinutes: number | null;
-  primarySignal: "birdeye_recent" | "birdeye_momentum" | "rugcheck_recent" | "rugcheck_verified";
+  primarySignal: "birdeye_recent" | "birdeye_momentum" | "rugcheck_recent" | "rugcheck_verified" | "watchlist_local";
 };
 
 type MarketIntelDeps = {
@@ -77,6 +77,8 @@ const MARKET_STATS_SOURCES: DiscoveryLabDataSource[] = [
   { key: "rugcheck", label: "Rugcheck", tier: "free", detail: "Recent and verified listings plus risk summaries." },
   { key: "runtime", label: "Runtime book", tier: "local", detail: "Tracked-position context from the bot database." },
 ];
+
+type BoardScope = "trending" | "watchlist";
 
 function median(values: Array<number | null | undefined>): number | null {
   const sorted = values
@@ -183,6 +185,12 @@ function emptyPayload(meta: DiscoveryLabSnapshotMeta, focusToken: DiscoveryLabMa
       birdeyeMomentumCount: 0,
       rugcheckRecentCount: 0,
       rugcheckVerifiedCount: 0,
+      watchlistCount: 0,
+    },
+    providerCoverage: {
+      dexscreenerPairCount: 0,
+      rugcheckSummaryCount: 0,
+      trackedPositionCount: 0,
     },
     tokens: [],
     focusToken,
@@ -193,7 +201,7 @@ export class MarketIntelService {
   private readonly dexscreener = new DexScreenerClient();
   private readonly rugcheck = new RugcheckClient();
   private readonly sharedFacts = new SharedTokenFactsService();
-  private readonly boardCache = new Map<number, MarketStatsBoardCache>();
+  private readonly boardCache = new Map<string, MarketStatsBoardCache>();
   private readonly focusTokenCache = new Map<string, MarketStatsFocusCache>();
 
   constructor(private readonly deps: MarketIntelDeps) {}
@@ -260,23 +268,53 @@ export class MarketIntelService {
     }));
   }
 
-  async getTrending(input?: { mint?: string; limit?: number; refresh?: boolean; focusOnly?: boolean }): Promise<DiscoveryLabMarketStatsPayload> {
+  async getTrending(input?: { mint?: string; limit?: number; refresh?: boolean; focusOnly?: boolean; mints?: string[]; scope?: BoardScope }): Promise<DiscoveryLabMarketStatsPayload> {
     const limit = Math.min(Math.max(Math.floor(input?.limit ?? DEFAULT_LIMIT), 8), 30);
     const focusMint = typeof input?.mint === "string" && input.mint.trim().length > 0 ? input.mint.trim() : null;
+    const scope: BoardScope = input?.scope === "watchlist" ? "watchlist" : "trending";
+    const scopedMints = scope === "watchlist"
+      ? [...new Set((input?.mints ?? []).map((mint) => mint.trim()).filter((mint) => mint.length > 0))].sort().slice(0, limit)
+      : [];
+    const cacheKey = this.buildBoardCacheKey(scope, limit, scopedMints);
+
+    if (scope === "watchlist" && scopedMints.length === 0) {
+      return emptyPayload(
+        this.buildMeta({
+          scope,
+          cacheState: "empty",
+          lastRefreshedAt: null,
+          warnings: ["No watchlist mints yet. Pin tokens from Trending to build a free watchlist board."],
+          focusMint,
+          focusTokenCachedAt: null,
+        }),
+        null,
+      );
+    }
+
     if (input?.refresh) {
       if (input.focusOnly && focusMint) return this.refreshFocusToken(limit, focusMint);
-      return this.refreshBoard(limit, focusMint);
+      return this.refreshBoard(cacheKey, limit, focusMint, scope, scopedMints);
     }
     if (input?.focusOnly && focusMint && !this.focusTokenCache.has(focusMint)) {
       return this.refreshFocusToken(limit, focusMint);
     }
-    return this.composePayload(limit, focusMint, null, []);
+    if (!this.boardCache.has(cacheKey)) {
+      return this.refreshBoard(cacheKey, limit, focusMint, scope, scopedMints);
+    }
+    return this.composePayload(cacheKey, focusMint, null, [], scope);
   }
 
-  private async refreshBoard(limit: number, focusMint: string | null): Promise<DiscoveryLabMarketStatsPayload> {
-    const settings = await this.deps.getSettings();
+  private async refreshBoard(
+    cacheKey: string,
+    limit: number,
+    focusMint: string | null,
+    scope: BoardScope,
+    scopedMints: string[],
+  ): Promise<DiscoveryLabMarketStatsPayload> {
     const warnings: string[] = [];
-    const tokenUniverse = await this.buildTokenUniverse(limit, settings, warnings);
+    const tokenUniverse = scope === "watchlist"
+      ? await this.buildWatchlistUniverse(scopedMints)
+      : await this.buildTokenUniverse(limit, warnings);
     const rugSummaries = await this.loadRugSummaries(tokenUniverse.map((token) => token.mint), warnings);
     const dexPairs = await this.safeLoad(
       "DexScreener market-intel pairs",
@@ -368,6 +406,12 @@ export class MarketIntelService {
         birdeyeMomentumCount: rows.filter((row) => row.primarySignal === "birdeye_momentum").length,
         rugcheckRecentCount: rows.filter((row) => row.primarySignal === "rugcheck_recent").length,
         rugcheckVerifiedCount: rows.filter((row) => row.primarySignal === "rugcheck_verified").length,
+        watchlistCount: rows.filter((row) => row.primarySignal === "watchlist_local").length,
+      },
+      providerCoverage: {
+        dexscreenerPairCount: rows.filter((row) => row.pairAddress).length,
+        rugcheckSummaryCount: rows.filter((row) => row.rugScore != null || row.topRiskName != null).length,
+        trackedPositionCount: rows.filter((row) => row.trackedPositionId != null).length,
       },
       tokens: rows.sort((left, right) => {
         const leftSignal = (left.volume5mUsd ?? 0) + ((left.buys5m ?? 0) * 50) + ((left.priceChange5mPercent ?? 0) * 80);
@@ -375,7 +419,7 @@ export class MarketIntelService {
         return rightSignal - leftSignal;
       }),
     };
-    this.boardCache.set(limit, {
+    this.boardCache.set(cacheKey, {
       payload,
       lastRefreshedAt: generatedAt,
       cacheState: warnings.length > 0 ? "degraded" : "ready",
@@ -388,17 +432,24 @@ export class MarketIntelService {
       focusWarnings = [];
       focusToken = await this.refreshFocusTokenOnly(focusMint, focusWarnings);
     }
-    return this.composePayload(limit, focusMint, focusToken, focusWarnings);
+    return this.composePayload(cacheKey, focusMint, focusToken, focusWarnings, scope);
   }
 
   private async refreshFocusToken(limit: number, mint: string): Promise<DiscoveryLabMarketStatsPayload> {
     const warnings: string[] = [];
     const focusToken = await this.refreshFocusTokenOnly(mint, warnings);
-    return this.composePayload(limit, mint, focusToken, warnings);
+    const cacheKey = this.buildBoardCacheKey("trending", limit, []);
+    return this.composePayload(cacheKey, mint, focusToken, warnings, "trending");
   }
 
-  private composePayload(limit: number, focusMint: string | null, focusToken: DiscoveryLabMarketFocusToken | null, transientWarnings: string[]): DiscoveryLabMarketStatsPayload {
-    const board = this.boardCache.get(limit);
+  private composePayload(
+    cacheKey: string,
+    focusMint: string | null,
+    focusToken: DiscoveryLabMarketFocusToken | null,
+    transientWarnings: string[],
+    scope: BoardScope,
+  ): DiscoveryLabMarketStatsPayload {
+    const board = this.boardCache.get(cacheKey);
     const focusCache = focusMint ? this.focusTokenCache.get(focusMint) ?? null : null;
     const mergedWarnings = board
       ? [...board.warnings, ...transientWarnings]
@@ -412,19 +463,34 @@ export class MarketIntelService {
 
     if (!board) {
       return emptyPayload(
-        this.buildMeta({ cacheState, lastRefreshedAt, warnings: mergedWarnings, focusMint, focusTokenCachedAt: focusCache?.refreshedAt ?? null }),
+        this.buildMeta({
+          scope,
+          cacheState,
+          lastRefreshedAt,
+          warnings: mergedWarnings,
+          focusMint,
+          focusTokenCachedAt: focusCache?.refreshedAt ?? null,
+        }),
         focusToken ?? focusCache?.payload ?? null,
       );
     }
 
     return {
       ...board.payload,
-      meta: this.buildMeta({ cacheState, lastRefreshedAt, warnings: mergedWarnings, focusMint, focusTokenCachedAt: focusCache?.refreshedAt ?? null }),
+      meta: this.buildMeta({
+        scope,
+        cacheState,
+        lastRefreshedAt,
+        warnings: mergedWarnings,
+        focusMint,
+        focusTokenCachedAt: focusCache?.refreshedAt ?? null,
+      }),
       focusToken: focusToken ?? focusCache?.payload ?? null,
     };
   }
 
   private buildMeta(input: {
+    scope: BoardScope;
     cacheState: "empty" | "ready" | "degraded";
     lastRefreshedAt: string | null;
     warnings: string[];
@@ -434,6 +500,7 @@ export class MarketIntelService {
     const parsedLastRefresh = input.lastRefreshedAt ? Date.parse(input.lastRefreshedAt) : Number.NaN;
     return {
       refreshMode: "manual",
+      scope: input.scope,
       cacheState: input.cacheState,
       lastRefreshedAt: input.lastRefreshedAt,
       staleMinutes: Number.isFinite(parsedLastRefresh) ? Math.max(0, Math.round((Date.now() - parsedLastRefresh) / 60_000)) : null,
@@ -458,7 +525,8 @@ export class MarketIntelService {
     return focusToken;
   }
 
-  private async buildTokenUniverse(limit: number, settings: BotSettings, warnings: string[]): Promise<ListedSeed[]> {
+  private async buildTokenUniverse(limit: number, warnings: string[]): Promise<ListedSeed[]> {
+    const settings = await this.deps.getSettings();
     const nowUnix = Math.floor(Date.now() / 1000);
     const minGraduatedTime = nowUnix - Math.min(settings.filters.maxGraduationAgeSeconds, RECENT_WINDOW_SECONDS);
     const [birdeyeRecent, birdeyeMomentum, rugRecent, rugVerified] = await Promise.all([
@@ -495,6 +563,48 @@ export class MarketIntelService {
     }
 
     return [...deduped.values()].slice(0, limit);
+  }
+
+  private async buildWatchlistUniverse(mints: string[]): Promise<ListedSeed[]> {
+    const normalized = [...new Set(mints.map((mint) => mint.trim()).filter((mint) => mint.length > 0))];
+    if (normalized.length === 0) {
+      return [];
+    }
+
+    const candidates = await db.candidate.findMany({
+      where: { mint: { in: normalized } },
+      orderBy: [{ discoveredAt: "desc" }],
+      select: {
+        mint: true,
+        symbol: true,
+        name: true,
+        source: true,
+        graduatedAt: true,
+      },
+    });
+
+    const candidateByMint = new Map<string, typeof candidates[number]>();
+    for (const candidate of candidates) {
+      if (!candidateByMint.has(candidate.mint)) {
+        candidateByMint.set(candidate.mint, candidate);
+      }
+    }
+
+    return normalized.map((mint) => {
+      const candidate = candidateByMint.get(mint) ?? null;
+      const graduatedAt = candidate?.graduatedAt?.getTime() ?? null;
+      const graduationAgeMinutes = graduatedAt === null
+        ? null
+        : Math.max(0, Math.round((Date.now() - graduatedAt) / 60_000));
+      return {
+        mint,
+        symbol: candidate?.symbol ?? null,
+        name: candidate?.name ?? null,
+        source: candidate?.source ?? "watchlist",
+        graduationAgeMinutes,
+        primarySignal: "watchlist_local",
+      };
+    });
   }
 
   private async loadRugSummaries(mints: string[], warnings: string[]): Promise<Map<string, RugcheckTokenSummary>> {
@@ -540,5 +650,12 @@ export class MarketIntelService {
       if (warnings && warningMessage) warnings.push(warningMessage);
       return fallback;
     }
+  }
+
+  private buildBoardCacheKey(scope: BoardScope, limit: number, mints: string[]): string {
+    if (scope === "watchlist") {
+      return `watchlist:${mints.join(",")}`;
+    }
+    return `trending:${limit}`;
   }
 }

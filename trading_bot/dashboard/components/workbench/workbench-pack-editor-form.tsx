@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,18 +38,123 @@ type FormState = {
   recipesJson: string;
 };
 
+type FieldErrors = Partial<Record<keyof FormState, string>>;
+
+const AUTOSAVE_INTERVAL_MS = 30_000;
+const STORAGE_KEY_PREFIX = "workbench-pack-draft-";
+
 export function WorkbenchPackEditorForm(props: { pack: EditablePack | null; className?: string }) {
   const router = useRouter();
-  const [state, setState] = useState<FormState>(() => toFormState(props.pack));
+  const [state, setState] = useState<FormState>(() => {
+    const saved = loadDraft(props.pack?.id);
+    return saved ?? toFormState(props.pack);
+  });
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const [issues, setIssues] = useState<Array<{ path: string; message: string; level: "warning" | "error" }>>([]);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [isDirty, setIsDirty] = useState(false);
+  const autosaveTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const initialState = toFormState(props.pack);
 
   useEffect(() => {
-    setState(toFormState(props.pack));
+    const saved = loadDraft(props.pack?.id);
+    setState(saved ?? initialState);
     setMessage(null);
     setIssues([]);
+    setFieldErrors({});
+    setIsDirty(false);
   }, [props.pack?.id]);
+
+  const saveDraft = useCallback(() => {
+    if (!props.pack?.id || !isDirty) return;
+    try {
+      sessionStorage.setItem(STORAGE_KEY_PREFIX + props.pack.id, JSON.stringify(state));
+    } catch {
+      // sessionStorage may be unavailable
+    }
+  }, [props.pack?.id, state, isDirty]);
+
+  useEffect(() => {
+    autosaveTimer.current = setInterval(saveDraft, AUTOSAVE_INTERVAL_MS);
+    return () => {
+      if (autosaveTimer.current) clearInterval(autosaveTimer.current);
+    };
+  }, [saveDraft]);
+
+  useEffect(() => {
+    if (!isDirty) return;
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [isDirty]);
+
+  function loadDraft(packId: string | undefined): FormState | null {
+    if (!packId) return null;
+    try {
+      const raw = sessionStorage.getItem(STORAGE_KEY_PREFIX + packId);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as FormState;
+      if (isValidFormState(parsed)) return parsed;
+    } catch {
+      // ignore malformed storage
+    }
+    return null;
+  }
+
+  function isValidFormState(v: unknown): v is FormState {
+    if (!v || typeof v !== "object") return false;
+    const keys: (keyof FormState)[] = ["name", "description", "thesis", "defaultProfile", "sourcesCsv", "thresholdOverridesJson", "recipesJson"];
+    return keys.every((k) => k in v);
+  }
+
+  function validateField(field: keyof FormState, value: string): string | null {
+    switch (field) {
+      case "name":
+        if (!value.trim()) return "Pack name is required";
+        return null;
+      case "thresholdOverridesJson":
+        if (value.trim()) {
+          try {
+            JSON.parse(value);
+          } catch {
+            return "Threshold overrides must be valid JSON";
+          }
+        }
+        return null;
+      case "recipesJson":
+        if (value.trim()) {
+          try {
+            JSON.parse(value);
+          } catch {
+            return "Recipes must be valid JSON";
+          }
+        }
+        return null;
+      default:
+        return null;
+    }
+  }
+
+  function handleFieldBlur(field: keyof FormState) {
+    const error = validateField(field, state[field]);
+    setFieldErrors((prev) => ({ ...prev, [field]: error ?? "" }));
+  }
+
+  function handleChange(field: keyof FormState, value: string) {
+    setState((prev) => ({ ...prev, [field]: value }));
+    setIsDirty(true);
+    const error = validateField(field, value);
+    if (error) {
+      setFieldErrors((prev) => ({ ...prev, [field]: error }));
+    } else {
+      setFieldErrors((prev) => { const { [field]: _, ...rest } = prev; return rest; });
+    }
+  }
 
   async function handleSave(mode: "update" | "copy") {
     if (!props.pack) {
@@ -77,6 +182,12 @@ export function WorkbenchPackEditorForm(props: { pack: EditablePack | null; clas
         kind: "success",
         text: !saveAsCopy ? `Saved ${savedPackId}.` : `Created ${savedPackId}.`,
       });
+      try {
+        sessionStorage.removeItem(STORAGE_KEY_PREFIX + props.pack.id);
+      } catch {
+        // ignore
+      }
+      setIsDirty(false);
       router.push(`/workbench/editor/${encodeURIComponent(savedPackId)}`);
       router.refresh();
     } catch (error) {
@@ -132,10 +243,11 @@ export function WorkbenchPackEditorForm(props: { pack: EditablePack | null; clas
   return (
     <div className={props.className}>
       <div className="grid gap-3 md:grid-cols-2">
-        <Field label="Name">
+        <Field label="Name" error={fieldErrors.name}>
           <Input
             value={state.name}
-            onChange={(event) => setState((prev) => ({ ...prev, name: event.target.value }))}
+            onChange={(event) => handleChange("name", event.target.value)}
+            onBlur={() => handleFieldBlur("name")}
             placeholder="Pack name"
           />
         </Field>
@@ -143,10 +255,10 @@ export function WorkbenchPackEditorForm(props: { pack: EditablePack | null; clas
           <Select
             value={state.defaultProfile}
             onChange={(event) =>
-              setState((prev) => ({
-                ...prev,
-                defaultProfile: event.target.value as FormState["defaultProfile"],
-              }))}
+              setState((prev) => {
+                setIsDirty(true);
+                return { ...prev, defaultProfile: event.target.value as FormState["defaultProfile"] };
+              })}
           >
             <option value="runtime">runtime</option>
             <option value="high-value">high-value</option>
@@ -159,7 +271,7 @@ export function WorkbenchPackEditorForm(props: { pack: EditablePack | null; clas
         <Field label="Description">
           <Textarea
             value={state.description}
-            onChange={(event) => setState((prev) => ({ ...prev, description: event.target.value }))}
+            onChange={(event) => handleChange("description", event.target.value)}
             className="min-h-[120px]"
             placeholder="What this pack is trying to do."
           />
@@ -167,7 +279,7 @@ export function WorkbenchPackEditorForm(props: { pack: EditablePack | null; clas
         <Field label="Thesis">
           <Textarea
             value={state.thesis}
-            onChange={(event) => setState((prev) => ({ ...prev, thesis: event.target.value }))}
+            onChange={(event) => handleChange("thesis", event.target.value)}
             className="min-h-[120px]"
             placeholder="Optional thesis"
           />
@@ -178,24 +290,26 @@ export function WorkbenchPackEditorForm(props: { pack: EditablePack | null; clas
         <Field label="Sources (comma separated)">
           <Input
             value={state.sourcesCsv}
-            onChange={(event) => setState((prev) => ({ ...prev, sourcesCsv: event.target.value }))}
+            onChange={(event) => handleChange("sourcesCsv", event.target.value)}
             placeholder="birdeye-so-tokenlist, birdeye-trending"
           />
         </Field>
       </div>
 
       <div className="mt-3 grid gap-3 md:grid-cols-2">
-        <Field label="Threshold overrides JSON">
+        <Field label="Threshold overrides JSON" error={fieldErrors.thresholdOverridesJson}>
           <Textarea
             value={state.thresholdOverridesJson}
-            onChange={(event) => setState((prev) => ({ ...prev, thresholdOverridesJson: event.target.value }))}
+            onChange={(event) => handleChange("thresholdOverridesJson", event.target.value)}
+            onBlur={() => handleFieldBlur("thresholdOverridesJson")}
             className="min-h-[180px] font-mono text-xs"
           />
         </Field>
-        <Field label="Recipes JSON">
+        <Field label="Recipes JSON" error={fieldErrors.recipesJson}>
           <Textarea
             value={state.recipesJson}
-            onChange={(event) => setState((prev) => ({ ...prev, recipesJson: event.target.value }))}
+            onChange={(event) => handleChange("recipesJson", event.target.value)}
+            onBlur={() => handleFieldBlur("recipesJson")}
             className="min-h-[180px] font-mono text-xs"
           />
         </Field>
@@ -266,11 +380,14 @@ export function WorkbenchPackEditorForm(props: { pack: EditablePack | null; clas
   );
 }
 
-function Field(props: { label: string; children: React.ReactNode }) {
+function Field(props: { label: string; children: React.ReactNode; error?: string }) {
   return (
     <label className="block">
       <div className="mb-1 text-[11px] uppercase tracking-[0.12em] text-text-muted">{props.label}</div>
       {props.children}
+      {props.error ? (
+        <div className="mt-1 text-[11px] text-[var(--danger)]">{props.error}</div>
+      ) : null}
     </label>
   );
 }

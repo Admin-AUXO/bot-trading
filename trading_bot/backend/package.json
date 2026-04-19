@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "lab:discovery": "tsx scripts/discovery-lab.ts",
     "lab:pack-bench": "tsx scripts/discovery-lab-pack-bench.ts",
+    "lab:scenario-bench": "tsx scripts/discovery-lab-scenario-bench.ts",
     "lab:telegram-alert": "tsx scripts/discovery-lab-telegram-alert.ts",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",

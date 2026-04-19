@@ -1,13 +1,21 @@
 import type { DiscoveryLabMarketStatsPayload } from "@/lib/types";
 
-export function buildDegradedMarketStatsPayload(detail: string): DiscoveryLabMarketStatsPayload {
+export function buildDegradedMarketStatsPayload(
+  detail: string,
+  options?: {
+    scope?: "trending" | "watchlist";
+    cacheState?: "empty" | "degraded";
+  },
+): DiscoveryLabMarketStatsPayload {
   const generatedAt = new Date().toISOString();
+  const scope = options?.scope ?? "trending";
 
   return {
     generatedAt,
     meta: {
       refreshMode: "manual",
-      cacheState: "degraded",
+      scope,
+      cacheState: options?.cacheState ?? "degraded",
       lastRefreshedAt: null,
       staleMinutes: null,
       warnings: [detail],
@@ -30,6 +38,12 @@ export function buildDegradedMarketStatsPayload(detail: string): DiscoveryLabMar
       birdeyeMomentumCount: 0,
       rugcheckRecentCount: 0,
       rugcheckVerifiedCount: 0,
+      watchlistCount: 0,
+    },
+    providerCoverage: {
+      dexscreenerPairCount: 0,
+      rugcheckSummaryCount: 0,
+      trackedPositionCount: 0,
     },
     tokens: [],
     focusToken: null,

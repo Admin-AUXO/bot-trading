@@ -3,7 +3,9 @@ import { CompactPageHeader, CompactStatGrid, EmptyState, Panel, ScanStat, Status
 import { RunSessionStartPanel } from "@/components/workbench/workbench-actions";
 import { WorkbenchGraderActions } from "@/components/workbench/workbench-grader-actions";
 import { WorkbenchFlowStrip } from "@/components/workbench/workbench-flow-strip";
+import { WorkbenchRunResultsTable } from "@/components/workbench/workbench-run-results-table";
 import { buttonVariants } from "@/components/ui/button";
+import { buildWorkbenchRunResultRows, summarizeWorkbenchRunResults } from "@/lib/workbench-run-results";
 import { workbenchRoutes } from "@/lib/dashboard-routes";
 import { serverFetch } from "@/lib/server-api";
 import type {
@@ -12,177 +14,231 @@ import type {
   WorkbenchRunSummary,
 } from "@/lib/types";
 
-type RunDetailView = {
-  id: string;
-  status: string;
-  createdAt: string;
-  startedAt: string | null;
-  completedAt: string | null;
-  packId: string;
-  packName: string;
-  profile?: string | null;
-  winnerCount?: number | null;
-  evaluationCount?: number | null;
-  errorMessage?: string | null;
-  appliedToLiveAt?: string | null;
-  canApplyLive: boolean;
-};
-
 export async function WorkbenchGraderSurface(props: { selectedRunId?: string | null }) {
-  const runsPayload = await safeFetch<WorkbenchRunListPayload | WorkbenchRunSummary[]>("/api/operator/runs?limit=20");
-  const runs = normalizeRuns(runsPayload);
+  const runsPayload = await serverFetch<WorkbenchRunListPayload | WorkbenchRunSummary[]>("/api/operator/runs?limit=50");
+  const allRuns = normalizeRuns(runsPayload);
+  const runs = allRuns.filter((run) => run.status === "COMPLETED");
   const selectedRunId = normalizeId(props.selectedRunId) ?? runs[0]?.id ?? null;
+  const selectedSummary = selectedRunId ? runs.find((run) => run.id === selectedRunId) ?? null : null;
 
-  const runPayload = selectedRunId
+  const detailPayload = selectedRunId
     ? await safeFetch<WorkbenchRunDetailPayload>(`/api/operator/runs/${encodeURIComponent(selectedRunId)}`)
     : null;
-  const selectedRun = normalizeRunDetail(runPayload);
+  const runDetail = detailPayload?.run ?? null;
+  const canApply = Boolean(selectedRunId && detailPayload?.summary?.canApplyLive);
+  const resultRows = runDetail ? buildWorkbenchRunResultRows(runDetail) : [];
+  const resultSummary = summarizeWorkbenchRunResults(resultRows);
 
   return (
     <div className="space-y-5">
       <WorkbenchFlowStrip
         current="grader"
-        focusLabel={selectedRun?.packName ?? "Choose a run to review"}
-        focusDetail="Grade the run, create a tuned draft if needed, then start a session from here when the evidence is good enough."
+        focusLabel={selectedSummary?.packName ?? "Choose a graded run"}
+        focusDetail={selectedRunId
+          ? `Run ${truncate(selectedRunId)} · review grade, persist, and move to deployment.`
+          : "Completed runs only. Grading unfinished runs is how you train a liar."}
       />
 
       <CompactPageHeader
         eyebrow="Strategy workbench"
         title="Grader"
-        description="Review one completed run. Tune or deploy from the same surface."
+        description="Review completed runs, judge the grade output, and move the right one into a session."
       >
         <CompactStatGrid
           className="xl:grid-cols-4"
           items={[
-            { label: "Queue", value: String(runs.length), detail: "Recent runs" },
+            { label: "Completed", value: String(runs.length), detail: "Ready to grade" },
             {
               label: "Selected",
-              value: selectedRun?.packName ?? "None",
-              detail: selectedRun?.status ?? "Pick a run",
-              tone: selectedRun ? "accent" : "default",
+              value: selectedSummary?.packName ?? "None",
+              detail: selectedSummary?.status ?? "Pick a run",
+              tone: selectedSummary ? "accent" : "default",
             },
             {
-              label: "Evaluations",
-              value: String(selectedRun?.evaluationCount ?? 0),
-              detail: `Winners ${selectedRun?.winnerCount ?? 0}`,
+              label: "Outcomes",
+              value: `${resultSummary.winners}/${resultSummary.rejected}`,
+              detail: "winner / rejected",
+              tone: resultSummary.winners > 0 ? "accent" : "default",
             },
             {
               label: "Deployable",
-              value: selectedRun?.canApplyLive ? "Yes" : "No",
-              detail: selectedRun?.profile ?? "Awaiting review",
-              tone: selectedRun?.canApplyLive ? "warning" : "default",
+              value: canApply ? "Yes" : "No",
+              detail: selectedSummary?.profile ?? "Awaiting review",
+              tone: canApply ? "warning" : "default",
             },
           ]}
         />
       </CompactPageHeader>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(20rem,0.9fr)_minmax(0,1.15fr)]">
-      <Panel
-        title="Run index"
-        eyebrow="Review queue"
-        description="Keep the queue visible while you review the active run."
-        className="xl:sticky xl:top-[calc(var(--shell-header-height)+1rem)] xl:self-start"
-      >
-        {runs.length > 0 ? (
-          <div className="max-h-[calc(100vh-var(--shell-header-height)-14rem)] space-y-2 overflow-y-auto pr-1">
-            {runs.map((run) => {
-              const isSelected = run.id === selectedRunId;
-              return (
-                <article
-                  key={run.id}
-                  className={`grid gap-2 rounded-[12px] border px-3 py-2.5 md:grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)] ${
-                    isSelected ? "border-[rgba(163,230,53,0.24)] bg-[#11150f]" : "border-bg-border bg-bg-hover/20"
-                  }`}
-                >
-                  <div>
+      <div className="grid gap-4 xl:grid-cols-[minmax(17rem,0.8fr)_minmax(0,1.55fr)_minmax(19rem,0.95fr)]">
+        <Panel
+          title="Completed runs"
+          eyebrow="Ready to grade"
+          description="Only completed runs can be graded. Open one and keep it in view while you decide."
+          className="xl:sticky xl:top-[calc(var(--shell-header-height)+1rem)] xl:self-start"
+        >
+          {runs.length > 0 ? (
+            <div className="max-h-[calc(100vh-var(--shell-header-height)-14rem)] space-y-2 overflow-y-auto pr-1">
+              {runs.map((run) => {
+                const isSelected = run.id === selectedRunId;
+                return (
+                  <article
+                    key={run.id}
+                    className={`rounded-[12px] border px-3 py-3 ${
+                      isSelected ? "border-[rgba(163,230,53,0.24)] bg-[#11150f]" : "border-bg-border bg-bg-hover/20"
+                    }`}
+                  >
                     <div className="flex flex-wrap items-center gap-2">
                       <StatusPill value={run.status} />
                       {run.appliedToLiveAt ? <StatusPill value="applied" /> : null}
                       {run.profile ? <StatusPill value={run.profile} /> : null}
                     </div>
-                    <div className="mt-1 text-sm text-text-primary">{run.packName}</div>
-                    <div className="mt-1 text-xs text-text-muted">
-                      {run.id} · {formatTimestamp(run.createdAt)}
+                    <div className="mt-2 text-sm font-medium text-text-primary">{run.packName}</div>
+                    <div className="mt-1 text-xs text-text-secondary">{formatTimestamp(run.createdAt)}</div>
+                    <div className="mt-2 grid gap-1 text-xs text-text-muted">
+                      <span>Run {truncate(run.id)}</span>
+                      <span>Winners {run.winnerCount ?? 0} · Evaluations {run.evaluationCount ?? 0}</span>
                     </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Link
+                        href={`${workbenchRoutes.grader}?runId=${encodeURIComponent(run.id)}`}
+                        prefetch={false}
+                        className={buttonVariants({ variant: isSelected ? "secondary" : "ghost", size: "sm" })}
+                      >
+                        {isSelected ? "Current run" : "Open run"}
+                      </Link>
+                      <Link
+                        href={`${workbenchRoutes.editor}?pack=${encodeURIComponent(run.packId)}`}
+                        prefetch={false}
+                        className={buttonVariants({ variant: "ghost", size: "sm" })}
+                      >
+                        Open pack
+                      </Link>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <EmptyState compact title="No completed runs" detail="Complete a run from Packs or Editor before you can grade." />
+          )}
+        </Panel>
+
+        <div className="space-y-4">
+          <Panel
+            title="Results"
+            eyebrow="Primary review"
+            description="One row per mint. Winners, passes, and rejections stay explicit, and the row actions work like a normal dashboard table."
+          >
+            {runDetail ? (
+              <WorkbenchRunResultsTable run={runDetail} />
+            ) : (
+              <EmptyState compact title="No run selected" detail="Open a completed run from the queue to inspect the results table." />
+            )}
+          </Panel>
+
+          {runDetail?.errorMessage || !runDetail?.report ? (
+            <Panel
+              title="Diagnostics"
+              eyebrow="Secondary evidence"
+              description="Only show the run issues that change whether you trust the table above."
+            >
+              <div className="space-y-2 text-sm text-text-secondary">
+                {runDetail?.errorMessage ? (
+                  <div className="rounded-[12px] border border-[rgba(251,113,133,0.25)] bg-[rgba(251,113,133,0.08)] px-3 py-2 text-[var(--danger)]">
+                    {runDetail.errorMessage}
                   </div>
-                  <div className="flex flex-wrap gap-2 md:justify-end">
+                ) : null}
+                {!runDetail?.report ? (
+                  <div className="rounded-[12px] border border-bg-border bg-bg-hover/20 px-3 py-2">
+                    This run does not have a persisted report yet, so the results table cannot render token rows.
+                  </div>
+                ) : null}
+              </div>
+            </Panel>
+          ) : null}
+        </div>
+
+        <div className="space-y-4">
+          <Panel
+            title="Run summary"
+            eyebrow="Current run"
+            description="Keep the facts and next actions tight. Do not restate the same run in three places."
+          >
+            {runDetail ? (
+              <div className="space-y-3">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <ScanStat label="Status" value={runDetail.status} detail={formatTimestamp(runDetail.createdAt)} tone="accent" />
+                  <ScanStat
+                    label="Window"
+                    value={`${formatTimestamp(runDetail.startedAt)} -> ${formatTimestamp(runDetail.completedAt)}`}
+                    detail={runDetail.profile ?? "profile unknown"}
+                  />
+                  <ScanStat
+                    label="Winners"
+                    value={String(resultSummary.winners)}
+                    detail={`Pass ${resultSummary.passes} · Reject ${resultSummary.rejected}`}
+                  />
+                  <ScanStat
+                    label="Evaluations"
+                    value={String(runDetail.evaluationCount ?? 0)}
+                    detail={`Run ${truncate(runDetail.id)}`}
+                  />
+                </div>
+
+                <div className="rounded-[12px] border border-bg-border bg-bg-hover/20 p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusPill value={runDetail.status} />
+                    {runDetail.profile ? <StatusPill value={runDetail.profile} /> : null}
+                    {runDetail.appliedToLiveAt ? <StatusPill value="applied" /> : null}
+                  </div>
+                  <div className="mt-2 text-xs text-text-secondary">
+                    Pack {runDetail.packName} ({runDetail.packId})
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
                     <Link
-                      href={`${workbenchRoutes.grader}?runId=${encodeURIComponent(run.id)}`}
-                      prefetch={false}
-                      className={buttonVariants({ variant: isSelected ? "secondary" : "ghost", size: "sm" })}
-                    >
-                      {isSelected ? "Selected" : "Inspect"}
-                    </Link>
-                    <Link
-                      href={`${workbenchRoutes.graderByRunPrefix}/${encodeURIComponent(run.id)}`}
+                      href={`${workbenchRoutes.editor}?pack=${encodeURIComponent(runDetail.packId)}`}
                       prefetch={false}
                       className={buttonVariants({ variant: "ghost", size: "sm" })}
                     >
-                      Full page
+                      Open pack
                     </Link>
                   </div>
-                </article>
-              );
-            })}
-          </div>
-        ) : (
-          <EmptyState compact title="No runs returned" detail="`/api/operator/runs` is empty." />
-        )}
-      </Panel>
-
-      <Panel
-        title={selectedRun ? `Run ${truncate(selectedRun.id)}` : "Run detail"}
-        eyebrow="Active review"
-        description="Outcome, deployability, and tuning actions stay together."
-      >
-        {selectedRun ? (
-          <div className="space-y-3">
-            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-              <ScanStat label="Status" value={selectedRun.status} detail={formatTimestamp(selectedRun.createdAt)} tone="accent" />
-              <ScanStat
-                label="Window"
-                value={`${formatTimestamp(selectedRun.startedAt)} -> ${formatTimestamp(selectedRun.completedAt)}`}
-                detail={selectedRun.profile ?? "profile unknown"}
-              />
-              <ScanStat
-                label="Evaluations"
-                value={String(selectedRun.evaluationCount ?? 0)}
-                detail={`Winners ${selectedRun.winnerCount ?? 0}`}
-              />
-              <ScanStat
-                label="Applied"
-                value={selectedRun.appliedToLiveAt ? "yes" : "no"}
-                detail={selectedRun.appliedToLiveAt ? formatTimestamp(selectedRun.appliedToLiveAt) : "not applied"}
-              />
-            </div>
-
-            <div className="rounded-[12px] border border-bg-border bg-bg-hover/20 p-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <StatusPill value={selectedRun.status} />
-                {selectedRun.profile ? <StatusPill value={selectedRun.profile} /> : null}
-              </div>
-              <div className="mt-2 text-xs text-text-secondary">
-                Pack {selectedRun.packName} ({selectedRun.packId})
-              </div>
-              {selectedRun.errorMessage ? (
-                <div className="mt-2 rounded-[10px] border border-[rgba(251,113,133,0.25)] bg-[rgba(251,113,133,0.08)] px-2.5 py-2 text-xs text-[var(--danger)]">
-                  {selectedRun.errorMessage}
                 </div>
-              ) : null}
-            </div>
+              </div>
+            ) : (
+              <EmptyState compact title="No run selected" detail="Pick a completed run first so the summary and actions have a real target." />
+            )}
+          </Panel>
 
-            <RunSessionStartPanel
-              runId={selectedRun.id}
-              disabled={!selectedRun.canApplyLive}
-              disabledReason={!selectedRun.canApplyLive ? "Only completed, calibratable runs can be applied." : null}
-            />
+          <Panel
+            title="Grade"
+            eyebrow="Decision review"
+            description="Review the grade, persist it if needed, and create a tuned draft from the same rail."
+          >
+            {runDetail ? (
+              <WorkbenchGraderActions runId={runDetail.id} runStatus={runDetail.status} />
+            ) : (
+              <EmptyState compact title="No run selected" detail="Open a completed run before you review the grade." />
+            )}
+          </Panel>
 
-            <WorkbenchGraderActions runId={selectedRun.id} runStatus={selectedRun.status} />
-          </div>
-        ) : (
-          <EmptyState compact title="No run selected" detail="Pick a run from the queue first." />
-        )}
-      </Panel>
+          <Panel
+            title="Deploy"
+            eyebrow="Session start"
+            description="Only runs with deployable calibration should leave this page and become a session."
+          >
+            {runDetail ? (
+              <RunSessionStartPanel
+                runId={runDetail.id}
+                disabled={!canApply}
+                disabledReason={!canApply ? "Only completed runs with deployable calibration can start a session." : null}
+              />
+            ) : (
+              <EmptyState compact title="No run selected" detail="Open a completed run before you try to start a session." />
+            )}
+          </Panel>
+        </div>
       </div>
     </div>
   );
@@ -206,64 +262,12 @@ function normalizeRuns(payload: WorkbenchRunListPayload | WorkbenchRunSummary[] 
   return Array.isArray(payload.runs) ? payload.runs : [];
 }
 
-function normalizeRunDetail(payload: WorkbenchRunDetailPayload | null): RunDetailView | null {
-  if (!payload) {
-    return null;
-  }
-  return toRunDetailView(
-    payload.run as Record<string, unknown>,
-    payload.summary as Record<string, unknown>,
-  );
-}
-
-function toRunDetailView(run: Record<string, unknown>, summary: Record<string, unknown>): RunDetailView | null {
-  const id = asString(run.id);
-  const status = asString(summary.status) ?? asString(run.status);
-  const createdAt = asString(summary.createdAt) ?? asString(run.createdAt);
-  const packId = asString(summary.packId) ?? asString(run.packId);
-  const packName = asString(summary.packName) ?? asString(run.packName);
-  if (!id || !status || !createdAt || !packId || !packName) {
-    return null;
-  }
-
-  const canApplyLive = asBoolean(summary.canApplyLive)
-    ?? (status === "COMPLETED" && run.strategyCalibration != null);
-
-  return {
-    id,
-    status,
-    createdAt,
-    startedAt: asString(summary.startedAt) ?? asString(run.startedAt),
-    completedAt: asString(summary.completedAt) ?? asString(run.completedAt),
-    packId,
-    packName,
-    profile: asString(summary.profile) ?? asString(run.profile),
-    winnerCount: asNumber(summary.winnerCount) ?? asNumber(run.winnerCount),
-    evaluationCount: asNumber(summary.evaluationCount) ?? asNumber(run.evaluationCount),
-    errorMessage: asString(summary.errorMessage) ?? asString(run.errorMessage),
-    appliedToLiveAt: asString(summary.appliedToLiveAt) ?? asString(run.appliedToLiveAt),
-    canApplyLive,
-  };
-}
-
 function normalizeId(value: string | null | undefined): string | null {
   if (typeof value !== "string") {
     return null;
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
-}
-
-function asString(value: unknown): string | null {
-  return typeof value === "string" && value.trim().length > 0 ? value : null;
-}
-
-function asNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function asBoolean(value: unknown): boolean | null {
-  return typeof value === "boolean" ? value : null;
 }
 
 function formatTimestamp(value: string | null | undefined): string {

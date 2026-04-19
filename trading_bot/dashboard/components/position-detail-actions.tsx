@@ -8,18 +8,24 @@ import { operationalDeskRoutes } from "@/lib/dashboard-routes";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { StatusPill } from "@/components/dashboard-primitives";
+import { interventionPriorityLabel } from "@/components/intervention-priority";
 
 const SOLSCAN_BASE = "https://solscan.io";
 
-export function PositionDetailActions(props: { mint: string }) {
+export function PositionDetailActions(props: { mint: string; positionId?: string }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
 
   async function handleRunExitChecks() {
     setIsSubmitting(true);
     try {
-      await fetchJson("/control/exit-check-now", { method: "POST" });
-      setMessage({ kind: "success", text: "Global exit checks triggered." });
+      const body = props.positionId ? { positionId: props.positionId } : undefined;
+      await fetchJson("/control/exit-check-now", {
+        method: "POST",
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const targetMsg = props.positionId ? ` for position ${props.positionId.slice(0, 8)}…` : " (global)";
+      setMessage({ kind: "success", text: `Exit checks triggered${targetMsg}` });
     } catch (error) {
       setMessage({ kind: "error", text: error instanceof Error ? error.message : "exit check failed" });
     } finally {
@@ -61,6 +67,6 @@ export function PositionDetailActions(props: { mint: string }) {
 }
 
 export function InterventionPriorityBadge(props: { priority: number }) {
-  const value = props.priority >= 3 ? "high priority" : props.priority >= 1 ? "medium priority" : "low priority";
+  const value = interventionPriorityLabel(props.priority);
   return <StatusPill value={value} />;
 }

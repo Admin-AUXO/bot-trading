@@ -1088,6 +1088,7 @@ export type DiscoveryLabMarketStatsPayload = {
   generatedAt: string;
   meta: {
     refreshMode: "manual";
+    scope: "trending" | "watchlist";
     cacheState: "empty" | "ready" | "degraded";
     lastRefreshedAt: string | null;
     staleMinutes: number | null;
@@ -1116,6 +1117,12 @@ export type DiscoveryLabMarketStatsPayload = {
     birdeyeMomentumCount: number;
     rugcheckRecentCount: number;
     rugcheckVerifiedCount: number;
+    watchlistCount: number;
+  };
+  providerCoverage: {
+    dexscreenerPairCount: number;
+    rugcheckSummaryCount: number;
+    trackedPositionCount: number;
   };
   tokens: DiscoveryLabMarketTokenRow[];
   focusToken: {
@@ -1211,3 +1218,5 @@ export type SmartWalletActivityPayload = {
   txSignature: string;
   receivedAt: string;
 };
+
+export type StatusTone = "default" | "accent" | "warning" | "danger";

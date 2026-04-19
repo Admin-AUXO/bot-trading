@@ -8,6 +8,7 @@ import {
   type DiscoveryLabPackKind,
   type DiscoveryLabThresholdOverrides,
 } from "../discovery-lab-pack-types.js";
+import { derivePresetIdForPack, getStrategyPreset } from "../strategy-presets.js";
 
 export const DISCOVERY_LAB_PROFILES = ["runtime", "high-value", "scalp"] as const;
 export const DISCOVERY_LAB_KNOWN_SOURCES = KNOWN_SOURCES;
@@ -118,6 +119,12 @@ export function mapPackKindFromDb(kind: string): DiscoveryLabPackKind {
 }
 
 export function buildStrategyPackSnapshot(pack: DiscoveryLabPack) {
+  const mode = pack.recipes.some((recipe) => recipe.mode === "pregrad") ? "pregrad" : "graduated";
+  const presetId = derivePresetIdForPack({
+    mode,
+    profile: pack.defaultProfile,
+  });
+
   return {
     recipe: {
       profile: pack.defaultProfile,
@@ -126,7 +133,7 @@ export function buildStrategyPackSnapshot(pack: DiscoveryLabPack) {
       targetPnlBand: pack.targetPnlBand ?? null,
     },
     baseFilters: pack.thresholdOverrides ?? {},
-    baseExits: {},
+    baseExits: getStrategyPreset(presetId).exitOverrides,
     adaptiveAxes: {},
     capitalModifier: new Prisma.Decimal(100),
     sortColumn: null,

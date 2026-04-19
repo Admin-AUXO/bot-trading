@@ -138,15 +138,31 @@ export class ExecutionEngine {
       }
 
       return this.openDryRunPosition(settings, input);
+    }).catch(async (err) => {
+      try {
+        await db.candidate.update({
+          where: { id: input.candidateId },
+          data: { status: "ERROR" },
+        });
+      } catch {
+        logger.warn({ candidateId: input.candidateId }, "failed to revert candidate state after openPosition failure");
+      }
+      throw err;
     });
   }
 
   async closePosition(input: ClosePositionInput): Promise<void> {
     await this.runExclusive(async () => {
       const settings = await this.config.getSettings();
-      const position = await db.position.findUniqueOrThrow({
-        where: { id: input.positionId },
-      });
+      let position: Position | null = null;
+      try {
+        position = await db.position.findUniqueOrThrow({
+          where: { id: input.positionId },
+        });
+      } catch (err) {
+        logger.warn({ positionId: input.positionId, err }, "position not found for closePosition");
+        return;
+      }
 
       if (position.status !== "OPEN") {
         return;
@@ -405,9 +421,15 @@ export class ExecutionEngine {
       await tx.$queryRaw`SELECT 1 FROM "Position" WHERE id = ${input.input.positionId} FOR UPDATE`;
       await tx.$queryRaw`SELECT 1 FROM "BotState" WHERE id = ${BOT_STATE_ID} FOR UPDATE`;
 
-      const position = await tx.position.findUniqueOrThrow({
-        where: { id: input.input.positionId },
-      });
+      let position: Position | null = null;
+      try {
+        position = await tx.position.findUniqueOrThrow({
+          where: { id: input.input.positionId },
+        });
+      } catch (err) {
+        logger.warn({ positionId: input.input.positionId, err }, "position not found in persistClose");
+        return null;
+      }
 
       if (position.status !== "OPEN") {
         return null;
@@ -513,7 +535,7 @@ export class ExecutionEngine {
     const liveFill = asRecord(input.fillMetadata?.live);
     const liveTiming = asRecord(liveFill?.timing);
 
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${input.input.mint}))`;
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${input.input.mint}))::int`;
     const existingOpenPosition = await tx.position.findFirst({
       where: {
         mint: input.input.mint,
@@ -773,6 +795,10 @@ export class ExecutionEngine {
     priceUsd: number,
     extraMetadata?: Record<string, unknown>,
   ): Promise<void> {
+    if (!input.metrics || Object.keys(input.metrics).length === 0) {
+      logger.warn({ candidateId: input.candidateId, positionId }, "empty metrics in recordBuySnapshot, skipping");
+      return;
+    }
     await recordTokenSnapshot({
       candidateId: input.candidateId,
       positionId,
@@ -928,7 +954,10 @@ export class ExecutionEngine {
         logger.warn({ err }, "runExclusive task rejected");
         return undefined;
       },
-    );
+    ).catch((err: unknown) => {
+      logger.error({ err }, "runExclusive chain error - resetting");
+      return undefined;
+    });
     return next;
   }
 

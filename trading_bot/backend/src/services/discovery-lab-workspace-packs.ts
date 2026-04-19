@@ -29,7 +29,7 @@ type WorkspacePackSeed = {
   };
 };
 
-const UPDATED_AT = "2026-04-17T20:50:00.000Z";
+const UPDATED_AT = "2026-04-19T15:20:00.000Z";
 
 function buildGraduatedRecipe(input: {
   name: string;
@@ -96,11 +96,11 @@ export const WORKSPACE_DISCOVERY_LAB_PACK_SEEDS: WorkspacePackSeed[] = [  // ─
     targetPnlBand: { label: "30-60% fast scalp", minPercent: 30, maxPercent: 60 },
     defaultProfile: "scalp",
     thresholdOverrides: {
-      minLiquidityUsd: 15_000,
+      minLiquidityUsd: 14_000,
       maxMarketCapUsd: 1_200_000,
       minHolders: 45,
-      minVolume5mUsd: 2_500,
-      minUniqueBuyers5m: 16,
+      minVolume5mUsd: 2_200,
+      minUniqueBuyers5m: 15,
       minBuySellRatio: 1.12,
       maxTop10HolderPercent: 40,
       maxSingleHolderPercent: 20,
@@ -112,39 +112,39 @@ export const WORKSPACE_DISCOVERY_LAB_PACK_SEEDS: WorkspacePackSeed[] = [  // ─
         name: "Recent Tape · Fast 30-42%",
         description: "Fastest tape lane: graduates <5 min old, trade within 90s, strong 1m volume.",
         sortBy: "last_trade_unix_time",
-        graduatedLookbackSeconds: 300,
+        graduatedLookbackSeconds: 420,
         targetPnlBand: { label: "30-42%", minPercent: 30, maxPercent: 42 },
         params: {
           // 3 filters: min_last_trade_unix_time, min_trade_5m_count, min_volume_1m_usd
           min_last_trade_unix_time: "now-90",
-          min_trade_5m_count: 35,
-          min_volume_1m_usd: 1_000,
+          min_trade_5m_count: 28,
+          min_volume_1m_usd: 800,
         },
       }),
       buildGraduatedRecipe({
         name: "Recent Tape · Momentum 38-52%",
         description: "Momentum lane: graduates <10 min, sustained 5m tape, buy pressure confirming.",
         sortBy: "last_trade_unix_time",
-        graduatedLookbackSeconds: 600,
+        graduatedLookbackSeconds: 720,
         targetPnlBand: { label: "38-52%", minPercent: 38, maxPercent: 52 },
         params: {
           // 3 filters: min_last_trade_unix_time, min_trade_5m_count, min_volume_5m_usd
           min_last_trade_unix_time: "now-150",
-          min_trade_5m_count: 40,
-          min_volume_5m_usd: 2_000,
+          min_trade_5m_count: 32,
+          min_volume_5m_usd: 1_600,
         },
       }),
       buildGraduatedRecipe({
         name: "Recent Tape · Extension 48-60%",
         description: "Extension lane: graduates <15 min, still active 5m tape, pushing final scalp leg.",
         sortBy: "volume_5m_usd",
-        graduatedLookbackSeconds: 900,
+        graduatedLookbackSeconds: 1_080,
         targetPnlBand: { label: "48-60%", minPercent: 48, maxPercent: 60 },
         params: {
           // 3 filters: min_last_trade_unix_time, min_trade_5m_count, min_volume_5m_usd
           min_last_trade_unix_time: "now-180",
-          min_trade_5m_count: 38,
-          min_volume_5m_usd: 2_500,
+          min_trade_5m_count: 34,
+          min_volume_5m_usd: 2_000,
         },
       }),
     ],
@@ -164,11 +164,11 @@ export const WORKSPACE_DISCOVERY_LAB_PACK_SEEDS: WorkspacePackSeed[] = [  // ─
     targetPnlBand: { label: "30-60% liquid scalp", minPercent: 30, maxPercent: 60 },
     defaultProfile: "scalp",
     thresholdOverrides: {
-      minLiquidityUsd: 20_000,
+      minLiquidityUsd: 16_000,
       maxMarketCapUsd: 1_800_000,
       minHolders: 50,
-      minVolume5mUsd: 3_000,
-      minUniqueBuyers5m: 18,
+      minVolume5mUsd: 2_400,
+      minUniqueBuyers5m: 15,
       minBuySellRatio: 1.14,
       maxTop10HolderPercent: 38,
       maxSingleHolderPercent: 18,
@@ -180,39 +180,39 @@ export const WORKSPACE_DISCOVERY_LAB_PACK_SEEDS: WorkspacePackSeed[] = [  // ─
         name: "Deep Liq · Tape 30-42%",
         description: "Liquid tape lane: graduates <8 min, $20k+ liquidity, strong 1m/5m tape.",
         sortBy: "liquidity",
-        graduatedLookbackSeconds: 480,
+        graduatedLookbackSeconds: 600,
         targetPnlBand: { label: "30-42%", minPercent: 30, maxPercent: 42 },
         params: {
           // 3 filters: min_liquidity, min_last_trade_unix_time, min_trade_5m_count
-          min_liquidity: 20_000,
-          min_last_trade_unix_time: "now-120",
-          min_trade_5m_count: 32,
+          min_liquidity: 16_000,
+          min_last_trade_unix_time: "now-150",
+          min_trade_5m_count: 28,
         },
       }),
       buildGraduatedRecipe({
         name: "Deep Liq · Buyer Stack 38-52%",
         description: "Buyer-stack lane: graduates <14 min, deep liquidity, sustained buyer pressure.",
         sortBy: "liquidity",
-        graduatedLookbackSeconds: 840,
+        graduatedLookbackSeconds: 1_020,
         targetPnlBand: { label: "38-52%", minPercent: 38, maxPercent: 52 },
         params: {
           // 3 filters: min_liquidity, min_last_trade_unix_time, min_trade_5m_count
-          min_liquidity: 22_000,
-          min_last_trade_unix_time: "now-150",
-          min_trade_5m_count: 36,
+          min_liquidity: 18_000,
+          min_last_trade_unix_time: "now-180",
+          min_trade_5m_count: 32,
         },
       }),
       buildGraduatedRecipe({
         name: "Deep Liq · Momentum 48-60%",
         description: "Momentum extension: graduates <20 min, $20k+ liquidity, final scalp push to 60%.",
         sortBy: "liquidity",
-        graduatedLookbackSeconds: 1_200,
+        graduatedLookbackSeconds: 1_440,
         targetPnlBand: { label: "48-60%", minPercent: 48, maxPercent: 60 },
         params: {
           // 3 filters: min_liquidity, min_last_trade_unix_time, min_trade_5m_count
-          min_liquidity: 22_000,
-          min_last_trade_unix_time: "now-180",
-          min_trade_5m_count: 40,
+          min_liquidity: 18_000,
+          min_last_trade_unix_time: "now-240",
+          min_trade_5m_count: 36,
         },
       }),
     ],

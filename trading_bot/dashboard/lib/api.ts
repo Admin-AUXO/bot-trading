@@ -27,5 +27,14 @@ export async function fetchJson<T>(path: string, init?: RequestInit): Promise<T>
     throw new Error(message);
   }
 
+  if (!isReadMethod && typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("app-data-refresh", {
+      detail: {
+        method,
+        path,
+      },
+    }));
+  }
+
   return response.json() as Promise<T>;
 }

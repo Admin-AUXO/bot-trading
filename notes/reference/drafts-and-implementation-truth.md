@@ -4,30 +4,30 @@ status: active
 area: repo
 date: 2026-04-19
 source_files:
-  - ../../draft_index.md
-  - ../../draft_rollout_plan.md
-  - ../../draft_execution_plan.md
-  - ../../draft_helius_integration.md
-  - ../../draft_credit_tracking.md
-  - ../../draft_grafana_plan.md
-  - ../../draft_strategy_packs_v2.md
+  - ../plans/README.md
+  - ../plans/implementation-plan.md
+  - ../plans/execution.md
+  - ../plans/helius.md
+  - ../plans/credit-tracking.md
+  - ../plans/grafana.md
+  - ../plans/strategy-packs.md
   - trading_bot/backend/src/services/live-trade-executor.ts
   - trading_bot/backend/src/services/execution/swap-submitter.ts
 graph_checked:
 next_action: After any seam you close, update this note and the task-specific reference (`api-surface.md`, `prisma-and-views.md`, or `strategy.md`) in the same pass.
 ---
 
-# Draft plans vs code reality
+# Plans vs code reality
 
-Purpose: stop agents from re-deriving what the repo-root `draft_*.md` set already narrates, while making it obvious which seams are **landed**, **partial**, or **still open**. Always confirm in code before trusting this note or the drafts.
+Purpose: stop agents from re-deriving what the `notes/plans/*.md` set already narrates, while making it obvious which seams are **landed**, **partial**, or **still open**. Always confirm in code before trusting this note or the plans.
 
-## Where the drafts live
+## Where the plans live
 
-- Index: [`../../draft_index.md`](../../draft_index.md)
-- Rollout / schedule: [`../../draft_rollout_plan.md`](../../draft_rollout_plan.md)
-- Supporting: `draft_backend_plan.md`, `draft_database_plan.md`, `draft_execution_plan.md`, `draft_credit_tracking.md`, `draft_helius_integration.md`, `draft_market_stats_upgrade.md`, `draft_dashboard_plan.md`, `draft_grafana_plan.md`, `draft_strategy_packs_v2.md`
+- Index: [`../plans/README.md`](../plans/README.md)
+- Execution order: [`../plans/implementation-plan.md`](../plans/implementation-plan.md)
+- Topic plans: `backend.md`, `database.md`, `execution.md`, `credit-tracking.md`, `helius.md`, `market-enrichment.md`, `dashboard.md`, `grafana.md`, `strategy-packs.md`
 
-Treat drafts as **intent and checklists**, not as a live spec. They can lag merges.
+Treat plans as **intent and checklists**, not as a live spec. They can lag merges.
 
 ## Generally landed (verify before relying)
 
@@ -49,7 +49,7 @@ Pick **one** track per session; prove with runtime or DB rows, not narrative.
 
 ## Agent habits (from shipped sessions)
 
-- Do not trust draft language over `git` history, types, or a runtime check.
+- Do not trust plan language over `git` history, types, or a runtime check.
 - If a table is never written, the feature slice is not “done.”
 - Duplicating `ProviderBudgetService` (or any runtime owner) locally invites drift.
 - Boolean env flags: avoid silent string coercion on safety guards.

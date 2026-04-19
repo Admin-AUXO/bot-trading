@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "node ./scripts/run-next.mjs start",
     "screenshots:manifest": "node ./scripts/dashboard-screenshot-manifest.mjs",
-    "screenshots:capture": "node ./scripts/capture-dashboard-screenshots.mjs"
+    "screenshots:capture": "node ./scripts/capture-dashboard-screenshots.mjs",
+    "smoke:routes": "node ./scripts/dashboard-route-smoke.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
@@ -16,8 +17,6 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "@tailwindcss/postcss": "^4.2.2",
     "@tanstack/react-form": "^1.23.8",
-    "ag-grid-community": "^35.2.1",
-    "ag-grid-react": "^35.2.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",

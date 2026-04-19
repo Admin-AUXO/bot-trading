@@ -1,0 +1,164 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "default_agent": "build",
+  "instructions": [
+    "AGENTS.md"
+  ],
+  "enabled_providers": [
+    "minimax"
+  ],
+  "share": "manual",
+  "autoupdate": true,
+  "small_model": "minimax/MiniMax-M2.7",
+  "model": "minimax/MiniMax-M2.7-highspeed",
+  "command": {
+    "startup-brief": {
+      "description": "Summarize repo context before wider work",
+      "agent": "plan",
+      "template": "Read AGENTS.md, notes/README.md, notes/reference/index.md, then produce a compact startup brief for the current task with likely owning files, relevant notes, risks, and the smallest sensible next step."
+    },
+    "verify-work": {
+      "description": "Choose and run the smallest relevant verification pass",
+      "agent": "build",
+      "template": "Inspect the current diff and run the smallest relevant verification commands for the touched surface. Summarize what passed, what failed, and any remaining gaps."
+    }
+  },
+  "permission": "allow",
+  "mcp": {
+    "browsermcp": {
+      "type": "local",
+      "command": [
+        "node",
+        ".codex/scripts/start-stdio-command.cjs",
+        "npx",
+        "-y",
+        "@browsermcp/mcp"
+      ],
+      "enabled": false,
+      "timeout": 90000
+    },
+    "desktop_commander": {
+      "type": "local",
+      "command": [
+        "node",
+        ".codex/scripts/start-desktop-commander.cjs"
+      ],
+      "enabled": false,
+      "timeout": 120000
+    },
+    "birdeye-mcp": {
+      "type": "local",
+      "command": [
+        "node",
+        ".codex/scripts/start-birdeye-mcp.cjs"
+      ],
+      "enabled": false,
+      "timeout": 45000
+    },
+    "helius": {
+      "type": "local",
+      "command": [
+        "node",
+        ".codex/scripts/start-stdio-command.cjs",
+        "npx",
+        "-y",
+        "helius-mcp@latest"
+      ],
+      "enabled": false,
+      "timeout": 45000
+    },
+    "firecrawl": {
+      "type": "local",
+      "command": [
+        "node",
+        ".codex/scripts/start-firecrawl-mcp.cjs"
+      ],
+      "enabled": false,
+      "timeout": 45000
+    },
+    "context7": {
+      "type": "remote",
+      "url": "https://mcp.context7.com/mcp",
+      "enabled": true,
+      "timeout": 20000
+    },
+    "github": {
+      "type": "local",
+      "command": [
+        "node",
+        ".codex/scripts/start-github-mcp.cjs"
+      ],
+      "enabled": false,
+      "timeout": 120000
+    },
+    "grafana": {
+      "type": "local",
+      "command": [
+        "node",
+        ".codex/scripts/start-grafana-mcp.cjs"
+      ],
+      "enabled": false,
+      "timeout": 120000
+    },
+    "postgres": {
+      "type": "local",
+      "command": [
+        "node",
+        ".codex/scripts/start-stdio-command.cjs",
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-postgres",
+        "postgresql://botuser:botpass@127.0.0.1:56432/trading_bot"
+      ],
+      "enabled": false,
+      "timeout": 20000
+    },
+    "fetch": {
+      "type": "local",
+      "command": [
+        "node",
+        ".codex/scripts/start-stdio-command.cjs",
+        "uvx",
+        "mcp-server-fetch"
+      ],
+      "enabled": true,
+      "timeout": 20000
+    },
+    "time": {
+      "type": "local",
+      "command": [
+        "node",
+        ".codex/scripts/start-stdio-command.cjs",
+        "uvx",
+        "mcp-server-time"
+      ],
+      "enabled": true,
+      "timeout": 20000
+    },
+    "chrome_devtools": {
+      "type": "local",
+      "command": [
+        "node",
+        ".codex/scripts/start-stdio-command.cjs",
+        "npx",
+        "-y",
+        "chrome-devtools-mcp@latest"
+      ],
+      "enabled": false,
+      "timeout": 90000
+    },
+    "shadcn": {
+      "type": "local",
+      "command": [
+        "node",
+        ".codex/scripts/start-stdio-command.cjs",
+        "npx",
+        "-y",
+        "shadcn@latest",
+        "mcp"
+      ],
+      "enabled": true,
+      "timeout": 30000
+    }
+  }
+}

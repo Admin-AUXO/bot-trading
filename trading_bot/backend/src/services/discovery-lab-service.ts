@@ -691,11 +691,7 @@ export class DiscoveryLabService {
     const seeds = listWorkspaceDiscoveryLabPackSeeds();
     for (const seed of seeds) {
       const filePath = this.packFilePath(seed.id);
-      try {
-        await fs.access(filePath);
-      } catch {
-        await writeJsonFileAtomic(filePath, seed);
-      }
+      await writeJsonFileAtomic(filePath, seed);
     }
   }
 

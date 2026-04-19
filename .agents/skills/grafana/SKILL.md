@@ -6,6 +6,10 @@ allowed-tools: Read, Grep, Glob, Bash
 
 # Grafana
 
+## Graph Context
+
+Graph: read `graphify-out/GRAPH_MAPS.md` → Grafana Internal map (Community 11, cohesion=0.24)
+
 ## Use when
 
 - planning a new dashboard or redesigning an existing one

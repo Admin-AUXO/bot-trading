@@ -58,7 +58,7 @@ export class BotRuntime {
   private readonly discoveryLabMarketRegime = new DiscoveryLabMarketRegimeService({
     getRun: (runId) => this.strategyRunReads.getRun(runId),
   });
-  private readonly tokenEnrichment = new TokenEnrichmentService(this.birdeye, {
+  private readonly tokenEnrichment = new TokenEnrichmentService({
     providerBudget: this.providerBudget,
   });
   private readonly marketIntel = new MarketIntelService({
@@ -526,11 +526,11 @@ export class BotRuntime {
   }
 
   private async runEvaluationNow(): Promise<void> {
-    await this.graduation.evaluateDueCandidates();
+    await this.graduation.evaluateDueCandidates(true);
     await recordOperatorEvent({
       kind: "manual_action",
       title: "Evaluation triggered",
-      detail: "Operator requested an immediate evaluation pass.",
+      detail: "Operator requested an immediate evaluation pass across the queued candidate set.",
     });
   }
 

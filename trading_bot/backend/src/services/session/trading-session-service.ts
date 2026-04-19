@@ -155,6 +155,15 @@ export class TradingSessionService {
         liveAffectingPaths: prepared.liveAffectingPaths,
       });
 
+      if (mode === "LIVE") {
+        await tx.botState.update({
+          where: { id: "singleton" },
+          data: {
+            pauseReason: null,
+          },
+        });
+      }
+
       if (activeSession) {
         await this.closeSession(tx, activeSession, {
           stoppedAt: appliedAt,
@@ -196,6 +205,10 @@ export class TradingSessionService {
 
     this.deps.config.cacheSettings(prepared.next);
     const session = await this.mapSession(result);
+
+    if (mode === "LIVE") {
+      await this.deps.armLiveRuntime?.();
+    }
 
     await recordOperatorEvent({
       kind: "settings_apply",
@@ -481,6 +494,9 @@ export class TradingSessionService {
     }
     if (!calibration.packId?.trim()) {
       throw new Error("strategy calibration is missing a deployable pack id");
+    }
+    if (env.ALLOW_UNVERIFIED_LIVE_DEPLOY) {
+      return calibration;
     }
     if ((calibration.calibrationSummary?.winnerCount ?? 0) <= 0) {
       throw new Error("cannot apply a live strategy from a run with no winners");
