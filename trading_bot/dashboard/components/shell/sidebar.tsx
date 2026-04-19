@@ -58,7 +58,7 @@ export function Sidebar({ shell, sidebarCollapsed, onToggleCollapse }: SidebarPr
         </div>
 
         {!sidebarCollapsed ? (
-          <div className="mt-3 space-y-2 rounded-[12px] border border-bg-border bg-[var(--panel-raised)] p-3">
+          <div className="mt-3 space-y-2 rounded-[12px] border border-bg-border bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))] p-3">
             <div className="flex items-center justify-between gap-2">
               <StatusPill value={shell?.health ?? "waiting"} />
               <span className="text-[11px] text-text-muted">
@@ -105,30 +105,28 @@ export function Sidebar({ shell, sidebarCollapsed, onToggleCollapse }: SidebarPr
                       : "border-bg-border/30 text-text-secondary hover:border-bg-border hover:bg-[#141417] hover:text-text-primary",
                   )}
                 >
-                  <div className={clsx("flex items-center", sidebarCollapsed ? "justify-center" : "gap-3")}>
-                    <Icon className="h-4 w-4" />
-                    {!sidebarCollapsed ? (
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium">{item.label}</div>
-                      </div>
-                    ) : null}
-                  </div>
+                    <div className={clsx("flex items-center", sidebarCollapsed ? "justify-center" : "gap-3")}>
+                      <Icon className="h-4 w-4" />
+                      {!sidebarCollapsed ? <div className="min-w-0 text-sm font-medium">{item.label}</div> : null}
+                    </div>
                   {active && !sidebarCollapsed ? <div className="h-2.5 w-2.5 rounded-full bg-accent" /> : null}
                 </Link>
               );
 
-              if (!sidebarCollapsed) return link;
+              if (!item.detail) return link;
 
               return (
                 <Tooltip.Root key={item.id}>
                   <Tooltip.Trigger asChild>{link}</Tooltip.Trigger>
                   <Tooltip.Portal>
                     <Tooltip.Content
-                      side="right"
+                      side={sidebarCollapsed ? "right" : "top"}
                       sideOffset={12}
                       className="rounded-[12px] border border-bg-border bg-[#111214] px-3 py-2 text-xs font-medium text-text-primary shadow-2xl"
                     >
-                      {group.label} / {item.label}
+                      <div className="text-[10px] uppercase tracking-[0.14em] text-text-muted">{group.label}</div>
+                      <div className="mt-1">{item.label}</div>
+                      <div className="mt-1 max-w-[16rem] text-[11px] font-normal leading-5 text-text-secondary">{item.detail}</div>
                       <Tooltip.Arrow className="fill-[#111214]" />
                     </Tooltip.Content>
                   </Tooltip.Portal>
@@ -137,6 +135,7 @@ export function Sidebar({ shell, sidebarCollapsed, onToggleCollapse }: SidebarPr
             })}
           </div>
         ))}
+
       </nav>
 
       <div className={clsx("min-h-0 flex-1 overflow-y-auto pb-4", sidebarCollapsed ? "px-3" : "px-3.5")}>

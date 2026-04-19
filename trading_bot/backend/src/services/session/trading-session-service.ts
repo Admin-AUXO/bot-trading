@@ -4,9 +4,11 @@ import { db } from "../../db/client.js";
 import type {
   BotSettings,
   LiveStrategySettings,
+  SessionBudgetForecast,
   TradingSessionHistoryPayload,
   TradingSessionSnapshot,
 } from "../../types/domain.js";
+import { CreditForecastService } from "../credit-forecast-service.js";
 import { recordOperatorEvent } from "../operator-events.js";
 import type { DiscoveryLabRunDetail } from "../discovery-lab-service.js";
 import {
@@ -20,6 +22,7 @@ type TradingSessionServiceDeps = {
   config: RuntimeConfigService;
   getDiscoveryLabRun: (runId: string) => Promise<DiscoveryLabRunDetail | null>;
   armLiveRuntime?: () => Promise<void>;
+  creditForecast?: CreditForecastService;
 };
 
 type SessionStartInput = {
@@ -60,7 +63,11 @@ const SESSION_REVERTED_REASON = "REVERTED";
 const SESSION_PAUSED_REASON = "trading session paused by operator";
 
 export class TradingSessionService {
-  constructor(private readonly deps: TradingSessionServiceDeps) {}
+  private readonly creditForecast: CreditForecastService;
+
+  constructor(private readonly deps: TradingSessionServiceDeps) {
+    this.creditForecast = deps.creditForecast ?? new CreditForecastService();
+  }
 
   async getCurrentSession(): Promise<TradingSessionSnapshot | null> {
     const activeSession = await this.getActiveSessionRecord(db);
@@ -93,6 +100,7 @@ export class TradingSessionService {
     ok: true;
     session: TradingSessionSnapshot;
     strategy: LiveStrategySettings;
+    budgetForecast: SessionBudgetForecast;
   }> {
     const normalizedRunId = input.runId.trim();
     if (!normalizedRunId) {
@@ -108,6 +116,13 @@ export class TradingSessionService {
     const mode = normalizeSessionMode(input.mode, currentSettings.tradeMode);
     requireConfirmation(input.confirmation, buildConfirmationPhrase("START", mode));
     this.assertLiveDeploymentAuthorized(mode, input.requestIp, input.liveDeployToken);
+    const budgetForecast = await this.creditForecast.forecastSession({
+      mode,
+      run,
+      settings: currentSettings,
+      strategy: calibration,
+    });
+    await this.assertBudgetForecastAllowed(budgetForecast, normalizedRunId);
 
     const prepared = await this.deps.config.preparePatch({
       tradeMode: mode,
@@ -206,6 +221,7 @@ export class TradingSessionService {
       ok: true,
       session,
       strategy: calibration,
+      budgetForecast,
     };
   }
 
@@ -480,6 +496,31 @@ export class TradingSessionService {
     }
 
     return calibration;
+  }
+
+  private async assertBudgetForecastAllowed(
+    budgetForecast: SessionBudgetForecast,
+    runId: string,
+  ): Promise<void> {
+    if (budgetForecast.warningLevel !== "none") {
+      await recordOperatorEvent({
+        kind: "session_budget_forecast",
+        level: budgetForecast.warningLevel === "critical" ? "warning" : "info",
+        title: "Session budget forecast",
+        detail: budgetForecast.blockingReason
+          ?? `Projected ${budgetForecast.durationHours}h session burn reaches ${budgetForecast.warningLevel} pressure.`,
+        metadata: {
+          runId,
+          budgetForecast,
+        },
+      });
+    }
+
+    if (budgetForecast.allowed) {
+      return;
+    }
+
+    throw new Error(budgetForecast.blockingReason ?? "session start blocked by credit forecast");
   }
 
   private async getPreviousDeploymentConfig(

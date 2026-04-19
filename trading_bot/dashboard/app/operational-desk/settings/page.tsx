@@ -1,6 +1,6 @@
 import { SettingsClient } from "@/components/settings-client";
 import { serverFetch } from "@/lib/server-api";
-import { discoveryLabRoutes } from "@/lib/dashboard-routes";
+import { workbenchRoutes } from "@/lib/dashboard-routes";
 import { buildGrafanaDashboardLink } from "@/lib/grafana";
 import type { BotSettings } from "@/lib/types";
 
@@ -18,14 +18,14 @@ export default async function OperationalDeskSettingsPage() {
       header={{
         eyebrow: "Operational desk",
         title: "Runtime controls",
-        description: "Direct-edit controls for live mode, capital, and cadence.",
+        description: "Change mode, capital, and timing here. Save only when you mean it.",
       }}
       contextLink={{
-        href: discoveryLabRoutes.config,
-        label: "Discovery config",
+        href: workbenchRoutes.editor,
+        label: "Open workbench editor",
       }}
-      strategyLinkHref={discoveryLabRoutes.results}
-      saveBarLabel="Apply desk-facing runtime controls directly."
+      strategyLinkHref={workbenchRoutes.sandbox}
+      saveBarLabel="Apply runtime changes directly from this page."
       emptySectionTitle="No operational settings in this view"
       emptySectionDetail="This surface only carries the capital and advanced runtime controls."
     />

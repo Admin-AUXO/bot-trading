@@ -4,8 +4,9 @@
 import { readFileSync, existsSync } from "node:fs";
 
 const KNOWN = [
+  "browsermcp",
   "desktop_commander", "birdeye-mcp", "helius", "firecrawl", "context7",
-  "postgres", "chrome_devtools", "fetch", "time", "shadcn",
+  "github", "grafana", "postgres", "chrome_devtools", "fetch", "time", "shadcn",
 ];
 
 function readJson(p) {
@@ -54,11 +55,15 @@ for (const r of docRefs) {
   if (!declared.has(r)) issues.push(`docs reference '${r}' but no MCP declaration found`);
 }
 
-// Drift: codex declares but .mcp.json doesn't (informational, not error).
+// Exact parity keeps Claude and Codex from drifting into different MCP surfaces.
 const mcpSet = new Set(mcpServers);
 const driftOnlyCodex = codexServers.filter((s) => !mcpSet.has(s));
+const driftOnlyMcpJson = mcpServers.filter((s) => !codexServers.includes(s));
 if (driftOnlyCodex.length) {
-  console.log(`\nℹ codex-only MCP declarations (consider mirroring to .mcp.json): ${driftOnlyCodex.join(", ")}`);
+  issues.push(`.codex/config.toml declares MCPs missing from .mcp.json: ${driftOnlyCodex.join(", ")}`);
+}
+if (driftOnlyMcpJson.length) {
+  issues.push(`.mcp.json declares MCPs missing from .codex/config.toml: ${driftOnlyMcpJson.join(", ")}`);
 }
 
 if (issues.length) {

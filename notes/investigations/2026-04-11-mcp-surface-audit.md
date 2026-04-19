@@ -12,7 +12,7 @@ source_files:
   - .codex/scripts/start-birdeye-mcp.cjs
   - C:/Users/ajay9/.codex/log/codex-tui.log
 graph_checked:
-next_action: Keep the local GitHub MCP server disabled until GitHub's stdio transport or the Codex host framing contract changes.
+next_action: Keep `.mcp.json`, `.codex/config.toml`, and `.claude/settings.json` in exact MCP parity; update all three in the same pass.
 ---
 
 # MCP Surface Audit
@@ -111,7 +111,7 @@ Best practice:
 
 ### `github`
 
-Verdict: keep configured, but disabled on this Codex host for now.
+Verdict: keep enabled.
 
 Strengths:
 
@@ -121,25 +121,13 @@ Strengths:
 Risks:
 
 - overlaps with the installed GitHub plugin skill surface if agents use both casually
-- current GitHub Docker stdio transport is not MCP-framed stdio, so Codex CLI startup fails before initialize completes
+- still depends on host Docker availability and optional PAT auth
 
 Best practice:
 
 - prefer one GitHub surface per task
-- use the GitHub plugin skills or `gh` CLI for current GitHub work in this repo
-- leave the local MCP block disabled until transport compatibility is fixed upstream
-
-## 2026-04-12 GitHub MCP Finding
-
-Probe result against `ghcr.io/github/github-mcp-server v0.33.0`:
-
-- sending a standard framed MCP stdio initialize request beginning with `Content-Length:` makes the server exit with `invalid character 'C' looking for beginning of value`
-- sending raw newline-delimited JSON succeeds and returns a valid initialize payload
-
-Conclusion:
-
-- the current GitHub Docker `stdio` server is not compatible with the framed stdio contract Codex CLI 0.120.0 is using on this host
-- that mismatch explains the session warning: `handshaking with MCP server failed: connection closed: initialize response`
+- keep the repo-local launcher and the shared MCP declarations aligned so Claude and Codex do not diverge again
+- use plugin skills or `gh` CLI fallback when auth or transport issues come from the host rather than repo config
 
 ### `chrome_devtools`
 
@@ -325,3 +313,11 @@ Reuse rule:
 
 - keep agent-specific MCP guidance in instructions and skills unless the agent file provides a full valid MCP server definition
 - when a repo-local MCP depends on API keys already stored in checked-in env conventions, prefer a repo-local wrapper that can read those env files on both Windows and macOS instead of assuming the shell exported them
+
+## 2026-04-18 Parity Repair
+
+- `.mcp.json` now mirrors the full Codex MCP surface instead of carrying a smaller Claude-only subset.
+- `.codex/config.toml` now enables the full repo MCP set: `browsermcp`, `desktop_commander`, `birdeye-mcp`, `helius`, `firecrawl`, `context7`, `github`, `grafana`, `postgres`, `fetch`, `time`, `chrome_devtools`, and `shadcn`.
+- `.claude/settings.json` now allowlists that same full set, so `enableAllProjectMcpServers` does not quietly conflict with a stale manual list.
+- GitHub and Grafana now start through repo-local launchers under `.codex/scripts/` so both harnesses share the same startup path instead of duplicating half-compatible config.
+- `scripts/claude-harness/validate-mcp.mjs` now treats cross-file MCP drift as a failure instead of an informational shrug.

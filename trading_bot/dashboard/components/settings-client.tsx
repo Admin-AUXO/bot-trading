@@ -5,7 +5,7 @@ import clsx from "clsx";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { ArrowUpRight, CircleHelp, RotateCcw, Save, Zap } from "lucide-react";
 import { fetchJson } from "@/lib/api";
-import { discoveryLabRoutes } from "@/lib/dashboard-routes";
+import { workbenchRoutes } from "@/lib/dashboard-routes";
 import { formatInteger, formatTimestamp, smartFormatValue } from "@/lib/format";
 import type { BotSettings } from "@/lib/types";
 
@@ -13,7 +13,7 @@ type DeepPartial<T> = {
   [P in keyof T]?: T[P] extends object ? DeepPartial<T[P]> : T[P];
 };
 import { useHydrated } from "@/lib/use-hydrated";
-import { CompactPageHeader, CompactStatGrid, EmptyState, Panel, StatusPill } from "@/components/dashboard-primitives";
+import { CompactPageHeader, CompactStatGrid, DisclosurePanel, EmptyState, InlineNotice, Panel, StatusPill } from "@/components/dashboard-primitives";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
@@ -118,7 +118,7 @@ const fieldGroups: Array<{
 const fieldHelp: Partial<Record<string, string>> = {
   "tradeMode": "This applies immediately. LIVE still respects the startup hold and normal runtime guardrails.",
   "strategy.livePresetId": "Primary automatic preset for live discovery and evaluation.",
-  "strategy.dryRunPresetId": "Default preset for discovery-lab and manual testing passes.",
+  "strategy.dryRunPresetId": "Default preset for sandbox and manual testing passes.",
   "strategy.heliusWatcherEnabled": "Only useful when watched program ids are configured.",
   "capital.capitalUsd": "Changing capital while positions are open is blocked server-side.",
   "capital.positionSizeUsd": "This is the base ticket before adaptive sizing or manual overrides.",
@@ -302,10 +302,10 @@ export function SettingsClient({
     description: "Lean operator surface for the active trading workflow.",
   };
   const pageContextLink = contextLink ?? {
-    href: discoveryLabRoutes.results,
-    label: "Discovery lab",
+    href: workbenchRoutes.editor,
+    label: "Workbench editor",
   };
-  const resolvedStrategyLinkHref = strategyLinkHref ?? discoveryLabRoutes.results;
+  const resolvedStrategyLinkHref = strategyLinkHref ?? workbenchRoutes.sandbox;
 
   const applySettings = () => startTransition(async () => {
     try {
@@ -407,15 +407,31 @@ export function SettingsClient({
       </CompactPageHeader>
 
       {error ? (
-        <div className="rounded-[16px] border border-[rgba(251,113,133,0.25)] bg-[rgba(251,113,133,0.08)] px-5 py-4 text-sm text-[var(--danger)]">
+        <InlineNotice tone="danger">
           {error}
-        </div>
+        </InlineNotice>
       ) : null}
 
       {message ? (
-        <div className="rounded-[16px] border border-[rgba(163,230,53,0.25)] bg-[rgba(163,230,53,0.08)] px-5 py-4 text-sm text-[var(--success)]">
+        <InlineNotice tone="accent">
           {message}
-        </div>
+        </InlineNotice>
+      ) : null}
+
+      {localDirty && changedPaths.length > 0 ? (
+        <DisclosurePanel
+          title="Pending changes"
+          description="Keep this collapsed unless you need the exact field list before applying."
+          badge={<Badge variant="warning">{changedPaths.length}</Badge>}
+        >
+          <div className="flex flex-wrap gap-2">
+            {changedPaths.map((path) => (
+              <span key={path} className="meta-chip">
+                {path}
+              </span>
+            ))}
+          </div>
+        </DisclosurePanel>
       ) : null}
 
       {editorMode === "hot-discovery" ? (

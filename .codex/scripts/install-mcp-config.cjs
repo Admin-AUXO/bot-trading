@@ -11,6 +11,8 @@ const launcherPath = path.join(repoRoot, ".codex", "scripts", "start-stdio-comma
 const birdeyeLauncherPath = path.join(repoRoot, ".codex", "scripts", "start-birdeye-mcp.cjs");
 const desktopCommanderLauncherPath = path.join(repoRoot, ".codex", "scripts", "start-desktop-commander.cjs");
 const firecrawlLauncherPath = path.join(repoRoot, ".codex", "scripts", "start-firecrawl-mcp.cjs");
+const githubLauncherPath = path.join(repoRoot, ".codex", "scripts", "start-github-mcp.cjs");
+const grafanaLauncherPath = path.join(repoRoot, ".codex", "scripts", "start-grafana-mcp.cjs");
 const backendEnvPath = path.join(repoRoot, "trading_bot", "backend", ".env");
 
 const blockStart = "# >>> bot-trading managed MCP begin >>>";
@@ -28,16 +30,19 @@ if (!validProfiles.has(profile)) {
 const profileServers = {
   compact: ["desktop_commander"],
   db: ["desktop_commander", "postgres"],
-  research: ["desktop_commander", "context7", "fetch", "firecrawl", "time"],
-  dashboard: ["desktop_commander", "chrome_devtools", "context7", "fetch", "shadcn"],
-  provider: ["desktop_commander", "birdeye-mcp", "fetch", "helius", "time"],
+  research: ["desktop_commander", "context7", "fetch", "firecrawl", "github", "time"],
+  dashboard: ["browsermcp", "desktop_commander", "chrome_devtools", "context7", "fetch", "grafana", "shadcn"],
+  provider: ["desktop_commander", "birdeye-mcp", "fetch", "github", "helius", "time"],
   full: [
+    "browsermcp",
     "desktop_commander",
     "birdeye-mcp",
     "chrome_devtools",
     "context7",
     "fetch",
     "firecrawl",
+    "github",
+    "grafana",
     "postgres",
     "shadcn",
     "helius",
@@ -128,6 +133,12 @@ function renderManagedBlock() {
     "#   node ./.codex/scripts/install-mcp-config.cjs [--profile compact|db|research|dashboard|provider|full]",
     `# Current profile: ${profile}`,
     "",
+    renderCommandServer("browsermcp", [...launcherArgs, "npx", "-y", "@browsermcp/mcp"], [
+      `enabled = ${isEnabled("browsermcp", backendEnv) ? "true" : "false"}`,
+      "required = false",
+      "startup_timeout_ms = 20000",
+      "tool_timeout_sec = 90",
+    ]),
     renderCommandServer("birdeye-mcp", [birdeyeLauncherPath], [
       `enabled = ${isEnabled("birdeye-mcp", backendEnv) ? "true" : "false"}`,
       "required = false",
@@ -161,6 +172,18 @@ url = "https://mcp.context7.com/mcp"
       `enabled = ${isEnabled("firecrawl", backendEnv) ? "true" : "false"}`,
       "required = false",
       "startup_timeout_ms = 30000",
+    ]),
+    renderCommandServer("github", [githubLauncherPath], [
+      `enabled = ${isEnabled("github", backendEnv) ? "true" : "false"}`,
+      "required = false",
+      "startup_timeout_ms = 30000",
+      "tool_timeout_sec = 120",
+    ]),
+    renderCommandServer("grafana", [grafanaLauncherPath], [
+      `enabled = ${isEnabled("grafana", backendEnv) ? "true" : "false"}`,
+      "required = false",
+      "startup_timeout_ms = 30000",
+      "tool_timeout_sec = 120",
     ]),
     renderCommandServer("postgres", [...launcherArgs, "npx", "-y", "@modelcontextprotocol/server-postgres", postgresDsn], [
       `enabled = ${isEnabled("postgres", backendEnv) ? "true" : "false"}`,

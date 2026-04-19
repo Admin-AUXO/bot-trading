@@ -2,7 +2,7 @@
 
 import * as Tooltip from "@radix-ui/react-tooltip";
 import clsx from "clsx";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useEffectEvent, useRef, useState, useTransition } from "react";
 import {
   PauseCircle,
@@ -10,7 +10,7 @@ import {
   RefreshCcw,
 } from "lucide-react";
 import { fetchJson } from "@/lib/api";
-import { dashboardNavItems } from "@/lib/dashboard-navigation";
+import { dashboardNavGroups, dashboardNavItems, matchesDashboardRoute } from "@/lib/dashboard-navigation";
 import type { ActionResponse, DeskShellPayload } from "@/lib/types";
 import { StatusPill } from "@/components/dashboard-primitives";
 import { PinnedItemsProvider } from "@/components/pinned-items";
@@ -31,6 +31,7 @@ const actionEndpoint: Record<DeskShellPayload["availableActions"][number]["id"],
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
   const headerRef = useRef<HTMLElement | null>(null);
   const [shell, setShell] = useState<DeskShellPayload | null>(null);
   const [shellError, setShellError] = useState<string | null>(null);
@@ -138,6 +139,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return `${item.label} ${item.hint}`.toLowerCase().includes(query);
   });
 
+  const currentNavItem = dashboardNavItems.find((item) => matchesDashboardRoute(pathname ?? "/", item)) ?? null;
+  const currentNavGroup = currentNavItem
+    ? dashboardNavGroups.find((group) => group.items.some((item) => item.id === currentNavItem.id)) ?? null
+    : null;
+
   useEffect(() => {
     setSelectedCommandIndex((index) => Math.min(index, Math.max(commandItems.length - 1, 0)));
   }, [commandItems.length]);
@@ -208,14 +214,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               className="sticky top-0 z-30 border-b border-bg-border/80 bg-bg-secondary/95 backdrop-blur-sm"
             >
               <div className="mx-auto flex w-full max-w-[1680px] flex-wrap items-center justify-between gap-2 px-4 py-2 lg:px-6">
-                <div className="flex flex-wrap items-center gap-2">
-                  <StatusPill value={shell?.mode ?? "waiting"} />
-                  <StatusPill value={shell?.health ?? "waiting"} />
-                  {shellError ? (
-                    <Badge variant="danger" className="normal-case">{shellError}</Badge>
-                  ) : null}
-                  {actionError ? (
-                    <Badge variant="danger" className="normal-case">{actionError}</Badge>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusPill value={shell?.mode ?? "waiting"} />
+                    <StatusPill value={shell?.health ?? "waiting"} />
+                    {currentNavGroup ? (
+                      <Badge variant="default" className="normal-case">
+                        {currentNavGroup.label}
+                      </Badge>
+                    ) : null}
+                    {shellError ? (
+                      <Badge variant="danger" className="normal-case">{shellError}</Badge>
+                    ) : null}
+                    {actionError ? (
+                      <Badge variant="danger" className="normal-case">{actionError}</Badge>
+                    ) : null}
+                  </div>
+                  {currentNavItem ? (
+                    <div className="mt-1 min-w-0">
+                      <div className="truncate text-sm font-medium text-text-primary">{currentNavItem.label}</div>
+                    </div>
                   ) : null}
                 </div>
 

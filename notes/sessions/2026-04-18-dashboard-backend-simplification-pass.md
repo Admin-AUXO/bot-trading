@@ -6,15 +6,14 @@ date: 2026-04-18
 source_files:
   - trading_bot/backend/src/api/server.ts
   - trading_bot/backend/src/api/routes/desk-operator-routes.ts
-  - trading_bot/backend/src/api/routes/discovery-lab-routes.ts
+  - trading_bot/backend/src/api/routes/pack-routes.ts
+  - trading_bot/backend/src/api/routes/run-routes.ts
+  - trading_bot/backend/src/api/routes/market-routes.ts
   - trading_bot/backend/src/engine/runtime.ts
   - trading_bot/backend/src/services/operator-desk.ts
   - trading_bot/backend/src/services/discovery-lab-service.ts
-  - trading_bot/dashboard/app/discovery-lab/market-stats/page.tsx
   - trading_bot/dashboard/app/market/trending/page.tsx
   - trading_bot/dashboard/app/market/token/[mint]/page.tsx
-  - trading_bot/dashboard/components/discovery-lab-client.tsx
-  - trading_bot/dashboard/components/discovery-lab-results-board.tsx
 next_action: Finish the next major phase-5 backend ownership slice: webhook/watch ownership plus smart-wallet/Helius ingest, then re-check whether adaptive service-map work can land without inventing storage churn.
 ---
 
@@ -40,7 +39,7 @@ next_action: Finish the next major phase-5 backend ownership slice: webhook/watc
 - Moved runtime wiring in `trading_bot/backend/src/engine/runtime.ts` to plain handler bags. `BotRuntime` now owns the seams and passes desk, control, and discovery-lab callbacks into the API server instead of letting HTTP reach into engine internals.
 - Kept `OperatorDeskService` focused on the desk seam: shell, home, events, candidate queue, position book, and diagnostics. The duplicated lookup logic is still gone.
 - Kept `DiscoveryLabService` focused on the pack/run seam: catalog, validate, save, delete, run, result summaries, and manual-entry helpers.
-- Added compatibility route aliases for the new workbench/market IA: `/api/operator/workbench-market/*` and `/api/workbench-market/*` now mirror the discovery-lab endpoints, while `/api/operator/shell`, `/api/operator/home`, and `/api/operator/events` mirror the desk surface.
+- Added compatibility route aliases for the new workbench/market IA while the frontend was still migrating. Those temporary aliases are now gone; the backend route surface is back to the dedicated pack, run, session, market, enrichment, and desk seams.
 - Audited detail-page actions against the real API surface and removed fake controls:
   candidate `block permanently` was calling a nonexistent route
   position `adjust stop loss` was pretending to edit one position while actually targeting global settings through a nonexistent route
@@ -55,11 +54,46 @@ next_action: Finish the next major phase-5 backend ownership slice: webhook/watc
 - `cd trading_bot/backend && npm run build`
 - `cd trading_bot/dashboard && npm run build`
 
+## Follow-up - Helius Watch Ownership Hardening
+
+- Cut the Helius watch seam into something observable instead of aspirational.
+- `BotRuntime` now injects one runtime-owned `ProviderBudgetService` into `BirdeyeClient`, `HeliusClient`, `ExecutionEngine`, `GraduationEngine`, and `HeliusWatchService` so credit logging and budget state stop drifting across disconnected service instances.
+- `HeliusWatchService` now reconciles tracked smart-wallet rows on boot, deactivating stale `source="helius_webhook"` wallets instead of only upserting the current env list.
+- Helius webhook deliveries are now budget-logged through `ProviderBudgetService` with webhook-specific endpoints, and the watch service now reports actual inserted smart-wallet rows instead of pretending every parsed row survived `skipDuplicates`.
+- Smart-wallet duplicate handling is now explicit in two places:
+  payload-local duplicates are collapsed before insert,
+  exact webhook replays are suppressed by raw-body digest,
+  and migration-signal duplicates now short-circuit cleanly on the unique signature constraint instead of bubbling up as watcher errors.
+- `HeliusMigrationWatcher` now exposes boot-visible subscription telemetry:
+  configured program count,
+  active subscription count,
+  observed log count,
+  last observed log timestamp,
+  last delivered signal timestamp.
+- Standard Helius websocket metering is now partially budget-wrapped:
+  connection opens log `logsSubscribe` at 1 credit each,
+  streamed log payloads accumulate bytes and flush `logsStream` rows at 2 credits per 0.1 MB.
+- `GET /api/status` / `heliusWatch` now surface the new watch telemetry plus `smartWalletFundingStatus: "dead_schema"` so the repo stops implying that `SmartWalletFunding` is live when it still has zero runtime writers.
+- Fixed two existing budget-slot bugs that were leaving slots unreleased even when rows were being written:
+  `HeliusPriorityFeeService.safeReleaseSlot()`
+  `QuoteBuilder.safeReleaseSlot()`
+
+## What I Verified In This Follow-up
+
+- `cd trading_bot/backend && npm run db:generate`
+- `cd trading_bot/backend && npm run build`
+- Injected local verification through `node --import tsx -` with fake DB / budget / watcher deps:
+  boot reconciliation upserts configured wallets
+  smart-wallet payload-local duplicate rows collapse before insert
+  DB-level replayed rows reduce `inserted` count correctly
+  exact webhook replays are skipped after signature verification
+  migration watcher telemetry logs `logsSubscribe` and metered `logsStream` credit rows
+  `heliusWatch` summary exposes the new subscription / duplicate / replay / reconciliation fields and marks `SmartWalletFunding` as `dead_schema`
+
 ## Remaining Risks
 
 - This pass is build-verified, not browser-verified.
-- The dashboard still points the market and discovery surfaces at `/api/operator/discovery-lab/*` in several places. The new workbench-market aliases exist, but the client has not been moved over yet.
-- The compatibility layer is doing real work, not just preserving dead links. `/api/operator/discovery-lab/*`, `/api/operator/workbench-market/*`, and `/api/workbench-market/*` all hit the same discovery-lab seam, so the route surface is duplicated on purpose for now.
+- At the time of this pass the dashboard still pointed the market and discovery surfaces at `/api/operator/discovery-lab/*` in several places. That is no longer true for the live dashboard, and the legacy compatibility routes were later removed.
 - The open-position summary now scans denser than before; confirm desktop and mobile readability once the live desk is running.
 - Repo graph rebuild is currently blocked by the local Graphify wrapper failing while trying to recreate `.graphify-venv` on Windows (`Unknown error: The file cannot be accessed by the system`).
 
@@ -701,3 +735,190 @@ next_action: Finish the next major phase-5 backend ownership slice: webhook/watc
   no `StrategyRunGrade`,
   no enrichment/adaptive tables,
   and no broader metadata-column promotion sweep beyond the already-landed transition slices.
+
+## Follow-up - Execution Seam Cutover And FillAttempt Activation
+
+### What Was Actually Broken
+
+- The repo already had
+  `trading_bot/backend/src/services/execution/quote-builder.ts`,
+  `swap-builder.ts`,
+  `swap-submitter.ts`,
+  and
+  `services/helius/priority-fee-service.ts`,
+  but the live runtime did not use them.
+- The real production path was still
+  `GraduationEngine` / `ExitEngine`
+  ->
+  `ExecutionEngine`
+  ->
+  `LiveTradeExecutor`
+  with inline Jupiter quote, inline swap build, inline Helius Sender submit, and inline confirmation.
+- That meant the new execution slice was dead code,
+  `FillAttempt` rows were never written by the live runtime,
+  and the repo still had split submit-path authority even though the codebase claimed phase-6 execution helpers had landed.
+
+### What Changed
+
+- `trading_bot/backend/src/engine/runtime.ts`
+  now injects the runtime-owned
+  `ProviderBudgetService`
+  into
+  `ExecutionEngine`
+  so the live execution seam stops creating a cute local copy.
+- `trading_bot/backend/src/engine/execution-engine.ts`
+  now constructs
+  `LiveTradeExecutor`
+  with that shared provider-budget instance and passes the real market-cap / pack context into live buy and live sell execution.
+- `trading_bot/backend/src/services/live-trade-executor.ts`
+  was cut over from the old inline quote/swap/submit flow onto the landed services:
+  `QuoteBuilder`,
+  `SwapBuilder`,
+  `SwapSubmitter`,
+  and
+  `HeliusPriorityFeeService`.
+- The old inline
+  `getQuote()`,
+  `getSwapTransaction()`,
+  and
+  `broadcastTransaction()`
+  ownership inside
+  `LiveTradeExecutor`
+  was removed so the production path is no longer ambiguous.
+- `trading_bot/backend/src/services/execution/swap-submitter.ts`
+  now supports the regular Helius Sender lane with a re-signed tipped transaction too, so the cutover does not silently drop the existing sender-tip behavior while moving onto the shared submitter.
+- Result:
+  live execution success metadata now carries the actual
+  `FillAttempt`
+  attribution (`fillAttemptId`, retries, cu price, tip, lane),
+  and submit failures now surface directly from the shared submitter path instead of dying inside the old inline sender shim.
+
+### What I Verified
+
+- Required repo checks:
+  `cd trading_bot/backend && npm run db:generate`
+  `cd trading_bot/backend && npm run build`
+  `cd trading_bot/dashboard && npm run build`
+  `cd trading_bot/grafana && node scripts/build-dashboards.mjs`
+- Targeted execution-seam proof with an injected mock live executor harness run locally through
+  `npx tsx -`
+  in
+  `trading_bot/backend`:
+  a mocked live buy now goes through the shared submitter path and returns
+  `fillAttemptId=7`,
+  `retries=1`,
+  and
+  `cuPriceMicroLamports=12345`
+  in the live metadata payload;
+  a mocked live sell with submitter failure now throws
+  `live sell submit failed: BLOCKHASH_EXPIRED`,
+  proving the runtime failure path is using the shared submitter result rather than the deleted inline sender path.
+
+### Verification Limits
+
+- This pass proved the runtime ownership cutover and failure propagation with injected mocks,
+  not a real funded-wallet chain execution.
+- The broader production-hardening backlog is still real:
+  Helius webhook/watch ownership is still incomplete,
+  `SmartWalletFunding` is still dead schema,
+  session credit forecasting/gating is still missing,
+  and adaptive `MutatorOutcome` attribution is still not wired.
+- `npm run typecheck` on the backend still fails,
+  but those errors are broader pre-existing repo type holes outside this execution cutover.
+  The required production build commands above remained green in this pass.
+
+## Follow-up - Session Credit Forecast Gate
+
+### What Was Actually Broken
+
+- `ProviderCreditLog` and the Grafana credit-burn views already existed, but `TradingSessionService.startSession()` did not look at them.
+- Session start checked confirmation, trusted IP, and live deploy token, then patched runtime config immediately.
+- So the repo could report spend after the fact while still allowing a new session to start straight into a blown daily budget.
+
+### What Changed
+
+- Added `trading_bot/backend/src/services/credit-forecast-service.ts` as the new forecast owner for session-start burn checks.
+- `TradingSessionService` now calls that service before applying config and blocks the start when forecasted Birdeye or Helius burn exceeds the remaining daily or monthly budget, unless `ALLOW_START_ON_BUDGET_CRITICAL=true`.
+- Successful `POST /api/operator/sessions` responses now carry `budgetForecast` so callers can see the assumptions and projected provider burn instead of guessing from Grafana later.
+- Added backend env contract for:
+  `HELIUS_MONTHLY_CREDIT_BUDGET`
+  `CREDIT_FORECAST_SESSION_HOURS`
+  `ALLOW_START_ON_BUDGET_CRITICAL`
+- Updated the dashboard shared types and API reference note to match the new response and gating contract.
+
+### What I Verified
+
+- Required repo checks:
+  `cd trading_bot/backend && npm run db:generate`
+  `cd trading_bot/backend && npm run build`
+  `cd trading_bot/dashboard && npm run build`
+  `cd trading_bot/grafana && node scripts/build-dashboards.mjs`
+- Targeted injected verification through the real `TradingSessionService.startSession()` path using a local `tsx` harness with mocked DB/config seams:
+  one DRY_RUN start returned `session-verify` with `budgetForecast.warningLevel = none`
+  and projected burn of
+  `BIRDEYE=5947`
+  `HELIUS=829`
+- The same start path under mocked critical spend then rejected with:
+  `session start blocked by credit forecast: BIRDEYE forecast 5947 exceeds remaining daily budget 0; HELIUS forecast 829 exceeds remaining daily budget 0`
+
+### Verification Limits
+
+- The forecast proof used injected provider-credit aggregates and the real session-start method; it did not hit a live database rowset or funded runtime loop.
+- Alert-rule rollout is still not complete. Grafana already reads the credit views, but alert provisioning for burn / slope / failed-call share is still a separate remaining pass.
+- Helius watch/webhook ownership is still the bigger production hole after this slice:
+  no persisted subscription state,
+  weak replay accounting,
+  and `SmartWalletFunding` remains dead schema.
+
+## Follow-up - Execution-Side Helius Budget Ownership
+
+### What Was Actually Broken
+
+- The execution cutover was real, but the Helius billable surface under it was still half-blind.
+- `LiveTradeExecutor` was calling Helius RPC through `Connection` for wallet funding and settlement reads without going through `ProviderBudgetService`.
+- `SwapSubmitter` was calling Helius Sender and confirmation without budget-slot ownership, so the live submit path could succeed while `ProviderCreditLog` lied by omission.
+- `HeliusPriorityFeeService` was also writing directly to `ProviderCreditLog` and releasing a budget slot, which meant one estimate could produce two rows for the same call.
+
+### What Changed
+
+- `trading_bot/backend/src/services/live-trade-executor.ts`
+  now wraps execution-side Helius RPC calls through the runtime-owned `ProviderBudgetService`:
+  `getBalance`,
+  `getParsedTokenAccountsByOwner`,
+  and
+  `getParsedTransaction`.
+- `trading_bot/backend/src/services/execution/swap-submitter.ts`
+  now wraps the remaining live submit path that was still invisible:
+  Helius Sender `sendTransaction`,
+  Helius-backed `confirmTransaction`,
+  and ALT lookup reads used while rebuilding the tipped transaction.
+- `trading_bot/backend/src/services/helius/priority-fee-service.ts`
+  no longer inserts a second direct `ProviderCreditLog` row.
+  Priority-fee logging is slot-owned only now, so one estimate emits one row.
+
+### What I Verified
+
+- Required repo checks:
+  `cd trading_bot/backend && npm run db:generate`
+  `cd trading_bot/backend && npm run build`
+  `cd trading_bot/dashboard && npm run build`
+  `cd trading_bot/grafana && node scripts/build-dashboards.mjs`
+- Host-local schema sync for proof:
+  `DATABASE_URL=postgresql://botuser:botpass@localhost:56432/trading_bot npm run db:setup`
+- Targeted injected live-buy proof with the real `LiveTradeExecutor`, real `SwapSubmitter`, real `ProviderBudgetService`, fake chain/network, and host-local Postgres:
+  one execution wrote `ProviderCreditLog` rows for
+  `getBalance`,
+  `getParsedTokenAccountsByOwner`,
+  `sendTransaction`,
+  `confirmTransaction`,
+  and
+  `getParsedTransaction`
+  under one synthetic candidate id.
+- Targeted priority-fee proof:
+  one injected `getPriorityFeeEstimate` call now writes exactly one `ProviderCreditLog` row, not two.
+
+### Remaining Risks After This Follow-up
+
+- The execution-side Helius blind spot is closed for the live buy/sell path, but the broader Helius watch/webhook backlog is still open.
+- `SmartWalletFunding` is still dead schema on purpose.
+- The proof path was injected with fake network and fake chain responses. It exercised the real runtime-owned execution services and real `ProviderCreditLog` writes, but not a funded wallet on mainnet.

@@ -298,10 +298,11 @@ export class ProviderBudgetService {
   }
 
   private resolveCredits(provider: ProviderSource, endpoint: string, observedCredits?: number): number {
+    if (typeof observedCredits === "number" && Number.isFinite(observedCredits)) {
+      return Math.max(Math.trunc(observedCredits), 0);
+    }
+
     if (provider === "BIRDEYE") {
-      if (typeof observedCredits === "number" && Number.isFinite(observedCredits)) {
-        return Math.max(Math.trunc(observedCredits), 0);
-      }
       return 0;
     }
 

@@ -79,7 +79,7 @@ export default async function OperationalDeskTradingPage(props: { searchParams?:
       <CompactPageHeader
         eyebrow="Operational desk"
         title="Trading"
-        description="Intake first, risk second."
+        description="Triage intake first. Manage risk second."
         badges={(
           <>
             <StatusPill value={positionBook === "open" ? "open risk" : "closed outcomes"} />
@@ -113,14 +113,32 @@ export default async function OperationalDeskTradingPage(props: { searchParams?:
         <CompactStatGrid
           className="xl:grid-cols-3"
           items={[
-            { label: "Visible intake", value: formatInteger(candidateRows.length), detail: `${activeBucket?.label ?? "Bucket"} after filters`, tone: "accent" },
-            { label: "Open risk", value: formatInteger(positionPayload.totals.openCount), detail: `${formatInteger(positionPayload.totals.closedCount)} closed in book`, tone: positionPayload.totals.openCount > 0 ? "warning" : "default" },
-            { label: "Realized PnL", value: formatCompactCurrency(positionPayload.totals.realizedPnlUsd), detail: "Book totals", tone: positionPayload.totals.realizedPnlUsd >= 0 ? "accent" : "danger" },
+            {
+              label: "Visible intake",
+              value: formatInteger(candidateRows.length),
+              detail: activeBucket?.label ?? "Current bucket",
+              tooltip: "Candidate rows left after the active bucket, sort, and text filter.",
+              tone: "accent",
+            },
+            {
+              label: "Open risk",
+              value: formatInteger(positionPayload.totals.openCount),
+              detail: `${formatInteger(positionPayload.totals.closedCount)} closed`,
+              tooltip: "Open positions versus the currently loaded closed book count.",
+              tone: positionPayload.totals.openCount > 0 ? "warning" : "default",
+            },
+            {
+              label: "Realized PnL",
+              value: formatCompactCurrency(positionPayload.totals.realizedPnlUsd),
+              detail: "Loaded book total",
+              tooltip: "Realized profit and loss from the currently loaded position book.",
+              tone: positionPayload.totals.realizedPnlUsd >= 0 ? "accent" : "danger",
+            },
           ]}
         />
       </CompactPageHeader>
 
-      <WorkflowSection title="Candidate intake" eyebrow="Discovery to decision" description="Fast triage for blockers, score, liquidity, and last touch." density="dense">
+      <WorkflowSection title="Candidate intake" eyebrow="Discovery to decision" description="Bucket, sort, scan, open." density="dense">
         <div className="space-y-4">
           <div className="flex flex-wrap gap-2">
             {candidatePayload.buckets.map((item) => (
@@ -175,7 +193,7 @@ export default async function OperationalDeskTradingPage(props: { searchParams?:
         </div>
       </WorkflowSection>
 
-      <WorkflowSection title="Position lifecycle" eyebrow="Open risk and outcomes" description="Book view centered on PnL, return, and execution timing." density="dense">
+      <WorkflowSection title="Position lifecycle" eyebrow="Open risk and outcomes" description="Open book for intervention. Closed book for what actually worked." density="dense">
         <div className="space-y-4">
           <div className="flex flex-wrap gap-2">
             <CountChipLink

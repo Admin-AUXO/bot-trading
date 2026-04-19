@@ -1,8 +1,10 @@
 import Link from "next/link";
-import { CompactPageHeader, EmptyState, Panel, ScanStat, StatusPill } from "@/components/dashboard-primitives";
-import { ApplyRunLiveButton } from "@/components/workbench/workbench-actions";
+import { CompactPageHeader, CompactStatGrid, EmptyState, Panel, ScanStat, StatusPill } from "@/components/dashboard-primitives";
+import { RunSessionStartPanel } from "@/components/workbench/workbench-actions";
+import { WorkbenchFlowStrip } from "@/components/workbench/workbench-flow-strip";
+import { WorkbenchRunResultsTable } from "@/components/workbench/workbench-run-results-table";
 import { buttonVariants } from "@/components/ui/button";
-import { discoveryLabRoutes, workbenchRoutes } from "@/lib/dashboard-routes";
+import { workbenchRoutes } from "@/lib/dashboard-routes";
 import { serverFetch } from "@/lib/server-api";
 import type {
   WorkbenchRunDetailPayload,
@@ -18,7 +20,7 @@ export default async function WorkbenchSandboxPage({
   searchParams?: Promise<{ runId?: string }>;
 }) {
   const params = (await searchParams) ?? {};
-  const runsPayload = await serverFetch<WorkbenchRunListPayload | WorkbenchRunSummary[]>("/api/operator/runs?limit=30");
+  const runsPayload = await serverFetch<WorkbenchRunListPayload | WorkbenchRunSummary[]>("/api/operator/runs?limit=18");
   const runs = normalizeRuns(runsPayload);
 
   const selectedRunId = params.runId ?? runs[0]?.id ?? null;
@@ -32,29 +34,51 @@ export default async function WorkbenchSandboxPage({
 
   return (
     <div className="space-y-5">
+      <WorkbenchFlowStrip
+        current="sandbox"
+        focusLabel={selectedRun?.packName ?? "Choose a run"}
+        focusDetail="Run output lives here. Review the evidence, then move to grader or start a session when the backend says the run is deployable."
+      />
+
       <CompactPageHeader
         eyebrow="Strategy workbench"
         title="Sandbox"
-        description="Dedicated run seam for review and live-apply. No redirect detour through discovery-lab routes."
-        actions={(
-          <div className="flex flex-wrap gap-2">
-            <Link href={workbenchRoutes.packs} className={buttonVariants({ variant: "secondary", size: "sm" })}>
-              Open packs
-            </Link>
-            <Link href={discoveryLabRoutes.results} className={buttonVariants({ variant: "ghost", size: "sm" })}>
-              Open results lab
-            </Link>
-          </div>
-        )}
-      />
+        description="Inspect recent runs. Decide whether they deserve review."
+      >
+        <CompactStatGrid
+          className="xl:grid-cols-4"
+          items={[
+            { label: "Run queue", value: String(runs.length), detail: "Recent sandbox runs" },
+            {
+              label: "Selected",
+              value: selectedRun?.packName ?? "None",
+              detail: selectedRun?.status ?? "Pick a run",
+              tone: selectedRun ? "accent" : "default",
+            },
+            {
+              label: "Evaluations",
+              value: String(runDetail?.evaluationCount ?? 0),
+              detail: `Winners ${runDetail?.winnerCount ?? 0}`,
+            },
+            {
+              label: "Applied live",
+              value: appliedToLiveAt ? "Yes" : "No",
+              detail: appliedToLiveAt ? formatTimestamp(appliedToLiveAt) : "Run-only review",
+              tone: appliedToLiveAt ? "warning" : "default",
+            },
+          ]}
+        />
+      </CompactPageHeader>
 
+      <div className="grid gap-4 xl:grid-cols-[minmax(20rem,0.9fr)_minmax(0,1.15fr)]">
       <Panel
         title="Recent runs"
         eyebrow="Run index"
-        description="Newest runs first. Select one to inspect detail and apply-to-live state."
+        description="Newest first. Keep the queue visible while you inspect one run."
+        className="xl:sticky xl:top-[calc(var(--shell-header-height)+1rem)] xl:self-start"
       >
         {runs.length > 0 ? (
-          <div className="space-y-2">
+          <div className="max-h-[calc(100vh-var(--shell-header-height)-14rem)] space-y-2 overflow-y-auto pr-1">
             {runs.map((run) => {
               const isSelected = run.id === selectedRunId;
               return (
@@ -80,12 +104,14 @@ export default async function WorkbenchSandboxPage({
                   <div className="flex flex-wrap items-center gap-2 md:justify-end">
                     <Link
                       href={`${workbenchRoutes.sandbox}?runId=${encodeURIComponent(run.id)}`}
+                      prefetch={false}
                       className={buttonVariants({ variant: isSelected ? "secondary" : "ghost", size: "sm" })}
                     >
                       {isSelected ? "Selected" : "Inspect"}
                     </Link>
                     <Link
                       href={`${workbenchRoutes.sandboxByRunPrefix}/${encodeURIComponent(run.id)}`}
+                      prefetch={false}
                       className={buttonVariants({ variant: "ghost", size: "sm" })}
                     >
                       Full page
@@ -100,56 +126,79 @@ export default async function WorkbenchSandboxPage({
         )}
       </Panel>
 
-      <Panel
-        title={selectedRun?.packName ?? "Run detail"}
-        eyebrow="Selected run"
-        description="Detail is read from `/api/operator/runs/:id`; apply uses the run-owned live endpoint."
-      >
-        {selectedRunId && runDetail ? (
-          <div className="space-y-3">
-            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-              <ScanStat label="Run id" value={truncate(selectedRunId)} detail={selectedRunId} tone="accent" />
-              <ScanStat label="Status" value={runDetail.status} detail={formatTimestamp(runDetail.createdAt)} />
-              <ScanStat
-                label="Evaluations"
-                value={String(runDetail.evaluationCount ?? 0)}
-                detail={`Winners ${runDetail.winnerCount ?? 0}`}
-              />
-              <ScanStat
-                label="Applied"
-                value={appliedToLiveAt ? "yes" : "no"}
-                detail={appliedToLiveAt ? formatTimestamp(appliedToLiveAt) : "not applied"}
-              />
-            </div>
-
-            <div className="rounded-[12px] border border-bg-border bg-bg-hover/20 p-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <StatusPill value={runDetail.status} />
-                {runDetail.profile ? <StatusPill value={runDetail.profile} /> : null}
+      <div className="space-y-4">
+        <Panel
+          title={selectedRun?.packName ?? "Run detail"}
+          eyebrow="Active run"
+          description="Summary first. Result board second."
+        >
+          {selectedRunId && runDetail ? (
+            <div className="space-y-3">
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                <ScanStat label="Run id" value={truncate(selectedRunId)} detail={selectedRunId} tone="accent" />
+                <ScanStat label="Status" value={runDetail.status} detail={formatTimestamp(runDetail.createdAt)} />
+                <ScanStat
+                  label="Evaluations"
+                  value={String(runDetail.evaluationCount ?? 0)}
+                  detail={`Winners ${runDetail.winnerCount ?? 0}`}
+                  tooltip="Deep evaluations persisted for this run and the number of winner-grade tokens."
+                />
+                <ScanStat
+                  label="Applied"
+                  value={appliedToLiveAt ? "yes" : "no"}
+                  detail={appliedToLiveAt ? formatTimestamp(appliedToLiveAt) : "not applied"}
+                  tooltip="Whether this run has already been used as a live-session source."
+                />
               </div>
-              <div className="mt-2 text-xs text-text-secondary">
-                Pack {runDetail.packName} ({runDetail.packId})
-              </div>
-              {runDetail.errorMessage ? (
-                <div className="mt-2 rounded-[10px] border border-[rgba(251,113,133,0.25)] bg-[rgba(251,113,133,0.08)] px-2.5 py-2 text-xs text-[var(--danger)]">
-                  {runDetail.errorMessage}
-                </div>
-              ) : null}
-            </div>
 
-            <div className="flex flex-wrap gap-2">
-              <ApplyRunLiveButton runId={selectedRunId} disabled={!canApply} />
-              {!canApply ? (
-                <div className="rounded-[10px] border border-bg-border bg-bg-hover/25 px-2.5 py-2 text-xs text-text-muted">
-                  Only completed runs can be applied.
+              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+                <div className="rounded-[12px] border border-bg-border bg-bg-hover/20 p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusPill value={runDetail.status} />
+                    {runDetail.profile ? <StatusPill value={runDetail.profile} /> : null}
+                  </div>
+                  <div className="mt-2 text-xs text-text-secondary">
+                    Pack {runDetail.packName} ({runDetail.packId})
+                  </div>
+                  {runDetail.errorMessage ? (
+                    <div className="mt-2 rounded-[10px] border border-[rgba(251,113,133,0.25)] bg-[rgba(251,113,133,0.08)] px-2.5 py-2 text-xs text-[var(--danger)]">
+                      {runDetail.errorMessage}
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
+                <div className="flex flex-wrap items-start gap-2 lg:justify-end">
+                  <Link
+                    href={`${workbenchRoutes.grader}?runId=${encodeURIComponent(selectedRunId)}`}
+                    prefetch={false}
+                    className={buttonVariants({ variant: "ghost", size: "sm" })}
+                  >
+                    Open grader
+                  </Link>
+                </div>
+              </div>
+
+              <RunSessionStartPanel
+                runId={selectedRunId}
+                disabled={!canApply}
+                disabledReason={!canApply ? "Only completed runs with deployable calibration can start a session." : null}
+              />
             </div>
-          </div>
-        ) : (
-          <EmptyState compact title="No run selected" detail="Select a run from above to inspect and apply it." />
-        )}
-      </Panel>
+          ) : (
+            <EmptyState compact title="No run selected" detail="Select a run from above to inspect and apply it." />
+          )}
+        </Panel>
+
+        {runDetail ? (
+          <Panel
+            title="Result board"
+            eyebrow="Token review"
+            description="Best row per mint. Winners and pass-grade names float to the top."
+          >
+            <WorkbenchRunResultsTable run={runDetail} />
+          </Panel>
+        ) : null}
+      </div>
+      </div>
     </div>
   );
 }

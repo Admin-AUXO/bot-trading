@@ -104,22 +104,28 @@ type DiscoveryLabRunDetail = DiscoveryLabRunSummary & {
   stderr: string;
 };
 
+type OperatorRunListPayload = {
+  runs: DiscoveryLabRunSummary[];
+};
+
+type OperatorRunDetailPayload = {
+  run: DiscoveryLabRunDetail;
+};
+
 async function main(): Promise<void> {
   if (!env.DISCOVERY_LAB_ALERT_FORCE_WINDOW && !isWithinIstWindow(new Date())) {
     console.log(`Outside IST alert window for ${PACK_NAME}; skipping.`);
     return;
   }
 
-  const existing = await fetchJson<DiscoveryLabRunSummary[]>("/api/operator/discovery-lab/runs");
-  const activeRun = existing.find((run) => run.status === "RUNNING");
+  const existing = await fetchJson<OperatorRunListPayload>("/api/operator/runs?limit=20");
+  const activeRun = existing.runs.find((run) => run.status === "RUNNING");
   if (activeRun) {
     console.log(`Discovery lab run ${activeRun.id} already active for ${activeRun.packName}; skipping.`);
     return;
   }
 
-  const started = await postJson<DiscoveryLabRunDetail>("/api/operator/discovery-lab/run", {
-    packId: PACK_ID,
-  }, { skipConflict: true });
+  const started = await postJson<DiscoveryLabRunDetail>(`/api/operator/packs/${encodeURIComponent(PACK_ID)}/runs`, {}, { skipConflict: true });
   if (!started) {
     console.log("Discovery lab run was already active at start; skipping.");
     return;
@@ -145,9 +151,9 @@ async function main(): Promise<void> {
 async function waitForRun(runId: string): Promise<DiscoveryLabRunDetail> {
   const deadline = Date.now() + env.DISCOVERY_LAB_ALERT_MAX_WAIT_MS;
   while (Date.now() <= deadline) {
-    const detail = await fetchJson<DiscoveryLabRunDetail>(`/api/operator/discovery-lab/runs/${runId}`);
-    if (detail.status !== "RUNNING") {
-      return detail;
+    const detail = await fetchJson<OperatorRunDetailPayload>(`/api/operator/runs/${runId}`);
+    if (detail.run.status !== "RUNNING") {
+      return detail.run;
     }
     await sleep(env.DISCOVERY_LAB_ALERT_POLL_INTERVAL_MS);
   }

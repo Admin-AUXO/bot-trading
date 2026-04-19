@@ -18,6 +18,7 @@ max_threads = 3
 [mcp_servers.browsermcp]
 args = ["-y", "@browsermcp/mcp"]
 command = "npx"
+enabled = true
 required = false
 startup_timeout_ms = 20000
 tool_timeout_sec = 90
@@ -36,9 +37,16 @@ args = [
     "chrome-devtools-mcp@latest",
 ]
 command = "npx"
+enabled = true
 required = false
 startup_timeout_ms = 20000
 tool_timeout_sec = 90
+
+[mcp_servers.context7]
+enabled = true
+required = false
+startup_timeout_ms = 20000
+url = "https://mcp.context7.com/mcp"
 
 [mcp_servers.desktop_commander]
 args = [
@@ -51,57 +59,38 @@ required = true
 startup_timeout_ms = 30000
 tool_timeout_sec = 120
 
+[mcp_servers.desktop_commander.tools.start_process]
+approval_mode = "approve"
+
 [mcp_servers.fetch]
 args = ["mcp-server-fetch"]
 command = "uvx"
+enabled = true
 required = true
 startup_timeout_ms = 20000
 
+[mcp_servers.firecrawl]
+args = [".codex/scripts/start-firecrawl-mcp.cjs"]
+command = "node"
+enabled = true
+required = false
+startup_timeout_ms = 30000
+
 [mcp_servers.github]
-args = [
-    "run",
-    "-i",
-    "--rm",
-    "-e",
-    "GITHUB_PERSONAL_ACCESS_TOKEN",
-    "ghcr.io/github/github-mcp-server",
-    "stdio",
-    "--toolsets",
-    "repos,issues,pull_requests,actions",
-]
-command = "docker"
-enabled = false
+args = [".codex/scripts/start-github-mcp.cjs"]
+command = "node"
+enabled = true
 required = false
 startup_timeout_ms = 30000
 tool_timeout_sec = 120
 
 [mcp_servers.grafana]
-args = [
-    "run",
-    "-i",
-    "--rm",
-    "-e",
-    "GRAFANA_URL",
-    "-e",
-    "GRAFANA_USERNAME",
-    "-e",
-    "GRAFANA_PASSWORD",
-    "-e",
-    "GRAFANA_ORG_ID",
-    "grafana/mcp-grafana",
-    "-t",
-    "stdio",
-]
-command = "docker"
+args = [".codex/scripts/start-grafana-mcp.cjs"]
+command = "node"
+enabled = true
 required = false
 startup_timeout_ms = 30000
 tool_timeout_sec = 120
-
-[mcp_servers.grafana.env]
-GRAFANA_URL = "http://host.docker.internal:3400"
-GRAFANA_USERNAME = "admin"
-GRAFANA_PASSWORD = "admin"
-GRAFANA_ORG_ID = "1"
 
 [mcp_servers.postgres]
 args = [
@@ -124,9 +113,17 @@ enabled = true
 required = false
 startup_timeout_ms = 30000
 
+[mcp_servers.shadcn]
+args = ["-y", "shadcn@latest", "mcp"]
+command = "npx"
+enabled = true
+required = false
+startup_timeout_ms = 30000
+
 [mcp_servers.time]
 args = ["mcp-server-time"]
 command = "uvx"
+enabled = true
 required = true
 startup_timeout_ms = 20000
 

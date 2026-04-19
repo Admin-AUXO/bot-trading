@@ -8,6 +8,10 @@ export function registerRunRoutes(app: express.Express, { deps }: RouteRegistrar
     return res.json(await deps.listRuns(limit));
   });
 
+  app.post("/api/operator/manual-entry", async (req, res) => {
+    return res.json(await deps.enterRunManualTrade(req.body ?? {}));
+  });
+
   app.get("/api/operator/runs/:id", async (req, res) => {
     const run = await deps.getRunDetail(req.params.id);
     if (!run) {

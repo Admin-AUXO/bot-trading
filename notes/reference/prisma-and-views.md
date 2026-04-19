@@ -74,6 +74,7 @@ Evidence and telemetry:
 - `FillAttempt`: execution-attempt audit row for quote/build/submit outcomes, retry count, lane, fee settings, and terminal failure code
 - `MutatorOutcome`: adaptive exit mutator verdict trail with before/after values and realized vs counterfactual PnL
 - `SmartWalletFunding`: cached wallet funding-source classification for smart-money curation
+- Execution-side Helius ownership now writes `ProviderCreditLog` rows from the live trade path too: wallet funding checks (`getBalance`, `getParsedTokenAccountsByOwner`), Sender submit (`sendTransaction` with zero credits but visible call count), confirmation (`confirmTransaction`), settlement reads (`getParsedTransaction`), and priority-fee estimation (`getPriorityFeeEstimate`). Priority-fee logging is slot-owned now, so one estimate should emit one row, not a duplicate pair.
 
 ## View Contract
 

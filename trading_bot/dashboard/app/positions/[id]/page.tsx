@@ -3,7 +3,15 @@ import { ArrowLeft, ArrowUpRight } from "lucide-react";
 import Link from "next/link";
 import type { Route } from "next";
 import { CopyButton } from "@/components/copy-button";
-import { DataTable, PageHero, Panel, StatusPill } from "@/components/dashboard-primitives";
+import {
+  CompactPageHeader,
+  CompactStatGrid,
+  DataTable,
+  DisclosurePanel,
+  InlineNotice,
+  Panel,
+  StatusPill,
+} from "@/components/dashboard-primitives";
 import { PositionDetailActions, InterventionPriorityBadge } from "@/components/position-detail-actions";
 import { serverFetch } from "@/lib/server-api";
 import { operationalDeskRoutes } from "@/lib/dashboard-routes";
@@ -39,17 +47,17 @@ export default async function PositionDetailPage(props: {
 
   return (
     <div className="space-y-5">
-      <PageHero
+      <CompactPageHeader
         eyebrow="Position"
         title={detail.summary.symbol}
-        description={undefined}
-        meta={(
+        description="Immediate action first. Execution quality second. Raw evidence last."
+        badges={(
           <div className="flex flex-wrap items-center gap-2">
             <StatusPill value={detail.summary.status} />
             <StatusPill value={detail.summary.interventionLabel} />
           </div>
         )}
-        actions={(
+        actions={
           <>
             <Link href={backHref as Route} className="btn-ghost inline-flex items-center gap-2 border border-bg-border">
               <ArrowLeft className="h-4 w-4" />
@@ -73,33 +81,63 @@ export default async function PositionDetailPage(props: {
               </a>
             ) : null}
           </>
-        )}
-        aside={(
-          <div className="panel-muted rounded-[16px] p-4">
-            <div className="section-kicker">Now</div>
-            <div className="mt-4 grid gap-3">
-              <SummaryRow label="Intervention" value={detail.summary.interventionLabel} />
-              <SummaryRow
-                label="Priority"
-                value={<InterventionPriorityBadge priority={detail.summary.interventionPriority} />}
-              />
-              <SummaryRow label="Opened" value={formatTimestamp(detail.summary.openedAt)} />
-              <SummaryRow label="Closed" value={detail.summary.closedAt ? formatTimestamp(detail.summary.closedAt) : "—"} />
-              <SummaryRow label="Entry" value={formatCurrency(detail.summary.entryPriceUsd, 6)} />
-              <SummaryRow label="Current" value={formatCurrency(detail.summary.currentPriceUsd, 6)} />
-              <SummaryRow label="Peak" value={formatCurrency(detail.summary.peakPriceUsd, 6)} />
-              <SummaryRow label="Stop loss" value={formatCurrency(detail.summary.stopLossPriceUsd, 6)} />
-              <SummaryRow label="Ticket" value={formatCurrency(detail.summary.amountUsd)} />
-            </div>
-          </div>
-        )}
-      />
+        }
+      >
+        <CompactStatGrid
+          className="xl:grid-cols-5"
+          items={[
+            {
+              label: "Intervention",
+              value: detail.summary.interventionLabel,
+              detail: `Priority ${detail.summary.interventionPriority}`,
+              tooltip: "Current intervention label plus backend-computed priority.",
+              tone:
+                positionTone(detail.summary) === "critical"
+                  ? "danger"
+                  : positionTone(detail.summary) === "warning"
+                    ? "warning"
+                    : "default",
+            },
+            {
+              label: "Opened",
+              value: formatTimestamp(detail.summary.openedAt),
+              detail: detail.summary.closedAt ? `Closed ${formatTimestamp(detail.summary.closedAt)}` : "Still open",
+              tooltip: "Open time and close time when the position is already finished.",
+            },
+            {
+              label: "PnL",
+              value: formatCurrency(detail.summary.unrealizedPnlUsd ?? null),
+              detail: `Ticket ${formatCurrency(detail.summary.amountUsd)}`,
+              tooltip: "Current unrealized profit and loss against the original ticket size.",
+              tone: (detail.summary.unrealizedPnlUsd ?? 0) < 0 ? "danger" : "accent",
+            },
+            {
+              label: "Return",
+              value: formatNumber(detail.summary.returnPct != null ? detail.summary.returnPct : null),
+              detail: `Peak ${formatCurrency(detail.summary.peakPriceUsd, 6)}`,
+              tooltip: "Current return percentage plus the observed peak price.",
+            },
+            {
+              label: "Execution",
+              value: `${detail.executionSummary.fillCount} fill${detail.executionSummary.fillCount === 1 ? "" : "s"}`,
+              detail: detail.executionSummary.lastExecutionLatencyMs == null ? "No latency sample" : `Last ${Math.round(detail.executionSummary.lastExecutionLatencyMs)} ms`,
+              tooltip: "Execution trail size plus the most recent measured latency.",
+            },
+          ]}
+        />
+      </CompactPageHeader>
+
+      {detail.summary.exitReason ? (
+        <InlineNotice tone={positionTone(detail.summary) === "critical" ? "danger" : "warning"}>
+          {detail.summary.exitReason}
+        </InlineNotice>
+      ) : null}
 
       <section className="grid gap-6 2xl:grid-cols-[1.02fr_0.98fr]">
         <Panel
-          title="What needs action"
+          title="Current call"
           eyebrow="Intervention"
-          description={detail.summary.exitReason ?? undefined}
+          description="Actionable state first. This is the section that should answer whether you need to do something now."
           tone={positionTone(detail.summary)}
         >
           <div className="grid gap-3 md:grid-cols-2">
@@ -136,44 +174,48 @@ export default async function PositionDetailPage(props: {
         </Panel>
       </section>
 
-      <Panel
-        title="Decision trace"
-        eyebrow="Execution path"
-        description={undefined}
-        tone="passive"
+      <DisclosurePanel
+        title="Trace and linked evidence"
+        description="Decision trace, linked candidate context, and stored metadata stay collapsed until you need to inspect them."
       >
-        <TraceList
-          items={buildPositionTrace(detail)}
-          emptyText="No decision trace fields were stored for this position."
-        />
-      </Panel>
+        <div className="space-y-6">
+          <Panel
+            title="Decision trace"
+            eyebrow="Execution path"
+            tone="passive"
+          >
+            <TraceList
+              items={buildPositionTrace(detail)}
+              emptyText="No decision trace fields were stored for this position."
+            />
+          </Panel>
 
-      <section className="grid gap-6 2xl:grid-cols-[0.95fr_1.05fr]">
-        <Panel
-          title="Linked candidate"
-          eyebrow="Origin"
-          description={undefined}
-        >
-          <FieldGrid
-            data={detail.linkedCandidate}
-            preferredKeys={["symbol", "status", "source", "liquidityUsd", "volume5mUsd", "buySellRatio", "rejectReason"]}
-            emptyText="This position has no linked candidate row."
-          />
-        </Panel>
+          <section className="grid gap-6 2xl:grid-cols-[0.95fr_1.05fr]">
+            <Panel
+              title="Linked candidate"
+              eyebrow="Origin"
+            >
+              <FieldGrid
+                data={detail.linkedCandidate}
+                preferredKeys={["symbol", "status", "source", "liquidityUsd", "volume5mUsd", "buySellRatio", "rejectReason"]}
+                emptyText="This position has no linked candidate row."
+              />
+            </Panel>
 
-        <Panel
-          title="Stored metadata"
-          eyebrow="Evidence"
-          description={undefined}
-          tone="passive"
-        >
-          <FieldGrid
-            data={detail.summary.metadata}
-            preferredKeys={["entryOrigin", "entryScore", "exitProfile", "source", "liveTradable", "error"]}
-            emptyText="This position does not have stored metadata."
-          />
-        </Panel>
-      </section>
+            <Panel
+              title="Stored metadata"
+              eyebrow="Evidence"
+              tone="passive"
+            >
+              <FieldGrid
+                data={detail.summary.metadata}
+                preferredKeys={["entryOrigin", "entryScore", "exitProfile", "source", "liveTradable", "error"]}
+                emptyText="This position does not have stored metadata."
+              />
+            </Panel>
+          </section>
+        </div>
+      </DisclosurePanel>
 
       <DataTable
         title="Fill trail"
@@ -224,18 +266,6 @@ function buildPositionBackHref(props: { book?: string; sort?: string; focus?: st
   const query = params.toString();
   const hash = props.focus ? `#position-${props.focus}` : "";
   return `${operationalDeskRoutes.trading}${query ? `?${query}` : ""}${hash}`;
-}
-
-function SummaryRow(props: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="rounded-[12px] border border-bg-border bg-bg-primary/55 px-3 py-3">
-      <div className="scorecard-grid">
-        <div className="scorecard-label wrap-anywhere">{props.label}</div>
-        <div className="scorecard-value wrap-anywhere text-sm font-semibold">{props.value}</div>
-        <div />
-      </div>
-    </div>
-  );
 }
 
 function Metric(props: { label: string; value: React.ReactNode }) {

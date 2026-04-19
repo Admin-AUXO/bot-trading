@@ -9,7 +9,7 @@ import {
   VersionedTransaction,
   type AddressLookupTableAccount,
 } from "@solana/web3.js";
-import type { FillAttempt, FillSide, SubmitLane } from "@prisma/client";
+import type { FillAttempt, FillSide, ProviderPurpose, ProviderSource, SubmitLane } from "@prisma/client";
 import { db } from "../../db/client.js";
 import { env } from "../../config/env.js";
 import { logger } from "../../utils/logger.js";
@@ -17,6 +17,12 @@ import {
   HeliusPriorityFeeService,
   type PriorityFeeLane,
 } from "../helius/priority-fee-service.js";
+import {
+  ProviderBudgetService,
+  type ProviderSlot,
+  type ProviderSlotContext,
+  type ProviderSlotResult,
+} from "../provider-budget-service.js";
 
 const DEFAULT_JITO_BUNDLE_URL = "https://mainnet.block-engine.jito.wtf/api/v1/bundles";
 
@@ -43,6 +49,7 @@ type SwapSubmitterDeps = {
   nowMs?: () => number;
   priorityFeeService?: HeliusPriorityFeeService;
   randomInt?: (maxExclusive: number) => number;
+  budgetService?: ProviderBudgetService;
 };
 
 export type SubmitSwapInput = {
@@ -104,6 +111,7 @@ export class SwapSubmitter {
   private readonly nowMs: () => number;
   private readonly priorityFeeService: HeliusPriorityFeeService;
   private readonly randomInt: (maxExclusive: number) => number;
+  private readonly budgetService: ProviderBudgetService;
 
   constructor(deps: SwapSubmitterDeps = {}) {
     this.connection = deps.connection ?? new Connection(env.HELIUS_RPC_URL, "confirmed");
@@ -113,6 +121,7 @@ export class SwapSubmitter {
     this.nowMs = deps.nowMs ?? Date.now;
     this.priorityFeeService = deps.priorityFeeService ?? new HeliusPriorityFeeService();
     this.randomInt = deps.randomInt ?? ((maxExclusive: number) => Math.floor(Math.random() * maxExclusive));
+    this.budgetService = deps.budgetService ?? new ProviderBudgetService();
   }
 
   async submit(input: SubmitSwapInput): Promise<FillAttempt> {
@@ -126,6 +135,7 @@ export class SwapSubmitter {
 
     while (true) {
       try {
+        const heliusPurpose = this.resolveHeliusPurpose(input);
         const feeLane = input.priorityFeeLane ?? (input.isExitAttempt ? "exit" : "entry");
         cuPriceMicroLamports = await this.priorityFeeService.estimate(
           input.priorityFeeAccounts ?? [],
@@ -140,12 +150,32 @@ export class SwapSubmitter {
         );
 
         const attemptResult = input.lane === "REGULAR"
-          ? await this.submitRegular(tx)
+          ? await this.submitRegular({
+              tx,
+              wallet: input.wallet,
+              tipLamports: currentTipLamports,
+              context: {
+                purpose: heliusPurpose,
+                sessionId: input.sessionId ?? null,
+                packId: input.packId ?? null,
+                mint: input.mint,
+                candidateId: input.candidateId ?? null,
+                positionId: input.positionId ?? null,
+              },
+            })
           : await this.submitJitoBundle({
               tx,
               wallet: input.wallet,
               tipLamports: currentTipLamports,
               cuPriceMicroLamports,
+              context: {
+                purpose: heliusPurpose,
+                sessionId: input.sessionId ?? null,
+                packId: input.packId ?? null,
+                mint: input.mint,
+                candidateId: input.candidateId ?? null,
+                positionId: input.positionId ?? null,
+              },
             });
 
         return db.fillAttempt.create({
@@ -243,9 +273,22 @@ export class SwapSubmitter {
     return refreshedTx;
   }
 
-  private async submitRegular(tx: VersionedTransaction): Promise<AttemptSuccess> {
-    const serialized = Buffer.from(tx.serialize()).toString("base64");
+  private async submitRegular(input: {
+    tx: VersionedTransaction;
+    wallet?: Keypair;
+    tipLamports: number;
+    context?: ProviderSlotContext & { purpose?: ProviderPurpose };
+  }): Promise<AttemptSuccess> {
+    const { purpose, ...budgetContext } = input.context ?? {};
+    const txForSender = await this.buildSenderTransaction(input.tx, input.wallet, input.tipLamports);
+    const serialized = Buffer.from(txForSender.serialize()).toString("base64");
+    const senderSlot = this.safeRequestSlot("HELIUS", purpose ?? "EVALUATE", {
+      ...budgetContext,
+      endpoint: "sendTransaction",
+    });
     const submitStartedAt = this.nowMs();
+    let senderStatus = 500;
+    let senderErrorCode: string | undefined;
     const response = await this.fetchImpl(this.senderUrl, {
       method: "POST",
       headers: {
@@ -265,16 +308,36 @@ export class SwapSubmitter {
         ],
       }),
     });
+    senderStatus = response.status;
     const submitLatencyMs = this.nowMs() - submitStartedAt;
     const payload = await response.json() as SenderResponse;
     const rpcError = payload.error?.message ?? null;
+    senderErrorCode = rpcError ?? undefined;
+    this.safeReleaseSlot(senderSlot, {
+      endpoint: "sendTransaction",
+      creditsUsed: 0,
+      httpStatus: senderStatus,
+      latencyMs: submitLatencyMs,
+      errorCode: senderErrorCode,
+    });
     if (!response.ok || rpcError || !payload.result) {
       throw this.classifyError(rpcError ?? `sender_http_${response.status}`);
     }
 
+    const confirmSlot = this.safeRequestSlot("HELIUS", purpose ?? "EVALUATE", {
+      ...budgetContext,
+      endpoint: "confirmTransaction",
+    });
     const confirmStartedAt = this.nowMs();
     const confirmation = await this.connection.confirmTransaction(payload.result, "confirmed");
     const confirmLatencyMs = this.nowMs() - confirmStartedAt;
+    this.safeReleaseSlot(confirmSlot, {
+      endpoint: "confirmTransaction",
+      creditsUsed: 1,
+      httpStatus: confirmation.value.err ? 500 : 200,
+      latencyMs: confirmLatencyMs,
+      errorCode: confirmation.value.err ? "confirmation_failed" : undefined,
+    });
     if (confirmation.value.err) {
       throw this.classifyError("sender_confirmation_failed");
     }
@@ -288,12 +351,40 @@ export class SwapSubmitter {
     };
   }
 
+  private async buildSenderTransaction(
+    tx: VersionedTransaction,
+    wallet: Keypair | undefined,
+    tipLamports: number,
+  ): Promise<VersionedTransaction> {
+    if (!wallet || tipLamports <= 0) {
+      return tx;
+    }
+
+    const altAccounts = await this.loadAddressLookupTables(tx);
+    const message = TransactionMessage.decompile(tx.message, {
+      addressLookupTableAccounts: altAccounts,
+    });
+    message.instructions.push(
+      SystemProgram.transfer({
+        fromPubkey: wallet.publicKey,
+        toPubkey: new PublicKey(JITO_TIP_ACCOUNTS[this.randomInt(JITO_TIP_ACCOUNTS.length)]!),
+        lamports: Math.max(0, Math.round(tipLamports)),
+      }),
+    );
+
+    const nextTx = new VersionedTransaction(message.compileToV0Message(altAccounts));
+    nextTx.sign([wallet]);
+    return nextTx;
+  }
+
   private async submitJitoBundle(input: {
     tx: VersionedTransaction;
     wallet?: Keypair;
     tipLamports: number;
     cuPriceMicroLamports: number;
+    context?: ProviderSlotContext & { purpose?: ProviderPurpose };
   }): Promise<AttemptSuccess> {
+    const { purpose, ...budgetContext } = input.context ?? {};
     const txForBundle = await this.buildBundleTransaction(input.tx, input.wallet, input.tipLamports, input.cuPriceMicroLamports);
     const serialized = Buffer.from(txForBundle.serialize()).toString("base64");
     const submitStartedAt = this.nowMs();
@@ -316,10 +407,21 @@ export class SwapSubmitter {
       throw this.classifyError(error ?? `jito_http_${response.status}`);
     }
 
+    const confirmSlot = this.safeRequestSlot("HELIUS", purpose ?? "EXIT", {
+      ...budgetContext,
+      endpoint: "confirmTransaction",
+    });
     const txSig = bs58.encode(txForBundle.signatures[0] ?? new Uint8Array());
     const confirmStartedAt = this.nowMs();
     const confirmation = await this.connection.confirmTransaction(txSig, "confirmed");
     const confirmLatencyMs = this.nowMs() - confirmStartedAt;
+    this.safeReleaseSlot(confirmSlot, {
+      endpoint: "confirmTransaction",
+      creditsUsed: 1,
+      httpStatus: confirmation.value.err ? 500 : 200,
+      latencyMs: confirmLatencyMs,
+      errorCode: confirmation.value.err ? "confirmation_failed" : undefined,
+    });
     if (confirmation.value.err) {
       throw this.classifyError("jito_confirmation_failed");
     }
@@ -370,7 +472,32 @@ export class SwapSubmitter {
       return [];
     }
     const responses = await Promise.all(
-      transaction.message.addressTableLookups.map((lookup) => this.connection.getAddressLookupTable(lookup.accountKey)),
+      transaction.message.addressTableLookups.map(async (lookup) => {
+        const slot = this.safeRequestSlot("HELIUS", "EVALUATE", {
+          endpoint: "getAddressLookupTable",
+        });
+        const startedAt = this.nowMs();
+        try {
+          const response = await this.connection.getAddressLookupTable(lookup.accountKey);
+          this.safeReleaseSlot(slot, {
+            endpoint: "getAddressLookupTable",
+            creditsUsed: 1,
+            httpStatus: response.value ? 200 : 404,
+            latencyMs: this.nowMs() - startedAt,
+            errorCode: response.value ? undefined : "lookup_table_missing",
+          });
+          return response;
+        } catch (error) {
+          this.safeReleaseSlot(slot, {
+            endpoint: "getAddressLookupTable",
+            creditsUsed: 1,
+            httpStatus: 500,
+            latencyMs: this.nowMs() - startedAt,
+            errorCode: error instanceof Error ? error.message : String(error),
+          });
+          throw error;
+        }
+      }),
     );
     return responses
       .map((response) => response.value)
@@ -396,5 +523,33 @@ export class SwapSubmitter {
       return this.classifyError(error.message);
     }
     return new SubmitError("LAND_FAILED", String(error));
+  }
+
+  private resolveHeliusPurpose(input: SubmitSwapInput): ProviderPurpose {
+    return input.isExitAttempt ? "EXIT" : "EVALUATE";
+  }
+
+  private safeRequestSlot(
+    provider: ProviderSource,
+    purpose: ProviderPurpose,
+    ctx?: ProviderSlotContext,
+  ): ProviderSlot | null {
+    try {
+      return this.budgetService.requestSlot(provider, purpose, ctx);
+    } catch (error) {
+      logger.warn({ err: error, provider, purpose, ctx }, "swap submitter budget request failed open");
+      return null;
+    }
+  }
+
+  private safeReleaseSlot(slot: ProviderSlot | null, result: ProviderSlotResult): void {
+    if (!slot) {
+      return;
+    }
+    try {
+      this.budgetService.releaseSlot(slot.id, result);
+    } catch (error) {
+      logger.warn({ err: error, result }, "swap submitter budget release failed open");
+    }
   }
 }

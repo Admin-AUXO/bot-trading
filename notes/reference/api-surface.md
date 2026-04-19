@@ -15,9 +15,9 @@ source_files:
   - trading_bot/backend/src/services/runtime-config.ts
   - trading_bot/backend/src/engine/runtime.ts
   - trading_bot/dashboard/components/dashboard-client.tsx
-  - trading_bot/dashboard/app/trading/page.tsx
-  - trading_bot/dashboard/components/discovery-lab-client.tsx
-  - trading_bot/dashboard/components/discovery-lab-results-board.tsx
+  - trading_bot/dashboard/app/operational-desk/trading/page.tsx
+  - trading_bot/dashboard/app/workbench/editor/page.tsx
+  - trading_bot/dashboard/app/workbench/sandbox/page.tsx
   - trading_bot/dashboard/app/api/[...path]/route.ts
 graph_checked: 2026-04-13
 next_action:
@@ -36,8 +36,9 @@ Transport model:
 
 - Backend serves `GET /health` plus `GET|POST /api/*`.
 - The proxy maps dashboard `/api/<path>` to backend `/api/<path>`.
-- Browser-facing writes should use the proxy, and the dashboard itself should stay behind the app-level auth gate before proxy-secret injection is trusted.
-- Server-rendered dashboard pages currently call the backend directly with `serverFetch()` and `API_URL`; if you add a server-side write path, it will not get proxy auth injection for free.
+- Helius webhooks stay outside the dashboard route surface at `/webhooks/helius/smart-wallet`, `/webhooks/helius/lp`, and `/webhooks/helius/holders`; they still rely on `x-helius-signature` HMAC verification.
+- Browser-facing reads and writes should use the proxy so the dashboard stays on one same-origin path.
+- Server-rendered dashboard pages currently call the backend directly with `serverFetch()` and `API_URL`.
 - Server-rendered dashboard pages can also emit direct external Grafana links from `GRAFANA_BASE_URL` plus route-specific dashboard UID env vars. There is still no Grafana proxy in this repo even though the repo now ships a local Grafana service in Compose.
 
 ## Read Routes
@@ -46,6 +47,8 @@ Transport model:
 - `GET /api/status`: runtime snapshot, current entry-gate state, settings, latest candidates, latest fills, provider daily summary, and Birdeye monthly budget pacing
 - `GET /api/status`: runtime snapshot, current entry-gate state, settings, latest candidates, latest fills, provider daily summary, Birdeye monthly budget pacing, and backend-owned `adaptiveModel` status
 - `GET /api/status`: the status payload now also includes `currentSession`, the backend-owned trading-session snapshot for the currently deployed live-strategy session when one exists
+- `GET /api/status`: the `heliusWatch` payload now also exposes migration-watch subscription counts, observed log count, last webhook / duplicate / replay timestamps, tracked-wallet reconciliation time, and explicit `smartWalletFundingStatus`. Until a live funding-attribution path lands, that status is `dead_schema` on purpose.
+- `GET /api/status`: provider spend and credit-facing operator reads now include execution-side Helius ownership too. The live trade path no longer leaves wallet-funding RPC, Sender submit, confirmation, or settlement-read traffic invisible to `ProviderCreditLog`.
 - `GET /api/desk/shell`: compact shell contract for mode, health, primary blocker, last sync, available global actions, and headline counts
 - `GET /api/desk/home`: dedicated control-desk body contract for readiness, guardrails, exposure, compact KPI groups (`performance`, `latency`, `runtime`), queue buckets, provider pace, diagnostics strip, backend-owned `adaptiveModel`, and recent event slices. The diagnostics strip must include fresh payload-failure pressure, not just stale-loop warnings.
 - `GET /api/desk/events?limit=`: unified operator and system event feed for runtime, provider, control, and settings activity
@@ -58,9 +61,9 @@ Transport model:
 - `GET /api/operator/packs/:id/runs?limit=`: pack-scoped run history for the selected workbench pack
 - `GET /api/operator/runs?limit=`: backend-owned sandbox run list with apply state and current-session linkage
 - `GET /api/operator/runs/:id`: backend-owned sandbox run detail wrapper over the persisted discovery-lab run record, preserving the existing run/report shape while moving route ownership out of discovery-lab glue
-- `GET /api/operator/runs/:id/market-regime`: run-owned market-regime surface for results and sandbox consumers; discovery-lab market-regime is now a compatibility alias over this seam
-- `GET /api/operator/runs/:id/token-insight?mint=`: run-owned token-insight surface for results consumers. `StrategyRunResultsService` now resolves this through the dedicated enrichment seam, and discovery-lab token-insight is a compatibility alias over that path.
-- `POST /api/operator/runs/:id/manual-entry`: run-owned trade-ticket/manual-entry route for discovery-lab results and future sandbox consumers; discovery-lab manual-entry is now a compatibility alias over this seam
+- `GET /api/operator/runs/:id/market-regime`: run-owned market-regime surface for results and sandbox consumers
+- `GET /api/operator/runs/:id/token-insight?mint=`: run-owned token-insight surface for results consumers. `StrategyRunResultsService` resolves this through the dedicated enrichment seam.
+- `POST /api/operator/runs/:id/manual-entry`: run-owned trade-ticket/manual-entry route for sandbox consumers
 - `GET /api/operator/adaptive/activity?limit=`: backend-owned adaptive telemetry activity surface used by workbench and Grafana-adjacent operator views
 - `GET /api/operator/market/trending?mint=&limit=&refresh=&focusOnly=`: dedicated market-intel surface for ranked market pulse plus optional single-token focus payload. `refresh=true` performs the provider pull, while default reads stay cache-backed. This is now the production owner for market-wide discovery pulse.
 - `GET /api/operator/market/stats/:mint`: backend-owned per-mint market stats surface for token detail pages, composed from Birdeye and Rugcheck-backed market intel
@@ -72,15 +75,7 @@ Transport model:
 - `GET /api/operator/positions?book=open|closed`: position workbench book, with open positions sorted by backend-computed intervention priority and desk-facing row metrics (`unrealizedPnlUsd`, `returnPct`, `lastFillAt`, `latestExecutionLatencyMs`)
 - `GET /api/operator/positions/:id`: position detail, backend-built adaptive explanation, compact `executionSummary`, fill trail, snapshot history, and linked candidate context. The backing exit contract is now dual-written into the normalized `ExitPlan` table while the response shape stays unchanged during transition.
 - `GET /api/operator/diagnostics`: current-fault diagnostics summary, endpoint burn, and stale-component issues
-- `GET /api/operator/discovery-lab/catalog`: discovery-lab pack catalog, active run summary, recent run summaries, available profiles, and known sources; the catalog now includes the retained `Scalp tape + structure` workspace pack plus the three repo-seeded workspace packs, while pack favorites stay browser-local
-- `GET /api/operator/discovery-lab/catalog`: this compatibility catalog is now composed from the dedicated operator pack and run seams plus discovery-lab metadata defaults, so studio reads no longer need discovery-lab-owned pack listing logic to stay current
-- `GET /api/operator/discovery-lab/market-regime?runId=`: per-run market-regime snapshot for discovery-lab results and builder guidance, including regime, confidence, factor breakdown, stale flag, and suggested threshold overrides
-- `GET /api/operator/discovery-lab/market-stats?mint=&limit=&refresh=&focusOnly=`: compatibility adapter over `GET /api/operator/market/trending`. The response shape stays discovery-lab-shaped, but production ownership now lives under the dedicated market seam.
-- `GET /api/operator/discovery-lab/strategy-suggestions?refresh=`: compatibility adapter over `GET /api/operator/market/strategy-suggestions`
-- `GET /api/operator/discovery-lab/token-insight?mint=`: compatibility adapter over the dedicated enrichment-backed run/result seam
-- `GET /api/operator/discovery-lab/runs`: recent discovery-lab run summaries, newest first
-- `GET /api/operator/discovery-lab/runs/:id`: full persisted discovery-lab run detail, including pack snapshot, thresholds, calibrated live-strategy payload (`strategyCalibration`), backend-owned adaptive winner cohorts and decision bands, report, and captured stdout or stderr
-- Compatibility aliases: `/api/operator/workbench-market/*` and `/api/workbench-market/*` currently mirror the broader discovery-lab compatibility surface, including catalog, validate, pack save/delete, run start, manual-entry, apply-live-strategy, market, strategy-suggestions, token-insight, and run detail endpoints, so the new dashboard route groups can land without breaking the old backend seam.
+- The old `/api/operator/discovery-lab/*` compatibility family has been removed. Workbench, market, and automation callers should use the dedicated `/api/operator/packs*`, `/api/operator/runs*`, `/api/operator/sessions*`, `/api/operator/market/*`, and `/api/operator/enrichment/:mint` seams directly.
 - `GET /api/candidates?limit=`: candidates ordered by `discoveredAt DESC`, max `200`
 - `GET /api/positions?limit=`: positions with fills included, ordered by `openedAt DESC`, max `200`
 - `GET /api/fills?limit=`: fills ordered by `createdAt DESC`, max `500`
@@ -106,19 +101,13 @@ Transport model:
 - `POST /api/control/exit-check-now`
 - `PATCH /api/control/positions/:id`: update position params (e.g., stop loss override)
 - `DELETE /api/control/positions/:id`: close position
-- `POST /api/operator/discovery-lab/validate`: validates an inline discovery-lab draft and returns `{ ok, issues, pack }`
-- `POST /api/operator/discovery-lab/packs/save`: saves or updates a custom local discovery-lab pack
-- `POST /api/operator/discovery-lab/packs/delete`: deletes a custom local discovery-lab pack by `packId`
-- `POST /api/operator/discovery-lab/run`: starts a discovery-lab run from a saved pack or inline draft; returns `409` if another run is already active
-- `POST /api/operator/discovery-lab/manual-entry`: operator entry that promotes one pass-grade result row into a linked candidate and tracked open position, then refreshes managed exit monitoring immediately; execution path follows runtime mode (`LIVE` onchain, `DRY_RUN` simulated fills), and the request can now include an operator-selected `positionSizeUsd` plus per-trade exit overrides from the discovery-lab trade ticket
-- `POST /api/operator/discovery-lab/apply-live-strategy`: applies the selected completed run’s calibrated strategy pack directly into active runtime settings (`strategy.liveStrategy` + `strategy.livePresetId`), stamps the run’s `appliedToLiveAt` and `appliedConfigVersionId`, closes any prior active `TradingSession` as `REPLACED`, and opens a new backend-owned `TradingSession`
 - `POST /api/operator/packs`: dedicated pack-save route for the workbench surface; pack file persistence and DB sync now run through the dedicated `PackRepo` seam instead of `DiscoveryLabService`
 - `POST /api/operator/packs/validate`: dedicated pack-validation route for the real `/workbench/editor` surface; draft validation now runs through the dedicated `StrategyPackDraftValidator` seam
 - `PATCH /api/operator/packs/:id`: dedicated pack-update route for the workbench surface; same save path, route ownership moved
 - `DELETE /api/operator/packs/:id`: dedicated pack-delete route for custom workbench packs
 - `POST /api/operator/packs/:id/runs`: dedicated pack-scoped run start for `/workbench/packs`, now owned by the dedicated `RunRunner` seam instead of `DiscoveryLabService`
 - `POST /api/operator/runs/:id/apply-live`: dedicated run-owned deployment route for `/workbench/sandbox`, still cutting into the existing session seam and runtime-config live-strategy path; inline `__inline__` draft runs are now rejected and must be saved as packs before deployment
-- `POST /api/operator/sessions`: the session seam is now the authoritative deployment start contract. The request must include `runId`, explicit `confirmation`, and optional `mode`; `mode=LIVE` also requires a trusted caller IP plus the separate live deploy token. This route creates the session, patches runtime config, stamps the run apply metadata, and owns replacement semantics when another session is already active.
+- `POST /api/operator/sessions`: the session seam is now the authoritative deployment start contract. The request must include `runId`, explicit `confirmation`, and optional `mode`; `mode=LIVE` also requires a trusted caller IP plus the separate live deploy token. Before mutating runtime config, the backend now runs `CreditForecastService` and blocks the start when forecasted Birdeye or Helius burn exceeds the remaining daily or monthly budget unless `ALLOW_START_ON_BUDGET_CRITICAL=true`. Successful responses now also include `budgetForecast`.
 - `PATCH /api/operator/sessions/:id`: now supports `{ action: "pause" | "resume" | "stop" | "revert" }`. `pause` and `resume` act on the active session runtime state, `stop` clears the deployed `strategy.liveStrategy` contract and pauses further entries, and `revert` re-applies the previous deployment from `RuntimeConfigVersion` through the same session seam.
 
 Exit-plan transition note:
@@ -130,8 +119,9 @@ Trading-session transition note:
 
 - `TradingSession` is now the first pack/session backend seam instead of inferring the active deployment entirely from `RuntimeConfig.strategy.liveStrategy`.
 - `TradingSessionService` now owns current-session reads, bounded session history, explicit stop semantics, and clean replacement semantics when a new run is applied.
-- `TradingSessionService` now also owns explicit session start, pause, resume, and revert semantics. The session route is the production owner; `POST /api/operator/runs/:id/apply-live` and `POST /api/operator/discovery-lab/apply-live-strategy` are compatibility entry points over that same start contract.
+- `TradingSessionService` now also owns explicit session start, pause, resume, and revert semantics. The session route is the production owner; `POST /api/operator/runs/:id/apply-live` is the run-owned deployment entry point.
 - Starting a session now requires an explicit operator confirmation phrase, and `mode=LIVE` also requires a trusted caller IP plus the separate `LIVE_DEPLOY_2FA_TOKEN`. The dashboard proxy now forwards `x-forwarded-for` / `x-real-ip` so the backend can enforce that guard.
+- Session budget gating now depends on `HELIUS_MONTHLY_CREDIT_BUDGET`, `CREDIT_FORECAST_SESSION_HOURS`, and `ALLOW_START_ON_BUDGET_CRITICAL` in backend env. Birdeye keeps using `BIRDEYE_MONTHLY_CU_BUDGET`.
 - Session window totals are now bounded by `startedAt` and `stoppedAt`, so re-applying the same run does not smear counts or realized PnL across multiple deployment windows.
 - Strategy-pack deployment state is now owned by the session seam. Discovery-lab pack sync keeps pack snapshots fresh, but it no longer infers which pack is `LIVE` from settings reads.
 
@@ -140,10 +130,9 @@ Pack/run operator transition note:
 - This pass did not add `StrategyRun` or `StrategyRunGrade`. The first dedicated operator pack/run surface is intentionally built on the existing transition contracts: `DiscoveryLabPack`, `DiscoveryLabRun`, `StrategyPack`, `StrategyPackVersion`, and `TradingSession`.
 - `StrategyPackService` and `StrategyRunService` now own the operator route surface for packs and runs, and the dedicated workbench seams now also own the remaining major transition behavior under them: `PackRepo` owns pack editing/source persistence while `RunRunner` owns subprocess execution and run finalization.
 - Persisted run reads now live under the dedicated run seam too. `StrategyRunService` and its read helper load run list/detail/report state from `DiscoveryLabRun` rows instead of using the discovery-lab file-first detail path as the canonical reader.
-- Discovery-lab compatibility routes stay intact, but their validate/save/delete/run/apply handlers now delegate through the dedicated pack/run/session seams instead of owning that behavior directly.
 - Discovery-lab studio is no longer a direct discovery-lab-write client. Under the hood it now validates, saves, deletes, and starts runs through `/api/operator/packs*` and `/api/operator/runs*`, then adapts those responses back into the retained studio surface.
 - `/api/operator/runs/:id` is now the authoritative run-detail wrapper. Current dashboard consumers should treat that wrapper as canonical instead of normalizing legacy detail payloads opportunistically.
-- `/api/operator/runs/:id/market-regime`, `/api/operator/runs/:id/token-insight`, and `/api/operator/runs/:id/manual-entry` are now the dedicated result-support seams. The retained discovery-lab routes are thin adapters and should not regain ownership.
+- `/api/operator/runs/:id/market-regime`, `/api/operator/runs/:id/token-insight`, and `/api/operator/runs/:id/manual-entry` are now the dedicated result-support seams and should not regain alias owners.
 - Active-run stdout and stderr are now persisted back into `DiscoveryLabRun` while the run is still `RUNNING`, so detail polling no longer depends on the file copy to stay fresher than the database row.
 - On Windows hosts, the dedicated run runner now launches discovery runs through a shell-backed `npm` spawn and the shared atomic JSON writer retries file replacement, which prevents the `spawn ENOENT` / `spawn EINVAL` / `rename EPERM` failures that showed up during live verification on this machine.
 
@@ -203,15 +192,11 @@ Dashboard navigation conventions:
 - Discovery-lab strategy ideas now belongs in `/discovery-lab/strategy-ideas`; it is a read surface for backend-suggested pack drafts and threshold ranges, not a hidden results-side panel.
 - Routed detail pages carry `focus=<row-id>` and return into `/operational-desk/trading` with preserved bucket/book, sort, search, and scroll-target context
 
-## Auth Boundary
+## Access Boundary
 
-- All `/api/*` routes require authentication except `GET /api/status` and `GET /api/settings`.
-- Auth methods (checked in order):
-  1. `Authorization: Bearer <CONTROL_API_SECRET>` header
-  2. `X-API-Key: <CONTROL_API_SECRET>` header
-- Public routes (no auth): `GET /health`, `GET /api/status`, `GET /api/settings`
-- The dashboard app itself should sit behind dashboard auth before the proxy is exposed.
-- Dashboard proxy forwards browser `X-API-Key` plus bearer `Authorization` headers to the backend. If no bearer header is present and `CONTROL_API_SECRET` is configured, the proxy injects `Authorization: Bearer <CONTROL_API_SECRET>`.
+- The local dashboard no longer uses a separate browser password gate.
+- Backend `/api/*` routes are now open to the trusted local stack instead of requiring a mirrored control secret.
+- Helius webhook routes remain signature-verified and are not part of that relaxation.
 - Payload size limit: `1mb` JSON body maximum.
 
 ## SQL View Allowlist

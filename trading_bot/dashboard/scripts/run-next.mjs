@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
+import path from "node:path";
 
 const subcommand = process.argv[2] === "start" ? "start" : "dev";
 const port = process.env.DASHBOARD_PORT || "3100";
-const nextCommand = process.platform === "win32" ? "next.cmd" : "next";
+const nextBin = path.join(import.meta.dirname, "..", "node_modules", "next", "dist", "bin", "next");
 
-const child = spawn(nextCommand, [subcommand, "--port", port], {
+const child = spawn(process.execPath, [nextBin, subcommand, "--port", port], {
+  cwd: path.join(import.meta.dirname, ".."),
   env: process.env,
   stdio: "inherit",
 });

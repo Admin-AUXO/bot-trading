@@ -54,7 +54,6 @@ type DiscoveryCandidateSeed = {
 export class GraduationEngine {
   private discoveryInFlight = false;
   private evaluationInFlight = false;
-  private readonly providerBudget = new ProviderBudgetService();
   private readonly sharedFacts = new SharedTokenFactsService();
 
   constructor(
@@ -65,6 +64,7 @@ export class GraduationEngine {
     private readonly config: RuntimeConfigService,
     private readonly adaptiveContextBuilder: AdaptiveContextBuilder,
     private readonly adaptiveThresholds: AdaptiveThresholdService,
+    private readonly providerBudget: ProviderBudgetService,
   ) {}
 
   async getResearchDiscoveryTokens(limit: number): Promise<DiscoveryToken[]> {
@@ -151,15 +151,12 @@ export class GraduationEngine {
             liveStrategyPackId,
             ...this.toCandidateData(discoveryState, false),
             scheduledEvaluationAt: new Date(Date.now() + settings.cadence.entryDelayMs),
-            metadata: toJsonValue({
+            metadata: this.mergeCandidateMetadata(null, {
               stage: "discovered",
               strategyPresetId,
               strategyRecipeName: discoveryRecipeName,
-            }),
-            metrics: toJsonValue({
-              ...token,
-              strategyPresetId,
-              strategyRecipeName: discoveryRecipeName,
+              discoveryFilterState: discoveryState,
+              discoveryToken: token,
             }),
           },
         });
@@ -429,7 +426,11 @@ export class GraduationEngine {
                 scheduledEvaluationAt: new Date(Date.now() + settings.cadence.evaluationIntervalMs),
                 strategyPresetId: candidate.strategyPresetId,
                 ...this.toCandidateData(evaluation.filterState, true),
-                metrics: toJsonValue(evaluation.metrics),
+                metadata: this.mergeCandidateMetadata(candidate.metadata, {
+                  evaluationState: "deferred",
+                  latestFilterState: evaluation.filterState,
+                  latestEvaluation: evaluation.metrics,
+                }),
               },
             });
             continue;
@@ -444,7 +445,11 @@ export class GraduationEngine {
                 lastEvaluatedAt: new Date(),
                 strategyPresetId: candidate.strategyPresetId,
                 ...this.toCandidateData(evaluation.filterState, true),
-                metrics: toJsonValue(evaluation.metrics),
+                metadata: this.mergeCandidateMetadata(candidate.metadata, {
+                  evaluationState: "rejected",
+                  latestFilterState: evaluation.filterState,
+                  latestEvaluation: evaluation.metrics,
+                }),
               },
             });
             await recordTokenSnapshot({
@@ -481,9 +486,13 @@ export class GraduationEngine {
                 lastEvaluatedAt: new Date(),
                 strategyPresetId: candidate.strategyPresetId,
                 ...this.toCandidateData(evaluation.filterState, true),
-                metrics: toJsonValue({
-                  ...evaluation.metrics,
-                  paperOnlySource: effectiveSource,
+                metadata: this.mergeCandidateMetadata(candidate.metadata, {
+                  evaluationState: "paper_only",
+                  latestFilterState: evaluation.filterState,
+                  latestEvaluation: {
+                    ...evaluation.metrics,
+                    paperOnlySource: effectiveSource,
+                  },
                 }),
               },
             });
@@ -508,15 +517,19 @@ export class GraduationEngine {
               rejectReason: null,
               strategyPresetId: candidate.strategyPresetId,
               entryOrigin: "runtime_auto_entry",
-              entryScore: this.readMetricNumber(evaluation.metrics, "entryScore"),
-              confidenceScore: this.readMetricNumber(evaluation.metrics, "confidenceScore"),
-              exitProfile: this.readMetricString(evaluation.metrics, "exitProfile"),
               liveStrategyRunId: this.readMetricString(evaluation.metrics, "liveStrategyRunId") ?? candidate.liveStrategyRunId,
               liveStrategyPackId: this.readMetricString(evaluation.metrics, "liveStrategyPackId") ?? candidate.liveStrategyPackId,
               discoveryLabRunId: this.readMetricString(evaluation.metrics, "discoveryLabRunId"),
-              discoveryLabPackId: this.readMetricString(evaluation.metrics, "discoveryLabPackId"),
               ...this.toCandidateData(evaluation.filterState, true),
-              metrics: toJsonValue(evaluation.metrics),
+              metadata: this.mergeCandidateMetadata(candidate.metadata, {
+                evaluationState: "accepted",
+                latestFilterState: evaluation.filterState,
+                latestEvaluation: evaluation.metrics,
+                entryScore: this.readMetricNumber(evaluation.metrics, "entryScore"),
+                confidenceScore: this.readMetricNumber(evaluation.metrics, "confidenceScore"),
+                exitProfile: this.readMetricString(evaluation.metrics, "exitProfile"),
+                discoveryLabPackId: this.readMetricString(evaluation.metrics, "discoveryLabPackId"),
+              }),
             },
           });
 
@@ -1233,83 +1246,20 @@ export class GraduationEngine {
       creationAt: toOptionalDate(input.creationAt),
       recentListingAt: toOptionalDate(input.recentListingAt),
       lastTradeAt: toOptionalDate(input.lastTradeAt),
-      decimals: input.decimals ?? null,
-      progressPercent: input.progressPercent ?? null,
-      priceUsd: input.priceUsd ?? null,
-      liquidityUsd: input.liquidityUsd ?? null,
-      marketCapUsd: input.marketCapUsd ?? null,
-      fdvUsd: input.fdvUsd ?? null,
-      totalSupply: input.totalSupply ?? null,
-      circulatingSupply: input.circulatingSupply ?? null,
-      holders: input.holders ?? null,
-      volume1mUsd: input.volume1mUsd ?? null,
-      volume5mUsd: input.volume5mUsd ?? null,
-      volume30mUsd: input.volume30mUsd ?? null,
-      volume1hUsd: input.volume1hUsd ?? null,
-      volume24hUsd: input.volume24hUsd ?? null,
-      volume1mChangePercent: input.volume1mChangePercent ?? null,
-      volume5mChangePercent: input.volume5mChangePercent ?? null,
-      volume30mChangePercent: input.volume30mChangePercent ?? null,
-      volume1hChangePercent: input.volume1hChangePercent ?? null,
-      volume24hChangePercent: input.volume24hChangePercent ?? null,
-      volumeBuy1mUsd: input.volumeBuy1mUsd ?? null,
-      volumeBuy5mUsd: input.volumeBuy5mUsd ?? null,
-      volumeBuy30mUsd: input.volumeBuy30mUsd ?? null,
-      volumeBuy1hUsd: input.volumeBuy1hUsd ?? null,
-      volumeBuy24hUsd: input.volumeBuy24hUsd ?? null,
-      volumeSell1mUsd: input.volumeSell1mUsd ?? null,
-      volumeSell5mUsd: input.volumeSell5mUsd ?? null,
-      volumeSell30mUsd: input.volumeSell30mUsd ?? null,
-      volumeSell1hUsd: input.volumeSell1hUsd ?? null,
-      volumeSell24hUsd: input.volumeSell24hUsd ?? null,
-      uniqueWallets1m: input.uniqueWallets1m ?? null,
-      uniqueWallets5m: input.uniqueWallets5m ?? null,
-      uniqueWallets30m: input.uniqueWallets30m ?? null,
-      uniqueWallets1h: input.uniqueWallets1h ?? null,
-      uniqueWallets24h: input.uniqueWallets24h ?? null,
-      trades1m: input.trades1m ?? null,
-      trades5m: input.trades5m ?? null,
-      trades30m: input.trades30m ?? null,
-      trades1h: input.trades1h ?? null,
-      trades24h: input.trades24h ?? null,
-      buys1m: input.buys1m ?? null,
-      buys5m: input.buys5m ?? null,
-      buys30m: input.buys30m ?? null,
-      buys1h: input.buys1h ?? null,
-      buys24h: input.buys24h ?? null,
-      sells1m: input.sells1m ?? null,
-      sells5m: input.sells5m ?? null,
-      sells30m: input.sells30m ?? null,
-      sells1h: input.sells1h ?? null,
-      sells24h: input.sells24h ?? null,
-      buySellRatio: input.buySellRatio ?? null,
-      priceChange1mPercent: input.priceChange1mPercent ?? null,
-      priceChange5mPercent: input.priceChange5mPercent ?? null,
-      priceChange30mPercent: input.priceChange30mPercent ?? null,
-      priceChange1hPercent: input.priceChange1hPercent ?? null,
-      priceChange24hPercent: input.priceChange24hPercent ?? null,
-      graduationAgeSeconds: input.graduationAgeSeconds ?? null,
-      top10HolderPercent: input.top10HolderPercent ?? null,
-      largestHolderPercent: input.largestHolderPercent ?? null,
-      largestAccountsCount: input.largestAccountsCount ?? null,
-      largestHolderAddress: input.largestHolderAddress ?? null,
-      creatorBalancePercent: input.creatorBalancePercent ?? null,
-      ownerBalancePercent: input.ownerBalancePercent ?? null,
-      updateAuthorityBalancePercent: input.updateAuthorityBalancePercent ?? null,
-      top10UserPercent: input.top10UserPercent ?? null,
-      mintAuthorityActive: input.mintAuthorityActive ?? null,
-      freezeAuthorityActive: input.freezeAuthorityActive ?? null,
-      transferFeeEnabled: input.transferFeeEnabled ?? null,
-      transferFeePercent: input.transferFeePercent ?? null,
-      trueToken: input.trueToken ?? null,
-      token2022: input.token2022 ?? null,
-      nonTransferable: input.nonTransferable ?? null,
-      fakeToken: input.fakeToken ?? null,
-      honeypot: input.honeypot ?? null,
-      freezeable: input.freezeable ?? null,
-      mutableMetadata: input.mutableMetadata ?? null,
-      lastFilterSnapshotAt: new Date(),
-      securityCheckedAt: evaluated ? toOptionalDate(input.securityCheckedAt) : null,
     };
+  }
+
+  private mergeCandidateMetadata(
+    existing: Candidate["metadata"] | null | undefined,
+    patch: Record<string, unknown>,
+  ) {
+    const base = existing && typeof existing === "object" && !Array.isArray(existing)
+      ? existing as Record<string, unknown>
+      : {};
+
+    return toJsonValue({
+      ...base,
+      ...patch,
+    });
   }
 }

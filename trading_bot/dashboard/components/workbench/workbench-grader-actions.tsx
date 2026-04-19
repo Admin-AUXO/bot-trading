@@ -150,6 +150,7 @@ export function WorkbenchGraderActions(props: { runId: string; runStatus: string
               Created tuned draft{" "}
               <Link
                 href={`${workbenchRoutes.editor}/${encodeURIComponent(tuningPayload.appliedPackId)}`}
+                prefetch={false}
                 className="underline decoration-dotted underline-offset-2"
               >
                 {tuningPayload.appliedPackName ?? tuningPayload.appliedPackId}

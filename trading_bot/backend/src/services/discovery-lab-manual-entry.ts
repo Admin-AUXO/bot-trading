@@ -267,7 +267,9 @@ export class DiscoveryLabManualEntryService {
         scheduledEvaluationAt: now,
         lastEvaluatedAt: now,
         acceptedAt: now,
-        discoveryLabRunId: run.id,
+        discoveryLabRun: {
+          connect: { id: run.id },
+        },
         metadata: toJsonValue({
           entryOrigin: "discovery_lab_manual_entry",
           manualEntry: true,
@@ -299,7 +301,6 @@ export class DiscoveryLabManualEntryService {
             exitOverrides: input.exitOverrides ?? null,
           },
         }),
-        metrics: toJsonValue(metrics),
       },
     });
 

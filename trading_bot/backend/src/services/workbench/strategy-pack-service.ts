@@ -23,10 +23,6 @@ const DEFAULT_PACK_LIMIT = 100;
 export class StrategyPackService {
   constructor(private readonly deps: StrategyPackServiceDeps) {}
 
-  async listDiscoveryLabPacks(): Promise<DiscoveryLabPack[]> {
-    return this.deps.packs.listPacks();
-  }
-
   async validatePack(input: DiscoveryLabPackDraft, allowOverfiltered = false): Promise<{
     ok: boolean;
     issues: DiscoveryLabValidationIssue[];

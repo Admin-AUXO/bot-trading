@@ -150,7 +150,9 @@ a {
 
 .panel-strong {
   border: 1px solid rgba(255, 255, 255, 0.08);
-  background: var(--panel-strong);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.018), rgba(255, 255, 255, 0.01)),
+    var(--panel-strong);
   box-shadow: var(--shadow);
 }
 
@@ -315,8 +317,10 @@ a {
   gap: 0.45rem;
   border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
   border-radius: 0.85rem;
-  background: var(--surface-sticky);
-  padding: 0.46rem 0.56rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0.01)),
+    var(--surface-sticky);
+  padding: 0.4rem 0.5rem;
   backdrop-filter: blur(8px);
 }
 

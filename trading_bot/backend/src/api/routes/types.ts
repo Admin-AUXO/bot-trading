@@ -1,11 +1,6 @@
 import type express from "express";
 import type { BotSettings, RuntimeSnapshot } from "../../types/domain.js";
-import type {
-  DiscoveryLabCatalog,
-  DiscoveryLabPackDraft,
-  DiscoveryLabRunRequest,
-} from "../../services/discovery-lab-service.js";
-import type { DiscoveryLabMarketRegimeResponse } from "../../services/discovery-lab-market-regime-service.js";
+import type { DiscoveryLabPackDraft, DiscoveryLabRunRequest } from "../../services/discovery-lab-service.js";
 import type { DiscoveryLabMarketStatsPayload } from "../../services/discovery-lab-market-stats-service.js";
 import type { DiscoveryLabStrategySuggestionsPayload } from "../../services/discovery-lab-strategy-suggestion-service.js";
 import type { TokenEnrichmentPayload } from "../../services/enrichment/token-enrichment-service.js";
@@ -45,7 +40,7 @@ export type ApiServerDeps = {
     liveDeployToken?: string;
     requestIp?: string | null;
   }) => Promise<unknown>;
-  getRunMarketRegime: (runId: string) => Promise<DiscoveryLabMarketRegimeResponse>;
+  getRunMarketRegime: (runId: string) => Promise<unknown>;
   getRunTokenInsight: (input: { runId?: string; mint?: string }) => Promise<TokenEnrichmentPayload>;
   getAdaptiveActivity: (limit?: number) => Promise<AdaptiveActivityPayload>;
   enterRunManualTrade: (input: {
@@ -85,33 +80,11 @@ export type ApiServerDeps = {
   triggerDiscovery: () => Promise<void>;
   triggerEvaluation: () => Promise<void>;
   triggerExitCheck: () => Promise<void>;
-  getDiscoveryLabCatalog: () => Promise<DiscoveryLabCatalog>;
-  validateDiscoveryLabDraft: (input: DiscoveryLabPackDraft, allowOverfiltered?: boolean) => Promise<unknown>;
-  saveDiscoveryLabPack: (input: DiscoveryLabPackDraft) => Promise<unknown>;
-  deleteDiscoveryLabPack: (packId: string) => Promise<unknown>;
-  startDiscoveryLabRun: (input: DiscoveryLabRunRequest) => Promise<unknown>;
-  listDiscoveryLabRuns: () => Promise<unknown>;
-  getDiscoveryLabRun: (runId: string) => Promise<unknown | null>;
-  getDiscoveryLabMarketRegime: (runId: string) => Promise<DiscoveryLabMarketRegimeResponse>;
   getMarketTrending: (input?: { mint?: string; limit?: number; refresh?: boolean; focusOnly?: boolean }) => Promise<DiscoveryLabMarketStatsPayload>;
   getMarketTokenStats: (mint: string) => Promise<MarketTokenStatsPayload>;
   getRecentSmartWalletActivity: (mints: string[], limit?: number) => Promise<SmartWalletActivityPayload[]>;
   getMarketStrategySuggestions: (input?: { refresh?: boolean }) => Promise<DiscoveryLabStrategySuggestionsPayload>;
   getEnrichment: (mint: string) => Promise<TokenEnrichmentPayload>;
-  getDiscoveryLabTokenInsight: (input: { runId?: string; mint?: string }) => Promise<unknown>;
-  enterDiscoveryLabManualTrade: (input: {
-    runId?: string;
-    mint?: string;
-    positionSizeUsd?: number;
-    exitOverrides?: Record<string, number>;
-  }) => Promise<unknown>;
-  applyDiscoveryLabLiveStrategy: (input: {
-    runId?: string;
-    mode?: "DRY_RUN" | "LIVE";
-    confirmation?: string;
-    liveDeployToken?: string;
-    requestIp?: string | null;
-  }) => Promise<unknown>;
   ingestHeliusSmartWalletWebhook: (body: unknown, rawBody: string, signature?: string) => Promise<{ ok: true; inserted: number }>;
   ingestHeliusLpWebhook: (body: unknown, rawBody: string, signature?: string) => Promise<{ ok: true }>;
   ingestHeliusHoldersWebhook: (body: unknown, rawBody: string, signature?: string) => Promise<{ ok: true }>;

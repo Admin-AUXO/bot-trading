@@ -82,7 +82,7 @@ Cross-platform contract:
 Use this when you want the app processes on the host but do not want to install Postgres locally.
 
 1. Copy [`../../trading_bot/backend/.env.example`](../../trading_bot/backend/.env.example) to `trading_bot/backend/.env`.
-2. Fill `HELIUS_RPC_URL`, `BIRDEYE_API_KEY`, and `CONTROL_API_SECRET`.
+2. Fill `HELIUS_RPC_URL` and `BIRDEYE_API_KEY`.
 3. If you intend to trade live, also fill `TRADING_WALLET_PRIVATE_KEY_B58` and review the `LIVE_*` routing values. The wallet must hold enough SOL for fees and tips and enough quote-token balance for entries.
 4. Pick the active preset defaults with:
    `LIVE_STRATEGY_PRESET_ID`
@@ -166,7 +166,7 @@ Compose contract:
 - Postgres binds on `127.0.0.1:${POSTGRES_PORT:-56432}` for host-local tools only
 - `db-setup` applies Prisma schema and SQL views before the bot starts
 - `bot` health checks `GET /health`
-- `dashboard` waits for backend health, injects `API_URL=http://bot:3101`, and reads only `dashboard/compose.env` for its control secret and Grafana deep-link contract
+- `dashboard` waits for backend health, injects `API_URL=http://bot:3101`, and reads only `dashboard/compose.env` for its API target and Grafana deep-link contract
 - `grafana` waits for Postgres and `db-setup`, mounts provisioning from `trading_bot/grafana/`, and binds locally on `127.0.0.1:${GRAFANA_PORT:-3400}`
 - `grafana` reads only `grafana/compose.env` for admin and datasource credentials
 - Grafana provisioning assumes a direct PostgreSQL datasource from inside Compose using `postgres:5432`
@@ -211,7 +211,6 @@ Notes:
 - Checked-in examples live at [`../../trading_bot/dashboard/compose.env.example`](../../trading_bot/dashboard/compose.env.example) and [`../../trading_bot/grafana/compose.env.example`](../../trading_bot/grafana/compose.env.example)
 - Generate the service env files with `./scripts/sync-compose-env.sh` after you change `backend/.env`
 - If credentials change, keep `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, and `DATABASE_URL` aligned
-- `CONTROL_API_SECRET` is still the backend source of truth; the sync script maps it into `dashboard/compose.env` as `CONTROL_SECRET`
 - `GRAFANA_BASE_URL`, `GRAFANA_ADMIN_USER`, `GRAFANA_ADMIN_PASSWORD`, and the dashboard UID envs stay in `backend/.env` as the single editable source; the sync script fans them out into the service env files
 
 ## Verification

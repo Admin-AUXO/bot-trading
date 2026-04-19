@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { CompactPageHeader, EmptyState, Panel, ScanStat, StatusPill } from "@/components/dashboard-primitives";
-import { ApplyRunLiveButton } from "@/components/workbench/workbench-actions";
+import { CompactPageHeader, CompactStatGrid, EmptyState, Panel, ScanStat, StatusPill } from "@/components/dashboard-primitives";
+import { RunSessionStartPanel } from "@/components/workbench/workbench-actions";
 import { WorkbenchGraderActions } from "@/components/workbench/workbench-grader-actions";
+import { WorkbenchFlowStrip } from "@/components/workbench/workbench-flow-strip";
 import { buttonVariants } from "@/components/ui/button";
 import { workbenchRoutes } from "@/lib/dashboard-routes";
 import { serverFetch } from "@/lib/server-api";
@@ -28,7 +29,7 @@ type RunDetailView = {
 };
 
 export async function WorkbenchGraderSurface(props: { selectedRunId?: string | null }) {
-  const runsPayload = await safeFetch<WorkbenchRunListPayload | WorkbenchRunSummary[]>("/api/operator/runs?limit=40");
+  const runsPayload = await safeFetch<WorkbenchRunListPayload | WorkbenchRunSummary[]>("/api/operator/runs?limit=20");
   const runs = normalizeRuns(runsPayload);
   const selectedRunId = normalizeId(props.selectedRunId) ?? runs[0]?.id ?? null;
 
@@ -39,29 +40,51 @@ export async function WorkbenchGraderSurface(props: { selectedRunId?: string | n
 
   return (
     <div className="space-y-5">
+      <WorkbenchFlowStrip
+        current="grader"
+        focusLabel={selectedRun?.packName ?? "Choose a run to review"}
+        focusDetail="Grade the run, create a tuned draft if needed, then start a session from here when the evidence is good enough."
+      />
+
       <CompactPageHeader
         eyebrow="Strategy workbench"
         title="Grader"
-        description="Backend-owned run review over `/api/operator/runs*` with direct apply-live."
-        actions={(
-          <div className="flex flex-wrap gap-2">
-            <Link href={workbenchRoutes.editor} className={buttonVariants({ variant: "ghost", size: "sm" })}>
-              Open editor
-            </Link>
-            <Link href={workbenchRoutes.sandbox} className={buttonVariants({ variant: "secondary", size: "sm" })}>
-              Open sandbox
-            </Link>
-          </div>
-        )}
-      />
+        description="Review one completed run. Tune or deploy from the same surface."
+      >
+        <CompactStatGrid
+          className="xl:grid-cols-4"
+          items={[
+            { label: "Queue", value: String(runs.length), detail: "Recent runs" },
+            {
+              label: "Selected",
+              value: selectedRun?.packName ?? "None",
+              detail: selectedRun?.status ?? "Pick a run",
+              tone: selectedRun ? "accent" : "default",
+            },
+            {
+              label: "Evaluations",
+              value: String(selectedRun?.evaluationCount ?? 0),
+              detail: `Winners ${selectedRun?.winnerCount ?? 0}`,
+            },
+            {
+              label: "Deployable",
+              value: selectedRun?.canApplyLive ? "Yes" : "No",
+              detail: selectedRun?.profile ?? "Awaiting review",
+              tone: selectedRun?.canApplyLive ? "warning" : "default",
+            },
+          ]}
+        />
+      </CompactPageHeader>
 
+      <div className="grid gap-4 xl:grid-cols-[minmax(20rem,0.9fr)_minmax(0,1.15fr)]">
       <Panel
         title="Run index"
         eyebrow="Review queue"
-        description="Select a run to inspect quality and apply it to live from this surface."
+        description="Keep the queue visible while you review the active run."
+        className="xl:sticky xl:top-[calc(var(--shell-header-height)+1rem)] xl:self-start"
       >
         {runs.length > 0 ? (
-          <div className="space-y-2">
+          <div className="max-h-[calc(100vh-var(--shell-header-height)-14rem)] space-y-2 overflow-y-auto pr-1">
             {runs.map((run) => {
               const isSelected = run.id === selectedRunId;
               return (
@@ -85,12 +108,14 @@ export async function WorkbenchGraderSurface(props: { selectedRunId?: string | n
                   <div className="flex flex-wrap gap-2 md:justify-end">
                     <Link
                       href={`${workbenchRoutes.grader}?runId=${encodeURIComponent(run.id)}`}
+                      prefetch={false}
                       className={buttonVariants({ variant: isSelected ? "secondary" : "ghost", size: "sm" })}
                     >
                       {isSelected ? "Selected" : "Inspect"}
                     </Link>
                     <Link
                       href={`${workbenchRoutes.graderByRunPrefix}/${encodeURIComponent(run.id)}`}
+                      prefetch={false}
                       className={buttonVariants({ variant: "ghost", size: "sm" })}
                     >
                       Full page
@@ -107,8 +132,8 @@ export async function WorkbenchGraderSurface(props: { selectedRunId?: string | n
 
       <Panel
         title={selectedRun ? `Run ${truncate(selectedRun.id)}` : "Run detail"}
-        eyebrow="Selected run"
-        description="Read from `/api/operator/runs/:id`; grading and tuning now run through dedicated `/api/operator/runs/:id/{grade,suggest-tuning}` routes."
+        eyebrow="Active review"
+        description="Outcome, deployability, and tuning actions stay together."
       >
         {selectedRun ? (
           <div className="space-y-3">
@@ -146,14 +171,11 @@ export async function WorkbenchGraderSurface(props: { selectedRunId?: string | n
               ) : null}
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <ApplyRunLiveButton runId={selectedRun.id} disabled={!selectedRun.canApplyLive} />
-              {!selectedRun.canApplyLive ? (
-                <div className="rounded-[10px] border border-bg-border bg-bg-hover/25 px-2.5 py-2 text-xs text-text-muted">
-                  Only completed, calibratable runs can be applied.
-                </div>
-              ) : null}
-            </div>
+            <RunSessionStartPanel
+              runId={selectedRun.id}
+              disabled={!selectedRun.canApplyLive}
+              disabledReason={!selectedRun.canApplyLive ? "Only completed, calibratable runs can be applied." : null}
+            />
 
             <WorkbenchGraderActions runId={selectedRun.id} runStatus={selectedRun.status} />
           </div>
@@ -161,6 +183,7 @@ export async function WorkbenchGraderSurface(props: { selectedRunId?: string | n
           <EmptyState compact title="No run selected" detail="Pick a run from the queue first." />
         )}
       </Panel>
+      </div>
     </div>
   );
 }

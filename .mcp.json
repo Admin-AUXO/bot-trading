@@ -1,5 +1,11 @@
 {
   "mcpServers": {
+    "browsermcp": {
+      "command": "node",
+      "args": [".codex/scripts/start-stdio-command.cjs", "npx", "-y", "@browsermcp/mcp"],
+      "enabled": true,
+      "required": false
+    },
     "desktop_commander": {
       "command": "node",
       "args": [".codex/scripts/start-desktop-commander.cjs"],
@@ -15,18 +21,30 @@
     "helius": {
       "command": "node",
       "args": [".codex/scripts/start-stdio-command.cjs", "npx", "-y", "helius-mcp@latest"],
-      "enabled": false,
+      "enabled": true,
       "required": false
     },
     "firecrawl": {
       "command": "node",
       "args": [".codex/scripts/start-firecrawl-mcp.cjs"],
-      "enabled": false,
+      "enabled": true,
       "required": false
     },
     "context7": {
       "type": "http",
       "url": "https://mcp.context7.com/mcp",
+      "enabled": true,
+      "required": false
+    },
+    "github": {
+      "command": "node",
+      "args": [".codex/scripts/start-github-mcp.cjs"],
+      "enabled": true,
+      "required": false
+    },
+    "grafana": {
+      "command": "node",
+      "args": [".codex/scripts/start-grafana-mcp.cjs"],
       "enabled": true,
       "required": false
     },
@@ -39,31 +57,31 @@
         "@modelcontextprotocol/server-postgres",
         "postgresql://botuser:botpass@127.0.0.1:56432/trading_bot"
       ],
-      "enabled": false,
+      "enabled": true,
       "required": false
     },
     "fetch": {
       "command": "node",
       "args": [".codex/scripts/start-stdio-command.cjs", "uvx", "mcp-server-fetch"],
-      "enabled": false,
+      "enabled": true,
       "required": false
     },
     "time": {
       "command": "node",
       "args": [".codex/scripts/start-stdio-command.cjs", "uvx", "mcp-server-time"],
-      "enabled": false,
+      "enabled": true,
       "required": false
     },
     "chrome_devtools": {
       "command": "node",
       "args": [".codex/scripts/start-stdio-command.cjs", "npx", "-y", "chrome-devtools-mcp@latest"],
-      "enabled": false,
+      "enabled": true,
       "required": false
     },
     "shadcn": {
       "command": "node",
       "args": [".codex/scripts/start-stdio-command.cjs", "npx", "-y", "shadcn@latest", "mcp"],
-      "enabled": false,
+      "enabled": true,
       "required": false
     }
   }

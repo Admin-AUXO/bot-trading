@@ -106,6 +106,7 @@ export function PositionsGrid(props: {
             <div className="min-w-[14rem] py-1">
               <Link
                 href={detailHref as Route}
+                prefetch={false}
                 title={`Open ${row.symbol} position`}
                 className="inline-flex items-center gap-2 text-sm font-semibold text-text-primary transition hover:text-accent"
               >

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { ArrowUpRight } from "lucide-react";
 import { fetchJson } from "@/lib/api";
+import { marketRoutes } from "@/lib/dashboard-routes";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 
@@ -14,7 +15,7 @@ export function CandidateDetailActions(props: { mint: string }) {
   async function handleManualEntry() {
     setIsSubmitting(true);
     try {
-      const result = await fetchJson<{ candidateId: string; positionId: string }>("/operator/discovery-lab/manual-entry", {
+      const result = await fetchJson<{ candidateId: string; positionId: string }>("/operator/manual-entry", {
         method: "POST",
         body: JSON.stringify({ mint: props.mint }),
       });
@@ -32,10 +33,10 @@ export function CandidateDetailActions(props: { mint: string }) {
         {isSubmitting ? "Opening…" : "Manual entry"}
       </Button>
       <Link
-        href={`/discovery-lab/config?focus=${encodeURIComponent(props.mint)}`}
+        href={`${marketRoutes.tokenByMintPrefix}/${encodeURIComponent(props.mint)}`}
         className={cn(buttonVariants({ variant: "ghost" }), "inline-flex")}
       >
-        Discovery config
+        Token lookup
         <ArrowUpRight className="h-4 w-4" />
       </Link>
       {message ? (

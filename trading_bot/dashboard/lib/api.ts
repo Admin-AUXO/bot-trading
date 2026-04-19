@@ -12,6 +12,7 @@ export async function fetchJson<T>(path: string, init?: RequestInit): Promise<T>
     ...init,
     headers,
     cache: "no-store",
+    signal: init?.signal ?? AbortSignal.timeout(10_000),
   });
 
   if (!response.ok) {

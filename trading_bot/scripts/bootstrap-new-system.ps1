@@ -34,11 +34,11 @@ function Show-PlaceholderWarning {
     return
   }
 
-  $matches = Select-String -Path $envPath -Pattern 'replace-me|postgres:5432|CONTROL_API_SECRET="replace-me"' -Quiet
+  $matches = Select-String -Path $envPath -Pattern 'replace-me|postgres:5432' -Quiet
   if ($matches) {
     Write-Host ""
     Write-Host "backend/.env still contains example values."
-    Write-Host "Fill the provider keys and control secret before expecting the bot to work properly."
+    Write-Host "Fill the provider keys before expecting the bot to work properly."
   }
 }
 

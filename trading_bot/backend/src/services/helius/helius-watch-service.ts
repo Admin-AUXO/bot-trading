@@ -1,15 +1,26 @@
 import crypto from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { db } from "../../db/client.js";
 import { env } from "../../config/env.js";
 import { recordOperatorEvent } from "../operator-events.js";
+import { ProviderBudgetService } from "../provider-budget-service.js";
 import { SharedTokenFactsService } from "../shared-token-facts.js";
-import { HeliusMigrationWatcher } from "../helius-migration-watcher.js";
+import {
+  HeliusMigrationWatcher,
+  type HeliusMigrationWatcherTelemetryEvent,
+} from "../helius-migration-watcher.js";
 import type { BotSettings } from "../../types/domain.js";
 
 type HeliusWatchServiceDeps = {
   getSettings: () => Promise<BotSettings>;
   getPauseReason: () => Promise<string | null>;
   triggerDiscovery: () => Promise<void>;
+  dbClient?: HeliusWatchDb;
+  migrationWatcher?: HeliusMigrationWatcher;
+  nowMs?: () => number;
+  providerBudget?: ProviderBudgetService;
+  recordEvent?: typeof recordOperatorEvent;
+  sharedFacts?: SharedTokenFactsService;
 };
 
 type ParsedSmartWalletEvent = {
@@ -24,12 +35,24 @@ type ParsedSmartWalletEvent = {
 
 export type HeliusWatchSummary = {
   migrationWatcherEnabled: boolean;
+  migrationWatcherStarted: boolean;
+  configuredProgramCount: number;
+  activeSubscriptionCount: number;
+  observedLogCountSinceBoot: number;
   trackedWalletCount: number;
   recentSmartWalletEvents24h: number;
   recentSmartWalletSignals24h: number;
   lastSmartWalletSignalAt: string | null;
   lastMigrationSignalAt: string | null;
+  lastObservedLogAt: string | null;
+  lastWebhookAt: string | null;
+  lastDuplicateEventAt: string | null;
+  lastReplayEventAt: string | null;
+  duplicateEventsSinceBoot: number;
+  replayedEventsSinceBoot: number;
+  trackedWalletReconciledAt: string | null;
   webhookSecretConfigured: boolean;
+  smartWalletFundingStatus: "dead_schema";
 };
 
 export type SmartWalletMintActivity = {
@@ -40,18 +63,40 @@ export type SmartWalletMintActivity = {
 };
 
 export class HeliusWatchService {
-  private readonly sharedFacts = new SharedTokenFactsService();
-  private readonly migrationWatcher = new HeliusMigrationWatcher(
-    env.HELIUS_RPC_URL,
-    env.HELIUS_MIGRATION_WATCH_PROGRAM_IDS,
-    env.HELIUS_MIGRATION_WATCH_DEBOUNCE_MS,
-    async ({ programId, signature }) => this.handleMigrationSignal(programId, signature),
-  );
+  private readonly dbClient: HeliusWatchDb;
+  private readonly nowMs: () => number;
+  private readonly providerBudget: ProviderBudgetService;
+  private readonly recordEvent: typeof recordOperatorEvent;
+  private readonly sharedFacts: SharedTokenFactsService;
+  private readonly migrationWatcher: HeliusMigrationWatcher;
+  private readonly recentWebhookDigests = new Map<string, number>();
+  private pendingStreamBytes = 0;
+  private lastWebhookAtMs = 0;
+  private lastDuplicateEventAtMs = 0;
+  private lastReplayEventAtMs = 0;
+  private duplicateEventsSinceBoot = 0;
+  private replayedEventsSinceBoot = 0;
+  private trackedWalletReconciledAtMs = 0;
 
-  constructor(private readonly deps: HeliusWatchServiceDeps) {}
+  constructor(private readonly deps: HeliusWatchServiceDeps) {
+    this.dbClient = deps.dbClient ?? db;
+    this.nowMs = deps.nowMs ?? Date.now;
+    this.providerBudget = deps.providerBudget ?? new ProviderBudgetService();
+    this.recordEvent = deps.recordEvent ?? recordOperatorEvent;
+    this.sharedFacts = deps.sharedFacts ?? new SharedTokenFactsService();
+    this.migrationWatcher = deps.migrationWatcher ?? new HeliusMigrationWatcher(
+      env.HELIUS_RPC_URL,
+      env.HELIUS_MIGRATION_WATCH_PROGRAM_IDS,
+      env.HELIUS_MIGRATION_WATCH_DEBOUNCE_MS,
+      async ({ programId, signature }) => this.handleMigrationSignal(programId, signature),
+      (event) => {
+        void this.handleMigrationTelemetry(event);
+      },
+    );
+  }
 
   async start(): Promise<void> {
-    await this.ensureTrackedWallets();
+    await this.reconcileTrackedWallets();
     await this.migrationWatcher.start();
   }
 
@@ -78,38 +123,60 @@ export class HeliusWatchService {
 
   async ingestSmartWalletWebhook(body: unknown, rawBody: string, signature: string | undefined): Promise<{ ok: true; inserted: number }> {
     this.verifySignature(rawBody, signature);
+    this.recordWebhookIngest("smart-wallet", body);
+    if (this.wasRecentWebhookReplay("smart-wallet", rawBody)) {
+      return { ok: true, inserted: 0 };
+    }
+
     const parsed = this.parseSmartWalletEvents(body);
     if (parsed.length === 0) {
       return { ok: true, inserted: 0 };
     }
 
-    await this.ensureWalletRows(parsed.map((event) => event.walletAddress));
-    await db.smartWalletEvent.createMany({
-      data: parsed.map((event) => ({
-        walletAddress: event.walletAddress,
-        mint: event.mint,
-        side: event.side,
-        amountUsd: event.amountUsd,
-        slot: event.slot,
-        txSignature: event.txSignature,
-        metadata: event.metadata,
-      })),
-      skipDuplicates: true,
-    });
+    const deduped = dedupeSmartWalletEvents(parsed);
+    const duplicatedInPayload = parsed.length - deduped.length;
+    if (duplicatedInPayload > 0) {
+      this.noteDuplicateEvents(duplicatedInPayload);
+    }
 
-    const touchedMints = [...new Set(parsed.map((event) => event.mint))];
+    await this.ensureWalletRows(deduped.map((event) => event.walletAddress));
+    const inserted = deduped.length > 0
+      ? (await this.dbClient.smartWalletEvent.createMany({
+        data: deduped.map((event) => ({
+          walletAddress: event.walletAddress,
+          mint: event.mint,
+          side: event.side,
+          amountUsd: event.amountUsd,
+          slot: event.slot,
+          txSignature: event.txSignature,
+          metadata: event.metadata,
+        })),
+        skipDuplicates: true,
+      })).count
+      : 0;
+
+    const replayedEvents = deduped.length - inserted;
+    if (replayedEvents > 0) {
+      this.noteReplayEvents(replayedEvents);
+    }
+
+    const touchedMints = [...new Set(deduped.map((event) => event.mint))];
     await Promise.all(touchedMints.map((mint) => this.maybeRecordSmartMoneySignal(mint)));
-    return { ok: true, inserted: parsed.length };
+    return { ok: true, inserted };
   }
 
   async ingestLpWebhook(body: unknown, rawBody: string, signature: string | undefined): Promise<{ ok: true }> {
     this.verifySignature(rawBody, signature);
+    this.recordWebhookIngest("lp", body);
+    if (this.wasRecentWebhookReplay("lp", rawBody)) {
+      return { ok: true };
+    }
     const event = asRecord(body);
     const mint = readString(event, "mint") ?? readString(event, "tokenMint") ?? "unknown";
     const removed = readBoolean(event, "removed")
       ?? (readNumber(event, "reserveAfter") ?? 1) <= 0;
     if (removed) {
-      await recordOperatorEvent({
+      await this.recordEvent({
         kind: "lp_removed",
         level: "warning",
         title: "LP removal signal",
@@ -122,12 +189,16 @@ export class HeliusWatchService {
 
   async ingestHoldersWebhook(body: unknown, rawBody: string, signature: string | undefined): Promise<{ ok: true }> {
     this.verifySignature(rawBody, signature);
+    this.recordWebhookIngest("holders", body);
+    if (this.wasRecentWebhookReplay("holders", rawBody)) {
+      return { ok: true };
+    }
     const event = asRecord(body);
     const mint = readString(event, "mint") ?? "unknown";
     const deltaPercent = readNumber(event, "holderDeltaPercent")
       ?? readHolderDeltaPercent(event);
     if (deltaPercent != null && deltaPercent <= -20) {
-      await recordOperatorEvent({
+      await this.recordEvent({
         kind: "holder_dump",
         level: "warning",
         title: "Holder dump signal",
@@ -139,34 +210,47 @@ export class HeliusWatchService {
   }
 
   async getSummary(): Promise<HeliusWatchSummary> {
+    const migrationStatus = this.migrationWatcher.getStatus();
     const since24h = new Date(Date.now() - (24 * 60 * 60 * 1000));
     const [walletCount, eventCount, signalCount, lastSignal, lastMigration] = await Promise.all([
-      db.smartWallet.count({ where: { active: true } }),
-      db.smartWalletEvent.count({ where: { receivedAt: { gte: since24h } } }),
-      db.operatorEvent.count({
+      this.dbClient.smartWallet.count({ where: { active: true } }),
+      this.dbClient.smartWalletEvent.count({ where: { receivedAt: { gte: since24h } } }),
+      this.dbClient.operatorEvent.count({
         where: {
           kind: "smart_money_signal",
           createdAt: { gte: since24h },
         },
       }),
-      db.operatorEvent.findFirst({
+      this.dbClient.operatorEvent.findFirst({
         where: { kind: "smart_money_signal" },
         orderBy: { createdAt: "desc" },
         select: { createdAt: true },
       }),
-      db.sharedTokenFactMigrationSignal.findFirst({
+      this.dbClient.sharedTokenFactMigrationSignal.findFirst({
         orderBy: { observedAt: "desc" },
         select: { observedAt: true },
       }),
     ]);
     return {
       migrationWatcherEnabled: env.HELIUS_MIGRATION_WATCHER_ENABLED,
+      migrationWatcherStarted: migrationStatus.started,
+      configuredProgramCount: migrationStatus.configuredProgramCount,
+      activeSubscriptionCount: migrationStatus.activeSubscriptionCount,
+      observedLogCountSinceBoot: migrationStatus.observedLogCount,
       trackedWalletCount: walletCount,
       recentSmartWalletEvents24h: eventCount,
       recentSmartWalletSignals24h: signalCount,
       lastSmartWalletSignalAt: lastSignal?.createdAt.toISOString() ?? null,
       lastMigrationSignalAt: lastMigration?.observedAt.toISOString() ?? null,
+      lastObservedLogAt: migrationStatus.lastObservedLogAt,
+      lastWebhookAt: toIsoString(this.lastWebhookAtMs),
+      lastDuplicateEventAt: toIsoString(this.lastDuplicateEventAtMs),
+      lastReplayEventAt: toIsoString(this.lastReplayEventAtMs),
+      duplicateEventsSinceBoot: this.duplicateEventsSinceBoot,
+      replayedEventsSinceBoot: this.replayedEventsSinceBoot,
+      trackedWalletReconciledAt: toIsoString(this.trackedWalletReconciledAtMs),
       webhookSecretConfigured: Boolean(env.HELIUS_WEBHOOK_SECRET),
+      smartWalletFundingStatus: "dead_schema",
     };
   }
 
@@ -178,7 +262,7 @@ export class HeliusWatchService {
     }
 
     const since30m = new Date(Date.now() - (30 * 60 * 1000));
-    const rows = await db.smartWalletEvent.findMany({
+    const rows = await this.dbClient.smartWalletEvent.findMany({
       where: {
         mint: { in: uniqueMints },
         receivedAt: { gte: since30m },
@@ -210,7 +294,15 @@ export class HeliusWatchService {
   }
 
   private async handleMigrationSignal(programId: string, signature: string): Promise<void> {
-    await this.sharedFacts.rememberMigrationSignal({ programId, signature });
+    try {
+      await this.sharedFacts.rememberMigrationSignal({ programId, signature });
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        this.noteReplayEvents(1);
+        return;
+      }
+      throw error;
+    }
 
     const [settings, pauseReason] = await Promise.all([
       this.deps.getSettings(),
@@ -224,7 +316,7 @@ export class HeliusWatchService {
       return;
     }
 
-    await recordOperatorEvent({
+    await this.recordEvent({
       kind: "provider_signal",
       title: "Helius migration signal",
       detail: `Observed watched migration program ${programId}; triggering an immediate discovery sweep.`,
@@ -233,11 +325,21 @@ export class HeliusWatchService {
     await this.deps.triggerDiscovery();
   }
 
-  private async ensureTrackedWallets(): Promise<void> {
-    if (env.HELIUS_SMART_WALLET_ADDRESSES.length === 0) {
-      return;
-    }
-    await this.ensureWalletRows(env.HELIUS_SMART_WALLET_ADDRESSES);
+  private async reconcileTrackedWallets(): Promise<void> {
+    const addresses = [...new Set(env.HELIUS_SMART_WALLET_ADDRESSES.map((value) => value.trim()).filter(Boolean))];
+    await this.ensureWalletRows(addresses);
+    await this.dbClient.smartWallet.updateMany({
+      where: {
+        source: "helius_webhook",
+        active: true,
+        ...(addresses.length > 0 ? { address: { notIn: addresses } } : {}),
+      },
+      data: {
+        active: false,
+        refreshedAt: new Date(this.nowMs()),
+      },
+    });
+    this.trackedWalletReconciledAtMs = this.nowMs();
   }
 
   private async ensureWalletRows(addresses: string[]): Promise<void> {
@@ -245,7 +347,7 @@ export class HeliusWatchService {
     if (unique.length === 0) {
       return;
     }
-    await Promise.all(unique.map((address) => db.smartWallet.upsert({
+    await Promise.all(unique.map((address) => this.dbClient.smartWallet.upsert({
       where: { address },
       update: {
         active: true,
@@ -298,7 +400,7 @@ export class HeliusWatchService {
     const since15m = new Date(Date.now() - (15 * 60 * 1000));
     const since30m = new Date(Date.now() - (30 * 60 * 1000));
     const [recentBuys, recentSells] = await Promise.all([
-      db.smartWalletEvent.findMany({
+      this.dbClient.smartWalletEvent.findMany({
         where: {
           mint,
           side: "BUY",
@@ -309,7 +411,7 @@ export class HeliusWatchService {
           amountUsd: true,
         },
       }),
-      db.smartWalletEvent.count({
+      this.dbClient.smartWalletEvent.count({
         where: {
           mint,
           side: "SELL",
@@ -323,7 +425,7 @@ export class HeliusWatchService {
       return;
     }
 
-    const latest = await db.operatorEvent.findFirst({
+    const latest = await this.dbClient.operatorEvent.findFirst({
       where: {
         kind: "smart_money_signal",
         entityId: mint,
@@ -335,7 +437,7 @@ export class HeliusWatchService {
       return;
     }
 
-    await recordOperatorEvent({
+    await this.recordEvent({
       kind: "smart_money_signal",
       level: "warning",
       title: "Smart money signal",
@@ -349,6 +451,111 @@ export class HeliusWatchService {
       },
     });
   }
+
+  private recordWebhookIngest(kind: "smart-wallet" | "lp" | "holders", body: unknown): void {
+    this.lastWebhookAtMs = this.nowMs();
+    const creditsUsed = normalizePayloadRecords(body).length;
+    if (creditsUsed <= 0) {
+      return;
+    }
+    this.recordHeliusUsage("WEBHOOK", `webhook:${kind}`, creditsUsed);
+  }
+
+  private wasRecentWebhookReplay(kind: "smart-wallet" | "lp" | "holders", rawBody: string): boolean {
+    const now = this.nowMs();
+    this.trimWebhookDigests(now);
+    const digest = crypto.createHash("sha1").update(`${kind}:${rawBody}`).digest("hex");
+    const seenAt = this.recentWebhookDigests.get(digest);
+    this.recentWebhookDigests.set(digest, now);
+    if (seenAt != null) {
+      this.noteReplayEvents(1);
+      return true;
+    }
+    return false;
+  }
+
+  private trimWebhookDigests(now: number): void {
+    const ttlMs = 15 * 60 * 1000;
+    for (const [digest, seenAt] of this.recentWebhookDigests.entries()) {
+      if (now - seenAt > ttlMs) {
+        this.recentWebhookDigests.delete(digest);
+      }
+    }
+  }
+
+  private noteDuplicateEvents(count: number): void {
+    this.duplicateEventsSinceBoot += count;
+    this.lastDuplicateEventAtMs = this.nowMs();
+  }
+
+  private noteReplayEvents(count: number): void {
+    this.replayedEventsSinceBoot += count;
+    this.lastReplayEventAtMs = this.nowMs();
+  }
+
+  private recordHeliusUsage(
+    purpose: "DISCOVERY" | "WEBHOOK",
+    endpoint: string,
+    creditsUsed: number,
+    mint?: string,
+  ): void {
+    if (creditsUsed <= 0) {
+      return;
+    }
+    const slot = this.providerBudget.requestSlot("HELIUS", purpose, {
+      endpoint,
+      mint,
+    });
+    this.providerBudget.releaseSlot(slot.id, {
+      endpoint,
+      creditsUsed,
+      httpStatus: 200,
+      latencyMs: 0,
+    });
+  }
+
+  private async handleMigrationTelemetry(event: HeliusMigrationWatcherTelemetryEvent): Promise<void> {
+    if (event.type === "subscription_opened") {
+      this.recordHeliusUsage("DISCOVERY", "logsSubscribe", 1);
+      return;
+    }
+
+    if (event.type !== "log_observed" || event.payloadBytes <= 0) {
+      return;
+    }
+
+    this.pendingStreamBytes += event.payloadBytes;
+    const fullChunks = Math.floor(this.pendingStreamBytes / 100_000);
+    if (fullChunks <= 0) {
+      return;
+    }
+    this.pendingStreamBytes -= fullChunks * 100_000;
+    this.recordHeliusUsage("DISCOVERY", "logsStream", fullChunks * 2);
+  }
+}
+
+type HeliusWatchDb = Pick<
+  typeof db,
+  "operatorEvent" | "sharedTokenFactMigrationSignal" | "smartWallet" | "smartWalletEvent"
+>;
+
+function dedupeSmartWalletEvents(events: ParsedSmartWalletEvent[]): ParsedSmartWalletEvent[] {
+  const deduped = new Map<string, ParsedSmartWalletEvent>();
+  for (const event of events) {
+    const key = `${event.walletAddress}:${event.txSignature}:${event.side}`;
+    if (!deduped.has(key)) {
+      deduped.set(key, event);
+    }
+  }
+  return [...deduped.values()];
+}
+
+function toIsoString(valueMs: number): string | null {
+  return valueMs > 0 ? new Date(valueMs).toISOString() : null;
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }
 
 function shortWalletLabel(address: string): string {

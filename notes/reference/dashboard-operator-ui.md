@@ -13,21 +13,17 @@ source_files:
   - trading_bot/dashboard/components/positions-grid.tsx
   - trading_bot/dashboard/components/dashboard-primitives.tsx
   - trading_bot/dashboard/components/dashboard-client.tsx
-  - trading_bot/dashboard/components/discovery-lab-client.tsx
-  - trading_bot/dashboard/components/discovery-lab-results-board.tsx
   - trading_bot/dashboard/components/settings-client.tsx
   - trading_bot/dashboard/components/pinned-items.tsx
   - trading_bot/dashboard/components/workbench-row-actions.tsx
-  - trading_bot/dashboard/app/candidates/page.tsx
   - trading_bot/dashboard/app/candidates/[id]/page.tsx
-  - trading_bot/dashboard/app/trading/page.tsx
-  - trading_bot/dashboard/app/discovery-lab/page.tsx
-  - trading_bot/dashboard/app/positions/page.tsx
+  - trading_bot/dashboard/app/market/trending/page.tsx
+  - trading_bot/dashboard/app/workbench/editor/page.tsx
+  - trading_bot/dashboard/app/workbench/sandbox/page.tsx
   - trading_bot/dashboard/app/positions/[id]/page.tsx
-  - trading_bot/dashboard/app/telemetry/page.tsx
   - trading_bot/backend/src/services/operator-desk.ts
 graph_checked: 2026-04-14
-next_action: Browser-verify the redesigned discovery workflow against real Birdeye or Helius envs so run polling, package save/delete, strategy edits, and large current-run result tables are checked outside build-only validation.
+next_action: Browser-verify the workbench and market routes against real Birdeye or Helius envs so pack editing, sandbox runs, grader review, and token lookup are checked outside build-only validation.
 ---
 
 # Dashboard Operator UI
@@ -62,7 +58,8 @@ Purpose: document the current UI contract for the Next.js operator desk so later
 ## Shell Contract
 
 - Sidebar owns primary route navigation
-- Sidebar should present two grouped areas:
+- The dashboard no longer adds app-level Basic Auth before rendering, and the local backend route surface no longer depends on mirrored dashboard control secrets
+- Sidebar should present three grouped areas:
   `Operational desk`, `Strategy workbench`, and `Market intel`
 - Sidebar item labels should match the route job directly:
   `Overview`, `Trading`, `Settings`, `Packs`, `Editor`, `Sandbox`, `Grader`, `Sessions`, `Trending`, `Watchlist`
@@ -74,6 +71,8 @@ Purpose: document the current UI contract for the Next.js operator desk so later
   sync
 - Keep shell-state density high; do not repeat blocker, mode, health, and sync as separate large cards in both the sidebar and the header
 - Sidebar should not carry a second current-page summary card beneath navigation; the shell rail stays for route navigation plus one compact shell-state row only
+- The shell no longer duplicates discovery destinations under the primary groups. If a route belongs to workbench or market intel, reach it through that section instead of re-adding a second quick-link rail.
+- Page headers should not repeat route-jump button rows when the sidebar already exposes those destinations; header actions stay for page-local work such as refresh, Grafana pivots, or run/apply controls
 - Sync labels in the shell should prefer relative recency such as `5m ago` over full timestamps
 - Desktop sidebar can collapse into an icon rail and should remember that state locally so the workbench can expand without losing route access
 - Sidebar can carry one compact pinned-items watchlist below navigation when the operator desk needs repeated jumps back into the same candidate and position records
@@ -100,15 +99,17 @@ Purpose: document the current UI contract for the Next.js operator desk so later
 - `/operational-desk/overview`: current control desk only, including compact diagnostics and provider fault surfaces
 - `/operational-desk/trading`: unified lifecycle workbench for candidate intake and position management, with compact KPI header and segmented intake and book controls
 - `/operational-desk/settings`: smaller runtime-control surface for desk-facing capital and cadence edits with direct apply
-- `/discovery-lab/market-stats`: market-wide pulse check plus direct single-mint lookup backed by shared backend provider logic; default route loads stay cache-only and visually distinguish paid Birdeye inputs from free Rugcheck and DexScreener inputs
-- `/discovery-lab/studio`: builder-first discovery workspace for package editing, thresholds, strategy ladders, structured package filters, grouped sort options, duplicate/new/delete actions, and direct run launch; keep the page header minimal and avoid a second local hero above the editor
-- `/discovery-lab/run-lab`: compatibility redirect only; the route should forward straight to `/discovery-lab/results`
-- `/discovery-lab/results`: unified run-and-review surface for start, monitor, reopen, and completed-run triage, plus live strategy staging and manual trade ticket flow
-- `/discovery-lab/strategy-ideas`: backend-suggested pack ideas for the current regime; route loads stay read-only and cache-backed, while refresh controls expose the manual-refresh path for confidence, threshold ranges, and session fit
-- `/discovery-lab/config`: discovery-owned config surface for strategy, discovery filters, exits, and hot runtime parameters
-- `/workbench/*` and `/market/*`: compatibility route layer for the draft IA. These pages may delegate to the current discovery-lab implementation until first-class replacements land, but the URL contract should stay stable.
+- `/workbench/packs`: pack library with list-first selection, clone/open/start-run actions, and no fake analytics filler
+- `/workbench/editor`: pack editing and run launch in one focused workbench surface
+- `/workbench/sandbox`: recent-run inspection and reopen flow for live or failed sandbox runs
+- `/workbench/grader`: run grading, tuning suggestions, and apply-to-session review
+- `/workbench/sessions`: deployment history and active session lifecycle
+- `/market/trending`: market-wide pulse check with real fields only
+- `/market/watchlist`: operator-owned watchlist for names worth reopening
+- `/market/token/[mint]`: single-token detail and lookup target from candidate and market flows
 - compatibility routes:
-  `/`, `/trading`, `/settings`, `/discovery-lab`, `/candidates`, `/positions`, and `/telemetry` remain as redirects so old links keep working while primary navigation stays compact
+  `/`, `/trading`, `/settings`, `/discovery-lab/*`, `/candidates`, `/positions`, and `/telemetry` remain as redirects so old links keep working while primary navigation stays compact
+- Redirect-only app route files should not linger in `app/` once `next.config.ts` owns the redirect. Delete the page file instead of keeping dead wrappers around.
 
 ## Detail Page Order
 
@@ -139,26 +140,17 @@ Purpose: document the current UI contract for the Next.js operator desk so later
   metric and other compact-dimension columns should center-align by default
   internal cell padding should stay slightly roomier than the first compact pass so dense tables still scan cleanly
   apply subtle heatmap treatment on score-driven metric columns when it improves ranking legibility without turning the table into a chart
-- Discovery lab should feel like a compact research workbench:
-  builder is the primary operator surface when there is no active review task
-  route order should read `Strategy studio` -> `Results`, with `run-lab` and `overview` retained only as compatibility redirects
-  studio owns pack editing, validation, and run launch
-  results owns monitoring, reopen, manual trade tickets, and live-strategy handoff
-  the page header should stay compact and contextual; do not bring back a large local hero or a duplicated score-strip ahead of the builder
-  the sticky bar should focus on contextual actions for the active tab so operators do not see build, run, and staging controls all at once
-  discovery should not repeat the same pack or run facts in the tab rail, page header, sticky bar, and local cards at the same time; one compact context row plus one active-action bar is enough
-  market stats should sit ahead of results in the operator workflow: pulse first, suggested ideas second, completed-run review third
+- Strategy workbench should feel like a compact operator toolchain:
+  packs owns library and selection
+  editor owns pack edits and run launch
+  sandbox owns reopen and run detail
+  grader owns verdict and tuning review
+  sessions owns deployment history
+  the page header should stay compact and contextual; do not bring back a large local hero or a duplicated score-strip ahead of the editor
+  workbench surfaces should not repeat the same pack or run facts in the header, sticky bars, and local cards at the same time; one compact context row plus one active-action bar is enough
   the builder should no longer force raw JSON as the primary editing surface for recipes; structured controls with suggested values, selects, and numeric inputs should own the common path, with raw JSON kept as an advanced escape hatch
-  the top tab rail should stay terse in its default state; short labels win over always-visible helper copy
-  `Builder` combines package and strategy editing in one surface
-  sticky core actions stay visible while scrolling: `New`, `Duplicate`, `Delete`, `Validate`, `Save`, `Run`, `Load run package`
-  the sticky action bar should visually separate build/edit controls from run/review controls so the operator can parse intent at a glance
-  created packs still need explicit `use`, `clone`, `load run package`, and `delete` actions so operators do not guess how to begin
-  created packs may load into editable drafts so the operator can tune them and optionally save a workspace copy without reviving starter-template language
-  package selection should use an inline dropdown field instead of a persistent side library rail on desktop
-  package editing remains split into pack details, thresholds, and strategy editing in one studio surface
-  studio should keep pack selection, primary actions, and a compact summary strip in one operator bar instead of stacking separate rows and explainer cards
-  the pack frame should stay compact: one selector row, a small chip summary, and the edit tabs below; avoid a second large workspace explainer card
+  created packs still need explicit `clone`, `edit`, `start run`, and `delete` actions so operators do not guess how to begin
+  pack selection should use an inline list or dropdown field instead of a permanent duplicate route rail on desktop
   pack details should use shared dashboard form primitives; multiline reasoning belongs in compact textareas instead of pretending every note fits in a one-line input
   strategy filters should use a field-first add-filter flow rather than an always-visible wall of metric inputs
   all repo-supported package filter fields should be editable from structured controls before the operator has to fall back to JSON, including relative-time fields plus creator, platform, size, volume, price, and trade filters

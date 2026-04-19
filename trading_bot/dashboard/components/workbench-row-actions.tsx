@@ -23,6 +23,7 @@ export function WorkbenchRowActions(props: {
       <div className="row-actions hidden md:flex">
         <Link
           href={props.openHref as Route}
+          prefetch={false}
           className="btn-ghost inline-flex items-center gap-2 border border-bg-border px-3 py-2 text-xs"
           title={`Open ${props.openLabel}`}
         >
@@ -64,6 +65,7 @@ export function WorkbenchRowActions(props: {
           <div className="floating-menu absolute right-0 top-[calc(100%+0.45rem)] z-20 grid min-w-[11rem] gap-2 p-2">
             <Link
               href={props.openHref as Route}
+              prefetch={false}
               onClick={() => setMenuOpen(false)}
               className="btn-ghost inline-flex items-center justify-between gap-2 border border-bg-border px-3 py-2 text-xs"
               title={`Open ${props.openLabel}`}

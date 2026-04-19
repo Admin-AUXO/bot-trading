@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CompactPageHeader, EmptyState, Panel, ScanStat, StatusPill } from "@/components/dashboard-primitives";
-import { ApplyRunLiveButton } from "@/components/workbench/workbench-actions";
+import { RunSessionStartPanel } from "@/components/workbench/workbench-actions";
+import { WorkbenchFlowStrip } from "@/components/workbench/workbench-flow-strip";
+import { WorkbenchRunResultsTable } from "@/components/workbench/workbench-run-results-table";
 import { buttonVariants } from "@/components/ui/button";
 import { workbenchRoutes } from "@/lib/dashboard-routes";
 import { serverFetch } from "@/lib/server-api";
@@ -33,6 +35,12 @@ export default async function WorkbenchSandboxRunPage({
 
   return (
     <div className="space-y-5">
+      <WorkbenchFlowStrip
+        current="sandbox"
+        focusLabel={run.packName}
+        focusDetail={`Run ${truncate(run.id)} · review this evidence before you jump into grading or deployment.`}
+      />
+
       <CompactPageHeader
         eyebrow="Strategy workbench"
         title={`Sandbox run ${truncate(run.id)}`}
@@ -41,11 +49,12 @@ export default async function WorkbenchSandboxRunPage({
           <div className="flex flex-wrap gap-2">
             <Link
               href={`${workbenchRoutes.sandbox}?runId=${encodeURIComponent(run.id)}`}
+              prefetch={false}
               className={buttonVariants({ variant: "secondary", size: "sm" })}
             >
               Open in sandbox list
             </Link>
-            <Link href={workbenchRoutes.packs} className={buttonVariants({ variant: "ghost", size: "sm" })}>
+            <Link href={workbenchRoutes.packs} prefetch={false} className={buttonVariants({ variant: "ghost", size: "sm" })}>
               Back to packs
             </Link>
           </div>
@@ -89,15 +98,16 @@ export default async function WorkbenchSandboxRunPage({
             ) : null}
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <ApplyRunLiveButton runId={run.id} disabled={!canApply} />
-            {!canApply ? (
-              <div className="rounded-[10px] border border-bg-border bg-bg-hover/25 px-2.5 py-2 text-xs text-text-muted">
-                Only completed runs can be applied.
-              </div>
-            ) : null}
-          </div>
+          <RunSessionStartPanel
+            runId={run.id}
+            disabled={!canApply}
+            disabledReason={!canApply ? "Only completed runs with deployable calibration can be applied." : null}
+          />
         </div>
+      </Panel>
+
+      <Panel title="Result board" eyebrow="Token review" description="Best row per mint from the persisted run report.">
+        <WorkbenchRunResultsTable run={run} />
       </Panel>
 
       <Panel title="Nearby runs" eyebrow="Context" description="Recent runs so navigation stays local to sandbox.">
@@ -125,6 +135,7 @@ export default async function WorkbenchSandboxRunPage({
                 <div className="flex flex-wrap gap-2 md:justify-end">
                   <Link
                     href={`${workbenchRoutes.sandboxByRunPrefix}/${encodeURIComponent(item.id)}`}
+                    prefetch={false}
                     className={buttonVariants({ variant: item.id === run.id ? "secondary" : "ghost", size: "sm" })}
                   >
                     {item.id === run.id ? "Current" : "Open"}

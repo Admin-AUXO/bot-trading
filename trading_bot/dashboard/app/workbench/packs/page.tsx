@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { CompactPageHeader, EmptyState, Panel, ScanStat, StatusPill } from "@/components/dashboard-primitives";
+import { CompactPageHeader, CompactStatGrid, DisclosurePanel, EmptyState, Panel, ScanStat, StatusPill } from "@/components/dashboard-primitives";
 import { StartPackRunButton } from "@/components/workbench/workbench-actions";
+import { WorkbenchFlowStrip } from "@/components/workbench/workbench-flow-strip";
 import { buttonVariants } from "@/components/ui/button";
-import { discoveryLabRoutes, workbenchRoutes } from "@/lib/dashboard-routes";
+import { workbenchRoutes } from "@/lib/dashboard-routes";
 import { serverFetch } from "@/lib/server-api";
 import type {
   DiscoveryLabPack,
@@ -43,164 +44,203 @@ export default async function WorkbenchPacksPage({
 
   return (
     <div className="space-y-5">
+      <WorkbenchFlowStrip
+        current="packs"
+        focusLabel={selectedPack?.name ?? "Choose a pack"}
+        focusDetail="Pick the strategy shape here, then open the editor before you waste time running the wrong draft."
+      />
+
       <CompactPageHeader
         eyebrow="Strategy workbench"
         title="Packs"
-        description="Backend-owned pack inventory with per-pack run history. This page now reads the dedicated pack seam directly."
-        actions={(
-          <div className="flex flex-wrap gap-2">
-            <Link href={workbenchRoutes.sandbox} className={buttonVariants({ variant: "secondary", size: "sm" })}>
-              Open sandbox
-            </Link>
-            <Link href={discoveryLabRoutes.studio} className={buttonVariants({ variant: "ghost", size: "sm" })}>
-              Open studio
-            </Link>
-          </div>
-        )}
+        description="Pick the pack. Then edit, run, and review it in order."
       >
-        {currentSession ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <StatusPill value={currentSession.mode} />
-            <span className="text-xs text-text-secondary">
-              Live session: {currentSession.packName} since {formatTimestamp(currentSession.startedAt)}
-            </span>
-          </div>
-        ) : null}
+        <CompactStatGrid
+          className="xl:grid-cols-4"
+          items={[
+            { label: "Catalog", value: formatCount(packs.length), detail: "Visible packs" },
+            {
+              label: "Selected",
+              value: selectedPack?.name ?? "None",
+              detail: selectedPack ? selectedPack.kind : "Pick a pack",
+              tone: selectedPack ? "accent" : "default",
+            },
+            {
+              label: "Recent runs",
+              value: formatCount(packRuns.length),
+              detail: packRuns[0]?.status ?? "No recent runs",
+            },
+            {
+              label: "Live session",
+              value: currentSession?.packName ?? "Idle",
+              detail: currentSession ? `Since ${formatTimestamp(currentSession.startedAt)}` : "No active deployment",
+              tone: currentSession ? "warning" : "default",
+            },
+          ]}
+        />
       </CompactPageHeader>
 
-      <Panel
-        title="Pack inventory"
-        eyebrow="Catalog"
-        description="Choose a pack to inspect its detail and recent run timeline."
-      >
-        {packs.length === 0 ? (
-          <EmptyState
-            compact
-            title="No packs returned"
-            detail="The backend has no pack rows right now, so there is nothing to schedule."
-          />
-        ) : (
-          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-            {packs.map((pack) => {
-              const isSelected = pack.id === selectedPackId;
-              return (
-                <article
-                  key={pack.id}
-                  className={`rounded-[14px] border px-3 py-3 ${
-                    isSelected
-                      ? "border-[rgba(163,230,53,0.24)] bg-[#11150f]"
-                      : "border-bg-border bg-bg-hover/20"
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="font-display text-[0.95rem] font-semibold tracking-[-0.02em] text-text-primary">
-                        {pack.name}
-                      </div>
-                      <div className="mt-1 line-clamp-2 text-xs text-text-secondary">{pack.description}</div>
-                    </div>
-                    <StatusPill value={pack.kind} />
-                  </div>
-
-                  <div className="mt-2 grid gap-1 text-xs text-text-muted">
-                    <span>Updated {formatTimestamp(pack.updatedAt)}</span>
-                    <span>Runs {formatCount(pack.runCount)}</span>
-                    <span>Latest run {pack.latestRunStatus ?? "unknown"}</span>
-                  </div>
-
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Link
-                      href={`${workbenchRoutes.packs}?pack=${encodeURIComponent(pack.id)}`}
-                      className={buttonVariants({ variant: isSelected ? "secondary" : "ghost", size: "sm" })}
-                    >
-                      {isSelected ? "Selected" : "Inspect"}
-                    </Link>
-                    <StartPackRunButton packId={pack.id} />
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        )}
-      </Panel>
-
-      <Panel
-        title={packDetail?.name ?? selectedPack?.name ?? "Pack detail"}
-        eyebrow="Selected pack"
-        description="Dedicated pack detail plus run history from the backend pack seam."
-      >
-        {selectedPackId ? (
-          <div className="space-y-3">
-            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-              <ScanStat label="Pack id" value={truncate(selectedPackId)} detail={selectedPackId} tone="accent" />
-              <ScanStat
-                label="Run count"
-                value={String(packRuns.length)}
-                detail={packRuns[0]?.status ?? "No runs"}
-              />
-              <ScanStat
-                label="Sources"
-                value={String(packDetail?.defaultSources.length ?? 0)}
-                detail={(packDetail?.defaultSources ?? []).join(", ") || "None"}
-              />
-              <ScanStat
-                label="Recipes"
-                value={String(packDetail?.recipes.length ?? 0)}
-                detail={packDetail?.defaultProfile ?? "profile unknown"}
-              />
-            </div>
-
-            {packDetail ? (
-              <div className="rounded-[12px] border border-bg-border bg-bg-hover/20 p-3">
-                <div className="text-xs text-text-secondary">{packDetail.description || "No description provided."}</div>
-                {packDetail.thesis ? <div className="mt-2 text-xs text-text-muted">Thesis: {packDetail.thesis}</div> : null}
-                <div className="mt-2 text-xs text-text-muted">
-                  Threshold overrides: {Object.keys(packDetail.thresholdOverrides ?? {}).length}
-                </div>
-              </div>
-            ) : null}
-
-            {packRuns.length > 0 ? (
-              <div className="space-y-2">
-                {packRuns.map((run) => (
+      <div className="grid gap-4 xl:grid-cols-[minmax(20rem,0.9fr)_minmax(0,1.2fr)]">
+        <Panel
+          title="Pack inventory"
+          eyebrow="Catalog"
+          description="Keep the catalog visible while you inspect one active pack."
+          className="xl:sticky xl:top-[calc(var(--shell-header-height)+1rem)] xl:self-start"
+        >
+          {packs.length === 0 ? (
+            <EmptyState
+              compact
+              title="No packs returned"
+              detail="The backend has no pack rows right now, so there is nothing to schedule."
+            />
+          ) : (
+            <div className="max-h-[calc(100vh-var(--shell-header-height)-14rem)] space-y-2 overflow-y-auto pr-1">
+              {packs.map((pack) => {
+                const isSelected = pack.id === selectedPackId;
+                return (
                   <article
-                    key={run.id}
-                    className="grid gap-2 rounded-[12px] border border-bg-border bg-bg-hover/20 px-3 py-2.5 md:grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)]"
+                    key={pack.id}
+                    className={`rounded-[14px] border px-3 py-3 ${
+                      isSelected
+                        ? "border-[rgba(163,230,53,0.24)] bg-[#11150f]"
+                        : "border-bg-border bg-bg-hover/20"
+                    }`}
                   >
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <StatusPill value={run.status} />
-                        {run.appliedToLiveAt ? <StatusPill value="applied" /> : null}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="font-display text-[0.95rem] font-semibold tracking-[-0.02em] text-text-primary">
+                          {pack.name}
+                        </div>
+                        <div className="mt-1 line-clamp-2 text-xs text-text-secondary">{pack.description}</div>
                       </div>
-                      <div className="mt-1 text-sm text-text-primary">{run.id}</div>
-                      <div className="mt-1 text-xs text-text-muted">
-                        Created {formatTimestamp(run.createdAt)}
-                        {run.completedAt ? ` · Completed ${formatTimestamp(run.completedAt)}` : ""}
-                      </div>
+                      <StatusPill value={pack.kind} />
                     </div>
-                    <div className="flex flex-wrap gap-2 md:justify-end">
+
+                    <div className="mt-2 grid gap-1 text-xs text-text-muted">
+                      <span>Updated {formatTimestamp(pack.updatedAt)}</span>
+                      <span>Runs {formatCount(pack.runCount)}</span>
+                      <span>Latest run {pack.latestRunStatus ?? "unknown"}</span>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
                       <Link
-                        href={`${workbenchRoutes.sandboxByRunPrefix}/${encodeURIComponent(run.id)}`}
-                        className={buttonVariants({ variant: "secondary", size: "sm" })}
+                        href={`${workbenchRoutes.packs}?pack=${encodeURIComponent(pack.id)}`}
+                        prefetch={false}
+                        className={buttonVariants({ variant: isSelected ? "secondary" : "ghost", size: "sm" })}
                       >
-                        Open run
+                        {isSelected ? "Selected" : "Inspect"}
                       </Link>
+                      <Link
+                        href={`${workbenchRoutes.editor}?pack=${encodeURIComponent(pack.id)}`}
+                        prefetch={false}
+                        className={buttonVariants({ variant: "ghost", size: "sm" })}
+                      >
+                        Edit
+                      </Link>
+                      <StartPackRunButton packId={pack.id} />
                     </div>
                   </article>
-                ))}
+                );
+              })}
+            </div>
+          )}
+        </Panel>
+
+        <Panel
+          title={packDetail?.name ?? selectedPack?.name ?? "Pack detail"}
+          eyebrow="Active selection"
+          description="Summary first. Recent runs only when you need them."
+        >
+          {selectedPackId ? (
+            <div className="space-y-3">
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                <ScanStat label="Pack id" value={truncate(selectedPackId)} detail={selectedPackId} tone="accent" />
+                <ScanStat
+                  label="Run count"
+                  value={String(packRuns.length)}
+                  detail={packRuns[0]?.status ?? "No runs"}
+                />
+                <ScanStat
+                  label="Sources"
+                  value={String(packDetail?.defaultSources.length ?? 0)}
+                  detail={(packDetail?.defaultSources ?? []).join(", ") || "None"}
+                />
+                <ScanStat
+                  label="Recipes"
+                  value={String(packDetail?.recipes.length ?? 0)}
+                  detail={packDetail?.defaultProfile ?? "profile unknown"}
+                />
               </div>
-            ) : (
-              <EmptyState
-                compact
-                title="No runs for this pack"
-                detail="Start one from this page to populate sandbox history."
-              />
-            )}
-          </div>
-        ) : (
-          <EmptyState compact title="No pack selected" detail="Pick a pack from the catalog to inspect it." />
-        )}
-      </Panel>
+
+              {packDetail ? (
+                <div className="rounded-[12px] border border-bg-border bg-bg-hover/20 p-3">
+                  <div className="text-xs text-text-secondary">{packDetail.description || "No description provided."}</div>
+                  {packDetail.thesis ? <div className="mt-2 text-xs text-text-muted">Thesis: {packDetail.thesis}</div> : null}
+                  <div className="mt-2 text-xs text-text-muted">
+                    Threshold overrides: {Object.keys(packDetail.thresholdOverrides ?? {}).length}
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Link
+                      href={`${workbenchRoutes.editor}?pack=${encodeURIComponent(selectedPackId)}`}
+                      prefetch={false}
+                      className={buttonVariants({ variant: "secondary", size: "sm" })}
+                    >
+                      Open editor
+                    </Link>
+                    <StartPackRunButton packId={selectedPackId} />
+                  </div>
+                </div>
+              ) : null}
+
+              {packRuns.length > 0 ? (
+                <DisclosurePanel
+                  title="Recent runs"
+                  description="Open only when you need recent sandbox context for this pack."
+                  badge={<span className="meta-chip">{formatCount(packRuns.length)} runs</span>}
+                >
+                  <div className="space-y-2">
+                    {packRuns.map((run) => (
+                      <article
+                        key={run.id}
+                        className="grid gap-2 rounded-[12px] border border-bg-border bg-bg-hover/20 px-3 py-2.5 md:grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)]"
+                      >
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <StatusPill value={run.status} />
+                            {run.appliedToLiveAt ? <StatusPill value="applied" /> : null}
+                          </div>
+                          <div className="mt-1 text-sm text-text-primary">{run.id}</div>
+                          <div className="mt-1 text-xs text-text-muted">
+                            Created {formatTimestamp(run.createdAt)}
+                            {run.completedAt ? ` · Completed ${formatTimestamp(run.completedAt)}` : ""}
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-2 md:justify-end">
+                          <Link
+                            href={`${workbenchRoutes.sandboxByRunPrefix}/${encodeURIComponent(run.id)}`}
+                            prefetch={false}
+                            className={buttonVariants({ variant: "secondary", size: "sm" })}
+                          >
+                            Open run
+                          </Link>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </DisclosurePanel>
+              ) : (
+                <EmptyState
+                  compact
+                  title="No runs for this pack"
+                  detail="Start one from this page to populate sandbox history."
+                />
+              )}
+            </div>
+          ) : (
+            <EmptyState compact title="No pack selected" detail="Pick a pack from the catalog to inspect it." />
+          )}
+        </Panel>
+      </div>
     </div>
   );
 }

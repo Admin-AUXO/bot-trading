@@ -6,6 +6,25 @@ const csvListSchema = (fallback: string) => z.string().default(fallback).transfo
   .split(",")
   .map((item) => item.trim())
   .filter((item) => item.length > 0));
+const booleanEnv = (fallback: boolean) => z
+  .union([z.boolean(), z.string().trim().toLowerCase()])
+  .transform((value, ctx) => {
+    if (typeof value === "boolean") {
+      return value;
+    }
+    if (value === "true" || value === "1") {
+      return true;
+    }
+    if (value === "false" || value === "0" || value === "") {
+      return false;
+    }
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "expected boolean env value (true/false/1/0)",
+    });
+    return z.NEVER;
+  })
+  .default(fallback);
 
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
@@ -42,7 +61,7 @@ const envSchema = z.object({
   RESEARCH_HELIUS_UNIT_CAP: z.coerce.number().int().positive().default(100),
   LIVE_STRATEGY_PRESET_ID: z.enum(["FIRST_MINUTE_POSTGRAD_CONTINUATION", "LATE_CURVE_MIGRATION_SNIPE"]).default("FIRST_MINUTE_POSTGRAD_CONTINUATION"),
   DRY_RUN_STRATEGY_PRESET_ID: z.enum(["FIRST_MINUTE_POSTGRAD_CONTINUATION", "LATE_CURVE_MIGRATION_SNIPE"]).default("LATE_CURVE_MIGRATION_SNIPE"),
-  HELIUS_MIGRATION_WATCHER_ENABLED: z.coerce.boolean().default(true),
+  HELIUS_MIGRATION_WATCHER_ENABLED: booleanEnv(true),
   HELIUS_MIGRATION_WATCH_PROGRAM_IDS: csvListSchema(""),
   HELIUS_MIGRATION_WATCH_DEBOUNCE_MS: z.coerce.number().int().positive().default(15_000),
   HELIUS_WEBHOOK_SECRET: optionalNonEmptyString,
@@ -79,15 +98,18 @@ const envSchema = z.object({
   RAW_PAYLOAD_RETENTION_DAYS: z.coerce.number().int().positive().default(45),
   SNAPSHOT_RETENTION_DAYS: z.coerce.number().int().positive().default(120),
   API_EVENT_RETENTION_DAYS: z.coerce.number().int().positive().default(180),
-  CAPTURE_SUCCESS_RAW_PAYLOADS: z.coerce.boolean().default(false),
+  CAPTURE_SUCCESS_RAW_PAYLOADS: booleanEnv(false),
   US_HOURS_TIMEZONE: z.string().min(1).default("America/New_York"),
   US_HOURS_START_HOUR: z.coerce.number().int().min(0).max(23).default(9),
   US_HOURS_END_HOUR: z.coerce.number().int().min(1).max(24).default(21),
   BIRDEYE_MONTHLY_CU_BUDGET: z.coerce.number().int().positive().default(1_500_000),
+  HELIUS_MONTHLY_CREDIT_BUDGET: z.coerce.number().int().positive().default(10_000_000),
   BIRDEYE_DISCOVERY_BUDGET_SHARE: z.coerce.number().positive().max(1).default(0.55),
   BIRDEYE_EVALUATION_BUDGET_SHARE: z.coerce.number().positive().max(1).default(0.25),
   BIRDEYE_SECURITY_BUDGET_SHARE: z.coerce.number().positive().max(1).default(0.1),
   BIRDEYE_RESERVE_BUDGET_SHARE: z.coerce.number().positive().max(1).default(0.1),
+  CREDIT_FORECAST_SESSION_HOURS: z.coerce.number().positive().default(2),
+  ALLOW_START_ON_BUDGET_CRITICAL: booleanEnv(false),
   TRADING_WALLET_PRIVATE_KEY_B58: optionalNonEmptyString,
   LIVE_QUOTE_MINT: z.string().min(1).default("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"),
   LIVE_QUOTE_DECIMALS: z.coerce.number().int().min(0).max(12).default(6),
@@ -97,12 +119,11 @@ const envSchema = z.object({
   LIVE_JUPITER_API_BASE_URL: z.string().url().default("https://lite-api.jup.ag/swap/v1"),
   LIVE_PRIORITY_LEVEL: z.string().min(1).default("veryHigh"),
   LIVE_MAX_PRIORITY_FEE_LAMPORTS: z.coerce.number().int().positive().default(1_000_000),
-  LIVE_RESTRICT_INTERMEDIATE_TOKENS: z.coerce.boolean().default(true),
+  LIVE_RESTRICT_INTERMEDIATE_TOKENS: booleanEnv(true),
   LIVE_HELIUS_SENDER_URL: z.string().url().default("https://sender.helius-rpc.com/fast"),
   LIVE_DEPLOY_ALLOWED_IPS: csvListSchema(""),
   LIVE_DEPLOY_2FA_TOKEN: optionalNonEmptyString,
-  CONTROL_API_SECRET: optionalNonEmptyString,
-  BIRDEYE_BUDGET_EMERGENCY_BYPASS: z.coerce.boolean().default(false),
+  BIRDEYE_BUDGET_EMERGENCY_BYPASS: booleanEnv(false),
 });
 
 const parsed = envSchema.safeParse(process.env);

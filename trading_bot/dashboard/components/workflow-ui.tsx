@@ -47,8 +47,8 @@ export function WorkflowSection(props: {
   density?: "default" | "dense";
 }) {
   return (
-    <Card className={cn("rounded-[14px] border-bg-border bg-bg-card/70", props.className)}>
-      <CardHeader className={cn(props.density === "dense" ? "px-4 pb-2.5 pt-4" : "pb-3")}>
+    <Card className={cn("rounded-[16px] border-bg-border bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01))]", props.className)}>
+      <CardHeader className={cn(props.density === "dense" ? "px-4 pb-2 pt-3.5" : "pb-3")}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             {props.eyebrow ? <div className="section-kicker">{props.eyebrow}</div> : null}
@@ -76,7 +76,7 @@ export function WorkflowStat(
   } & VariantProps<typeof workflowStatVariants>,
 ) {
   return (
-    <div className={cn(workflowStatVariants({ tone: props.tone }), props.className)}>
+    <div className={cn(workflowStatVariants({ tone: props.tone }), "shadow-none", props.className)}>
       <div className="scorecard-grid">
         <div className="scorecard-label wrap-anywhere">{props.label}</div>
         <div className="scorecard-value wrap-anywhere text-[1.05rem] font-semibold tracking-tight">
@@ -95,7 +95,7 @@ export function WorkflowStat(
 export function WorkflowStageCard(
   props: {
     label: string;
-    value: string;
+    value: React.ReactNode;
     detail?: string;
     active?: boolean;
     className?: string;
@@ -104,7 +104,7 @@ export function WorkflowStageCard(
 ) {
   const { label, value, detail, active, tone, className, ...rest } = props;
   return (
-    <div className={cn(workflowStageVariants({ active, tone }), className)} {...rest}>
+    <div className={cn(workflowStageVariants({ active, tone }), "shadow-none", className)} {...rest}>
       <div className="scorecard-grid">
         <div className="section-kicker wrap-anywhere">{label}</div>
         <div className="scorecard-value wrap-anywhere text-2xl font-semibold tracking-tight">

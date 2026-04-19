@@ -129,12 +129,24 @@ export type AdaptiveActivityPayload = {
 
 export type HeliusWatchSummary = {
   migrationWatcherEnabled: boolean;
+  migrationWatcherStarted: boolean;
+  configuredProgramCount: number;
+  activeSubscriptionCount: number;
+  observedLogCountSinceBoot: number;
   trackedWalletCount: number;
   recentSmartWalletEvents24h: number;
   recentSmartWalletSignals24h: number;
   lastSmartWalletSignalAt: string | null;
   lastMigrationSignalAt: string | null;
+  lastObservedLogAt: string | null;
+  lastWebhookAt: string | null;
+  lastDuplicateEventAt: string | null;
+  lastReplayEventAt: string | null;
+  duplicateEventsSinceBoot: number;
+  replayedEventsSinceBoot: number;
+  trackedWalletReconciledAt: string | null;
   webhookSecretConfigured: boolean;
+  smartWalletFundingStatus: "dead_schema";
 };
 
 export type AdaptiveTokenExplanation = {
@@ -275,6 +287,40 @@ export type TradingSessionHistoryPayload = {
   currentSession: TradingSessionSnapshot | null;
   sessions: TradingSessionSnapshot[];
   runtimePauseReason: string | null;
+};
+
+export type SessionBudgetProviderForecast = {
+  provider: "BIRDEYE" | "HELIUS";
+  estimatedCredits: number;
+  todayCreditsUsed: number;
+  monthCreditsUsed: number;
+  dailyBudgetCredits: number;
+  monthlyBudgetCredits: number;
+  remainingDailyCredits: number;
+  remainingMonthlyCredits: number;
+  warningLevel: "none" | "info" | "warning" | "critical";
+  exceededDailyBudget: boolean;
+  exceededMonthlyBudget: boolean;
+};
+
+export type SessionBudgetForecast = {
+  durationHours: number;
+  mode: "DRY_RUN" | "LIVE";
+  packId: string | null;
+  packName: string | null;
+  allowed: boolean;
+  overrideUsed: boolean;
+  blockingReason: string | null;
+  warningLevel: "none" | "info" | "warning" | "critical";
+  assumptions: {
+    discoveryCandidatesPerHour: number;
+    acceptedCandidatesPerHour: number;
+    openPositionsAverage: number;
+    exitTicksPerHour: number;
+    webhookEventsPerHour: number;
+    packMultiplier: number;
+  };
+  providers: SessionBudgetProviderForecast[];
 };
 
 export type WorkbenchPackSummary = {
@@ -997,6 +1043,7 @@ export type DiscoveryLabApplyLiveStrategyResponse = {
   ok: true;
   session: TradingSessionSnapshot;
   strategy: DiscoveryLabStrategyCalibration;
+  budgetForecast?: SessionBudgetForecast;
 };
 
 export type DiscoveryLabMarketTokenRow = {

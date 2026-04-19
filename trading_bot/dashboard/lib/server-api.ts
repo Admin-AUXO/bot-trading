@@ -1,14 +1,9 @@
 import "server-only";
 
-const API_URL = process.env.API_URL ?? "http://127.0.0.1:3101";
-const CONTROL_API_SECRET = process.env.CONTROL_API_SECRET ?? process.env.CONTROL_SECRET ?? "";
+const API_URL = (process.env.API_URL ?? "http://127.0.0.1:3101").trim().replace(/\/$/, "");
 
 export async function serverFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers ?? {});
-
-  if (!headers.has("authorization") && CONTROL_API_SECRET) {
-    headers.set("authorization", `Bearer ${CONTROL_API_SECRET}`);
-  }
 
   const response = await fetch(`${API_URL}${path}`, {
     ...init,

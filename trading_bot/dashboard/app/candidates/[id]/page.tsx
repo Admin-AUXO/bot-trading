@@ -2,7 +2,15 @@ import { ArrowLeft, ArrowUpRight } from "lucide-react";
 import Link from "next/link";
 import type { Route } from "next";
 import { CopyButton } from "@/components/copy-button";
-import { DataTable, PageHero, Panel, StatusPill } from "@/components/dashboard-primitives";
+import {
+  CompactPageHeader,
+  CompactStatGrid,
+  DataTable,
+  DisclosurePanel,
+  InlineNotice,
+  Panel,
+  StatusPill,
+} from "@/components/dashboard-primitives";
 import { CandidateDetailActions } from "@/components/candidate-detail-actions";
 import { serverFetch } from "@/lib/server-api";
 import { operationalDeskRoutes } from "@/lib/dashboard-routes";
@@ -37,12 +45,17 @@ export default async function CandidateDetailPage(props: {
 
   return (
     <div className="space-y-5">
-      <PageHero
+      <CompactPageHeader
         eyebrow="Candidate"
         title={detail.summary.symbol || shortMint(detail.summary.mint)}
-        description={undefined}
-        meta={<StatusPill value={detail.summary.status} />}
-        actions={(
+        description="Decision first. Raw evidence second."
+        badges={(
+          <>
+            <StatusPill value={detail.summary.status} />
+            <StatusPill value={detail.summary.source} />
+          </>
+        )}
+        actions={
           <>
             <Link href={backHref as Route} className="btn-ghost inline-flex items-center gap-2 border border-bg-border">
               <ArrowLeft className="h-4 w-4" />
@@ -65,26 +78,57 @@ export default async function CandidateDetailPage(props: {
               </a>
             ) : null}
           </>
-        )}
-        aside={(
-          <div className="panel-muted rounded-[16px] p-4">
-            <div className="section-kicker">Now</div>
-            <div className="mt-4 grid gap-3">
-              <SummaryRow label="Blocker" value={detail.summary.primaryBlocker} />
-              <SummaryRow label="Source" value={detail.summary.source} />
-              <SummaryRow label="Discovered" value={formatTimestamp(detail.summary.discoveredAt)} />
-              <SummaryRow label="Last touch" value={detail.summary.lastEvaluatedAt ? formatTimestamp(detail.summary.lastEvaluatedAt) : "—"} />
-              <SummaryRow label="Mint" value={shortMint(detail.summary.mint)} mono />
-            </div>
-          </div>
-        )}
-      />
+        }
+      >
+        <CompactStatGrid
+          className="xl:grid-cols-5"
+          items={[
+            {
+              label: "Blocker",
+              value: detail.summary.primaryBlocker,
+              detail: detail.summary.rejectReason ?? "No reject reason stored",
+              tooltip: "Primary blocker plus the stored rejection reason when one exists.",
+              tone: candidateTone(detail.summary.status, detail.summary.primaryBlocker) === "critical" ? "danger" : "warning",
+            },
+            {
+              label: "Discovered",
+              value: formatTimestamp(detail.summary.discoveredAt),
+              detail: detail.summary.lastEvaluatedAt ? `Touched ${formatTimestamp(detail.summary.lastEvaluatedAt)}` : "No evaluation timestamp",
+              tooltip: "Discovery time plus the most recent evaluation touch.",
+            },
+            {
+              label: "Liquidity",
+              value: formatCompactCurrency(detail.summary.liquidityUsd),
+              detail: `Volume 5m ${formatCompactCurrency(detail.summary.volume5mUsd)}`,
+              tooltip: "Current liquidity with the latest stored five-minute volume.",
+            },
+            {
+              label: "Buy/sell",
+              value: formatNumber(detail.summary.buySellRatio),
+              detail: `Top10 ${formatPercent(detail.summary.top10HolderPercent)}`,
+              tooltip: "Buy/sell pressure and top-10 holder concentration.",
+            },
+            {
+              label: "Mint",
+              value: shortMint(detail.summary.mint),
+              detail: detail.summary.mint,
+              tooltip: "Full token mint.",
+            },
+          ]}
+        />
+      </CompactPageHeader>
+
+      {detail.summary.rejectReason ? (
+        <InlineNotice tone={candidateTone(detail.summary.status, detail.summary.primaryBlocker) === "critical" ? "danger" : "warning"}>
+          {detail.summary.rejectReason}
+        </InlineNotice>
+      ) : null}
 
       <section className="grid gap-6 2xl:grid-cols-[1.05fr_0.95fr]">
         <Panel
-          title="Why it matters now"
-          eyebrow="Intervention"
-          description={detail.summary.rejectReason ?? undefined}
+          title="Current read"
+          eyebrow="Decision summary"
+          description="Primary blocker, score-bearing market structure, and the extra reasons that matter right now."
           tone={candidateTone(detail.summary.status, detail.summary.primaryBlocker)}
         >
           <div className="grid gap-3 md:grid-cols-2">
@@ -120,32 +164,36 @@ export default async function CandidateDetailPage(props: {
         </Panel>
       </section>
 
-      <section className="grid gap-6 2xl:grid-cols-[0.9fr_1.1fr]">
-        <Panel
-          title="Filter trace"
-          eyebrow="Gate state"
-          description={undefined}
-        >
-          <FieldGrid
-            data={detail.summary.filterState}
-            preferredKeys={["source", "liquidityUsd", "volume5mUsd", "buySellRatio", "top10HolderPercent", "largestHolderPercent", "priceUsd", "marketCapUsd"]}
-            emptyText="This candidate does not have a normalized filter trace yet."
-          />
-        </Panel>
+      <DisclosurePanel
+        title="Gate and metadata"
+        description="Open this only when the compact decision summary is not enough."
+        badge={<span className="meta-chip">{detail.payloads.length} payload row{detail.payloads.length === 1 ? "" : "s"}</span>}
+      >
+        <div className="grid gap-6 2xl:grid-cols-[0.9fr_1.1fr]">
+          <Panel
+            title="Filter trace"
+            eyebrow="Gate state"
+          >
+            <FieldGrid
+              data={detail.summary.filterState}
+              preferredKeys={["source", "liquidityUsd", "volume5mUsd", "buySellRatio", "top10HolderPercent", "largestHolderPercent", "priceUsd", "marketCapUsd"]}
+              emptyText="This candidate does not have a normalized filter trace yet."
+            />
+          </Panel>
 
-        <Panel
-          title="Stored metadata"
-          eyebrow="Evidence"
-          description={undefined}
-          tone="passive"
-        >
-          <FieldGrid
-            data={detail.summary.metadata}
-            preferredKeys={["entryScore", "exitProfile", "deferReason", "error", "liveTradable"]}
-            emptyText="The candidate metadata blob is empty."
-          />
-        </Panel>
-      </section>
+          <Panel
+            title="Stored metadata"
+            eyebrow="Evidence"
+            tone="passive"
+          >
+            <FieldGrid
+              data={detail.summary.metadata}
+              preferredKeys={["entryScore", "exitProfile", "deferReason", "error", "liveTradable"]}
+              emptyText="The candidate metadata blob is empty."
+            />
+          </Panel>
+        </div>
+      </DisclosurePanel>
 
       <DataTable
         title="Snapshot history"
@@ -157,29 +205,22 @@ export default async function CandidateDetailPage(props: {
         emptyDetail="No snapshots were found for this candidate."
       />
 
-      <details className="rounded-[18px] border border-bg-border bg-bg-hover/20">
-        <summary className="cursor-pointer list-none px-5 py-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <div className="section-kicker">Upstream evidence</div>
-              <div className="mt-2 text-sm font-semibold text-text-primary">Provider payloads</div>
-            </div>
-            <span className="meta-chip">{detail.payloads.length} row{detail.payloads.length === 1 ? "" : "s"}</span>
-          </div>
-        </summary>
-        <div className="border-t border-bg-border/80 px-1 pb-1">
-          <DataTable
-            title="Provider payloads"
-            eyebrow="Upstream evidence"
-            description="Persisted payload metadata."
-            rows={detail.payloads}
-            preferredKeys={["capturedAt", "provider", "endpoint", "success", "statusCode", "errorMessage", "entityKey"]}
-            emptyTitle="No provider payloads"
-            emptyDetail="No persisted provider payloads were found for this mint."
-            className="border-none bg-transparent shadow-none"
-          />
-        </div>
-      </details>
+      <DisclosurePanel
+        title="Provider payloads"
+        description="Raw upstream evidence stays collapsed until you actually need it."
+        badge={<span className="meta-chip">{detail.payloads.length} row{detail.payloads.length === 1 ? "" : "s"}</span>}
+      >
+        <DataTable
+          title="Provider payloads"
+          eyebrow="Upstream evidence"
+          description="Persisted payload metadata."
+          rows={detail.payloads}
+          preferredKeys={["capturedAt", "provider", "endpoint", "success", "statusCode", "errorMessage", "entityKey"]}
+          emptyTitle="No provider payloads"
+          emptyDetail="No persisted provider payloads were found for this mint."
+          className="border-none bg-transparent shadow-none"
+        />
+      </DisclosurePanel>
     </div>
   );
 }
@@ -194,18 +235,6 @@ function buildCandidateBackHref(props: { bucket?: string; sort?: string; focus?:
   const query = params.toString();
   const hash = props.focus ? `#candidate-${props.focus}` : "";
   return `${operationalDeskRoutes.trading}${query ? `?${query}` : ""}${hash}`;
-}
-
-function SummaryRow(props: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="rounded-[12px] border border-bg-border bg-bg-primary/55 px-3 py-3">
-      <div className="scorecard-grid">
-        <div className="scorecard-label wrap-anywhere">{props.label}</div>
-        <div className={`scorecard-value wrap-anywhere text-sm font-semibold ${props.mono ? "font-mono" : ""}`}>{props.value}</div>
-        <div />
-      </div>
-    </div>
-  );
 }
 
 function Metric(props: { label: string; value: string }) {

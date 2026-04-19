@@ -86,7 +86,7 @@ The checked-in examples live at:
 - [`trading_bot/dashboard/compose.env.example`](/Users/rukaiyahyusuf/Downloads/bot-trading/trading_bot/dashboard/compose.env.example)
 - [`trading_bot/grafana/compose.env.example`](/Users/rukaiyahyusuf/Downloads/bot-trading/trading_bot/grafana/compose.env.example)
 
-You still need to edit [`trading_bot/backend/.env`](/Users/rukaiyahyusuf/Downloads/bot-trading/trading_bot/backend/.env.example) with real provider keys and the control secret before expecting the bot to behave like anything except a skeleton.
+You still need to edit [`trading_bot/backend/.env`](/Users/rukaiyahyusuf/Downloads/bot-trading/trading_bot/backend/.env.example) with real provider keys before expecting the bot to behave like anything except a skeleton.
 
 ## Supported Run Modes
 
@@ -110,7 +110,7 @@ npm run dev
 Important:
 
 - change `DATABASE_URL` in `trading_bot/backend/.env` from `postgres` to `127.0.0.1` or `localhost`
-- fill `HELIUS_RPC_URL`, `BIRDEYE_API_KEY`, and `CONTROL_API_SECRET`
+- fill `HELIUS_RPC_URL` and `BIRDEYE_API_KEY`
 
 ### 2. Full Compose Stack
 

@@ -1,13 +1,15 @@
 const DEFAULT_API_URL = process.env.API_URL ?? "http://127.0.0.1:3101";
 
 const STATIC_ROUTES = [
-  { name: "desk", path: "/" },
-  { name: "trading", path: "/trading" },
-  { name: "discovery-lab", path: "/discovery-lab" },
-  { name: "settings", path: "/settings" },
-  { name: "candidates-redirect", path: "/candidates" },
-  { name: "positions-redirect", path: "/positions" },
-  { name: "telemetry-redirect", path: "/telemetry" },
+  { name: "desk", path: "/operational-desk/overview" },
+  { name: "trading", path: "/operational-desk/trading" },
+  { name: "settings", path: "/operational-desk/settings" },
+  { name: "packs", path: "/workbench/packs" },
+  { name: "editor", path: "/workbench/editor" },
+  { name: "sandbox", path: "/workbench/sandbox" },
+  { name: "sessions", path: "/workbench/sessions" },
+  { name: "trending", path: "/market/trending" },
+  { name: "watchlist", path: "/market/watchlist" },
 ];
 
 export async function buildDashboardScreenshotManifest(options = {}) {

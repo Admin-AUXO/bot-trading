@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useEffect, useEffectEvent, useState, useTransition } from "react";
 import { ArrowUpRight, RefreshCcw } from "lucide-react";
 import { fetchJson } from "@/lib/api";
-import { operationalDeskRoutes } from "@/lib/dashboard-routes";
 import {
   formatCompactCurrency,
   formatInteger,
@@ -18,6 +17,8 @@ import { cn } from "@/components/ui/cn";
 import { ErrorBoundary } from "@/components/error-boundary";
 import {
   CompactPageHeader,
+  DisclosurePanel,
+  InlineNotice,
   Panel,
   ScanStat,
   StatusPill,
@@ -73,7 +74,8 @@ export function DashboardClient(props: {
       <div className="space-y-4">
         <CompactPageHeader
           eyebrow="Control"
-          title="Desk"
+          title="Overview"
+          description="Blockers, live state, and the next intervention. Nothing else earns the first screen."
           badges={
             <>
               <StatusPill value={home.readiness.allowed ? "ready" : "blocked"} />
@@ -86,13 +88,6 @@ export function DashboardClient(props: {
                 <RefreshCcw className={cn("h-4 w-4", isPending && "animate-spin")} />
                 {isPending ? "Syncing" : "Sync"}
               </Button>
-              <Link
-                href={operationalDeskRoutes.trading}
-                className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "inline-flex items-center gap-2")}
-              >
-                <ArrowUpRight className="h-4 w-4" />
-                Lifecycle
-              </Link>
               {props.grafanaHref ? (
                 <a
                   href={props.grafanaHref}
@@ -112,18 +107,14 @@ export function DashboardClient(props: {
           </div>
         </CompactPageHeader>
 
-        {refreshError ? (
-          <Notice tone="danger">Desk refresh failed: {refreshError}</Notice>
-        ) : null}
-        {isStale && !refreshError ? (
-          <Notice tone="warning">Data may be stale. Last refresh missed.</Notice>
-        ) : null}
+        {refreshError ? <InlineNotice tone="danger">Desk refresh failed: {refreshError}</InlineNotice> : null}
+        {isStale && !refreshError ? <InlineNotice tone="warning">Data may be stale. Last refresh missed.</InlineNotice> : null}
 
         <section className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(20rem,0.95fr)]">
           <Panel
             title="Next actions"
             eyebrow="Priority order"
-            description="What needs attention first."
+            description="Read top to bottom. Fix the first real problem before touching anything else."
             tone={home.readiness.allowed ? "default" : "critical"}
           >
             <div className="space-y-2">
@@ -146,7 +137,7 @@ export function DashboardClient(props: {
                     </div>
                     {item.meta ? <div className="text-[11px] text-text-muted">{item.meta}</div> : null}
                   </div>
-                  {item.detail ? <div className="mt-1 text-xs text-text-secondary">{item.detail}</div> : null}
+                  {item.detail ? <div className="mt-1 text-xs text-text-secondary">{summarizeDetail(item.detail, 220)}</div> : null}
                 </div>
               ))}
             </div>
@@ -155,7 +146,7 @@ export function DashboardClient(props: {
           <Panel
             title="System state"
             eyebrow="Live checks"
-            description="Risk, pace, and loop freshness."
+            description="Cash, provider pace, and whether the loops are still alive."
             tone={home.diagnostics.status === "danger" ? "critical" : home.diagnostics.status === "warning" ? "warning" : "passive"}
           >
             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
@@ -163,24 +154,28 @@ export function DashboardClient(props: {
                 label="Cash"
                 value={formatCompactCurrency(home.exposure.cashUsd)}
                 detail={`Capital ${formatCompactCurrency(home.exposure.capitalUsd)}`}
+                tooltip="Free cash versus total configured capital."
                 tone="default"
               />
               <ScanStat
                 label="Provider pace"
                 value={`${formatInteger(home.providerPressure.projectedMonthlyUnits)} / ${formatInteger(home.providerPressure.monthlyBudgetUnits)}`}
                 detail={`${home.providerPressure.laneStatus.length} tracked lanes`}
+                tooltip="Projected monthly provider burn against the configured budget."
                 tone={home.providerPressure.paceStatus === "danger" ? "danger" : home.providerPressure.paceStatus === "warning" ? "warning" : "accent"}
               />
               <ScanStat
                 label="Discovery"
                 value={safeTimestamp(home.runtime.lastDiscoveryAt)}
                 detail={`Evaluation ${safeTimestamp(home.runtime.lastEvaluationAt)}`}
+                tooltip="Last discovery loop run, plus the most recent evaluation pass."
                 tone={home.diagnostics.staleComponents.includes("discovery") ? "warning" : "default"}
               />
               <ScanStat
                 label="Exit checks"
                 value={safeTimestamp(home.runtime.lastExitCheckAt)}
                 detail={`${home.guardrails.length} active guardrails`}
+                tooltip="Last managed-exit loop plus the number of currently active guardrails."
                 tone="default"
               />
             </div>
@@ -208,7 +203,7 @@ export function DashboardClient(props: {
         <PositionsSummary positions={home.positions} />
 
         <section className="grid gap-4 xl:grid-cols-2">
-          <DisclosurePanel title="Recent events" description="Secondary evidence. Keep closed unless you need the tape.">
+          <DisclosurePanel title="Recent events" description="Open when you need the tape, not before. The headline state is already above.">
             {recentEvents.length > 0 ? (
               <div className="space-y-1.5">
                 {recentEvents.map((event) => (
@@ -219,7 +214,7 @@ export function DashboardClient(props: {
                         <div className="truncate text-sm font-medium text-text-primary">{event.title}</div>
                       </div>
                       <div className="mt-1 text-xs text-text-secondary">
-                        {event.detail ?? event.kind.replace(/_/g, " ")}
+                        {summarizeDetail(event.detail ?? event.kind.replace(/_/g, " "), 180)}
                       </div>
                     </div>
                     <div className="shrink-0 text-[11px] text-text-muted">{formatRelativeMinutes(event.createdAt)}</div>
@@ -231,7 +226,7 @@ export function DashboardClient(props: {
             )}
           </DisclosurePanel>
 
-          <DisclosurePanel title="Performance strip" description="Short-term PnL view without turning the page into a chart graveyard.">
+          <DisclosurePanel title="Performance strip" description="Short-term PnL and win rate in one strip, instead of three fake-executive charts.">
             <div className="grid gap-2 sm:grid-cols-2">
               <ScanStat
                 label="Today PnL"
@@ -270,42 +265,6 @@ export function DashboardClient(props: {
         </section>
       </div>
     </ErrorBoundary>
-  );
-}
-
-function Notice(props: { children: React.ReactNode; tone: "warning" | "danger" }) {
-  return (
-    <div
-      className={cn(
-        "rounded-[12px] border px-4 py-3 text-sm",
-        props.tone === "danger"
-          ? "border-[rgba(251,113,133,0.3)] bg-[rgba(251,113,133,0.08)] text-[var(--danger)]"
-          : "border-[rgba(250,204,21,0.3)] bg-[rgba(250,204,21,0.08)] text-[var(--warning)]",
-      )}
-    >
-      {props.children}
-    </div>
-  );
-}
-
-function DisclosurePanel(props: {
-  title: string;
-  description: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <details className="group rounded-[14px] border border-bg-border bg-bg-secondary/70 p-3">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
-        <div>
-          <div className="section-kicker">Details</div>
-          <div className="mt-1 text-sm font-semibold text-text-primary">{props.title}</div>
-          <div className="mt-1 text-xs text-text-secondary">{props.description}</div>
-        </div>
-        <div className="text-[11px] text-text-muted group-open:hidden">Open</div>
-        <div className="hidden text-[11px] text-text-muted group-open:block">Hide</div>
-      </summary>
-      <div className="mt-3">{props.children}</div>
-    </details>
   );
 }
 
@@ -398,4 +357,19 @@ function buildPnlTrend(events: OperatorEvent[]) {
     ...row,
     widthPercent: (Math.abs(row.value) / maxAbs) * 100,
   }));
+}
+
+function summarizeDetail(detail: string | null | undefined, maxLength: number) {
+  if (!detail) {
+    return "";
+  }
+  const normalized = detail
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join(" ");
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, Math.max(maxLength - 1, 0)).trimEnd()}…`;
 }

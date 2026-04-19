@@ -1,6 +1,8 @@
 import Link from "next/link";
 import {
   CompactPageHeader,
+  CompactStatGrid,
+  DisclosurePanel,
   EmptyState,
   Panel,
   ScanStat,
@@ -10,8 +12,7 @@ import {
   SessionLaunchPanel,
   SessionLifecycleActions,
 } from "@/components/workbench/workbench-actions";
-import { buttonVariants } from "@/components/ui/button";
-import { discoveryLabRoutes, workbenchRoutes } from "@/lib/dashboard-routes";
+import { WorkbenchFlowStrip } from "@/components/workbench/workbench-flow-strip";
 import { serverFetch } from "@/lib/server-api";
 import type {
   AdaptiveActivityPayload,
@@ -34,26 +35,52 @@ export default async function WorkbenchSessionsPage() {
 
   return (
     <div className="space-y-5">
+      <WorkbenchFlowStrip
+        current="sessions"
+        focusLabel={payload.currentSession?.packName ?? "No active session"}
+        focusDetail={payload.currentSession
+          ? `Runtime ${isPaused ? "paused" : "running"} · source run ${payload.currentSession.sourceRunId ?? "none"}`
+          : "This page is the final deployment step. Only eligible runs should reach it."}
+      />
+
       <CompactPageHeader
         eyebrow="Strategy workbench"
         title="Sessions"
-        description="Session start, pause, resume, stop, and revert now belong to the backend session seam instead of pretending that deployment is just a run-side side effect."
-        actions={(
-          <div className="flex flex-wrap gap-2">
-            <Link href={discoveryLabRoutes.results} className={buttonVariants({ variant: "secondary", size: "sm" })}>
-              Open results lab
-            </Link>
-            <Link href={workbenchRoutes.sandbox} className={buttonVariants({ variant: "ghost", size: "sm" })}>
-              Open sandbox
-            </Link>
-          </div>
-        )}
-      />
+        description="Start, pause, stop, or replace the live deployment here."
+      >
+        <CompactStatGrid
+          className="xl:grid-cols-4"
+          items={[
+            {
+              label: "Current session",
+              value: payload.currentSession?.packName ?? "Idle",
+              detail: payload.currentSession ? payload.currentSession.mode : "Nothing deployed",
+              tone: payload.currentSession ? "warning" : "default",
+            },
+            {
+              label: "Runtime",
+              value: isPaused ? "Paused" : "Running",
+              detail: payload.runtimePauseReason ?? status.botState.pauseReason ?? "No current pause reason",
+              tone: isPaused ? "warning" : "accent",
+            },
+            {
+              label: "Launch options",
+              value: String(runsPayload.runs.length),
+              detail: "Recent runs eligible for session start",
+            },
+            {
+              label: "Adaptive mutations",
+              value: String(adaptiveMutationCount),
+              detail: adaptiveActivity.lastMutationAt ? `Last ${formatTimestamp(adaptiveActivity.lastMutationAt)}` : "No recent mutation evidence",
+            },
+          ]}
+        />
+      </CompactPageHeader>
 
       <Panel
         title="Current deployment"
         eyebrow="Authoritative session seam"
-        description="The active session comes from the backend session service, not from guessing at runtime settings."
+        description="This is the single source of truth for what is actually deployed right now."
       >
         {payload.currentSession ? (
           <div className="grid gap-3 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)]">
@@ -122,7 +149,7 @@ export default async function WorkbenchSessionsPage() {
         <Panel
           title="Start another session"
           eyebrow="Replacement flow"
-          description="Starting a new session replaces the active deployment through TradingSessionService and stamps the new config/session window atomically."
+          description="Starting a new session replaces the active deployment and stamps a fresh runtime window."
         >
           <SessionLaunchPanel runs={runsPayload.runs} />
         </Panel>
@@ -131,7 +158,7 @@ export default async function WorkbenchSessionsPage() {
       <Panel
         title="Recent history"
         eyebrow="Session windows"
-        description="Closed rows now keep bounded counts and PnL for their own window instead of smearing across every later reuse of the same run."
+        description="Past sessions keep their own counts and PnL, so one later reuse does not smear history across everything."
       >
         {payload.sessions.length > 0 ? (
           <div className="space-y-2">
@@ -178,15 +205,15 @@ export default async function WorkbenchSessionsPage() {
           <EmptyState
             compact
             title="No session history yet"
-            detail="Once discovery-lab applies a live strategy, the backend will keep the deployment history here."
+            detail="Once a graded run starts a session, the backend will keep the deployment history here."
           />
         )}
       </Panel>
 
-      <Panel
-        title="Phase-5 runtime seams"
-        eyebrow="Adaptive and Helius watch"
-        description="This is the direct proof surface for the new backend owners: adaptive mutation logging and Helius smart-wallet/watch ingest."
+      <DisclosurePanel
+        title="Adaptive and Helius watch"
+        description="Secondary runtime seams. Open this when you need mutation or smart-wallet evidence."
+        badge={<span className="meta-chip">{adaptiveMutationCount} mutations / 24h</span>}
       >
         <div className="grid gap-2 lg:grid-cols-2">
           <div className="rounded-[14px] border border-bg-border bg-bg-hover/20 p-3">
@@ -230,7 +257,7 @@ export default async function WorkbenchSessionsPage() {
             </div>
           </div>
         </div>
-      </Panel>
+      </DisclosurePanel>
     </div>
   );
 }

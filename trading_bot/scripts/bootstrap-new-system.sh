@@ -22,17 +22,17 @@ warn_placeholder_env() {
   fi
 
   if has_cmd rg; then
-    if ! rg -n 'replace-me|postgres:5432|CONTROL_API_SECRET=\"replace-me\"' "$ROOT_DIR/backend/.env" >/dev/null 2>&1; then
+    if ! rg -n 'replace-me|postgres:5432' "$ROOT_DIR/backend/.env" >/dev/null 2>&1; then
       return
     fi
-  elif ! grep -Eq 'replace-me|postgres:5432|CONTROL_API_SECRET="replace-me"' "$ROOT_DIR/backend/.env"; then
+  elif ! grep -Eq 'replace-me|postgres:5432' "$ROOT_DIR/backend/.env"; then
     return
   fi
 
   cat <<'EOF'
 
 backend/.env still contains example values.
-Fill the provider keys and control secret before expecting the bot to work properly.
+Fill the provider keys before expecting the bot to work properly.
 EOF
 }
 

@@ -113,14 +113,6 @@ export class StrategyRunService {
     return this.deps.sessions.startSession(input);
   }
 
-  async listDiscoverySummaries(): Promise<DiscoveryLabRunSummary[]> {
-    return this.deps.runReads.listRunSummaries();
-  }
-
-  async getDiscoveryRun(runId: string): Promise<DiscoveryLabRunDetail | null> {
-    return this.deps.runReads.getRun(runId);
-  }
-
   private mapRunSummary(
     row: {
       id: string;

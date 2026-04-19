@@ -1,6 +1,15 @@
 import { Suspense } from "react";
-import { CompactPageHeader, EmptyState, Panel, StatusPill } from "@/components/dashboard-primitives";
+import {
+  CompactPageHeader,
+  CompactStatGrid,
+  DisclosurePanel,
+  EmptyState,
+  InlineNotice,
+  Panel,
+  StatusPill,
+} from "@/components/dashboard-primitives";
 import { CopyButton } from "@/components/copy-button";
+import { MarketTokenActions } from "@/components/market-token-actions";
 import { serverFetch } from "@/lib/server-api";
 import {
   formatCompactCurrency,
@@ -46,7 +55,7 @@ export default async function MarketTokenPage({
       <CompactPageHeader
         eyebrow="Market intel"
         title={`${symbol} token detail`}
-        description={`Mint ${mint}`}
+        description="Setup summary first. Provider evidence only when the summary is not enough."
         badges={(
           <>
             <StatusPill value={stats.data?.ageMinutes != null ? `${formatRelativeMinutes(stats.data.ageMinutes)} since grad` : "age unknown"} />
@@ -54,16 +63,57 @@ export default async function MarketTokenPage({
           </>
         )}
         actions={(
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <CopyButton value={mint} label="Copy mint" />
-            <a href="/operational-desk/trading" className="text-text-secondary hover:text-text-primary">Manual entry</a>
-            <a href="/market/trending" className="text-text-secondary hover:text-text-primary">Pin</a>
-            <a href={birdeyeHref} target="_blank" rel="noreferrer" className="text-text-secondary hover:text-text-primary">Open in Birdeye</a>
-          </div>
-        )}
-      />
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <CopyButton value={mint} label="Copy mint" />
+              <MarketTokenActions mint={mint} birdeyeHref={birdeyeHref} />
+            </div>
+          )}
+      >
+        <CompactStatGrid
+          className="xl:grid-cols-5"
+          items={[
+            {
+              label: "Price",
+              value: formatCompactCurrency(insight?.market.priceUsd ?? null),
+              detail: `MC ${formatCompactCurrency(stats.data?.mc ?? insight?.market.marketCapUsd ?? null)}`,
+              tooltip: "Spot price with current market cap.",
+            },
+            {
+              label: "Liquidity",
+              value: formatCompactCurrency(stats.data?.liq ?? insight?.market.liquidityUsd ?? null),
+              detail: `Holders ${formatInteger(insight?.market.holders ?? null)}`,
+              tooltip: "Current liquidity with latest holder count.",
+            },
+            {
+              label: "Flow 5m",
+              value: `${formatInteger(stats.data?.buyers5m ?? null)} / ${formatInteger(stats.data?.sellCount5m ?? null)}`,
+              detail: "Buys / sells",
+              tooltip: "Recent buy and sell counts over the last five minutes.",
+            },
+            {
+              label: "Security",
+              value: insight?.security.mintAuthorityEnabled ? "Authority on" : "Authority off",
+              detail: insight?.security.freezeable ? "Freeze enabled" : "Freeze disabled",
+              tooltip: "Whether mint authority or freeze authority is still enabled.",
+              tone: insight?.security.mintAuthorityEnabled || insight?.security.freezeable ? "warning" : "accent",
+            },
+            {
+              label: "Composite",
+              value: insight?.compositeScore != null ? `${Math.round(insight.compositeScore * 100)}` : "Pending",
+              detail: stats.data?.rugScore != null ? `RugScore ${formatInteger(stats.data.rugScore)}` : "No rug score",
+              tooltip: "Cache-backed composite read across enrichment providers plus RugScore when present.",
+            },
+          ]}
+        />
+      </CompactPageHeader>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+      {enrichment.error || stats.error ? (
+        <InlineNotice tone="warning">
+          {enrichment.error ?? stats.error}
+        </InlineNotice>
+      ) : null}
+
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(19rem,0.85fr)]">
         <div className="space-y-4">
           <Panel title="Identity" eyebrow="Token overview">
             <div className="space-y-3 text-sm">
@@ -133,26 +183,32 @@ export default async function MarketTokenPage({
           </Suspense>
         </div>
 
-        <div className="space-y-4">
-          <Suspense fallback={<LoadingPanel title="Bundle (Trench)" />}>
-            <TrenchCard mint={mint} />
-          </Suspense>
-          <Suspense fallback={<LoadingPanel title="Cluster (Bubblemaps)" />}>
-            <BubblemapsCard mint={mint} />
-          </Suspense>
-          <Suspense fallback={<LoadingPanel title="Security (Solsniffer)" />}>
-            <SolsnifferCard mint={mint} />
-          </Suspense>
-          <Suspense fallback={<LoadingPanel title="Pools (GeckoTerminal)" />}>
-            <GeckoPoolsCard mint={mint} />
-          </Suspense>
-          <Suspense fallback={<LoadingPanel title="Smart money (Cielo)" />}>
-            <CieloCard mint={mint} />
-          </Suspense>
-          <Suspense fallback={<LoadingPanel title="Pump.fun origin" />}>
-            <PumpfunCard mint={mint} />
-          </Suspense>
-        </div>
+        <DisclosurePanel
+          title="Provider evidence"
+          description="Secondary provider-specific checks. Open when the summary above is not enough to make the call."
+          className="h-fit lg:sticky lg:top-[calc(var(--shell-header-height)+1rem)]"
+        >
+          <div className="space-y-4">
+            <Suspense fallback={<LoadingPanel title="Bundle (Trench)" />}>
+              <TrenchCard mint={mint} />
+            </Suspense>
+            <Suspense fallback={<LoadingPanel title="Cluster (Bubblemaps)" />}>
+              <BubblemapsCard mint={mint} />
+            </Suspense>
+            <Suspense fallback={<LoadingPanel title="Security (Solsniffer)" />}>
+              <SolsnifferCard mint={mint} />
+            </Suspense>
+            <Suspense fallback={<LoadingPanel title="Pools (GeckoTerminal)" />}>
+              <GeckoPoolsCard mint={mint} />
+            </Suspense>
+            <Suspense fallback={<LoadingPanel title="Smart money (Cielo)" />}>
+              <CieloCard mint={mint} />
+            </Suspense>
+            <Suspense fallback={<LoadingPanel title="Pump.fun origin" />}>
+              <PumpfunCard mint={mint} />
+            </Suspense>
+          </div>
+        </DisclosurePanel>
       </div>
     </div>
   );
@@ -285,21 +341,10 @@ async function PumpfunCard(props: { mint: string }) {
 }
 
 async function PricePanel(props: { mint: string }) {
-  const priceData = await safeFetch<unknown>(`/api/operator/price/${encodeURIComponent(props.mint)}?tf=1h`);
-  if (!priceData.data) {
-    return (
-      <Panel title="Price panel" eyebrow="1h candles">
-        <div className="text-sm text-text-secondary">
-          Price feed unavailable for this route set. {priceData.error ?? "No /api/operator/price endpoint present."}
-        </div>
-      </Panel>
-    );
-  }
-
   return (
     <Panel title="Price panel" eyebrow="1h candles">
       <div className="text-sm text-text-secondary">
-        Raw price payload is available, but chart rendering is deferred until the dedicated price API contract is finalized.
+        Candles are not wired into the operator API yet. Use Birdeye or DexScreener from this page until the dedicated price route exists.
       </div>
     </Panel>
   );

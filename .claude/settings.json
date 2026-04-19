@@ -45,10 +45,19 @@
   },
   "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
+    "browsermcp",
     "desktop_commander",
     "birdeye-mcp",
     "helius",
-    "context7"
+    "firecrawl",
+    "context7",
+    "github",
+    "grafana",
+    "postgres",
+    "fetch",
+    "time",
+    "chrome_devtools",
+    "shadcn"
   ],
   "hooks": {
     "SessionStart": [

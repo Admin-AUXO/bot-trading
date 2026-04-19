@@ -1,0 +1,31 @@
+{
+  "sawRefreshRequest": true,
+  "tokenHref": "/market/token/BiBMG42BrmvJE5gY5UCXLURroGR6tBC1gfcYbZuEpump",
+  "tokenPageUsesHonestLabel": false,
+  "tokenPageHidesMissingPriceRoute": true,
+  "afterPinLabel": "Unpin",
+  "watchlistHasPinnedRow": true,
+  "failures": [],
+  "redirects": [
+    {
+      "route": "/discovery-lab",
+      "status": 200,
+      "finalUrl": "http://127.0.0.1:3100/workbench/editor"
+    },
+    {
+      "route": "/discovery-lab/results",
+      "status": 200,
+      "finalUrl": "http://127.0.0.1:3100/workbench/sandbox"
+    },
+    {
+      "route": "/telemetry",
+      "status": 200,
+      "finalUrl": "http://127.0.0.1:3100/operational-desk/overview"
+    },
+    {
+      "route": "/settings",
+      "status": 200,
+      "finalUrl": "http://127.0.0.1:3100/operational-desk/settings"
+    }
+  ]
+}

@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import type { Position } from "@prisma/client";
 import { db } from "../db/client.js";
 import { RuntimeConfigService } from "../services/runtime-config.js";
+import { ProviderBudgetService } from "../services/provider-budget-service.js";
 import { BOT_STATE_ID } from "./constants.js";
 import { LiveTradeExecutor, type LiveTradeExecution } from "../services/live-trade-executor.js";
 import { recordOperatorEvent } from "../services/operator-events.js";
@@ -118,13 +119,16 @@ function buildExitPlanRecord(input: {
 }
 
 export class ExecutionEngine {
-  private readonly live = new LiveTradeExecutor();
+  private readonly live: LiveTradeExecutor;
   private executionQueue: Promise<unknown> = Promise.resolve();
 
   constructor(
     private readonly risk: RiskEngine,
     private readonly config: RuntimeConfigService,
-  ) {}
+    providerBudget?: ProviderBudgetService,
+  ) {
+    this.live = new LiveTradeExecutor({ providerBudget });
+  }
 
   async openPosition(input: OpenPositionInput): Promise<string> {
     return this.runExclusive(async () => {
@@ -201,6 +205,9 @@ export class ExecutionEngine {
         mint: input.mint,
         budgetUsd: this.resolvePositionSizeUsd(settings, capacity.positionSizeUsd, input.positionSizeUsd),
         tokenDecimalsHint: this.extractTokenDecimals(input.metrics),
+        marketCapUsd: this.readMetricMarketCapUsd(input.metrics),
+        packId: this.readMetricPackId(input.metrics),
+        candidateId: input.candidateId,
       });
     } catch (error) {
       await this.recordLiveAttemptFailure("BUY", {
@@ -263,6 +270,9 @@ export class ExecutionEngine {
         mint: position.mint,
         tokenAmount: formatTokenAmount(requestedAmountToken, liveContext.tokenDecimals),
         tokenDecimals: liveContext.tokenDecimals,
+        marketCapUsd: Number(position.entryMktCapUsd ?? 0),
+        packId: this.readPositionPackId(position),
+        positionId: position.id,
       });
     } catch (error) {
       await this.recordLiveAttemptFailure("SELL", {
@@ -624,14 +634,16 @@ export class ExecutionEngine {
         rejectReason: null,
         entryOrigin,
         strategyPresetId,
-        entryScore,
-        exitProfile,
-        confidenceScore,
         discoveryLabRunId: toTrimmedString(input.input.metrics.discoveryLabRunId),
-        discoveryLabPackId: toTrimmedString(input.input.metrics.discoveryLabPackId),
         liveStrategyRunId: toTrimmedString(input.input.metrics.liveStrategyRunId),
         liveStrategyPackId: toTrimmedString(input.input.metrics.liveStrategyPackId),
-        metrics: toJsonValue(input.input.metrics),
+        metadata: toJsonValue({
+          ...(asRecord(input.input.metrics) ?? {}),
+          entryScore,
+          exitProfile,
+          confidenceScore,
+          discoveryLabPackId: toTrimmedString(input.input.metrics.discoveryLabPackId),
+        }),
       },
     });
 
@@ -954,6 +966,23 @@ export class ExecutionEngine {
       return direct;
     }
     return settings.strategy.livePresetId;
+  }
+
+  private readMetricMarketCapUsd(metrics: Record<string, unknown>): number | null {
+    return toNumber(metrics.marketCapUsd)
+      ?? toNumber(metrics.mktCapUsd)
+      ?? toNumber(asRecord(metrics.detail)?.marketCapUsd);
+  }
+
+  private readMetricPackId(metrics: Record<string, unknown>): string | null {
+    return toTrimmedString(metrics.liveStrategyPackId)
+      ?? toTrimmedString(metrics.discoveryLabPackId);
+  }
+
+  private readPositionPackId(position: Position): string | null {
+    const metadata = asRecord(position.metadata);
+    return toTrimmedString(metadata?.liveStrategyPackId)
+      ?? toTrimmedString(metadata?.discoveryLabPackId);
   }
 
   private clamp(value: number, min: number, max: number): number {

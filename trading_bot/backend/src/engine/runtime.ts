@@ -17,7 +17,6 @@ import { HeliusWatchService } from "../services/helius/helius-watch-service.js";
 import { MarketIntelService } from "../services/market/market-intel-service.js";
 import { MarketStrategyIdeasService } from "../services/market/market-strategy-ideas-service.js";
 import { TradingSessionService } from "../services/session/trading-session-service.js";
-import { DISCOVERY_LAB_KNOWN_SOURCES, DISCOVERY_LAB_PROFILES } from "../services/workbench/discovery-lab-shared.js";
 import { PackRepo } from "../services/workbench/pack-repo.js";
 import { PackGradingService } from "../services/workbench/pack-grading-service.js";
 import { RunRunner } from "../services/workbench/run-runner.js";
@@ -32,7 +31,6 @@ import { ExitEngine } from "./exit-engine.js";
 import { GraduationEngine } from "./graduation-engine.js";
 import { createApiServer } from "../api/server.js";
 import { BOT_STATE_ID } from "./constants.js";
-import type { DiscoveryLabCatalog, DiscoveryLabRunRequest } from "../services/discovery-lab-service.js";
 
 const QUEUED_CANDIDATE_STATUSES = ["DISCOVERED", "SKIPPED", "ERROR"] as const;
 const LIVE_STARTUP_PAUSE_REASON = "live mode is paused on startup; resume from the dashboard to begin trading";
@@ -41,9 +39,9 @@ export class BotRuntime {
   private stopped = false;
   private readonly config = new RuntimeConfigService();
   private readonly risk = new RiskEngine(this.config);
-  private readonly birdeye = new BirdeyeClient(env.BIRDEYE_API_KEY);
-  private readonly helius = new HeliusClient(env.HELIUS_RPC_URL);
   private readonly providerBudget = new ProviderBudgetService();
+  private readonly birdeye = new BirdeyeClient(env.BIRDEYE_API_KEY, this.providerBudget);
+  private readonly helius = new HeliusClient(env.HELIUS_RPC_URL, this.providerBudget);
   private readonly adaptiveContext = new AdaptiveContextBuilder();
   private readonly adaptiveThresholds = new AdaptiveThresholdService();
   private readonly packDraftValidator = new StrategyPackDraftValidator();
@@ -87,7 +85,7 @@ export class BotRuntime {
     sessions: this.tradingSessions,
     runReads: this.strategyRunReads,
   });
-  private readonly execution = new ExecutionEngine(this.risk, this.config);
+  private readonly execution = new ExecutionEngine(this.risk, this.config, this.providerBudget);
   private readonly discoveryLabManualEntry = new DiscoveryLabManualEntryService(this.strategyRunReads, this.execution);
   private readonly strategyRunResults = new StrategyRunResultsService({
     runReads: this.strategyRunReads,
@@ -112,12 +110,14 @@ export class BotRuntime {
     this.config,
     this.adaptiveContext,
     this.adaptiveThresholds,
+    this.providerBudget,
   );
   private readonly desk = new OperatorDeskService(this.config, this.risk, this.providerBudget);
   private readonly heliusWatch = new HeliusWatchService({
     getSettings: () => this.config.getSettings(),
     getPauseReason: async () => (await this.risk.getSnapshot()).pauseReason,
     triggerDiscovery: () => this.graduation.discover(),
+    providerBudget: this.providerBudget,
   });
   private discoveryHandle?: NodeJS.Timeout;
   private evaluationHandle?: NodeJS.Timeout;
@@ -142,9 +142,11 @@ export class BotRuntime {
       ...this.createDeskApiHandlers(),
       ...this.createPackApiHandlers(),
       ...this.createRunApiHandlers(),
+      ...this.createMarketApiHandlers(),
+      ...this.createEnrichmentApiHandlers(),
       ...this.createSessionApiHandlers(),
       ...this.createControlApiHandlers(),
-      ...this.createDiscoveryLabApiHandlers(),
+      ...this.createWebhookApiHandlers(),
     });
 
     app.listen(env.BOT_PORT, () => {
@@ -266,20 +268,8 @@ export class BotRuntime {
     };
   }
 
-  private createDiscoveryLabApiHandlers() {
+  private createMarketApiHandlers() {
     return {
-      getDiscoveryLabCatalog: () => this.getDiscoveryLabCatalog(),
-      validateDiscoveryLabDraft: (input: Parameters<DiscoveryLabService["validateDraft"]>[0], allowOverfiltered?: boolean) =>
-        this.strategyPacks.validatePack(input, allowOverfiltered),
-      saveDiscoveryLabPack: async (input: Parameters<DiscoveryLabService["savePack"]>[0]) => {
-        const detail = await this.strategyPacks.savePack(input);
-        return detail.pack.draft;
-      },
-      deleteDiscoveryLabPack: (packId: string) => this.strategyPacks.deletePack(packId),
-      startDiscoveryLabRun: (input: DiscoveryLabRunRequest) => this.startDiscoveryLabRun(input),
-      listDiscoveryLabRuns: () => this.strategyRuns.listDiscoverySummaries(),
-      getDiscoveryLabRun: (runId: string) => this.strategyRuns.getDiscoveryRun(runId),
-      getDiscoveryLabMarketRegime: (runId: string) => this.strategyRunResults.getMarketRegime(runId),
       getMarketTrending: (input: Parameters<MarketIntelService["getTrending"]>[0]) =>
         this.marketIntel.getTrending(input),
       getMarketTokenStats: (mint: string) => this.marketIntel.getTokenStats(mint),
@@ -287,25 +277,17 @@ export class BotRuntime {
         this.marketIntel.getRecentSmartWalletActivity(mints, limit),
       getMarketStrategySuggestions: (input: Parameters<MarketStrategyIdeasService["getSuggestions"]>[0]) =>
         this.marketStrategyIdeas.getSuggestions(input),
+    };
+  }
+
+  private createEnrichmentApiHandlers() {
+    return {
       getEnrichment: (mint: string) => this.tokenEnrichment.getEnrichment(mint),
-      getDiscoveryLabTokenInsight: (input: { runId?: string; mint?: string }) => this.strategyRunResults.getTokenInsight(input),
-      enterDiscoveryLabManualTrade: (
-        input: {
-          runId?: string;
-          mint?: string;
-          positionSizeUsd?: number;
-          exitOverrides?: Record<string, number>;
-        },
-      ) => this.enterDiscoveryLabManualTrade(input),
-      applyDiscoveryLabLiveStrategy: (
-        input: {
-          runId?: string;
-          mode?: "DRY_RUN" | "LIVE";
-          confirmation?: string;
-          liveDeployToken?: string;
-          requestIp?: string | null;
-        },
-      ) => this.applyDiscoveryLabLiveStrategy(input),
+    };
+  }
+
+  private createWebhookApiHandlers() {
+    return {
       ingestHeliusSmartWalletWebhook: (body: unknown, rawBody: string, signature?: string) =>
         this.heliusWatch.ingestSmartWalletWebhook(body, rawBody, signature),
       ingestHeliusLpWebhook: (body: unknown, rawBody: string, signature?: string) =>
@@ -313,29 +295,6 @@ export class BotRuntime {
       ingestHeliusHoldersWebhook: (body: unknown, rawBody: string, signature?: string) =>
         this.heliusWatch.ingestHoldersWebhook(body, rawBody, signature),
     };
-  }
-
-  private async getDiscoveryLabCatalog(): Promise<DiscoveryLabCatalog> {
-    const [packs, recentRuns] = await Promise.all([
-      this.strategyPacks.listDiscoveryLabPacks(),
-      this.strategyRuns.listDiscoverySummaries(),
-    ]);
-    return {
-      packs,
-      activeRun: recentRuns.find((run) => run.status === "RUNNING") ?? null,
-      recentRuns,
-      profiles: [...DISCOVERY_LAB_PROFILES],
-      knownSources: [...DISCOVERY_LAB_KNOWN_SOURCES],
-    };
-  }
-
-  private async startDiscoveryLabRun(input: DiscoveryLabRunRequest) {
-    const packId = typeof input.packId === "string" ? input.packId.trim() : "";
-    if (packId) {
-      const { packId: _ignoredPackId, ...rest } = input;
-      return this.strategyRuns.startRunForPack(packId, rest);
-    }
-    return this.strategyRuns.startRun(input);
   }
 
   private async safeRun(label: string, fn: () => Promise<void>): Promise<void> {
@@ -633,23 +592,6 @@ export class BotRuntime {
       },
     });
     return result;
-  }
-
-  private async applyDiscoveryLabLiveStrategy(input: {
-    runId?: string;
-    mode?: "DRY_RUN" | "LIVE";
-    confirmation?: string;
-    liveDeployToken?: string;
-    requestIp?: string | null;
-  }) {
-    const runId = typeof input.runId === "string" ? input.runId.trim() : "";
-    return this.strategyRuns.applyRunToLive({
-      runId,
-      mode: input.mode,
-      confirmation: typeof input.confirmation === "string" ? input.confirmation : "",
-      liveDeployToken: typeof input.liveDeployToken === "string" ? input.liveDeployToken : undefined,
-      requestIp: input.requestIp,
-    });
   }
 
   private async pause(reason?: string): Promise<void> {

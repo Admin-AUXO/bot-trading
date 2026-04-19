@@ -275,7 +275,13 @@ export class QuoteBuilder {
       return;
     }
     try {
-      await this.budgetService.releaseSlot(slot, result);
+      const slotId = typeof slot === "object" && slot !== null && "id" in slot && typeof slot.id === "string"
+        ? slot.id
+        : null;
+      if (!slotId) {
+        return;
+      }
+      await this.budgetService.releaseSlot(slotId, result);
     } catch (error) {
       logger.warn({ err: error, result }, "provider budget releaseSlot failed open in quote builder");
     }

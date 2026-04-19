@@ -19,13 +19,19 @@ Servers declared in [`../.mcp.json`](../.mcp.json). Set `enableAllProjectMcpServ
 
 | Server | Default | Purpose |
 |--------|---------|---------|
+| `browsermcp` | on | Fallback browser automation |
 | `desktop_commander` | on | File ops, processes |
 | `birdeye-mcp` | on | Token/price data |
 | `context7` | on | Library docs |
-| `helius` | off | Solana RPC, smart money |
-| `firecrawl` | off | Web scraping |
-| `postgres` | off | DB reads |
-| `chrome_devtools` | off | Browser automation |
+| `helius` | on | Solana RPC, smart money |
+| `firecrawl` | on | Web scraping |
+| `github` | on | GitHub repo, PR, issue, Actions |
+| `grafana` | on | Local Grafana dashboards and alerts |
+| `postgres` | on | DB reads |
+| `fetch` | on | Exact page fetches |
+| `time` | on | Current time and conversions |
+| `chrome_devtools` | on | Primary browser automation |
+| `shadcn` | on | shadcn component MCP |
 
 ## Hooks
 

@@ -4,15 +4,16 @@ import Link from "next/link";
 import type { Route } from "next";
 import { type ColDef, type ICellRendererParams } from "ag-grid-community";
 import { AgGridReact } from "ag-grid-react";
-import { Copy, ExternalLink, Pin, PinOff } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { EmptyState, Panel, StatusPill } from "@/components/dashboard-primitives";
+import { Copy, ExternalLink, Pin, PinOff, RefreshCcw } from "lucide-react";
+import { useEffect, useEffectEvent, useMemo, useState } from "react";
+import { CompactStatGrid, DisclosurePanel, EmptyState, InlineNotice, StatusPill } from "@/components/dashboard-primitives";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/components/ui/cn";
 import { fetchJson } from "@/lib/api";
 import { formatCompactCurrency, formatInteger, formatMinutesAgo, formatPercent, formatRelativeMinutes } from "@/lib/format";
+import { MARKET_WATCHLIST_KEY, readMarketWatchlist, writeMarketWatchlist } from "@/lib/market-watchlist";
 import type { DiscoveryLabMarketStatsPayload, SmartWalletActivityPayload } from "@/lib/types";
 import { shortMint } from "@/lib/utils";
-
-const WATCHLIST_KEY = "market-watchlist";
 
 type MarketTrendingGridProps = {
   initialPayload: DiscoveryLabMarketStatsPayload;
@@ -31,52 +32,42 @@ export function MarketTrendingGrid(props: MarketTrendingGridProps) {
 
   useEffect(() => {
     const sync = () => {
-      try {
-        const raw = window.localStorage.getItem(WATCHLIST_KEY);
-        const parsed = raw ? JSON.parse(raw) as unknown : [];
-        if (!Array.isArray(parsed)) {
-          setWatchlist(new Set());
-          return;
-        }
-        setWatchlist(new Set(parsed.filter((value): value is string => typeof value === "string")));
-      } catch {
-        setWatchlist(new Set());
-      }
+      setWatchlist(readMarketWatchlist());
     };
     sync();
     window.addEventListener("storage", sync);
     return () => window.removeEventListener("storage", sync);
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    const refresh = async () => {
-      setIsRefreshing(true);
-      try {
-        const next = await fetchJson<DiscoveryLabMarketStatsPayload>("/operator/market/trending?limit=50");
-        if (cancelled) return;
-        setPayload(next);
-        const mints = next.tokens.map((row) => row.mint).join(",");
-        const smart = await fetchJson<SmartWalletActivityPayload[]>(
-          `/operator/market/smart-wallet-events?limit=10&mints=${encodeURIComponent(mints)}`,
-        );
-        if (cancelled) return;
-        setEvents(smart);
+  const syncBoard = useEffectEvent(async (options?: { refresh?: boolean }) => {
+    setIsRefreshing(true);
+    try {
+      const refreshSuffix = options?.refresh ? "&refresh=true" : "";
+      const next = await fetchJson<DiscoveryLabMarketStatsPayload>(`/operator/market/trending?limit=50${refreshSuffix}`);
+      setPayload(next);
+      const mints = next.tokens.map((row) => row.mint).join(",");
+      if (mints.length === 0) {
+        setEvents([]);
         setError(null);
-      } catch (refreshError) {
-        if (!cancelled) {
-          setError(refreshError instanceof Error ? refreshError.message : "market refresh failed");
-        }
-      } finally {
-        if (!cancelled) setIsRefreshing(false);
+        return;
       }
-    };
+      const smart = await fetchJson<SmartWalletActivityPayload[]>(
+        `/operator/market/smart-wallet-events?limit=10&mints=${encodeURIComponent(mints)}`,
+      );
+      setEvents(smart);
+      setError(null);
+    } catch (refreshError) {
+      setError(refreshError instanceof Error ? refreshError.message : "market refresh failed");
+    } finally {
+      setIsRefreshing(false);
+    }
+  });
 
-    const timer = window.setInterval(refresh, 30_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void syncBoard();
+    }, 30_000);
+    return () => window.clearInterval(timer);
   }, []);
 
   const smartHitsByMint = useMemo(() => {
@@ -93,13 +84,15 @@ export function MarketTrendingGrid(props: MarketTrendingGridProps) {
     }
     return payload.tokens;
   }, [payload.tokens, props.mode, watchlist]);
+  const latestEventAge = events[0]?.receivedAt ?? null;
 
   const toggleWatchlist = (mint: string) => {
     setWatchlist((current) => {
       const next = new Set(current);
       if (next.has(mint)) next.delete(mint);
       else next.add(mint);
-      window.localStorage.setItem(WATCHLIST_KEY, JSON.stringify([...next]));
+      writeMarketWatchlist(next);
+      window.dispatchEvent(new StorageEvent("storage", { key: MARKET_WATCHLIST_KEY }));
       return next;
     });
   };
@@ -162,8 +155,6 @@ export function MarketTrendingGrid(props: MarketTrendingGridProps) {
       },
     },
     { field: "rugScoreNormalized", headerName: "RugScore", minWidth: 105, maxWidth: 125, cellClass: "ag-grid-cell-metric", valueFormatter: (p) => formatInteger(p.value) },
-    { colId: "bundlePct", headerName: "Bundle%", minWidth: 105, maxWidth: 125, cellClass: "ag-grid-cell-metric", valueFormatter: () => "—" },
-    { colId: "clusterPct", headerName: "Cluster%", minWidth: 105, maxWidth: 125, cellClass: "ag-grid-cell-metric", valueFormatter: () => "—" },
     {
       colId: "smartHits",
       headerName: "Smart1h",
@@ -173,7 +164,6 @@ export function MarketTrendingGrid(props: MarketTrendingGridProps) {
       valueGetter: (params) => smartHitsByMint.get(params.data?.mint ?? "") ?? 0,
       valueFormatter: (params) => formatInteger(params.value),
     },
-    { colId: "composite", headerName: "Score", minWidth: 100, maxWidth: 120, cellClass: "ag-grid-cell-metric", valueFormatter: () => "—" },
     {
       colId: "__actions",
       headerName: "Actions",
@@ -198,6 +188,7 @@ export function MarketTrendingGrid(props: MarketTrendingGridProps) {
             </button>
             <Link
               href={`/market/token/${mint}` as Route}
+              prefetch={false}
               className="rounded border border-bg-border p-1 text-text-secondary hover:text-text-primary"
               title="Open token"
             >
@@ -210,48 +201,97 @@ export function MarketTrendingGrid(props: MarketTrendingGridProps) {
   ]), [smartHitsByMint, watchlist]);
 
   const status = error ?? payload.meta.warnings[0] ?? null;
+  const marketUnavailable = payload.meta.cacheState === "degraded";
+  const sourceLegend = [
+    "Birdeye = paid pulse",
+    "Rugcheck = free security",
+    "Smart wallets = recent tracked flow",
+  ];
 
   return (
     <div className="space-y-4">
-      <Panel
-        title="Smart-money activity"
-        eyebrow="Last 10 events"
-        description="Events for mints currently on the board."
-      >
-        <div className="flex flex-wrap gap-2">
-          {events.length === 0 ? (
-            <div className="text-sm text-text-secondary">No smart-wallet events for current mints.</div>
-          ) : (
-            events.map((event) => (
-              <Link
-                key={event.id}
-                href={`/market/token/${event.mint}` as Route}
-                className="rounded border border-bg-border bg-bg-hover/30 px-2 py-1 text-xs text-text-secondary hover:text-text-primary"
-              >
-                <span className="font-medium text-text-primary">{event.walletLabel ?? shortMint(event.walletAddress)}</span>
-                {" · "}
-                {event.side}
-                {" · "}
-                {formatCompactCurrency(event.amountUsd)}
-                {" · "}
-                {shortMint(event.mint, 4)}
-              </Link>
-            ))
-          )}
+      <div className="workbench-controls">
+        <div className="flex flex-1 flex-wrap items-center gap-2">
+          <StatusPill value={props.mode === "watchlist" ? "watchlist" : "market scan"} />
+          <StatusPill value={marketUnavailable ? "degraded" : "live"} />
+          <span className="text-xs text-text-secondary">
+            {props.mode === "watchlist"
+              ? "Pinned names only."
+              : "Refresh only when you need a paid market pull."}
+          </span>
         </div>
-      </Panel>
+        <div className="flex flex-wrap items-center gap-2">
+          {sourceLegend.map((item) => (
+            <span key={item} className="meta-chip">{item}</span>
+          ))}
+          <Button type="button" variant="ghost" size="sm" onClick={() => void syncBoard({ refresh: true })} disabled={isRefreshing}>
+            <RefreshCcw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} />
+            {isRefreshing ? "Refreshing" : "Refresh board"}
+          </Button>
+        </div>
+      </div>
+
+      <CompactStatGrid
+        className="xl:grid-cols-5"
+        items={[
+          {
+            label: "Universe",
+            value: formatInteger(payload.tokenUniverseSize),
+            detail: "Tracked tokens",
+            tooltip: "Backend token universe used to build the current board.",
+          },
+          {
+            label: "Visible rows",
+            value: formatInteger(rows.length),
+            detail: props.mode === "watchlist" ? "Pinned subset" : "Current board",
+            tooltip: "Rows currently visible after watchlist filtering.",
+          },
+          {
+            label: "Pinned",
+            value: formatInteger(watchlist.size),
+            detail: "Browser-local list",
+            tooltip: "Watchlist is stored locally in the browser, not in backend state.",
+          },
+          {
+            label: "Smart hits",
+            value: formatInteger(events.length),
+            detail: latestEventAge ? `Last ${formatMinutesAgo(latestEventAge)}` : "No recent event",
+            tooltip: "Recent tracked-wallet events for the mints currently on the board.",
+          },
+          {
+            label: "Data age",
+            value: formatMinutesAgo(payload.generatedAt),
+            detail: `Cache ${formatMinutesAgo(payload.meta.lastRefreshedAt)}`,
+            tooltip: "Board generation time versus the last cached refresh time.",
+          },
+        ]}
+      />
 
       {status ? (
-        <div className="flex items-center gap-2 text-xs text-text-secondary">
-          <StatusPill value={isRefreshing ? "refreshing" : "live"} />
-          <span>{status}</span>
-        </div>
+        <InlineNotice tone={marketUnavailable ? "warning" : "default"} className="text-xs">
+          <div className="flex items-center gap-2">
+            <StatusPill value={isRefreshing ? "refreshing" : "live"} />
+            <span>{status}</span>
+          </div>
+        </InlineNotice>
       ) : null}
 
       {rows.length === 0 ? (
         <EmptyState
-          title={props.mode === "watchlist" ? "Watchlist is empty" : "No trending rows"}
-          detail={props.mode === "watchlist" ? "Pin mints from the trending board first." : "No rows returned by /market/trending."}
+          title={
+            marketUnavailable
+              ? "Market feed unavailable"
+              : props.mode === "watchlist"
+                ? "Watchlist is empty"
+                : "No trending rows"
+          }
+          detail={
+            marketUnavailable
+              ? (status ?? "Market data did not load.")
+              : props.mode === "watchlist"
+                ? "Pin mints from the trending board first."
+                : "No rows returned by /market/trending."
+          }
           compact
         />
       ) : (
@@ -270,11 +310,34 @@ export function MarketTrendingGrid(props: MarketTrendingGridProps) {
         </div>
       )}
 
-      <div className="text-xs text-text-muted">
-        Updated {formatMinutesAgo(payload.generatedAt)} · cached {formatMinutesAgo(payload.meta.lastRefreshedAt)}
-        {" · "}
-        Bundle/cluster/composite fields unavailable in current backend payload.
-      </div>
+      <DisclosurePanel
+        title="Smart-wallet activity"
+        description="Open only when you need to see who was buying or selling the names already on the board."
+        badge={<span className="meta-chip">{formatInteger(events.length)} event{events.length === 1 ? "" : "s"}</span>}
+      >
+        <div className="flex flex-wrap gap-2">
+          {events.length === 0 ? (
+            <div className="text-sm text-text-secondary">No smart-wallet events for current mints.</div>
+          ) : (
+            events.map((event) => (
+              <Link
+                key={event.id}
+                href={`/market/token/${event.mint}` as Route}
+                prefetch={false}
+                className="rounded border border-bg-border bg-bg-hover/30 px-2 py-1 text-xs text-text-secondary hover:text-text-primary"
+              >
+                <span className="font-medium text-text-primary">{event.walletLabel ?? shortMint(event.walletAddress)}</span>
+                {" · "}
+                {event.side}
+                {" · "}
+                {formatCompactCurrency(event.amountUsd)}
+                {" · "}
+                {shortMint(event.mint, 4)}
+              </Link>
+            ))
+          )}
+        </div>
+      </DisclosurePanel>
     </div>
   );
 }

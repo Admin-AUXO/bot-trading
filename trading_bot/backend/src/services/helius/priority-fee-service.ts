@@ -1,5 +1,4 @@
 import type { ProviderPurpose, ProviderSource } from "@prisma/client";
-import { db } from "../../db/client.js";
 import { env } from "../../config/env.js";
 import { ProviderBudgetService } from "../provider-budget-service.js";
 import { logger } from "../../utils/logger.js";
@@ -22,14 +21,11 @@ type SlotBudgetService = ProviderBudgetService & {
   releaseSlot?: (slot: unknown, result: Record<string, unknown>) => Promise<void>;
 };
 
-type ProviderCreditLogClient = Pick<typeof db, "providerCreditLog">;
-
 type FetchLike = typeof fetch;
 
 type PriorityFeeDeps = {
   rpcUrl?: string;
   budgetService?: SlotBudgetService;
-  prisma?: ProviderCreditLogClient;
   fetchImpl?: FetchLike;
   nowMs?: () => number;
 };
@@ -99,7 +95,6 @@ function parseEstimate(payload: HeliusPriorityFeeResponse): number | null {
 export class HeliusPriorityFeeService {
   private readonly rpcUrl: string;
   private readonly budgetService: SlotBudgetService;
-  private readonly prisma: ProviderCreditLogClient;
   private readonly fetchImpl: FetchLike;
   private readonly nowMs: () => number;
   private readonly cache = new Map<PriorityFeeLane, CacheEntry>();
@@ -108,7 +103,6 @@ export class HeliusPriorityFeeService {
   constructor(deps: PriorityFeeDeps = {}) {
     this.rpcUrl = deps.rpcUrl ?? env.HELIUS_RPC_URL;
     this.budgetService = deps.budgetService ?? new ProviderBudgetService();
-    this.prisma = deps.prisma ?? db;
     this.fetchImpl = deps.fetchImpl ?? fetch;
     this.nowMs = deps.nowMs ?? Date.now;
   }
@@ -196,18 +190,6 @@ export class HeliusPriorityFeeService {
         expiresAtMs: this.nowMs() + CACHE_TTL_MS,
       });
 
-      await this.safeWriteCreditLog({
-        provider: "HELIUS",
-        endpoint: "getPriorityFeeEstimate",
-        purpose: "PRIORITY_FEE",
-        creditsUsed: 1,
-        httpStatus,
-        latencyMs,
-        errorCode,
-        lane,
-        ...context,
-      });
-
       await this.safeReleaseSlot(slot, {
         provider: "HELIUS",
         endpoint: "getPriorityFeeEstimate",
@@ -241,51 +223,16 @@ export class HeliusPriorityFeeService {
       return;
     }
     try {
-      await this.budgetService.releaseSlot(slot, result);
+      const slotId = typeof slot === "object" && slot !== null && "id" in slot && typeof slot.id === "string"
+        ? slot.id
+        : null;
+      if (!slotId) {
+        return;
+      }
+      await this.budgetService.releaseSlot(slotId, result);
     } catch (error) {
       logger.warn({ err: error, result }, "provider budget releaseSlot failed open for priority fee");
     }
   }
 
-  private async safeWriteCreditLog(input: {
-    provider: ProviderSource;
-    endpoint: string;
-    purpose: ProviderPurpose;
-    creditsUsed: number;
-    sessionId?: string | null;
-    packId?: string | null;
-    configVersion?: number | null;
-    mint?: string | null;
-    candidateId?: string | null;
-    positionId?: string | null;
-    httpStatus: number;
-    latencyMs: number;
-    errorCode?: string | null;
-    lane: PriorityFeeLane;
-  }): Promise<void> {
-    try {
-      await this.prisma.providerCreditLog.create({
-        data: {
-          provider: input.provider,
-          endpoint: input.endpoint,
-          purpose: input.purpose,
-          creditsUsed: input.creditsUsed,
-          sessionId: input.sessionId ?? null,
-          packId: input.packId ?? null,
-          configVersion: input.configVersion ?? null,
-          mint: input.mint ?? null,
-          candidateId: input.candidateId ?? null,
-          positionId: input.positionId ?? null,
-          httpStatus: input.httpStatus,
-          latencyMs: Math.max(0, Math.round(input.latencyMs)),
-          errorCode: input.errorCode ?? null,
-        },
-      });
-    } catch (error) {
-      logger.warn(
-        { err: error, lane: input.lane, endpoint: input.endpoint },
-        "failed to persist ProviderCreditLog row for priority fee",
-      );
-    }
-  }
 }

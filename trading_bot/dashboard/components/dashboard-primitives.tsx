@@ -1,6 +1,7 @@
+import * as Tooltip from "@radix-ui/react-tooltip";
 import clsx from "clsx";
 import type { LucideIcon } from "lucide-react";
-import { AlertCircle, ChevronRight } from "lucide-react";
+import { AlertCircle, ChevronRight, CircleHelp } from "lucide-react";
 import { AgGridTable } from "@/components/ag-grid-table";
 
 type TableRow = Record<string, unknown>;
@@ -45,23 +46,33 @@ export function CompactPageHeader(props: {
   className?: string;
 }) {
   return (
-    <section className={clsx("panel-strong rounded-[14px] px-3 py-2.5", props.className)}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
+    <section className={clsx("panel-strong relative overflow-hidden rounded-[18px] px-3 py-3.5 md:px-4", props.className)}>
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(166,241,135,0.08),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.02),transparent_72%)]" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,transparent,rgba(166,241,135,0.35),transparent)]" />
+      <div className="relative flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <div className="section-kicker text-accent">{props.eyebrow}</div>
             {props.badges}
           </div>
-          <h1 className="mt-1 font-display text-[1rem] font-semibold tracking-[-0.02em] text-text-primary">
-            {props.title}
-          </h1>
-          {props.description ? (
-            <div className="mt-0.5 text-[12px] text-text-secondary">{props.description}</div>
-          ) : null}
+          <div className="mt-1 flex flex-wrap items-end gap-3">
+            <h1 className="font-display text-[1.08rem] font-semibold tracking-[-0.03em] text-text-primary md:text-[1.18rem]">
+              {props.title}
+            </h1>
+            {props.description ? (
+              <div className="max-w-3xl text-[11px] leading-5 text-text-secondary md:text-[12px]">{props.description}</div>
+            ) : null}
+          </div>
         </div>
-        {props.actions ? <div className="flex flex-wrap items-center gap-2 sm:justify-end">{props.actions}</div> : null}
+        {props.actions ? (
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">{props.actions}</div>
+        ) : null}
       </div>
-      {props.children ? <div className="mt-2">{props.children}</div> : null}
+      {props.children ? (
+        <div className="relative mt-3 rounded-[16px] border border-bg-border/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))] p-2.5 md:p-3">
+          {props.children}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -71,6 +82,7 @@ export function CompactStatGrid(props: {
     label: string;
     value: string;
     detail?: string;
+    tooltip?: string;
     tone?: "default" | "accent" | "warning" | "danger";
   }>;
   className?: string;
@@ -85,6 +97,7 @@ export function CompactStatGrid(props: {
           label={item.label}
           value={item.value}
           detail={item.detail}
+          tooltip={item.tooltip}
           tone={item.tone}
         />
       ))}
@@ -111,7 +124,7 @@ export function Panel(props: {
   return (
     <section className={clsx("rounded-[14px] p-3 md:p-3.5", toneClass, props.className)}>
       {props.eyebrow || props.action ? (
-        <div className="mb-2.5 flex flex-wrap items-start justify-between gap-2.5">
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-2.5 border-b border-bg-border/60 pb-2.5">
           <div>
             {props.eyebrow ? <p className="section-kicker">{props.eyebrow}</p> : null}
             <h2 className="mt-1 font-display text-[0.93rem] font-semibold tracking-[-0.02em] text-text-primary md:text-[1rem]">
@@ -124,7 +137,7 @@ export function Panel(props: {
           {props.action}
         </div>
       ) : (
-        <div className="mb-2.5">
+        <div className="mb-3 border-b border-bg-border/60 pb-2.5">
           <h2 className="font-display text-[0.93rem] font-semibold tracking-[-0.02em] text-text-primary md:text-[1rem]">
             {props.title}
           </h2>
@@ -135,6 +148,51 @@ export function Panel(props: {
       )}
       {props.children}
     </section>
+  );
+}
+
+export function InlineNotice(props: {
+  children: React.ReactNode;
+  tone?: "default" | "accent" | "warning" | "danger";
+  className?: string;
+}) {
+  const toneClass = {
+    default: "border-bg-border bg-bg-hover/25 text-text-secondary",
+    accent: "border-[rgba(163,230,53,0.22)] bg-[rgba(163,230,53,0.08)] text-text-primary",
+    warning: "border-[rgba(250,204,21,0.24)] bg-[rgba(250,204,21,0.08)] text-[var(--warning)]",
+    danger: "border-[rgba(251,113,133,0.24)] bg-[rgba(251,113,133,0.08)] text-[var(--danger)]",
+  }[props.tone ?? "default"];
+
+  return (
+    <div className={clsx("rounded-[12px] border px-4 py-3 text-sm", toneClass, props.className)}>
+      {props.children}
+    </div>
+  );
+}
+
+export function DisclosurePanel(props: {
+  title: string;
+  description: string;
+  badge?: React.ReactNode;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <details className={clsx("group rounded-[14px] border border-bg-border bg-bg-secondary/70 p-3", props.className)}>
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="section-kicker">Details</div>
+          <div className="mt-1 text-sm font-semibold text-text-primary">{props.title}</div>
+          <div className="mt-1 text-xs leading-5 text-text-secondary">{props.description}</div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {props.badge}
+          <div className="text-[11px] text-text-muted group-open:hidden">Open</div>
+          <div className="hidden text-[11px] text-text-muted group-open:block">Hide</div>
+        </div>
+      </summary>
+      <div className="mt-3">{props.children}</div>
+    </details>
   );
 }
 
@@ -174,6 +232,7 @@ export function ScanStat(props: {
   label: string;
   value: string;
   detail?: string;
+  tooltip?: string;
   tone?: "default" | "accent" | "warning" | "danger";
 }) {
   const toneClass = {
@@ -186,13 +245,42 @@ export function ScanStat(props: {
   return (
     <div className={clsx("rounded-[14px] border px-3 py-2.5", toneClass)}>
       <div className="scorecard-grid">
-        <div className="scorecard-label wrap-anywhere">{props.label}</div>
+        <div className="flex items-center justify-center gap-1.5">
+          <div className="scorecard-label wrap-anywhere">{props.label}</div>
+          {props.tooltip ? <StatTooltip content={props.tooltip} /> : null}
+        </div>
         <div className="scorecard-value wrap-anywhere text-[0.98rem] font-semibold tracking-tight">
           {props.value}
         </div>
-        {props.detail ? <div className="scorecard-detail text-xs">{props.detail}</div> : <div />}
+        {props.detail ? <div className="scorecard-detail line-clamp-2 text-xs">{props.detail}</div> : <div />}
       </div>
     </div>
+  );
+}
+
+function StatTooltip(props: { content: string }) {
+  return (
+    <Tooltip.Root>
+      <Tooltip.Trigger asChild>
+        <button
+          type="button"
+          className="inline-flex h-4 w-4 items-center justify-center rounded-full text-text-muted transition hover:text-text-primary"
+          aria-label="Show stat detail"
+        >
+          <CircleHelp className="h-3.5 w-3.5" />
+        </button>
+      </Tooltip.Trigger>
+      <Tooltip.Portal>
+        <Tooltip.Content
+          side="top"
+          sideOffset={8}
+          className="max-w-[18rem] rounded-[12px] border border-bg-border bg-[#111214] px-3 py-2 text-[11px] leading-5 text-text-primary shadow-2xl"
+        >
+          {props.content}
+          <Tooltip.Arrow className="fill-[#111214]" />
+        </Tooltip.Content>
+      </Tooltip.Portal>
+    </Tooltip.Root>
   );
 }
 

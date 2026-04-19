@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server";
 
-const API_URL = process.env.API_URL ?? "http://127.0.0.1:3101";
-const CONTROL_API_SECRET = process.env.CONTROL_API_SECRET ?? process.env.CONTROL_SECRET ?? "";
+const API_URL = (process.env.API_URL ?? "http://127.0.0.1:3101").trim().replace(/\/$/, "");
 
 async function proxy(request: NextRequest, path: string[]) {
   const url = new URL(`${API_URL}/api/${path.join("/")}`);
@@ -9,21 +8,14 @@ async function proxy(request: NextRequest, path: string[]) {
     url.searchParams.set(key, value);
   });
 
-  const authHeader = request.headers.get("authorization");
   const apiKeyHeader = request.headers.get("x-api-key");
   const contentType = request.headers.get("content-type");
-  const forwardedAuthHeader = authHeader?.startsWith("Bearer ") ? authHeader : null;
   const forwardedForHeader = request.headers.get("x-forwarded-for");
   const realIpHeader = request.headers.get("x-real-ip");
 
   const init: RequestInit = {
     method: request.method,
     headers: {
-      ...(forwardedAuthHeader
-        ? { authorization: forwardedAuthHeader }
-        : CONTROL_API_SECRET
-          ? { authorization: `Bearer ${CONTROL_API_SECRET}` }
-          : {}),
       ...(apiKeyHeader ? { "x-api-key": apiKeyHeader } : {}),
       ...(contentType ? { "content-type": contentType } : {}),
       ...(forwardedForHeader ? { "x-forwarded-for": forwardedForHeader } : {}),
@@ -55,6 +47,7 @@ async function proxy(request: NextRequest, path: string[]) {
   return new Response(response.body, {
     status: response.status,
     headers: {
+      ...(responseContentType ? { "content-type": responseContentType } : {}),
       ...(isJsonResponse ? { "content-type": "application/json" } : {}),
     },
   });

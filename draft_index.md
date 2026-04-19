@@ -37,7 +37,7 @@ Design + planning for the bot-trading rewrite. All docs are drafts — once a ph
 - Dashboard IA transition layer landed:
   `trading_bot/dashboard/lib/dashboard-routes.ts`, `dashboard-navigation.ts`, `next.config.ts`, and new `app/workbench/*` + `app/market/*` pages establish the target URL shape as compatibility routes over the existing discovery-lab/operator surfaces.
 - API compatibility aliases landed:
-  `/api/operator/shell`, `/api/operator/home`, `/api/operator/events`, `/api/operator/workbench-market/*`, and `/api/workbench-market/*`.
+  `/api/operator/shell`, `/api/operator/home`, `/api/operator/events`, plus the dedicated `/api/operator/packs*`, `/api/operator/runs*`, `/api/operator/sessions*`, and `/api/operator/market/*` seams.
 - First database contract slice landed:
   `trading_bot/backend/prisma/schema.prisma` now includes `StrategyPack` and `StrategyPackVersion`.
 - Discovery-lab pack persistence now dual-writes:
@@ -91,7 +91,7 @@ Design + planning for the bot-trading rewrite. All docs are drafts — once a ph
 - Draft backend phase beyond the current partial phase-6 push:
   deeper `HeliusWatchService` / webhook ownership, smart-wallet ingest, session budget forecasting, config replay, adaptive mutator attribution, and full engine cutover onto the new execution services.
 - Draft dashboard/workbench phase beyond the market pass:
-  true `/workbench/editor` and `/workbench/grader/[runId]` production surfaces, browser verification of the market pages under degraded providers, and deletion of the remaining discovery-lab compatibility code.
+  true `/workbench/editor` and `/workbench/grader/[runId]` production surfaces, browser verification of the market pages under degraded providers, and deletion of the remaining compatibility debt.
 - Draft strategy-pack/adaptive rollout:
   the 10 pack seeds are still docs-only, adaptive mutators are not yet production-grade, and smart-money pack automation is still pending data/ingest hardening.
 

@@ -3,42 +3,27 @@ import {
   Connection,
   Keypair,
   PublicKey,
-  SystemProgram,
-  TransactionMessage,
-  VersionedTransaction,
-  type AddressLookupTableAccount,
   type ParsedTransactionWithMeta,
 } from "@solana/web3.js";
+import type { ProviderPurpose, ProviderSource } from "@prisma/client";
 import { env } from "../config/env.js";
+import {
+  ProviderBudgetService,
+  type ProviderSlot,
+  type ProviderSlotContext,
+  type ProviderSlotResult,
+} from "./provider-budget-service.js";
+import {
+  QuoteBuilder,
+  type JupiterQuote,
+  type PackRecipe,
+} from "./execution/quote-builder.js";
+import { SwapBuilder } from "./execution/swap-builder.js";
+import { SwapSubmitter } from "./execution/swap-submitter.js";
+import { HeliusPriorityFeeService } from "./helius/priority-fee-service.js";
 
 const DEFAULT_USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
-const DEFAULT_USDT_MINT = "Es9vMFrzaCERmJfrF4H2FYD1H7mX9w8C7eE3L6ZB3bqx";
-
-const SENDER_TIP_ACCOUNTS = [
-  "4ACfpUFoaSD9bfPdeu6DBt89gB6ENTeHBXCAi87NhDEE",
-  "D2L6yPZ2FmmmTKPgzaMKdhu6EWZcTpLy1Vhx8uvZe7NZ",
-  "9bnz4RShgq1hAnLnZbP8kbgBg1kEmcJBYQq3gQbmnSta",
-  "5VY91ws6B2hMmBFRsXkoAAdsPHBJwRfBht4DXox3xkwn",
-  "2nyhqdwKcJZR2vcqCyrYsaPVdAnFoJjiksCXJ7hfEYgD",
-  "2q5pghRs6arqVjRvT5gfgWfWcHWmw1ZuCzphgd5KfWGJ",
-  "wyvPkWjVZz1M8fHQnMMCDTQDbkManefNNhweYk5WkcF",
-  "3KCKozbAaF75qEU33jtzozcJ29yJuaLJTy2jFdzUY8bT",
-  "4vieeGHPYPG2MmyPRcYjdiDmmhN3ww7hsFNap8pVN3Ey",
-  "4TQLFNWK8AovT1gFvda5jfw2oJeRMKEmw7aH6MGBJ3or",
-];
-
-type JupiterQuoteResponse = {
-  inputMint?: string;
-  outputMint?: string;
-  inAmount?: string;
-  outAmount?: string;
-  routePlan?: unknown[];
-  slippageBps?: number;
-};
-
-type JupiterSwapResponse = {
-  swapTransaction?: string;
-};
+const DEFAULT_USDT_MINT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
 
 type TokenBalanceDelta = {
   preRaw: bigint;
@@ -55,6 +40,16 @@ export type LiveTradeExecution = {
   quoteMint: string;
   quoteDecimals: number;
   metadata: Record<string, unknown>;
+};
+
+type LiveTradeExecutorDeps = {
+  connection?: Connection;
+  providerBudget?: ProviderBudgetService;
+  quoteBuilder?: QuoteBuilder;
+  swapBuilder?: SwapBuilder;
+  swapSubmitter?: SwapSubmitter;
+  priorityFeeService?: HeliusPriorityFeeService;
+  wallet?: Keypair | null;
 };
 
 function parseSecretKey(secret: string): Uint8Array {
@@ -111,7 +106,10 @@ function parsedAccountKeyToString(value: unknown): string | null {
 }
 
 function isStableQuoteMint(mint: string): boolean {
-  return mint === DEFAULT_USDC_MINT || mint === DEFAULT_USDT_MINT;
+  const normalized = mint.trim();
+  return normalized === DEFAULT_USDC_MINT
+    || normalized === DEFAULT_USDT_MINT
+    || normalized.startsWith("Es9vMFrzaCERmJfrF4H2FYD");
 }
 
 function tokenBalanceSumRaw(
@@ -183,10 +181,10 @@ export function getLiveTradingReadiness(): { ready: boolean; reason?: string } {
     return { ready: false, reason: "Trading wallet is misconfigured: invalid private key" };
   }
 
-  if (!isStableQuoteMint(env.LIVE_QUOTE_MINT)) {
+  if (!env.LIVE_QUOTE_MINT.trim()) {
     return {
       ready: false,
-      reason: `LIVE_QUOTE_MINT must be a supported stable mint for USD accounting (current: ${env.LIVE_QUOTE_MINT})`,
+      reason: "LIVE_QUOTE_MINT must be configured for USD accounting",
     };
   }
 
@@ -194,15 +192,40 @@ export function getLiveTradingReadiness(): { ready: boolean; reason?: string } {
 }
 
 export class LiveTradeExecutor {
-  private readonly connection = new Connection(env.HELIUS_RPC_URL, "confirmed");
-  private readonly wallet: Keypair | null = (() => {
-    if (!env.TRADING_WALLET_PRIVATE_KEY_B58) return null;
-    try {
-      return Keypair.fromSecretKey(parseSecretKey(env.TRADING_WALLET_PRIVATE_KEY_B58));
-    } catch {
-      return null;
-    }
-  })();
+  private readonly connection: Connection;
+  private readonly wallet: Keypair | null;
+  private readonly budgetService: ProviderBudgetService;
+  private readonly priorityFeeService: HeliusPriorityFeeService;
+  private readonly quoteBuilder: QuoteBuilder;
+  private readonly swapBuilder: SwapBuilder;
+  private readonly swapSubmitter: SwapSubmitter;
+
+  constructor(deps: LiveTradeExecutorDeps = {}) {
+    this.connection = deps.connection ?? new Connection(env.HELIUS_RPC_URL, "confirmed");
+    this.wallet = deps.wallet ?? (() => {
+      if (!env.TRADING_WALLET_PRIVATE_KEY_B58) return null;
+      try {
+        return Keypair.fromSecretKey(parseSecretKey(env.TRADING_WALLET_PRIVATE_KEY_B58));
+      } catch {
+        return null;
+      }
+    })();
+    const providerBudget = deps.providerBudget ?? new ProviderBudgetService();
+    this.budgetService = providerBudget;
+    this.priorityFeeService = deps.priorityFeeService ?? new HeliusPriorityFeeService({
+      rpcUrl: env.HELIUS_RPC_URL,
+      budgetService: providerBudget,
+    });
+    this.quoteBuilder = deps.quoteBuilder ?? new QuoteBuilder({
+      budgetService: providerBudget,
+    });
+    this.swapBuilder = deps.swapBuilder ?? new SwapBuilder();
+    this.swapSubmitter = deps.swapSubmitter ?? new SwapSubmitter({
+      connection: this.connection,
+      priorityFeeService: this.priorityFeeService,
+      budgetService: providerBudget,
+    });
+  }
 
   isConfigured(): boolean {
     return getLiveTradingReadiness().ready;
@@ -238,6 +261,9 @@ export class LiveTradeExecutor {
     mint: string;
     budgetUsd: number;
     tokenDecimalsHint?: number | null;
+    marketCapUsd?: number | null;
+    packId?: string | null;
+    candidateId?: string | null;
   }): Promise<LiveTradeExecution> {
     const startedAtMs = Date.now();
     const wallet = this.requireWallet();
@@ -252,73 +278,121 @@ export class LiveTradeExecutor {
     // ── STAGE 1: parallel funding check + quote fetch ─────────────────────
     const quoteStartedAtMs = Date.now();
     const [fundingResult, quote] = await Promise.all([
-      this.ensureWalletFunding(quoteMint, quoteAmountRaw),
-      this.getQuote({
-        inputMint: quoteMint,
-        outputMint: input.mint,
-        amount: quoteAmountRaw.toString(),
-        slippageBps: env.LIVE_SLIPPAGE_BPS,
+      this.ensureWalletFunding(quoteMint, quoteAmountRaw, {
+        purpose: "EVALUATE",
+        mint: input.mint,
+        packId: input.packId ?? null,
+        candidateId: input.candidateId ?? null,
+      }),
+      this.quoteBuilder.build({
+        mint: input.mint,
+        side: "BUY",
+        lamportAmount: quoteAmountRaw,
+        mcUsd: normalizeMarketCapUsd(input.marketCapUsd),
+        packRecipe: buildPackRecipe(input.packId),
+        candidateId: input.candidateId ?? null,
       }),
     ]);
 
-    // Re-throw funding error first (config/integrity issue)
     if (fundingResult instanceof Error) throw fundingResult;
+    if (!quote) {
+      throw new Error(`Jupiter quote unavailable for ${input.mint}`);
+    }
 
     const quoteCompletedAtMs = Date.now();
 
-    // ── STAGE 2: build swap transaction ──────────────────────────────────
     const swapStartedAtMs = quoteCompletedAtMs;
-    const swap = await this.getSwapTransaction(quote, wallet.publicKey.toBase58());
+    const priorityFeeAccounts = collectPriorityFeeAccounts(quote);
+    let initialPriorityFee = await this.priorityFeeService.estimate(priorityFeeAccounts, "entry", {
+      packId: input.packId ?? null,
+      mint: input.mint,
+      candidateId: input.candidateId ?? null,
+    });
+    let currentQuote = quote;
+    const firstTx = await this.swapBuilder.build({
+      quote: currentQuote,
+      wallet,
+      priorityFeeMicroLamports: initialPriorityFee,
+    });
+    if (!firstTx) {
+      throw new Error(`Jupiter swap build failed for ${input.mint}`);
+    }
     const swapCompletedAtMs = Date.now();
 
-    // ── STAGE 3: parallel ALT loading + sender tx build ─────────────────
-    const senderBuildStartedAtMs = swapCompletedAtMs;
-    const jupiterTx = VersionedTransaction.deserialize(Buffer.from(swap.swapTransaction!, "base64"));
-
-    // Load all Address Lookup Tables in parallel
-    const altAccountsPromise = this.loadAddressLookupTables(jupiterTx);
-
-    // Simultaneously deserialize the Jupiter tx to extract instructions for signing
-    // (no RPC needed — pure CPU work)
-    const altAccounts = await altAccountsPromise;
-    const message = TransactionMessage.decompile(jupiterTx.message, {
-      addressLookupTableAccounts: altAccounts,
+    const senderBuildStartedAtMs = swapStartedAtMs;
+    const attempt = await this.swapSubmitter.submit({
+      tx: firstTx,
+      lane: "REGULAR",
+      tipLamports: env.LIVE_TIP_LAMPORTS,
+      wallet,
+      mint: input.mint,
+      side: "BUY",
+      candidateId: input.candidateId ?? null,
+      packId: input.packId ?? null,
+      mcUsdAtQuote: normalizeMarketCapUsd(input.marketCapUsd),
+      tierBucket: currentQuote.tierBucket,
+      slippageCapBps: currentQuote.slippageCapBps,
+      slippageUsedBps: currentQuote.slippageBps,
+      priceImpactBps: Math.round(currentQuote.priceImpactPct * 10_000),
+      quoteLatencyMs: quoteCompletedAtMs - quoteStartedAtMs,
+      signLatencyMs: swapCompletedAtMs - swapStartedAtMs,
+      priorityFeeAccounts,
+      priorityFeeLane: "entry",
+      onRequote: async () => {
+        const refreshedQuote = await this.quoteBuilder.build({
+          mint: input.mint,
+          side: "BUY",
+          lamportAmount: quoteAmountRaw,
+          mcUsd: normalizeMarketCapUsd(input.marketCapUsd),
+          packRecipe: buildPackRecipe(input.packId),
+          candidateId: input.candidateId ?? null,
+        });
+        if (!refreshedQuote) {
+          return null;
+        }
+        currentQuote = refreshedQuote;
+        initialPriorityFee = await this.priorityFeeService.estimate(collectPriorityFeeAccounts(refreshedQuote), "entry", {
+          packId: input.packId ?? null,
+          mint: input.mint,
+          candidateId: input.candidateId ?? null,
+        });
+        return this.swapBuilder.build({
+          quote: refreshedQuote,
+          wallet,
+          priorityFeeMicroLamports: initialPriorityFee,
+        });
+      },
     });
 
-    message.instructions.push(
-      SystemProgram.transfer({
-        fromPubkey: wallet.publicKey,
-        toPubkey: new PublicKey(SENDER_TIP_ACCOUNTS[Math.floor(Math.random() * SENDER_TIP_ACCOUNTS.length)]!),
-        lamports: env.LIVE_TIP_LAMPORTS,
-      }),
-    );
+    if (attempt.failureCode || !attempt.txSig) {
+      throw new Error(`live buy submit failed: ${attempt.failureCode ?? "missing_tx_sig"}`);
+    }
 
-    const finalTx = new VersionedTransaction(message.compileToV0Message(altAccounts));
-    finalTx.sign([wallet]);
-    const senderBuildCompletedAtMs = Date.now();
+    const senderBuildCompletedAtMs = swapCompletedAtMs;
+    const broadcastCompletedAtMs = swapCompletedAtMs + Number(attempt.submitLatencyMs ?? 0) + Number(attempt.confirmLatencyMs ?? 0);
 
-    // ── STAGE 4: broadcast + confirm ─────────────────────────────────────
-    const broadcastStartedAtMs = senderBuildCompletedAtMs;
-    const signature = await this.broadcastTransaction(finalTx);
-    const broadcastCompletedAtMs = Date.now();
-
-    // ── STAGE 5: parse settlement ─────────────────────────────────────────
     const settlementStartedAtMs = broadcastCompletedAtMs;
     const settled = await this.parseSettlement({
-      signature,
+      signature: attempt.txSig,
       walletAddress: wallet.publicKey.toBase58(),
       baseMint: input.mint,
       quoteMint,
-      fallbackBaseRaw: BigInt(quote.outAmount ?? "0"),
-      fallbackQuoteRaw: BigInt(quote.inAmount ?? quoteAmountRaw.toString()),
+      fallbackBaseRaw: BigInt(currentQuote.outAmount ?? "0"),
+      fallbackQuoteRaw: BigInt(currentQuote.inAmount ?? quoteAmountRaw.toString()),
       baseDecimalsHint: input.tokenDecimalsHint ?? 0,
       quoteDecimalsHint: quoteDecimals,
       side: "BUY",
+      budget: {
+        purpose: "EVALUATE",
+        mint: input.mint,
+        packId: input.packId ?? null,
+        candidateId: input.candidateId ?? null,
+      },
     });
     const settlementCompletedAtMs = Date.now();
 
-    const quotedInAmountRaw = quote.inAmount ?? quoteAmountRaw.toString();
-    const quotedOutAmountRaw = quote.outAmount ?? null;
+    const quotedInAmountRaw = currentQuote.inAmount ?? quoteAmountRaw.toString();
+    const quotedOutAmountRaw = currentQuote.outAmount ?? null;
     const actualInAmountRaw = settled.quoteAmountRaw;
     const actualOutAmountRaw = settled.baseAmountRaw;
     const quotedOutAmountToken = toDecimalNumber(quotedOutAmountRaw, settled.baseDecimals);
@@ -326,7 +400,7 @@ export class LiveTradeExecutor {
     const executionSlippageBps = toBpsFromShortfall(quotedOutAmountToken, actualOutAmountToken);
 
     return {
-      signature,
+      signature: attempt.txSig,
       entryPriceUsd: Number(settled.quoteAmount) / Math.max(Number(settled.baseAmount), Number.EPSILON),
       amountUsd: settled.quoteAmount,
       amountToken: settled.baseAmount,
@@ -345,9 +419,16 @@ export class LiveTradeExecutor {
         quotedOutAmountToken,
         actualOutAmountToken,
         executionSlippageBps,
-        quoteSlippageBps: quote.slippageBps ?? env.LIVE_SLIPPAGE_BPS,
+        quoteSlippageBps: currentQuote.slippageBps ?? env.LIVE_SLIPPAGE_BPS,
         senderUrl: env.LIVE_HELIUS_SENDER_URL,
         walletLamportsDelta: settled.walletLamportsDelta,
+        lane: "REGULAR",
+        fillAttemptId: attempt.id.toString(),
+        fillAttemptRetries: attempt.retries,
+        fillAttemptFailureCode: attempt.failureCode,
+        bundleLanded: attempt.bundleLanded,
+        cuPriceMicroLamports: attempt.cuPriceMicroLamports?.toString() ?? null,
+        tipLamports: attempt.tipLamports?.toString() ?? null,
         timing: {
           startedAt: new Date(startedAtMs).toISOString(),
           completedAt: new Date(settlementCompletedAtMs).toISOString(),
@@ -355,7 +436,7 @@ export class LiveTradeExecutor {
           quoteMs: quoteCompletedAtMs - quoteStartedAtMs,
           swapBuildMs: swapCompletedAtMs - swapStartedAtMs,
           senderBuildMs: senderBuildCompletedAtMs - senderBuildStartedAtMs,
-          broadcastAndConfirmMs: broadcastCompletedAtMs - broadcastStartedAtMs,
+          broadcastAndConfirmMs: Number(attempt.submitLatencyMs ?? 0) + Number(attempt.confirmLatencyMs ?? 0),
           settlementReadMs: settlementCompletedAtMs - settlementStartedAtMs,
         },
       },
@@ -387,6 +468,9 @@ export class LiveTradeExecutor {
     mint: string;
     tokenAmount: string;
     tokenDecimals: number;
+    marketCapUsd?: number | null;
+    packId?: string | null;
+    positionId?: string | null;
   }): Promise<LiveTradeExecution> {
     const startedAtMs = Date.now();
     const wallet = this.requireWallet();
@@ -400,79 +484,129 @@ export class LiveTradeExecutor {
 
     // ── STAGE 1: parallel pre-flight checks + quote ──────────────────────
     const quoteStartedAtMs = Date.now();
-    const [fundingResult, tokenResult] = await Promise.all([
-      this.ensureWalletFunding(quoteMint, 0n),
-      this.ensureTokenBalance(input.mint, baseAmountRaw),
-      this.getQuote({
-        inputMint: input.mint,
-        outputMint: quoteMint,
-        amount: baseAmountRaw.toString(),
-        slippageBps: env.LIVE_SLIPPAGE_BPS,
+    const [fundingResult, tokenResult, initialQuote] = await Promise.all([
+      this.ensureWalletFunding(quoteMint, 0n, {
+        purpose: "EXIT",
+        mint: input.mint,
+        packId: input.packId ?? null,
+        positionId: input.positionId ?? null,
+      }),
+      this.ensureTokenBalance(input.mint, baseAmountRaw, {
+        purpose: "EXIT",
+        mint: input.mint,
+        packId: input.packId ?? null,
+        positionId: input.positionId ?? null,
+      }),
+      this.quoteBuilder.build({
+        mint: input.mint,
+        side: "SELL",
+        lamportAmount: baseAmountRaw,
+        mcUsd: normalizeMarketCapUsd(input.marketCapUsd),
+        packRecipe: buildPackRecipe(input.packId),
+        positionId: input.positionId ?? null,
       }),
     ]);
 
-    // Surface funding errors before token errors
     if (fundingResult instanceof Error) throw fundingResult;
     if (tokenResult instanceof Error) throw tokenResult;
-
-    const quote = await this.getQuote({
-      inputMint: input.mint,
-      outputMint: quoteMint,
-      amount: baseAmountRaw.toString(),
-      slippageBps: env.LIVE_SLIPPAGE_BPS,
-    });
+    if (!initialQuote) {
+      throw new Error(`Jupiter quote unavailable for ${input.mint}`);
+    }
+    let currentQuote = initialQuote;
     const quoteCompletedAtMs = Date.now();
 
-    // ── STAGE 2 ─────────────────────────────────────────────────────────
     const swapStartedAtMs = quoteCompletedAtMs;
-    const swap = await this.getSwapTransaction(quote, wallet.publicKey.toBase58());
+    const priorityFeeAccounts = collectPriorityFeeAccounts(currentQuote);
+    let initialPriorityFee = await this.priorityFeeService.estimate(priorityFeeAccounts, "exit", {
+      packId: input.packId ?? null,
+      mint: input.mint,
+      positionId: input.positionId ?? null,
+    });
+    const firstTx = await this.swapBuilder.build({
+      quote: currentQuote,
+      wallet,
+      priorityFeeMicroLamports: initialPriorityFee,
+    });
+    if (!firstTx) {
+      throw new Error(`Jupiter swap build failed for ${input.mint}`);
+    }
     const swapCompletedAtMs = Date.now();
 
-    // ── STAGE 3: parallel ALT loading + sender tx build ──────────────────
-    const senderBuildStartedAtMs = swapCompletedAtMs;
-    const jupiterTx = VersionedTransaction.deserialize(Buffer.from(swap.swapTransaction!, "base64"));
-
-    const altAccountsPromise = this.loadAddressLookupTables(jupiterTx);
-
-    const altAccounts = await altAccountsPromise;
-    const message = TransactionMessage.decompile(jupiterTx.message, {
-      addressLookupTableAccounts: altAccounts,
+    const senderBuildStartedAtMs = swapStartedAtMs;
+    const attempt = await this.swapSubmitter.submit({
+      tx: firstTx,
+      lane: "REGULAR",
+      tipLamports: env.LIVE_TIP_LAMPORTS,
+      wallet,
+      mint: input.mint,
+      side: "SELL",
+      positionId: input.positionId ?? null,
+      packId: input.packId ?? null,
+      mcUsdAtQuote: normalizeMarketCapUsd(input.marketCapUsd),
+      tierBucket: currentQuote.tierBucket,
+      slippageCapBps: currentQuote.slippageCapBps,
+      slippageUsedBps: currentQuote.slippageBps,
+      priceImpactBps: Math.round(currentQuote.priceImpactPct * 10_000),
+      quoteLatencyMs: quoteCompletedAtMs - quoteStartedAtMs,
+      signLatencyMs: swapCompletedAtMs - swapStartedAtMs,
+      priorityFeeAccounts,
+      priorityFeeLane: "exit",
+      isExitAttempt: true,
+      onRequote: async () => {
+        const refreshedQuote = await this.quoteBuilder.build({
+          mint: input.mint,
+          side: "SELL",
+          lamportAmount: baseAmountRaw,
+          mcUsd: normalizeMarketCapUsd(input.marketCapUsd),
+          packRecipe: buildPackRecipe(input.packId),
+          positionId: input.positionId ?? null,
+        });
+        if (!refreshedQuote) {
+          return null;
+        }
+        currentQuote = refreshedQuote;
+        initialPriorityFee = await this.priorityFeeService.estimate(collectPriorityFeeAccounts(refreshedQuote), "exit", {
+          packId: input.packId ?? null,
+          mint: input.mint,
+          positionId: input.positionId ?? null,
+        });
+        return this.swapBuilder.build({
+          quote: refreshedQuote,
+          wallet,
+          priorityFeeMicroLamports: initialPriorityFee,
+        });
+      },
     });
 
-    message.instructions.push(
-      SystemProgram.transfer({
-        fromPubkey: wallet.publicKey,
-        toPubkey: new PublicKey(SENDER_TIP_ACCOUNTS[Math.floor(Math.random() * SENDER_TIP_ACCOUNTS.length)]!),
-        lamports: env.LIVE_TIP_LAMPORTS,
-      }),
-    );
+    if (attempt.failureCode || !attempt.txSig) {
+      throw new Error(`live sell submit failed: ${attempt.failureCode ?? "missing_tx_sig"}`);
+    }
 
-    const finalTx = new VersionedTransaction(message.compileToV0Message(altAccounts));
-    finalTx.sign([wallet]);
-    const senderBuildCompletedAtMs = Date.now();
+    const senderBuildCompletedAtMs = swapCompletedAtMs;
+    const broadcastCompletedAtMs = swapCompletedAtMs + Number(attempt.submitLatencyMs ?? 0) + Number(attempt.confirmLatencyMs ?? 0);
 
-    // ── STAGE 4 ─────────────────────────────────────────────────────────
-    const broadcastStartedAtMs = senderBuildCompletedAtMs;
-    const signature = await this.broadcastTransaction(finalTx);
-    const broadcastCompletedAtMs = Date.now();
-
-    // ── STAGE 5 ─────────────────────────────────────────────────────────
     const settlementStartedAtMs = broadcastCompletedAtMs;
     const settled = await this.parseSettlement({
-      signature,
+      signature: attempt.txSig,
       walletAddress: wallet.publicKey.toBase58(),
       baseMint: input.mint,
       quoteMint,
-      fallbackBaseRaw: BigInt(quote.inAmount ?? baseAmountRaw.toString()),
-      fallbackQuoteRaw: BigInt(quote.outAmount ?? "0"),
+      fallbackBaseRaw: BigInt(currentQuote.inAmount ?? baseAmountRaw.toString()),
+      fallbackQuoteRaw: BigInt(currentQuote.outAmount ?? "0"),
       baseDecimalsHint: input.tokenDecimals,
       quoteDecimalsHint: quoteDecimals,
       side: "SELL",
+      budget: {
+        purpose: "EXIT",
+        mint: input.mint,
+        packId: input.packId ?? null,
+        positionId: input.positionId ?? null,
+      },
     });
     const settlementCompletedAtMs = Date.now();
 
-    const quotedInAmountRaw = quote.inAmount ?? baseAmountRaw.toString();
-    const quotedOutAmountRaw = quote.outAmount ?? null;
+    const quotedInAmountRaw = currentQuote.inAmount ?? baseAmountRaw.toString();
+    const quotedOutAmountRaw = currentQuote.outAmount ?? null;
     const actualInAmountRaw = settled.baseAmountRaw;
     const actualOutAmountRaw = settled.quoteAmountRaw;
     const quotedOutAmountUsd = toDecimalNumber(quotedOutAmountRaw, quoteDecimals);
@@ -480,7 +614,7 @@ export class LiveTradeExecutor {
     const executionSlippageBps = toBpsFromShortfall(quotedOutAmountUsd, actualOutAmountUsd);
 
     return {
-      signature,
+      signature: attempt.txSig,
       entryPriceUsd: Number(settled.quoteAmount) / Math.max(Number(settled.baseAmount), Number.EPSILON),
       amountUsd: settled.quoteAmount,
       amountToken: settled.baseAmount,
@@ -499,9 +633,16 @@ export class LiveTradeExecutor {
         quotedOutAmountUsd,
         actualOutAmountUsd,
         executionSlippageBps,
-        quoteSlippageBps: quote.slippageBps ?? env.LIVE_SLIPPAGE_BPS,
+        quoteSlippageBps: currentQuote.slippageBps ?? env.LIVE_SLIPPAGE_BPS,
         senderUrl: env.LIVE_HELIUS_SENDER_URL,
         walletLamportsDelta: settled.walletLamportsDelta,
+        lane: "REGULAR",
+        fillAttemptId: attempt.id.toString(),
+        fillAttemptRetries: attempt.retries,
+        fillAttemptFailureCode: attempt.failureCode,
+        bundleLanded: attempt.bundleLanded,
+        cuPriceMicroLamports: attempt.cuPriceMicroLamports?.toString() ?? null,
+        tipLamports: attempt.tipLamports?.toString() ?? null,
         timing: {
           startedAt: new Date(startedAtMs).toISOString(),
           completedAt: new Date(settlementCompletedAtMs).toISOString(),
@@ -509,7 +650,7 @@ export class LiveTradeExecutor {
           quoteMs: quoteCompletedAtMs - quoteStartedAtMs,
           swapBuildMs: swapCompletedAtMs - swapStartedAtMs,
           senderBuildMs: senderBuildCompletedAtMs - senderBuildStartedAtMs,
-          broadcastAndConfirmMs: broadcastCompletedAtMs - broadcastStartedAtMs,
+          broadcastAndConfirmMs: Number(attempt.submitLatencyMs ?? 0) + Number(attempt.confirmLatencyMs ?? 0),
           settlementReadMs: settlementCompletedAtMs - settlementStartedAtMs,
         },
       },
@@ -527,11 +668,21 @@ export class LiveTradeExecutor {
    * Returns void on success, Error on failure.
    * Parallelized internally: getBalance + getParsedTokenAccountsByOwner run together.
    */
-  private async ensureWalletFunding(quoteMint: string, minimumQuoteRaw: bigint): Promise<void | Error> {
+  private async ensureWalletFunding(
+    quoteMint: string,
+    minimumQuoteRaw: bigint,
+    budget: ProviderSlotContext & { purpose: ProviderPurpose },
+  ): Promise<void | Error> {
     const wallet = this.requireWallet();
     const [lamports, quoteBalanceResult] = await Promise.all([
-      this.connection.getBalance(wallet.publicKey, "confirmed"),
-      this.getTokenBalanceRaw(quoteMint),
+      this.withHeliusRpcBudget(
+        "getBalance",
+        budget.purpose,
+        budget,
+        1,
+        () => this.connection.getBalance(wallet.publicKey, "confirmed"),
+      ),
+      this.getTokenBalanceRaw(quoteMint, budget),
     ]);
 
     const requiredLamports = decimalToRawUnits(
@@ -555,8 +706,12 @@ export class LiveTradeExecutor {
   /**
    * Returns void on success, Error on failure.
    */
-  private async ensureTokenBalance(mint: string, minimumRaw: bigint): Promise<void | Error> {
-    const balance = await this.getTokenBalanceRaw(mint);
+  private async ensureTokenBalance(
+    mint: string,
+    minimumRaw: bigint,
+    budget: ProviderSlotContext & { purpose: ProviderPurpose },
+  ): Promise<void | Error> {
+    const balance = await this.getTokenBalanceRaw(mint, budget);
     if (balance.raw < minimumRaw) {
       return new Error(
         `wallet token balance is below required size: have ${rawUnitsToDecimalString(balance.raw, balance.decimals)}, need ${rawUnitsToDecimalString(minimumRaw, balance.decimals)}`,
@@ -564,12 +719,24 @@ export class LiveTradeExecutor {
     }
   }
 
-  private async getTokenBalanceRaw(mint: string): Promise<{ raw: bigint; decimals: number }> {
+  private async getTokenBalanceRaw(
+    mint: string,
+    budget: ProviderSlotContext & { purpose: ProviderPurpose },
+  ): Promise<{ raw: bigint; decimals: number }> {
     const wallet = this.requireWallet();
-    const response = await this.connection.getParsedTokenAccountsByOwner(
-      wallet.publicKey,
-      { mint: new PublicKey(mint) },
-      "confirmed",
+    const response = await this.withHeliusRpcBudget(
+      "getParsedTokenAccountsByOwner",
+      budget.purpose,
+      {
+        ...budget,
+        mint,
+      },
+      1,
+      () => this.connection.getParsedTokenAccountsByOwner(
+        wallet.publicKey,
+        { mint: new PublicKey(mint) },
+        "confirmed",
+      ),
     );
 
     let raw = 0n;
@@ -584,132 +751,6 @@ export class LiveTradeExecutor {
     return { raw, decimals };
   }
 
-  private async getQuote(input: {
-    inputMint: string;
-    outputMint: string;
-    amount: string;
-    slippageBps: number;
-  }): Promise<JupiterQuoteResponse> {
-    const url = new URL(`${env.LIVE_JUPITER_API_BASE_URL}/quote`);
-    url.searchParams.set("inputMint", input.inputMint);
-    url.searchParams.set("outputMint", input.outputMint);
-    url.searchParams.set("amount", input.amount);
-    url.searchParams.set("slippageBps", String(input.slippageBps));
-    url.searchParams.set("restrictIntermediateTokens", String(env.LIVE_RESTRICT_INTERMEDIATE_TOKENS));
-
-    const response = await fetch(url, {
-      headers: this.jupiterHeaders(),
-    });
-    const payload = await response.json() as JupiterQuoteResponse & { error?: string };
-    if (!response.ok || !payload.outAmount || !Array.isArray(payload.routePlan) || payload.routePlan.length === 0) {
-      throw new Error(payload.error ?? `Jupiter quote failed with ${response.status}`);
-    }
-
-    return payload;
-  }
-
-  private async getSwapTransaction(quote: JupiterQuoteResponse, userPublicKey: string): Promise<JupiterSwapResponse> {
-    const response = await fetch(`${env.LIVE_JUPITER_API_BASE_URL}/swap`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...this.jupiterHeaders(),
-      },
-      body: JSON.stringify({
-        quoteResponse: quote,
-        userPublicKey,
-        dynamicComputeUnitLimit: true,
-        prioritizationFeeLamports: {
-          priorityLevelWithMaxLamports: {
-            priorityLevel: env.LIVE_PRIORITY_LEVEL,
-            maxLamports: env.LIVE_MAX_PRIORITY_FEE_LAMPORTS,
-          },
-        },
-      }),
-    });
-
-    const payload = await response.json() as JupiterSwapResponse & { error?: string };
-    if (!response.ok || !payload.swapTransaction) {
-      throw new Error(payload.error ?? `Jupiter swap build failed with ${response.status}`);
-    }
-
-    return payload;
-  }
-
-  private async loadAddressLookupTables(transaction: VersionedTransaction): Promise<AddressLookupTableAccount[]> {
-    if (transaction.message.addressTableLookups.length === 0) {
-      return [];
-    }
-
-    const responses = await Promise.all(
-      transaction.message.addressTableLookups.map((lookup) =>
-        this.connection.getAddressLookupTable(lookup.accountKey),
-      ),
-    );
-
-    return responses.map((response) => {
-      if (!response.value) {
-        throw new Error("address lookup table is unavailable");
-      }
-      return response.value;
-    });
-  }
-
-  private async buildSenderTransactionCore(
-    swap: JupiterSwapResponse,
-    wallet: Keypair,
-  ): Promise<VersionedTransaction> {
-    const jupiterTx = VersionedTransaction.deserialize(Buffer.from(swap.swapTransaction!, "base64"));
-    const altAccounts = await this.loadAddressLookupTables(jupiterTx);
-    const message = TransactionMessage.decompile(jupiterTx.message, {
-      addressLookupTableAccounts: altAccounts,
-    });
-
-    message.instructions.push(
-      SystemProgram.transfer({
-        fromPubkey: wallet.publicKey,
-        toPubkey: new PublicKey(SENDER_TIP_ACCOUNTS[Math.floor(Math.random() * SENDER_TIP_ACCOUNTS.length)]!),
-        lamports: env.LIVE_TIP_LAMPORTS,
-      }),
-    );
-
-    const finalTx = new VersionedTransaction(message.compileToV0Message(altAccounts));
-    finalTx.sign([wallet]);
-    return finalTx;
-  }
-
-  private async broadcastTransaction(transaction: VersionedTransaction): Promise<string> {
-    const response = await fetch(env.LIVE_HELIUS_SENDER_URL, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: Date.now().toString(),
-        method: "sendTransaction",
-        params: [
-          Buffer.from(transaction.serialize()).toString("base64"),
-          {
-            encoding: "base64",
-            skipPreflight: true,
-            maxRetries: 0,
-          },
-        ],
-      }),
-    });
-
-    const payload = await response.json() as { result?: string; error?: { message?: string } };
-    if (!response.ok || payload.error?.message || !payload.result) {
-      throw new Error(payload.error?.message ?? `Helius Sender failed with ${response.status}`);
-    }
-
-    const confirmation = await this.connection.confirmTransaction(payload.result, "confirmed");
-    if (confirmation.value.err) {
-      throw new Error(`transaction ${payload.result} failed confirmation`);
-    }
-
-    return payload.result;
-  }
-
   private async parseSettlement(input: {
     signature: string;
     walletAddress: string;
@@ -720,6 +761,7 @@ export class LiveTradeExecutor {
     baseDecimalsHint: number;
     quoteDecimalsHint: number;
     side: "BUY" | "SELL";
+    budget: ProviderSlotContext & { purpose: ProviderPurpose };
   }): Promise<{
     baseAmount: string;
     baseAmountRaw: string;
@@ -728,10 +770,16 @@ export class LiveTradeExecutor {
     baseDecimals: number;
     walletLamportsDelta: string;
   }> {
-    const parsed = await this.connection.getParsedTransaction(input.signature, {
-      commitment: "confirmed",
-      maxSupportedTransactionVersion: 0,
-    });
+    const parsed = await this.withHeliusRpcBudget(
+      "getParsedTransaction",
+      input.budget.purpose,
+      input.budget,
+      1,
+      () => this.connection.getParsedTransaction(input.signature, {
+        commitment: "confirmed",
+        maxSupportedTransactionVersion: 0,
+      }),
+    );
 
     const basePre = tokenBalanceSumRaw(parsed?.meta?.preTokenBalances as never, input.walletAddress, input.baseMint);
     const basePost = tokenBalanceSumRaw(parsed?.meta?.postTokenBalances as never, input.walletAddress, input.baseMint);
@@ -765,7 +813,91 @@ export class LiveTradeExecutor {
     };
   }
 
-  private jupiterHeaders(): Record<string, string> {
-    return env.JUPITER_API_KEY ? { "x-api-key": env.JUPITER_API_KEY } : {};
+  private async withHeliusRpcBudget<T>(
+    endpoint: string,
+    purpose: ProviderPurpose,
+    ctx: ProviderSlotContext,
+    creditsUsed: number,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const slot = this.safeRequestSlot("HELIUS", purpose, {
+      ...ctx,
+      endpoint,
+    });
+    const startedAt = Date.now();
+    try {
+      const result = await fn();
+      this.safeReleaseSlot(slot, {
+        endpoint,
+        creditsUsed,
+        httpStatus: result === null ? 404 : 200,
+        latencyMs: Date.now() - startedAt,
+        errorCode: result === null ? `${endpoint}_missing` : undefined,
+      });
+      return result;
+    } catch (error) {
+      this.safeReleaseSlot(slot, {
+        endpoint,
+        creditsUsed,
+        httpStatus: 500,
+        latencyMs: Date.now() - startedAt,
+        errorCode: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
   }
+
+  private safeRequestSlot(
+    provider: ProviderSource,
+    purpose: ProviderPurpose,
+    ctx?: ProviderSlotContext,
+  ): ProviderSlot | null {
+    try {
+      return this.budgetService.requestSlot(provider, purpose, ctx);
+    } catch (error) {
+      logger.warn({ err: error, provider, purpose, ctx }, "live trade executor budget request failed open");
+      return null;
+    }
+  }
+
+  private safeReleaseSlot(slot: ProviderSlot | null, result: ProviderSlotResult): void {
+    if (!slot) {
+      return;
+    }
+    try {
+      this.budgetService.releaseSlot(slot.id, result);
+    } catch (error) {
+      logger.warn({ err: error, result }, "live trade executor budget release failed open");
+    }
+  }
+
+}
+
+function buildPackRecipe(packId?: string | null): PackRecipe | null {
+  const id = typeof packId === "string" && packId.trim().length > 0 ? packId.trim() : null;
+  return id ? { id } : null;
+}
+
+function normalizeMarketCapUsd(value: number | null | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 1_000_000;
+}
+
+function collectPriorityFeeAccounts(quote: JupiterQuote): string[] {
+  const accounts = new Set<string>();
+  for (const leg of quote.routePlan) {
+    const swapInfo = leg.swapInfo;
+    if (!swapInfo) {
+      continue;
+    }
+    if (swapInfo.ammKey) {
+      accounts.add(swapInfo.ammKey);
+    }
+    if (swapInfo.inputMint) {
+      accounts.add(swapInfo.inputMint);
+    }
+    if (swapInfo.outputMint) {
+      accounts.add(swapInfo.outputMint);
+    }
+  }
+  return [...accounts];
 }
