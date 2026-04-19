@@ -156,6 +156,8 @@ graph_checked: 2026-04-19
 
 - Backend Docker config was adjusted so `.local` custom pack drafts are included in the image.
 - The intended Docker state is that only the `5` new custom packs remain available in the container.
+- `db-setup` is now being hardened so it repairs legacy `NULL updatedAt` rows before Prisma runs. The immediate failure that surfaced was `OperatorEvent.updatedAt`, but the durable fix is generic across public tables with an `updatedAt` column.
+- The durable `db-setup` fix lives in `backend/scripts/db-repair-updated-at.mjs`, is wired into `db:setup` and `db:setup:dangerous`, and required the migrator Docker stage to copy `backend/scripts/` so the repair command exists inside the `db-setup` image at runtime.
 - Before the next container restart/rebuild, the requested workflow is:
   1. commit and push the local tree to `main`
   2. then refresh Docker

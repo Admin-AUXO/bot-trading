@@ -165,6 +165,7 @@ Compose contract:
 - Startup chain: `postgres` -> `db-setup` -> `bot` -> `dashboard`
 - Postgres binds on `127.0.0.1:${POSTGRES_PORT:-56432}` for host-local tools only
 - `db-setup` applies Prisma schema and SQL views before the bot starts
+- `db-setup` now runs a legacy-row repair pass before Prisma so old `NULL updatedAt` rows do not block `prisma db push` during container refreshes
 - `bot` health checks `GET /health`
 - `dashboard` waits for backend health, injects `API_URL=http://bot:3101`, and reads only `dashboard/compose.env` for its API target and Grafana deep-link contract
 - `dashboard` also pins `HOSTNAME=0.0.0.0` in Compose so the Next.js standalone server binds on all interfaces and the container-local healthcheck can probe `127.0.0.1:3100`
@@ -226,6 +227,7 @@ cd trading_bot && ./scripts/sync-compose-env.sh
 cd trading_bot && docker compose up -d --build db-setup grafana bot dashboard
 curl -sf http://127.0.0.1:3400/api/health
 cd trading_bot/backend && npm run build
+cd trading_bot/backend && npm run db:repair-updated-at
 cd trading_bot/backend && npm run db:setup
 cd trading_bot/dashboard && npm run build
 ```

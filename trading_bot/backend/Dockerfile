@@ -25,6 +25,7 @@ FROM base AS migrator
 ENV NODE_ENV=production
 COPY --chown=node:node --from=builder /app/node_modules ./node_modules
 COPY --chown=node:node --from=builder /app/prisma ./prisma
+COPY --chown=node:node --from=builder /app/scripts ./scripts
 COPY --chown=node:node --from=builder /app/package.json ./
 COPY --chown=node:node --from=builder /app/package-lock.json ./
 COPY --chown=node:node --from=builder /app/prisma.config.ts ./
